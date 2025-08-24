@@ -15,7 +15,10 @@
     "clean": "rm -rf dist",
     "format": "prettier --write \"src/**/*.{ts,js,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,js,json}\"",
-    "format:all": "prettier --write ."
+    "format:all": "prettier --write .",
+    "process:file": "ts-node src/commands/process-file.ts",
+    "process:directory": "ts-node src/commands/process-directory.ts",
+    "process:event": "ts-node src/commands/process-event.ts"
   },
   "keywords": [
     "betfair",
@@ -32,7 +35,7 @@
   "devDependencies": {
     "@types/config": "^3.3.3",
     "@types/jest": "^29.5.8",
-    "@types/node": "^20.10.0",
+    "@types/node": "^24.3.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
     "eslint": "^8.55.0",

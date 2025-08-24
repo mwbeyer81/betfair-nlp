@@ -46,6 +46,7 @@ BASIC/
 *.gz
 *.zip
 *.tar
+*.jsonl
 
 # Config files that should maintain their format
 *.json

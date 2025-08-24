@@ -1,254 +1,84 @@
-# Betfair NLP - MongoDB Data Processing
+# Betfair NLP
 
-This project processes Betfair historical data files and stores them in MongoDB collections for analysis and NLP processing.
+Betfair historical data processing with MongoDB
 
-## Project Structure
+## Setup
 
-```
-src/
-├── config/
-│   ├── index.ts                    # Configuration utility and validation
-│   └── database.ts                 # MongoDB connection management
-├── lib/
-│   ├── dao/                        # Data Access Objects
-│   │   ├── index.ts                # DAO exports
-│   │   ├── market-definition-dao.ts # Market definitions collection DAO
-│   │   ├── price-update-dao.ts     # Price updates collection DAO
-│   │   └── market-status-dao.ts    # Market statuses collection DAO
-│   └── service/                    # Business logic layer
-│       └── betfair-service.ts      # Main service for processing Betfair data
-├── types/
-│   └── betfair.ts                  # TypeScript interfaces for Betfair data
-└── index.ts                        # Main application entry point
-```
+### Option 1: Docker (Recommended)
 
-## Configuration
+1. **Start MongoDB with Docker Compose:**
+   ```bash
+   docker-compose up -d
+   ```
 
-The project uses the [node-config](https://www.npmjs.com/package/config) package for hierarchical configuration management.
+2. **Verify MongoDB is running:**
+   - MongoDB: `mongodb://admin:password123@localhost:27017/betfair_nlp`
+   - Mongo Express (Web UI): http://localhost:8081
+   - Username: `admin`, Password: `password123`
 
-### Configuration Files
+3. **Install dependencies:**
+   ```bash
+   yarn install
+   ```
 
-```
-config/
-├── default.json                     # Base configuration
-├── development.json                 # Development overrides
-├── production.json                  # Production overrides
-├── test.json                        # Test overrides
-└── custom-environment-variables.json # Environment variable mapping
-```
+4. **Build the project:**
+   ```bash
+   yarn build
+   ```
 
-### Environment Variables
+### Option 2: Local MongoDB
 
-You can override configuration using environment variables:
+1. Install MongoDB locally
+2. Copy `env.example` to `.env` and configure your connection
+3. Install dependencies: `yarn install`
+4. Build the project: `yarn build`
 
+## Available Commands
+
+### Data Processing Commands
+
+After decompressing your .bz2 files to .jsonl format, you can use these commands to process them:
+
+#### Process a single file
 ```bash
-# MongoDB Configuration
-export MONGODB_URI="mongodb://localhost:27017"
-export MONGODB_DB_NAME="betfair_nlp_dev"
-
-# Application Environment
-export NODE_ENV="development"
-
-# Logging
-export LOG_LEVEL="debug"
+yarn process:file 'BASIC/2025/Feb/1/33928245/1.237066150.jsonl'
 ```
 
-### Configuration Structure
-
-```json
-{
-  "mongodb": {
-    "uri": "mongodb://localhost:27017",
-    "dbName": "betfair_nlp"
-  },
-  "app": {
-    "name": "betfair-nlp",
-    "version": "1.0.0",
-    "environment": "development"
-  },
-  "logging": {
-    "level": "info",
-    "enableConsole": true
-  }
-}
-```
-
-## Architecture
-
-The system follows a clean separation of concerns:
-
-- **DAO Layer** (`src/lib/dao/`): Pure MongoDB operations for each collection
-- **Service Layer** (`src/lib/service/`): Business logic and data processing
-- **Types** (`src/types/`): TypeScript interfaces and type definitions
-- **Config** (`src/config/`): Configuration management and database connection
-
-## MongoDB Collections
-
-The system separates Betfair data into three main collections:
-
-### 1. `market_definitions`
-Stores complete market information including:
-- Market metadata (ID, name, type, status)
-- Runner information (names, IDs, status)
-- Event details (event ID, name, country)
-- Timestamps and version information
-
-### 2. `price_updates`
-Stores individual price changes:
-- Runner ID and name
-- Last traded price (LTP)
-- Market and event context
-- Timestamps for price movement analysis
-
-### 3. `market_statuses`
-Tracks market state transitions:
-- Status changes (OPEN → SUSPENDED → CLOSED)
-- Number of active runners
-- Event context
-- Timestamps for status tracking
-
-## Data Flow
-
-1. **File Processing**: Betfair data files are read line by line
-2. **Message Parsing**: Each line is parsed as a JSON Betfair message
-3. **Business Logic**: Service layer applies business rules and data transformation
-4. **Data Routing**: Data is routed to appropriate DAOs based on content type
-5. **Database Operations**: DAOs handle pure MongoDB operations
-6. **Indexing**: Database indexes are created for optimal query performance
-
-## Installation
-
-1. Install dependencies:
+#### Process all files in a directory
 ```bash
-npm install
+yarn process:directory 'BASIC/2025/Feb/1/33928245'
 ```
 
-2. Set up configuration:
+#### Process all files for a specific event
 ```bash
-# Copy and modify configuration files as needed
-cp config/default.json config/local.json
-
-# Or use environment variables
-export MONGODB_URI="mongodb://localhost:27017"
-export MONGODB_DB_NAME="betfair_nlp"
-export NODE_ENV="development"
+yarn process:event '33928245'
 ```
 
-3. Build the project:
-```bash
-npm run build
-```
+### Development Commands
 
-4. Run the application:
-```bash
-npm start
-```
+- `yarn dev` - Start development server
+- `yarn test` - Run tests
+- `yarn build` - Build for production
+- `yarn format` - Format code with Prettier
+- `yarn lint` - Run ESLint
 
-## Usage
+### Docker Commands
 
-### Processing a Single File
-```typescript
-import { BetfairService } from './lib/service/betfair-service';
+- `docker-compose up -d` - Start MongoDB and Mongo Express
+- `docker-compose down` - Stop all services
+- `docker-compose logs mongodb` - View MongoDB logs
+- `docker-compose logs mongo-express` - View Mongo Express logs
+- `docker-compose restart mongodb` - Restart MongoDB service
 
-const service = new BetfairService(
-  marketDefinitionDAO,
-  priceUpdateDAO,
-  marketStatusDAO
-);
-await service.processDataFile('BASIC/2025/Jan/1/33858191/1.237066150');
-```
+## Data Processing Workflow
 
-### Querying Data
-```typescript
-// Get market definitions
-const markets = await marketDefinitionDAO.getByMarketId('1.237066150');
+1. **Decompress files**: Extract your .bz2 files to .jsonl format
+2. **Process files**: Use the processing commands above to load data into MongoDB
+3. **Analyze data**: Use the service methods to query and analyze the processed data
 
-// Get price updates for a runner
-const prices = await priceUpdateDAO.getByRunnerId(26817268);
+## File Structure
 
-// Get market status history
-const statuses = await marketStatusDAO.getByMarketId('1.237066150');
-```
-
-### Business Logic Examples
-```typescript
-// Get comprehensive market analysis
-const analysis = await service.getMarketAnalysis('1.237066150');
-
-// Get event summary across markets
-const eventSummary = await service.getEventSummary('33858191');
-```
-
-## Data Types
-
-The system handles these Betfair message types:
-
-- **Market Definition Updates**: Full market information with runners
-- **Price Updates**: Runner price changes (LTP updates)
-- **Status Changes**: Market state transitions
-- **Runner Updates**: Changes to runner status or information
-
-## Performance Features
-
-- **Database Indexing**: Optimized indexes on key fields for each collection
-- **Batch Processing**: Efficient bulk inserts for price updates
-- **Connection Pooling**: MongoDB connection management
-- **Error Handling**: Graceful error handling and logging
-- **Separation of Concerns**: Clean DAO/Service separation for maintainability
-
-## Development
-
-```bash
-# Run in development mode
-npm run dev
-
-# Run tests
-npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Run tests with coverage
-npm run test:coverage
-
-# Run only service layer tests
-npm run test:service
-
-# Lint code
-npm run lint
-
-# Clean build artifacts
-npm run clean
-```
-
-## MongoDB Schema Design
-
-The collections are designed for:
-- **Time-series analysis**: Timestamp-based queries
-- **Market tracking**: Complete market lifecycle
-- **Price analysis**: Historical price movements
-- **Event correlation**: Cross-market event analysis
-
-## DAO Responsibilities
-
-Each DAO is responsible for:
-- **MarketDefinitionDAO**: Market definition CRUD operations
-- **PriceUpdateDAO**: Price update CRUD operations  
-- **MarketStatusDAO**: Market status CRUD operations
-
-## Service Layer Responsibilities
-
-The service layer handles:
-- **Business Logic**: Data transformation and validation
-- **Data Routing**: Message processing and routing to appropriate DAOs
-- **Analysis**: Complex queries and data aggregation
-- **File Processing**: Reading and parsing data files
-
-## Configuration Management
-
-The project uses [node-config](https://www.npmjs.com/package/config) for:
-- **Hierarchical Configuration**: Environment-specific overrides
-- **Environment Variables**: Easy deployment configuration
-- **Type Safety**: Full TypeScript support
-- **Validation**: Configuration validation on startup
-- **Flexibility**: Multiple configuration file formats
+- `BASIC/` - Contains historical data organized by date and event
+- `src/commands/` - Processing command scripts
+- `src/lib/service/` - Core business logic
+- `src/lib/dao/` - Data access objects for MongoDB
