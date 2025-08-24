@@ -1,0 +1,13 @@
+{
+  "mongodb": {
+    "uri": "mongodb://localhost:27017",
+    "dbName": "betfair_nlp_dev"
+  },
+  "app": {
+    "environment": "development"
+  },
+  "logging": {
+    "level": "debug",
+    "enableConsole": true
+  }
+}

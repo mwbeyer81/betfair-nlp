@@ -1,0 +1,12 @@
+{
+  "mongodb": {
+    "uri": "MONGODB_URI",
+    "dbName": "MONGODB_DB_NAME"
+  },
+  "app": {
+    "environment": "NODE_ENV"
+  },
+  "logging": {
+    "level": "LOG_LEVEL"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "mongodb": {
+    "uri": "mongodb://production-mongo:27017",
+    "dbName": "betfair_nlp_prod"
+  },
+  "app": {
+    "environment": "production"
+  },
+  "logging": {
+    "level": "warn",
+    "enableConsole": false
+  }
+}
