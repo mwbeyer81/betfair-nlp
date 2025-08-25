@@ -136,6 +136,7 @@ export class MarketStatusDAO {
       await this.collection.createIndex({ status: 1, timestamp: -1 });
       await this.collection.createIndex({ eventId: 1, timestamp: -1 });
       await this.collection.createIndex({ numberOfActiveRunners: 1 });
+      await this.collection.createIndex({ changeId: 1 }, { unique: true });
       console.log("Market status indexes created successfully");
     } catch (error) {
       console.error("Failed to create market status indexes:", error);

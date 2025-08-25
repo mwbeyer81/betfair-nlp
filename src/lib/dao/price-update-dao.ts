@@ -121,6 +121,7 @@ export class PriceUpdateDAO {
       await this.collection.createIndex({ runnerId: 1, timestamp: -1 });
       await this.collection.createIndex({ eventId: 1, timestamp: -1 });
       await this.collection.createIndex({ timestamp: -1 });
+      await this.collection.createIndex({ changeId: 1 }, { unique: true });
       console.log("Price update indexes created successfully");
     } catch (error) {
       console.error("Failed to create price update indexes:", error);

@@ -4,7 +4,17 @@ Betfair historical data processing with MongoDB
 
 ## Setup
 
-### Option 1: Docker (Recommended)
+### Option 1: MongoDB Atlas (Recommended)
+
+1. **Configure your MongoDB Atlas connection:**
+   - Replace `<db_password>` in `config/default.json` with your actual password
+   - The connection string is: `mongodb+srv://mattbeyer81:<db_password>@cluster0.lxpmuim.mongodb.net/`
+
+2. **Verify connection:**
+   - Database: `betfair_nlp` (will be created automatically)
+   - Cluster: `cluster0.lxpmuim.mongodb.net`
+
+### Option 2: Docker (Local Development)
 
 1. **Start MongoDB with Docker Compose:**
    ```bash
@@ -82,3 +92,51 @@ yarn process:event '33928245'
 - `src/commands/` - Processing command scripts
 - `src/lib/service/` - Core business logic
 - `src/lib/dao/` - Data access objects for MongoDB
+
+## Database Management
+
+### Drop All Collections
+
+To completely reset your database and remove all data:
+
+#### Option 1: Using MongoDB Shell (Atlas)
+```bash
+# Connect to MongoDB Atlas
+mongosh "mongodb+srv://mattbeyer81:<db_password>@cluster0.lxpmuim.mongodb.net/"
+
+# Switch to the database
+use betfair_nlp
+
+# Drop all collections
+db.market_definitions.drop()
+db.price_updates.drop()
+db.market_statuses.drop()
+
+# Verify collections are dropped
+show collections
+```
+
+#### Option 2: Using MongoDB Compass
+1. Connect to `mongodb+srv://mattbeyer81:<db_password>@cluster0.lxpmuim.mongodb.net/`
+2. Navigate to the `betfair_nlp` database
+3. Right-click on each collection and select "Drop Collection"
+4. Confirm the deletion
+
+#### Option 3: Using Docker (Local Development)
+```bash
+# Connect to MongoDB
+docker exec -it betfair-nlp-mongodb mongosh
+
+# Switch to the database
+use betfair_nlp
+
+# Drop all collections
+db.market_definitions.drop()
+db.price_updates.drop()
+db.market_statuses.drop()
+
+# Verify collections are dropped
+show collections
+```
+
+**⚠️ Warning**: Dropping collections will permanently delete all data. Make sure you have backups if needed.
