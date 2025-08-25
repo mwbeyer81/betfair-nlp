@@ -2,7 +2,54 @@
 
 Betfair historical data processing with MongoDB
 
-## Setup
+## Project Overview
+
+This project consists of two main components:
+
+1. **Backend**: Betfair data processing and analysis with MongoDB
+2. **Client**: React Native/Expo chat application with Storybook
+
+## Client Chat App
+
+A modern chat interface built with React Native, Expo, and TypeScript. Features include:
+
+- **Cross-platform**: Works on mobile (iOS/Android) and web
+- **ChatGPT-like UI**: Modern chat interface with message bubbles
+- **Storybook**: Component development and testing
+- **Stubbed API**: Demo responses for testing
+
+### Quick Start (Client)
+
+```bash
+cd client
+npm install
+npm start
+```
+
+For detailed client documentation, see [client/README.md](client/README.md).
+
+### Client Features
+
+- **Mobile & Web Support**: Run on iOS, Android, and web browsers
+- **Storybook Integration**: Component development and testing
+- **TypeScript**: Full type safety
+- **Modular Components**: Reusable Message and ChatInput components
+- **API Integration**: Ready for backend integration
+
+### Client Commands
+
+```bash
+# Run on different platforms
+npm run ios          # iOS simulator
+npm run android      # Android emulator
+npm run web          # Web browser
+
+# Storybook
+npm run storybook:headless  # CI/CD mode
+npm run storybook:headful   # Browser mode
+```
+
+## Backend Setup
 
 ### Option 1: MongoDB Atlas (Recommended)
 
@@ -36,7 +83,7 @@ Betfair historical data processing with MongoDB
    yarn build
    ```
 
-### Option 2: Local MongoDB
+### Option 3: Local MongoDB
 
 1. Install MongoDB locally
 2. Copy `env.example` to `.env` and configure your connection
@@ -88,10 +135,22 @@ yarn process:event '33928245'
 
 ## File Structure
 
-- `BASIC/` - Contains historical data organized by date and event
-- `src/commands/` - Processing command scripts
-- `src/lib/service/` - Core business logic
-- `src/lib/dao/` - Data access objects for MongoDB
+```
+betfair-nlp/
+├── client/                    # React Native/Expo chat app
+│   ├── src/
+│   │   ├── components/        # UI components
+│   │   └── services/          # API client
+│   ├── .storybook/           # Web Storybook config
+│   └── .rnstorybook/         # React Native Storybook config
+├── src/                      # Backend source code
+│   ├── commands/             # Processing command scripts
+│   ├── lib/service/          # Core business logic
+│   └── lib/dao/              # Data access objects
+├── config/                   # Configuration files
+├── BASIC/                    # Historical data files
+└── docker-compose.yml        # Docker services
+```
 
 ## Database Management
 
