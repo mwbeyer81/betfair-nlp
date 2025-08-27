@@ -11,10 +11,6 @@ const config: StorybookConfig = {
     name: "@storybook/react-webpack5",
     options: {},
   },
-  docs: {
-    autodocs: "tag",
-  },
-  staticDirs: ["../public"],
   typescript: {
     check: false,
     checkOptions: {},
@@ -28,8 +24,22 @@ const config: StorybookConfig = {
   webpackFinal: async config => {
     // Add regenerator-runtime to entry point
     if (config.entry) {
-      const entry = Array.isArray(config.entry) ? config.entry : [config.entry];
-      config.entry = ["regenerator-runtime/runtime", ...entry];
+      if (typeof config.entry === "string") {
+        config.entry = ["regenerator-runtime/runtime", config.entry];
+      } else if (Array.isArray(config.entry)) {
+        config.entry = ["regenerator-runtime/runtime", ...config.entry];
+      } else if (typeof config.entry === "function") {
+        const originalEntry = config.entry;
+        config.entry = async () => {
+          const entry = await originalEntry();
+          if (typeof entry === "string") {
+            return ["regenerator-runtime/runtime", entry];
+          } else if (Array.isArray(entry)) {
+            return ["regenerator-runtime/runtime", ...entry];
+          }
+          return entry;
+        };
+      }
     }
 
     // Add regenerator-runtime as a fallback
@@ -41,11 +51,13 @@ const config: StorybookConfig = {
     }
 
     // Add support for React Native components
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      "react-native$": "react-native-web",
-      "react-native": "react-native-web",
-    };
+    if (config.resolve) {
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        "react-native$": "react-native-web",
+        "react-native": "react-native-web",
+      };
+    }
 
     // Add babel-loader for TypeScript and JSX
     if (config.module && config.module.rules) {
@@ -56,7 +68,15 @@ const config: StorybookConfig = {
           loader: "babel-loader",
           options: {
             presets: [
-              ["@babel/preset-env", { loose: true }],
+              [
+                "@babel/preset-env",
+                {
+                  loose: true,
+                  targets: {
+                    browsers: ["last 2 versions", "ie >= 11"],
+                  },
+                },
+              ],
               ["@babel/preset-react", { runtime: "automatic" }],
               "@babel/preset-typescript",
             ],

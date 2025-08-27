@@ -1,5 +1,22 @@
 import React from "react";
 
+// Add regeneratorRuntime polyfill
+if (typeof window !== "undefined") {
+  // Browser environment
+  if (!(window as any).regeneratorRuntime) {
+    console.log("🔧 Adding regeneratorRuntime polyfill...");
+    // Create a simple regeneratorRuntime if it doesn't exist
+    (window as any).regeneratorRuntime = {
+      mark: function (genFun: any) {
+        return genFun;
+      },
+      wrap: function (genFun: any) {
+        return genFun;
+      },
+    };
+  }
+}
+
 const preview = {
   parameters: {
     actions: { argTypesRegex: "^on[A-Z].*" },

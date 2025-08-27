@@ -19,7 +19,10 @@
     "test:playwright:ui": "playwright test --ui",
     "test:playwright:headed": "playwright test --headed",
     "test:playwright:debug": "playwright test --debug",
-    "test:storybook-with-console": "./run-storybook-tests.sh"
+    "test:storybook-with-console": "./run-storybook-tests.sh",
+    "launch:chatinput": "node launch-chatinput.js",
+    "launch:chatinput:chrome": "node launch-chatinput-chrome.js",
+    "open:storybook": "node open-storybook.js"
   },
   "dependencies": {
     "@expo/metro-runtime": "~5.0.4",
