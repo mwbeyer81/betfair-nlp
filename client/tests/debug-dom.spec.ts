@@ -187,4 +187,65 @@ test.describe("DOM Structure Debug", () => {
 
     console.log("=".repeat(60));
   });
+
+  test("should debug ChatInput story DOM structure", async ({ page }) => {
+    console.log("🔍 Testing ChatInput debug story...");
+
+    // Navigate to the debug story
+    await page.goto("/?path=/story/components-chatinput--debug");
+
+    // Wait for Storybook to load
+    await page.waitForSelector("#storybook-panel-root", { timeout: 30000 });
+
+    // Wait for the story to render
+    await page.waitForTimeout(3000);
+
+    console.log("\n" + "=".repeat(60));
+    console.log("📊 CHATINPUT DEBUG STORY DOM ANALYSIS");
+    console.log("=".repeat(60));
+
+    // Get the story iframe content
+    const storyFrame = page.frameLocator("#storybook-panel-root iframe");
+
+    if (await storyFrame.locator("body").isVisible()) {
+      console.log("✅ Story iframe found and visible");
+
+      // Count different types of elements
+      const divCount = await storyFrame.locator("div").count();
+      const inputCount = await storyFrame.locator("input, textarea").count();
+      const buttonCount = await storyFrame.locator("button").count();
+      const testIdCount = await storyFrame.locator("[data-testid]").count();
+
+      console.log(`📊 Element counts:`);
+      console.log(`  - Divs: ${divCount}`);
+      console.log(`  - Inputs/Textareas: ${inputCount}`);
+      console.log(`  - Buttons: ${buttonCount}`);
+      console.log(`  - Elements with data-testid: ${testIdCount}`);
+
+      // Show details of elements with testid
+      if (testIdCount > 0) {
+        console.log(`\n🔍 Elements with data-testid:`);
+        for (let i = 0; i < Math.min(testIdCount, 10); i++) {
+          const element = storyFrame.locator("[data-testid]").nth(i);
+          const testId = await element.getAttribute("data-testid");
+          const tagName = await element.evaluate(el =>
+            el.tagName.toLowerCase()
+          );
+          const text = await element.textContent();
+          console.log(
+            `  ${i}: ${tagName}[data-testid="${testId}"] = "${text?.trim()}"`
+          );
+        }
+      }
+
+      // Show the actual HTML content
+      const html = await storyFrame.locator("body").innerHTML();
+      console.log(`\n📄 Story iframe HTML (first 1000 chars):`);
+      console.log(html.substring(0, 1000));
+    } else {
+      console.log("❌ Story iframe not found or not visible");
+    }
+
+    console.log("=".repeat(60));
+  });
 });

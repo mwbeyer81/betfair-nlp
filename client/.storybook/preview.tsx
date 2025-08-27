@@ -1,20 +1,16 @@
 import React from "react";
 
-// Add regeneratorRuntime polyfill
+// Initialize React Native Web
 if (typeof window !== "undefined") {
-  // Browser environment
-  if (!(window as any).regeneratorRuntime) {
-    console.log("🔧 Adding regeneratorRuntime polyfill...");
-    // Create a simple regeneratorRuntime if it doesn't exist
-    (window as any).regeneratorRuntime = {
-      mark: function (genFun: any) {
-        return genFun;
-      },
-      wrap: function (genFun: any) {
-        return genFun;
-      },
-    };
+  // Set up React Native Web environment
+  (window as any).__REACT_NATIVE_WEB__ = true;
+
+  // Add any missing React Native polyfills
+  if (!(window as any).navigator) {
+    (window as any).navigator = {};
   }
+
+  console.log("🔧 React Native Web environment initialized");
 }
 
 const preview = {
