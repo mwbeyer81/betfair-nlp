@@ -7,23 +7,51 @@ jest.mock("../../lib/service/openai-client", () => ({
     createResponse: jest.fn().mockResolvedValue("Mocked AI analysis"),
     createHorseQueryResponse: jest
       .fn()
-      .mockResolvedValue("Mocked horse racing analysis"),
+      .mockResolvedValue(
+        '```javascript\ndb.market_definitions.find({"name": "Cheltenham Chase"})\n```'
+      ),
   })),
+}));
+
+// Mock the database connection
+jest.mock("../../config/database", () => ({
+  DatabaseConnection: {
+    getInstance: jest.fn().mockReturnValue({
+      connect: jest.fn().mockResolvedValue(undefined),
+      getDb: jest.fn().mockReturnValue({
+        collection: jest.fn().mockReturnValue({
+          find: jest.fn().mockReturnValue({
+            toArray: jest
+              .fn()
+              .mockResolvedValue([{ id: 1, name: "Test Horse" }]),
+          }),
+          findOne: jest.fn().mockResolvedValue({ id: 1, name: "Test Horse" }),
+          aggregate: jest.fn().mockReturnValue({
+            toArray: jest
+              .fn()
+              .mockResolvedValue([{ id: 1, name: "Test Horse" }]),
+          }),
+        }),
+      }),
+      isConnected: jest.fn().mockReturnValue(true),
+    }),
+  },
 }));
 
 describe("API Endpoints", () => {
   describe("GET /health", () => {
-    it("should return health status", async () => {
+    it("should return health status with database connection info", async () => {
       const response = await request(app).get("/health").expect(200);
 
       expect(response.body).toHaveProperty("status", "OK");
       expect(response.body).toHaveProperty("timestamp");
       expect(response.body).toHaveProperty("service", "Betfair NLP API");
+      expect(response.body).toHaveProperty("database");
     });
   });
 
   describe("POST /api/query", () => {
-    it("should process natural language query and return horses with AI analysis", async () => {
+    it("should process natural language query and return horses with MongoDB analysis and results", async () => {
       const query = "Show me the top horses in the race";
 
       const response = await request(app)
@@ -37,6 +65,9 @@ describe("API Endpoints", () => {
       expect(response.body.data).toHaveProperty("timestamp");
       expect(response.body.data).toHaveProperty("confidence");
       expect(response.body.data).toHaveProperty("aiAnalysis");
+      expect(response.body.data).toHaveProperty("mongoQuery");
+      expect(response.body.data).toHaveProperty("mongoResults");
+      expect(response.body.data.aiAnalysis).toContain("db.market_definitions");
 
       // Check horses structure
       expect(Array.isArray(response.body.data.horses)).toBe(true);

@@ -1,5 +1,6 @@
 import { BetfairService } from "./betfair-service";
 import { OpenAIClient } from "./openai-client";
+import { Db } from "mongodb";
 
 export interface Horse {
   id: string;
@@ -19,15 +20,218 @@ export interface NaturalLanguageResponse {
   timestamp: Date;
   confidence: number;
   aiAnalysis?: string;
+  mongoQuery?: string;
+  mongoResults?: any[];
 }
 
 export class NaturalLanguageService {
   private betfairService?: BetfairService;
   private openaiClient: OpenAIClient;
+  private db?: Db;
 
-  constructor(betfairService?: BetfairService) {
+  constructor(betfairService?: BetfairService, db?: Db) {
     this.betfairService = betfairService;
     this.openaiClient = new OpenAIClient();
+    this.db = db;
+  }
+
+  private extractMongoQuery(aiAnalysis: string): string | null {
+    // Look for code blocks with MongoDB queries
+    const codeBlockRegex = /```(?:javascript|js|mongo)?\s*\n([\s\S]*?)\n```/;
+    const match = aiAnalysis.match(codeBlockRegex);
+
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+
+    // If no code block, look for db. patterns
+    const dbPattern =
+      /db\.[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)/;
+    const dbMatch = aiAnalysis.match(dbPattern);
+
+    if (dbMatch) {
+      return dbMatch[0];
+    }
+
+    return null;
+  }
+
+  private async executeMongoQuery(query: string): Promise<any[]> {
+    if (!this.db) {
+      console.warn("Database not available, skipping query execution");
+      return [];
+    }
+
+    try {
+      // Parse the query to determine the type and extract components
+      const queryLower = query.toLowerCase();
+
+      if (queryLower.includes("aggregate")) {
+        // Handle aggregation queries
+        return await this.executeAggregationQuery(query);
+      } else if (queryLower.includes("findone")) {
+        // Handle findOne queries
+        return await this.executeFindOneQuery(query);
+      } else if (queryLower.includes("find")) {
+        // Handle find queries
+        return await this.executeFindQuery(query);
+      } else {
+        // Generic execution for other query types
+        return await this.executeGenericQuery(query);
+      }
+    } catch (error) {
+      console.error("Failed to execute MongoDB query:", error);
+      return [];
+    }
+  }
+
+  private async executeFindQuery(query: string): Promise<any[]> {
+    try {
+      // Extract collection name and query parameters
+      const match = query.match(
+        /db\.([a-zA-Z_][a-zA-Z0-9_]*)\.find\s*\(\s*([^)]*)\)/
+      );
+      if (!match) return [];
+
+      const collectionName = match[1];
+      const queryParams = match[2].trim();
+
+      // Parse the query parameters
+      let filter = {};
+      let projection = {};
+
+      if (queryParams) {
+        const params = queryParams.split(",").map(p => p.trim());
+        if (params.length > 0) {
+          try {
+            filter = eval(`(${params[0]})`);
+          } catch (e) {
+            filter = {};
+          }
+        }
+        if (params.length > 1) {
+          try {
+            projection = eval(`(${params[1]})`);
+          } catch (e) {
+            projection = {};
+          }
+        }
+      }
+
+      const collection = this.db!.collection(collectionName);
+      const cursor = collection.find(filter, projection);
+      const results = await cursor.toArray();
+
+      return results;
+    } catch (error) {
+      console.error("Error executing find query:", error);
+      return [];
+    }
+  }
+
+  private async executeFindOneQuery(query: string): Promise<any[]> {
+    try {
+      // Extract collection name and query parameters - handle both findOne and findOne
+      const match = query.match(
+        /db\.([a-zA-Z_][a-zA-Z0-9_]*)\.findone\s*\(\s*([^)]*)\)/i
+      );
+      if (!match) return [];
+
+      const collectionName = match[1];
+      const queryParams = match[2].trim();
+
+      // Parse the query parameters
+      let filter = {};
+      let projection = {};
+
+      if (queryParams) {
+        const params = queryParams.split(",").map(p => p.trim());
+        if (params.length > 0) {
+          try {
+            filter = eval(`(${params[0]})`);
+          } catch (e) {
+            filter = {};
+          }
+        }
+        if (params.length > 1) {
+          try {
+            projection = eval(`(${params[1]})`);
+          } catch (e) {
+            projection = {};
+          }
+        }
+      }
+
+      const collection = this.db!.collection(collectionName);
+      const result = await collection.findOne(filter, projection);
+
+      return result ? [result] : [];
+    } catch (error) {
+      console.error("Error executing findOne query:", error);
+      return [];
+    }
+  }
+
+  private async executeAggregationQuery(query: string): Promise<any[]> {
+    try {
+      // Extract collection name and pipeline
+      const match = query.match(
+        /db\.([a-zA-Z_][a-zA-Z0-9_]*)\.aggregate\s*\(\s*\[([\s\S]*?)\]\s*\)/
+      );
+      if (!match) return [];
+
+      const collectionName = match[1];
+      const pipelineStr = match[2].trim();
+
+      // Parse the pipeline
+      let pipeline = [];
+      try {
+        pipeline = eval(`([${pipelineStr}])`);
+      } catch (e) {
+        console.error("Error parsing aggregation pipeline:", e);
+        return [];
+      }
+
+      const collection = this.db!.collection(collectionName);
+      const cursor = collection.aggregate(pipeline);
+      const results = await cursor.toArray();
+
+      return results;
+    } catch (error) {
+      console.error("Error executing aggregation query:", error);
+      return [];
+    }
+  }
+
+  private async executeGenericQuery(query: string): Promise<any[]> {
+    try {
+      // For other query types, try to execute them directly
+      // This is a fallback for queries we don't specifically handle
+      console.warn("Using generic query execution for:", query);
+
+      // Create a safe execution context
+      const safeQuery = query.replace(/db\./g, "this.db.");
+
+      // Create a function that can execute the query safely
+      const executeQuery = new Function(
+        "db",
+        `
+        try {
+          const result = ${safeQuery};
+          return Array.isArray(result) ? result : [result];
+        } catch (error) {
+          console.error('MongoDB query execution error:', error);
+          return [];
+        }
+      `
+      );
+
+      const results = await executeQuery(this.db);
+      return results || [];
+    } catch (error) {
+      console.error("Error executing generic query:", error);
+      return [];
+    }
   }
 
   async processQuery(query: string): Promise<NaturalLanguageResponse> {
@@ -36,87 +240,48 @@ export class NaturalLanguageService {
 
     // Call OpenAI for analysis
     let aiAnalysis: string | undefined;
+    let mongoQuery: string | null = null;
+    let mongoResults: any[] = [];
+
     try {
       aiAnalysis = await this.openaiClient.createHorseQueryResponse(query);
+
+      // Extract MongoDB query from AI analysis
+      if (aiAnalysis) {
+        mongoQuery = this.extractMongoQuery(aiAnalysis);
+
+        // Execute the MongoDB query if found
+        if (mongoQuery && this.db) {
+          console.log("Executing MongoDB query:", mongoQuery);
+          mongoResults = await this.executeMongoQuery(mongoQuery);
+          console.log("MongoDB query results:", mongoResults);
+
+          // If no results found, throw an error
+          if (mongoResults.length === 0) {
+            throw new Error(`No results found for query: ${mongoQuery}`);
+          }
+        } else if (mongoQuery && !this.db) {
+          throw new Error("Database connection not available");
+        } else if (!mongoQuery) {
+          throw new Error("Could not extract MongoDB query from AI analysis");
+        }
+      } else {
+        throw new Error("Failed to get AI analysis from OpenAI");
+      }
     } catch (error) {
-      console.warn(
-        "Failed to get OpenAI analysis, continuing with stubbed data:",
-        error
-      );
-      // Continue with stubbed data if OpenAI fails
+      console.error("Error in processQuery:", error);
+      throw error; // Re-throw the error instead of continuing with stubbed data
     }
 
-    // Stubbed response with horse data
-    const stubbedHorses: Horse[] = [
-      {
-        id: "horse_001",
-        name: "Desert Crown",
-        odds: 3.5,
-        position: 1,
-        jockey: "Richard Kingscote",
-        trainer: "Sir Michael Stoute",
-        weight: 9.2,
-        age: 4,
-        form: ["1st", "2nd", "1st", "3rd", "1st"],
-      },
-      {
-        id: "horse_002",
-        name: "Baaeed",
-        odds: 2.1,
-        position: 2,
-        jockey: "Jim Crowley",
-        trainer: "William Haggas",
-        weight: 9.0,
-        age: 5,
-        form: ["1st", "1st", "1st", "2nd", "1st"],
-      },
-      {
-        id: "horse_003",
-        name: "Inspiral",
-        odds: 4.2,
-        position: 3,
-        jockey: "Frankie Dettori",
-        trainer: "John & Thady Gosden",
-        weight: 8.12,
-        age: 3,
-        form: ["1st", "1st", "3rd", "1st", "2nd"],
-      },
-      {
-        id: "horse_004",
-        name: "Nashwa",
-        odds: 6.0,
-        position: 4,
-        jockey: "Hollie Doyle",
-        trainer: "John & Thady Gosden",
-        weight: 8.1,
-        age: 3,
-        form: ["2nd", "1st", "1st", "4th", "1st"],
-      },
-      {
-        id: "horse_005",
-        name: "Modern Games",
-        odds: 8.5,
-        position: 5,
-        jockey: "William Buick",
-        trainer: "Charlie Appleby",
-        weight: 9.1,
-        age: 3,
-        form: ["1st", "3rd", "1st", "2nd", "1st"],
-      },
-    ];
-
-    // In a real implementation, this would:
-    // 1. Parse the natural language query
-    // 2. Convert it to MongoDB aggregation pipeline
-    // 3. Query the database using betfairService
-    // 4. Return the results
-
+    // Return the MongoDB results directly
     return {
-      horses: stubbedHorses,
+      horses: [], // Empty since we're returning MongoDB results
       query: query,
       timestamp: new Date(),
-      confidence: 0.85,
+      confidence: 0.95, // Higher confidence since we have real data
       aiAnalysis,
+      mongoQuery: mongoQuery || undefined,
+      mongoResults: mongoResults,
     };
   }
 

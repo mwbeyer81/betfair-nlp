@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import { NaturalLanguageService } from "../lib/service/natural-language-service";
+import { DatabaseConnection } from "../config/database";
 import config from "config";
 
 // Create Express app
@@ -15,8 +16,33 @@ app.use(morgan("combined"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// Initialize services (simplified for now)
-const naturalLanguageService = new NaturalLanguageService(null as any);
+// Initialize database connection
+let dbConnection: DatabaseConnection | null = null;
+let naturalLanguageService: NaturalLanguageService | null = null;
+
+// Initialize services
+const initializeServices = async () => {
+  try {
+    // Initialize database connection
+    dbConnection = DatabaseConnection.getInstance();
+    await dbConnection.connect();
+
+    // Initialize natural language service with database
+    naturalLanguageService = new NaturalLanguageService(
+      null as any,
+      dbConnection.getDb()
+    );
+
+    console.log("Services initialized successfully");
+  } catch (error) {
+    console.error("Failed to initialize services:", error);
+    // Continue without database connection
+    naturalLanguageService = new NaturalLanguageService();
+  }
+};
+
+// Initialize services on startup
+initializeServices();
 
 // Health check endpoint
 app.get("/health", (req, res) => {
@@ -24,6 +50,7 @@ app.get("/health", (req, res) => {
     status: "OK",
     timestamp: new Date().toISOString(),
     service: "Betfair NLP API",
+    database: dbConnection?.isConnected() ? "connected" : "disconnected",
   });
 });
 
@@ -41,6 +68,13 @@ app.post("/api/query", async (req, res) => {
       });
     }
 
+    if (!naturalLanguageService) {
+      return res.status(500).json({
+        error: "Service not initialized",
+        message: "Natural language service is not available",
+      });
+    }
+
     const result = await naturalLanguageService.processQuery(query);
 
     res.status(200).json({
@@ -49,8 +83,33 @@ app.post("/api/query", async (req, res) => {
     });
   } catch (error) {
     console.error("Error processing query:", error);
-    res.status(500).json({
-      error: "Internal server error",
+
+    // Determine appropriate HTTP status code based on error type
+    let statusCode = 500;
+    let errorMessage = "Internal server error";
+
+    if (error instanceof Error) {
+      if (error.message.includes("Database connection not available")) {
+        statusCode = 503; // Service Unavailable
+        errorMessage = "Database service is currently unavailable";
+      } else if (error.message.includes("No results found")) {
+        statusCode = 404; // Not Found
+        errorMessage = error.message;
+      } else if (error.message.includes("Could not extract MongoDB query")) {
+        statusCode = 422; // Unprocessable Entity
+        errorMessage =
+          "Could not generate a valid database query from your request";
+      } else if (error.message.includes("Failed to get AI analysis")) {
+        statusCode = 503; // Service Unavailable
+        errorMessage = "AI service is currently unavailable";
+      } else {
+        errorMessage = error.message;
+      }
+    }
+
+    res.status(statusCode).json({
+      success: false,
+      error: errorMessage,
       message: "Failed to process natural language query",
     });
   }
@@ -59,6 +118,13 @@ app.post("/api/query", async (req, res) => {
 // Get top horses endpoint
 app.get("/api/horses/top", async (req, res) => {
   try {
+    if (!naturalLanguageService) {
+      return res.status(500).json({
+        error: "Service not initialized",
+        message: "Natural language service is not available",
+      });
+    }
+
     const limit = parseInt(req.query.limit as string) || 5;
     const horses = await naturalLanguageService.getTopHorses(limit);
 
@@ -82,6 +148,13 @@ app.get("/api/horses/top", async (req, res) => {
 // Get horses by odds endpoint
 app.get("/api/horses/odds", async (req, res) => {
   try {
+    if (!naturalLanguageService) {
+      return res.status(500).json({
+        error: "Service not initialized",
+        message: "Natural language service is not available",
+      });
+    }
+
     const maxOdds = parseFloat(req.query.maxOdds as string);
 
     if (isNaN(maxOdds) || maxOdds <= 0) {

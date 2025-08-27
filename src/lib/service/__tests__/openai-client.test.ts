@@ -73,17 +73,17 @@ describe("OpenAIClient", () => {
   });
 
   describe("createHorseQueryResponse", () => {
-    it("should create a horse racing specific response", async () => {
+    it("should create a MongoDB-focused response", async () => {
       const query = "Show me the top horses";
       const result = await openaiClient.createHorseQueryResponse(query);
 
       expect(result).toBe("Mocked AI response");
     });
 
-    it("should include the query in the prompt", async () => {
+    it("should include the query and MongoDB instructions in the prompt", async () => {
       const query = "Show me horses with low odds";
       const mockCreate = jest.fn().mockResolvedValue({
-        output_text: "Mocked response",
+        output_text: "Mocked MongoDB query",
       });
 
       const OpenAI = require("openai");
@@ -99,9 +99,17 @@ describe("OpenAIClient", () => {
 
       expect(mockCreate).toHaveBeenCalledWith({
         model: "gpt-4o-mini",
-        input: expect.stringContaining(query),
+        input: expect.stringContaining("You are a MongoDB assistant"),
         store: true,
       });
+
+      // Check that the prompt includes MongoDB schema and instructions
+      const callArgs = mockCreate.mock.calls[0][0];
+      expect(callArgs.input).toContain("event_definitions");
+      expect(callArgs.input).toContain("market_definitions");
+      expect(callArgs.input).toContain("price_updates");
+      expect(callArgs.input).toContain("mongosh");
+      expect(callArgs.input).toContain(query);
     });
   });
 });
