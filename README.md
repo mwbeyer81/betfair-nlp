@@ -4,10 +4,80 @@ Betfair historical data processing with MongoDB
 
 ## Project Overview
 
-This project consists of two main components:
+This project consists of three main components:
 
 1. **Backend**: Betfair data processing and analysis with MongoDB
-2. **Client**: React Native/Expo chat application with Storybook
+2. **API Server**: Express.js REST API with natural language processing
+3. **Client**: React Native/Expo chat application with Storybook
+
+## Express.js API Server
+
+A RESTful API server built with Express.js that provides natural language querying capabilities for horse racing data.
+
+### Quick Start (API Server)
+
+```bash
+# Install dependencies
+yarn install
+
+# Start the server
+yarn server
+
+# Or start in development mode with auto-restart
+yarn server:dev
+```
+
+The server will start on `http://localhost:3000`
+
+### API Endpoints
+
+#### Health Check
+```bash
+GET /health
+```
+
+#### Natural Language Query
+```bash
+POST /api/query
+Content-Type: application/json
+
+{
+  "query": "Show me the top horses in the race"
+}
+```
+
+#### Get Top Horses
+```bash
+GET /api/horses/top?limit=5
+```
+
+#### Get Horses by Odds
+```bash
+GET /api/horses/odds?maxOdds=5.0
+```
+
+### API Features
+
+- **Natural Language Processing**: Convert natural language queries to structured data
+- **Horse Racing Data**: Stubbed responses with realistic horse information
+- **RESTful Design**: Standard HTTP methods and status codes
+- **Security**: Helmet.js for security headers, CORS support
+- **Logging**: Morgan for HTTP request logging
+- **Error Handling**: Comprehensive error responses
+- **Validation**: Input validation and sanitization
+
+### Testing the API
+
+```bash
+# Run API tests
+yarn test:server
+
+# Test endpoints manually
+curl http://localhost:3000/health
+curl -X POST http://localhost:3000/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Show me the top horses"}'
+```
 
 ## Client Chat App
 
@@ -91,6 +161,14 @@ npm run storybook:headful   # Browser mode
 4. Build the project: `yarn build`
 
 ## Available Commands
+
+### API Server Commands
+
+```bash
+yarn server          # Start the API server
+yarn server:dev      # Start with auto-restart
+yarn test:server     # Run API tests
+```
 
 ### Data Processing Commands
 

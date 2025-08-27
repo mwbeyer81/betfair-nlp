@@ -1,4 +1,5 @@
 import { BetfairService } from "./betfair-service";
+import { OpenAIClient } from "./openai-client";
 
 export interface Horse {
   id: string;
@@ -17,18 +18,33 @@ export interface NaturalLanguageResponse {
   query: string;
   timestamp: Date;
   confidence: number;
+  aiAnalysis?: string;
 }
 
 export class NaturalLanguageService {
   private betfairService?: BetfairService;
+  private openaiClient: OpenAIClient;
 
   constructor(betfairService?: BetfairService) {
     this.betfairService = betfairService;
+    this.openaiClient = new OpenAIClient();
   }
 
   async processQuery(query: string): Promise<NaturalLanguageResponse> {
     // Simulate processing delay
     await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Call OpenAI for analysis
+    let aiAnalysis: string | undefined;
+    try {
+      aiAnalysis = await this.openaiClient.createHorseQueryResponse(query);
+    } catch (error) {
+      console.warn(
+        "Failed to get OpenAI analysis, continuing with stubbed data:",
+        error
+      );
+      // Continue with stubbed data if OpenAI fails
+    }
 
     // Stubbed response with horse data
     const stubbedHorses: Horse[] = [
@@ -100,6 +116,7 @@ export class NaturalLanguageService {
       query: query,
       timestamp: new Date(),
       confidence: 0.85,
+      aiAnalysis,
     };
   }
 
