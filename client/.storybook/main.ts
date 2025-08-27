@@ -2,13 +2,11 @@ import type { StorybookConfig } from "@storybook/react-webpack5";
 
 const config: StorybookConfig = {
   stories: [
-    "../src/**/*.mdx", 
+    "../src/**/*.mdx",
     "../src/**/*.stories.@(js|jsx|mjs|ts|tsx)",
-    "../.rnstorybook/stories/**/*.stories.@(js|jsx|mjs|ts|tsx)"
+    "../.rnstorybook/stories/**/*.stories.@(js|jsx|mjs|ts|tsx)",
   ],
-  addons: [
-    "@storybook/addon-links",
-  ],
+  addons: ["@storybook/addon-links"],
   framework: {
     name: "@storybook/react-webpack5",
     options: {},
@@ -28,6 +26,20 @@ const config: StorybookConfig = {
     },
   },
   webpackFinal: async config => {
+    // Add regenerator-runtime to entry point
+    if (config.entry) {
+      const entry = Array.isArray(config.entry) ? config.entry : [config.entry];
+      config.entry = ["regenerator-runtime/runtime", ...entry];
+    }
+
+    // Add regenerator-runtime as a fallback
+    if (config.resolve && config.resolve.fallback) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        "regenerator-runtime": require.resolve("regenerator-runtime/runtime"),
+      };
+    }
+
     // Add support for React Native components
     config.resolve.alias = {
       ...config.resolve.alias,
@@ -41,30 +53,42 @@ const config: StorybookConfig = {
         test: /\.(ts|tsx|js|jsx)$/,
         exclude: /node_modules/,
         use: {
-          loader: 'babel-loader',
+          loader: "babel-loader",
           options: {
             presets: [
-              ['@babel/preset-env', { loose: true }],
-              ['@babel/preset-react', { runtime: 'automatic' }],
-              '@babel/preset-typescript'
+              ["@babel/preset-env", { loose: true }],
+              ["@babel/preset-react", { runtime: "automatic" }],
+              "@babel/preset-typescript",
             ],
             plugins: [
-              ['@babel/plugin-transform-react-jsx', { runtime: 'automatic' }],
-              ['@babel/plugin-transform-class-properties', { loose: true }],
-              ['@babel/plugin-transform-private-methods', { loose: true }],
-              ['@babel/plugin-transform-private-property-in-object', { loose: true }]
-            ]
-          }
-        }
+              ["@babel/plugin-transform-react-jsx", { runtime: "automatic" }],
+              ["@babel/plugin-transform-class-properties", { loose: true }],
+              ["@babel/plugin-transform-private-methods", { loose: true }],
+              [
+                "@babel/plugin-transform-private-property-in-object",
+                { loose: true },
+              ],
+              "@babel/plugin-transform-runtime",
+            ],
+          },
+        },
       });
     }
 
     // Handle React Native specific extensions
     if (config.resolve && config.resolve.extensions) {
       config.resolve.extensions = [
-        '.web.tsx', '.web.ts', '.web.jsx', '.web.js',
-        '.tsx', '.ts', '.jsx', '.js',
-        ...(Array.isArray(config.resolve.extensions) ? config.resolve.extensions : [])
+        ".web.tsx",
+        ".web.ts",
+        ".web.jsx",
+        ".web.js",
+        ".tsx",
+        ".ts",
+        ".jsx",
+        ".js",
+        ...(Array.isArray(config.resolve.extensions)
+          ? config.resolve.extensions
+          : []),
       ];
     }
 

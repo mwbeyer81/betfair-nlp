@@ -1,4 +1,5 @@
 import { within, userEvent } from '@storybook/testing-library';
+import { expect } from '@storybook/test';
 import { testLogger } from './testLogger';
 
 export interface TestContext {
