@@ -36,201 +36,108 @@ export class NaturalLanguageService {
   }
 
   private extractMongoQuery(aiAnalysis: string): string | null {
-    // Look for code blocks with MongoDB queries
-    const codeBlockRegex = /```(?:javascript|js|mongo)?\s*\n([\s\S]*?)\n```/;
-    const match = aiAnalysis.match(codeBlockRegex);
+    try {
+      // Try to parse the entire response as JSON
+      const parsed = JSON.parse(aiAnalysis.trim());
+      return JSON.stringify(parsed);
+    } catch (error) {
+      // If parsing fails, look for JSON code blocks
+      const codeBlockRegex = /```(?:json|javascript|js)?\s*\n([\s\S]*?)\n```/;
+      const match = aiAnalysis.match(codeBlockRegex);
 
-    if (match && match[1]) {
-      return match[1].trim();
+      if (match && match[1]) {
+        try {
+          const parsed = JSON.parse(match[1].trim());
+          return JSON.stringify(parsed);
+        } catch (parseError) {
+          console.error("Failed to parse JSON from code block:", parseError);
+          return null;
+        }
+      }
+
+      // If no code block, try to find JSON in the text
+      const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return JSON.stringify(parsed);
+        } catch (parseError) {
+          console.error("Failed to parse JSON from text:", parseError);
+          return null;
+        }
+      }
+
+      return null;
     }
-
-    // If no code block, look for db. patterns
-    const dbPattern =
-      /db\.[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)/;
-    const dbMatch = aiAnalysis.match(dbPattern);
-
-    if (dbMatch) {
-      return dbMatch[0];
-    }
-
-    return null;
   }
 
   private async executeMongoQuery(query: string): Promise<any[]> {
-    if (!this.db) {
-      console.warn("Database not available, skipping query execution");
-      return [];
-    }
-
     try {
-      // Parse the query to determine the type and extract components
-      const queryLower = query.toLowerCase();
+      // Parse the JSON command
+      const command = JSON.parse(query);
 
-      if (queryLower.includes("aggregate")) {
-        // Handle aggregation queries
-        return await this.executeAggregationQuery(query);
-      } else if (queryLower.includes("findone")) {
-        // Handle findOne queries
-        return await this.executeFindOneQuery(query);
-      } else if (queryLower.includes("find")) {
-        // Handle find queries
-        return await this.executeFindQuery(query);
+      // Handle different command types
+      if (command.find) {
+        // Handle find operations
+        const collection = this.db!.collection(command.find);
+        let cursor = collection.find(
+          command.filter || {},
+          command.projection || {}
+        );
+
+        if (command.sort) {
+          cursor = cursor.sort(command.sort);
+        }
+
+        if (command.limit) {
+          cursor = cursor.limit(command.limit);
+        }
+
+        return await cursor.toArray();
+      } else if (command.findOne) {
+        // Handle findOne operations
+        const collection = this.db!.collection(command.findOne);
+        const result = await collection.findOne(
+          command.filter || {},
+          command.projection || {}
+        );
+        return result ? [result] : [];
+      } else if (command.aggregate) {
+        // Handle aggregation operations
+        const collection = this.db!.collection(command.aggregate);
+        const cursor = collection.aggregate(command.pipeline || []);
+        return await cursor.toArray();
       } else {
-        // Generic execution for other query types
-        return await this.executeGenericQuery(query);
+        // For other commands, try using db.command()
+        const result = await this.db!.command(command);
+
+        // Handle different result formats
+        if (result.cursor) {
+          // For find operations, we need to iterate through the cursor
+          const cursor = this.db!.collection(
+            command.find || command.collection
+          ).find(command.filter || {}, command.projection || {});
+
+          if (command.sort) {
+            cursor.sort(command.sort);
+          }
+
+          if (command.limit) {
+            cursor.limit(command.limit);
+          }
+
+          return await cursor.toArray();
+        } else if (result.documents) {
+          // For some commands, results might be in documents field
+          return result.documents;
+        } else {
+          // For other commands, return the result directly
+          return [result];
+        }
       }
     } catch (error) {
-      console.error("Failed to execute MongoDB query:", error);
-      return [];
-    }
-  }
-
-  private async executeFindQuery(query: string): Promise<any[]> {
-    try {
-      // Extract collection name and query parameters
-      const match = query.match(
-        /db\.([a-zA-Z_][a-zA-Z0-9_]*)\.find\s*\(\s*([^)]*)\)/
-      );
-      if (!match) return [];
-
-      const collectionName = match[1];
-      const queryParams = match[2].trim();
-
-      // Parse the query parameters
-      let filter = {};
-      let projection = {};
-
-      if (queryParams) {
-        const params = queryParams.split(",").map(p => p.trim());
-        if (params.length > 0) {
-          try {
-            filter = eval(`(${params[0]})`);
-          } catch (e) {
-            filter = {};
-          }
-        }
-        if (params.length > 1) {
-          try {
-            projection = eval(`(${params[1]})`);
-          } catch (e) {
-            projection = {};
-          }
-        }
-      }
-
-      const collection = this.db!.collection(collectionName);
-      const cursor = collection.find(filter, projection);
-      const results = await cursor.toArray();
-
-      return results;
-    } catch (error) {
-      console.error("Error executing find query:", error);
-      return [];
-    }
-  }
-
-  private async executeFindOneQuery(query: string): Promise<any[]> {
-    try {
-      // Extract collection name and query parameters - handle both findOne and findOne
-      const match = query.match(
-        /db\.([a-zA-Z_][a-zA-Z0-9_]*)\.findone\s*\(\s*([^)]*)\)/i
-      );
-      if (!match) return [];
-
-      const collectionName = match[1];
-      const queryParams = match[2].trim();
-
-      // Parse the query parameters
-      let filter = {};
-      let projection = {};
-
-      if (queryParams) {
-        const params = queryParams.split(",").map(p => p.trim());
-        if (params.length > 0) {
-          try {
-            filter = eval(`(${params[0]})`);
-          } catch (e) {
-            filter = {};
-          }
-        }
-        if (params.length > 1) {
-          try {
-            projection = eval(`(${params[1]})`);
-          } catch (e) {
-            projection = {};
-          }
-        }
-      }
-
-      const collection = this.db!.collection(collectionName);
-      const result = await collection.findOne(filter, projection);
-
-      return result ? [result] : [];
-    } catch (error) {
-      console.error("Error executing findOne query:", error);
-      return [];
-    }
-  }
-
-  private async executeAggregationQuery(query: string): Promise<any[]> {
-    try {
-      // Extract collection name and pipeline
-      const match = query.match(
-        /db\.([a-zA-Z_][a-zA-Z0-9_]*)\.aggregate\s*\(\s*\[([\s\S]*?)\]\s*\)/
-      );
-      if (!match) return [];
-
-      const collectionName = match[1];
-      const pipelineStr = match[2].trim();
-
-      // Parse the pipeline
-      let pipeline = [];
-      try {
-        pipeline = eval(`([${pipelineStr}])`);
-      } catch (e) {
-        console.error("Error parsing aggregation pipeline:", e);
-        return [];
-      }
-
-      const collection = this.db!.collection(collectionName);
-      const cursor = collection.aggregate(pipeline);
-      const results = await cursor.toArray();
-
-      return results;
-    } catch (error) {
-      console.error("Error executing aggregation query:", error);
-      return [];
-    }
-  }
-
-  private async executeGenericQuery(query: string): Promise<any[]> {
-    try {
-      // For other query types, try to execute them directly
-      // This is a fallback for queries we don't specifically handle
-      console.warn("Using generic query execution for:", query);
-
-      // Create a safe execution context
-      const safeQuery = query.replace(/db\./g, "this.db.");
-
-      // Create a function that can execute the query safely
-      const executeQuery = new Function(
-        "db",
-        `
-        try {
-          const result = ${safeQuery};
-          return Array.isArray(result) ? result : [result];
-        } catch (error) {
-          console.error('MongoDB query execution error:', error);
-          return [];
-        }
-      `
-      );
-
-      const results = await executeQuery(this.db);
-      return results || [];
-    } catch (error) {
-      console.error("Error executing generic query:", error);
-      return [];
+      console.error("Error executing MongoDB command:", error);
+      throw error;
     }
   }
 

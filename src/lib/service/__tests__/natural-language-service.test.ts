@@ -7,9 +7,12 @@ jest.mock("../openai-client");
 
 // Mock MongoDB
 const mockDb = {
+  command: jest.fn().mockResolvedValue({ cursor: { id: 0 } }),
   collection: jest.fn().mockReturnValue({
     find: jest.fn().mockReturnValue({
       toArray: jest.fn().mockResolvedValue([{ id: 1, name: "Test Horse" }]),
+      sort: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
     }),
     findOne: jest.fn().mockResolvedValue({ id: 1, name: "Test Horse" }),
     aggregate: jest.fn().mockReturnValue({
@@ -43,7 +46,7 @@ describe("NaturalLanguageService", () => {
   describe("processQuery", () => {
     it("should process query and return horses with MongoDB analysis and results", async () => {
       const mockAIResponse =
-        '```javascript\ndb.market_definitions.find({"name": "Cheltenham Chase"}, {"runners": 1, "name": 1})\n```';
+        '{"find": "market_definitions", "filter": {"name": "Cheltenham Chase"}, "projection": {"runners": 1, "name": 1}}';
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
@@ -75,8 +78,9 @@ describe("NaturalLanguageService", () => {
     });
 
     it("should throw error when no MongoDB query can be extracted", async () => {
+      const mockAIResponse = "This is a response without any MongoDB query";
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        "This is not a valid MongoDB query"
+        mockAIResponse
       );
 
       const query = "test query";
@@ -88,8 +92,7 @@ describe("NaturalLanguageService", () => {
 
     it("should throw error when database is not available", async () => {
       const serviceWithoutDb = new NaturalLanguageService();
-      const mockAIResponse =
-        "```javascript\ndb.market_definitions.find({})\n```";
+      const mockAIResponse = '{"find": "market_definitions", "filter": {}}';
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
@@ -102,11 +105,13 @@ describe("NaturalLanguageService", () => {
     });
 
     it("should throw error when MongoDB query returns no results", async () => {
-      // Mock empty results
       const mockDbWithEmptyResults = {
+        command: jest.fn().mockResolvedValue({ cursor: { id: 0 } }),
         collection: jest.fn().mockReturnValue({
           find: jest.fn().mockReturnValue({
             toArray: jest.fn().mockResolvedValue([]),
+            sort: jest.fn().mockReturnThis(),
+            limit: jest.fn().mockReturnThis(),
           }),
           findOne: jest.fn().mockResolvedValue(null),
           aggregate: jest.fn().mockReturnValue({
@@ -120,7 +125,7 @@ describe("NaturalLanguageService", () => {
         mockDbWithEmptyResults
       );
       const mockAIResponse =
-        '```javascript\ndb.market_definitions.find({"name": "NonExistentRace"})\n```';
+        '{"find": "market_definitions", "filter": {"name": "NonExistentRace"}}';
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
@@ -132,30 +137,50 @@ describe("NaturalLanguageService", () => {
       );
     });
 
-    it("should extract and execute MongoDB queries from AI analysis", async () => {
+    it("should return MongoDB results from processQuery", async () => {
+      const mockDbWithResults = {
+        command: jest.fn().mockResolvedValue({ cursor: { id: 0 } }),
+        collection: jest.fn().mockReturnValue({
+          find: jest.fn().mockReturnValue({
+            toArray: jest
+              .fn()
+              .mockResolvedValue([{ id: 1, name: "Test Horse" }]),
+            sort: jest.fn().mockReturnThis(),
+            limit: jest.fn().mockReturnThis(),
+          }),
+          findOne: jest.fn().mockResolvedValue({ id: 1, name: "Test Horse" }),
+          aggregate: jest.fn().mockReturnValue({
+            toArray: jest
+              .fn()
+              .mockResolvedValue([{ id: 1, name: "Test Horse" }]),
+          }),
+        }),
+      } as any;
+
+      const serviceWithResults = new NaturalLanguageService(
+        null as any,
+        mockDbWithResults
+      );
       const mockAIResponse =
-        '```javascript\ndb.price_updates.find({"lastTradedPrice": {$lte: 5.0}})\n```';
+        '{"find": "price_updates", "filter": {"lastTradedPrice": {"$lte": 5.0}}}';
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
 
-      const result = await service.processQuery("test query");
+      const result = await serviceWithResults.processQuery("test query");
 
       expect(result.mongoQuery).toBe(
-        'db.price_updates.find({"lastTradedPrice": {$lte: 5.0}})'
+        '{"find":"price_updates","filter":{"lastTradedPrice":{"$lte":5}}}'
       );
       expect(result.mongoResults).toBeDefined();
       expect(Array.isArray(result.mongoResults)).toBe(true);
-      expect(result.mongoResults!.length).toBeGreaterThan(0);
+      expect(result.mongoResults!).toHaveLength(1);
+      expect(result.mongoResults![0]).toEqual({ id: 1, name: "Test Horse" });
     });
 
     it("should handle aggregation queries", async () => {
-      const mockAIResponse = `\`\`\`javascript
-db.market_definitions.aggregate([
-  { $match: { name: "Cheltenham Chase" } },
-  { $lookup: { from: "event_definitions", localField: "eventId", foreignField: "eventId", as: "event_details" } }
-])
-\`\`\``;
+      const mockAIResponse =
+        '{"aggregate": "market_definitions", "pipeline": [{"$match": {"name": "Cheltenham Chase"}}, {"$lookup": {"from": "event_definitions", "localField": "eventId", "foreignField": "eventId", "as": "event_details"}}]}';
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
@@ -169,7 +194,7 @@ db.market_definitions.aggregate([
 
     it("should handle findOne queries", async () => {
       const mockAIResponse =
-        '```javascript\ndb.market_definitions.findOne({ name: "Cheltenham Chase" })\n```';
+        '{"findOne": "market_definitions", "filter": {"name": "Cheltenham Chase"}}';
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
@@ -185,7 +210,7 @@ db.market_definitions.aggregate([
   describe("getHorsesByQuery", () => {
     it("should return empty horses array since we now return MongoDB results", async () => {
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        "db.market_definitions.find({})"
+        '{"find": "market_definitions", "filter": {}}'
       );
 
       const horses = await service.getHorsesByQuery("test query");
@@ -198,7 +223,7 @@ db.market_definitions.aggregate([
   describe("getTopHorses", () => {
     it("should return top horses with default limit", async () => {
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        "db.market_definitions.find({}).limit(5)"
+        '{"find": "market_definitions", "filter": {}, "limit": 5}'
       );
 
       const horses = await service.getTopHorses();
@@ -209,7 +234,7 @@ db.market_definitions.aggregate([
 
     it("should return top horses with custom limit", async () => {
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        "db.market_definitions.find({}).limit(3)"
+        '{"find": "market_definitions", "filter": {}, "limit": 3}'
       );
 
       const horses = await service.getTopHorses(3);
@@ -222,7 +247,7 @@ db.market_definitions.aggregate([
   describe("getHorsesByOdds", () => {
     it("should return horses with odds under specified value", async () => {
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        'db.price_updates.find({"lastTradedPrice": {$lte: 5.0}})'
+        '{"find": "price_updates", "filter": {"lastTradedPrice": {"$lte": 5.0}}}'
       );
 
       const horses = await service.getHorsesByOdds(5.0);
@@ -235,7 +260,7 @@ db.market_definitions.aggregate([
 
     it("should return empty array when no horses meet criteria", async () => {
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        'db.price_updates.find({"lastTradedPrice": {$lte: 1.0}})'
+        '{"find": "price_updates", "filter": {"lastTradedPrice": {"$lte": 1.0}}}'
       );
 
       const horses = await service.getHorsesByOdds(1.0);

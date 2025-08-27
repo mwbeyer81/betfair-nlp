@@ -105,11 +105,12 @@ describe("OpenAIClient", () => {
 
       // Check that the prompt includes MongoDB schema and instructions
       const callArgs = mockCreate.mock.calls[0][0];
-      expect(callArgs.input).toContain("event_definitions");
       expect(callArgs.input).toContain("market_definitions");
+      expect(callArgs.input).toContain("market_statuses");
       expect(callArgs.input).toContain("price_updates");
-      expect(callArgs.input).toContain("mongosh");
+      expect(callArgs.input).toContain("db.command()");
       expect(callArgs.input).toContain(query);
+      expect(callArgs.input).toContain("MongoDB assistant");
     });
   });
 });
