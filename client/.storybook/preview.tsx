@@ -20,7 +20,22 @@ const preview = {
         },
       ],
     },
+    // Enable interaction testing logging in headless mode
+    test: {
+      // This ensures interaction tests run in headless mode
+      mode: typeof process !== 'undefined' && process.env.CI === 'true' ? 'ci' : 'development',
+    },
   },
+  // Global decorator to set up logging environment
+  decorators: [
+    (Story, context) => {
+      // Set environment variable for headless detection (only in Node.js environment)
+      if (typeof process !== 'undefined' && (process.env.CI === 'true' || process.argv.includes('--ci'))) {
+        process.env.STORYBOOK_HEADLESS = 'true';
+      }
+      return <Story />;
+    },
+  ],
 };
 
 export default preview;

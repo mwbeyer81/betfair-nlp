@@ -1,9 +1,10 @@
+import React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 
 import { View } from 'react-native';
 import { fn } from 'storybook/test';
-import { expect } from '@storybook/test';
-import { within, userEvent } from '@storybook/testing-library';
+import { testLogger } from '../utils/testLogger';
+import { loggedUserEvent, loggedWithin, loggedExpect, runLoggedTest } from '../utils/testHelpers';
 
 import { Button } from './Button';
 
@@ -11,7 +12,7 @@ const meta = {
   title: 'Example/Button',
   component: Button,
   decorators: [
-    (Story) => (
+    (Story: React.ComponentType) => (
       <View style={{ flex: 1, alignItems: 'flex-start' }}>
         <Story />
       </View>
@@ -34,15 +35,22 @@ export const Primary: Story = {
   },
 };
 Primary.play = async ({ canvasElement, args }) => {
-  const canvas = within(canvasElement);
-  
-  // Test that primary button is rendered
-  const button = canvas.getByRole('button', { name: 'Button' });
-  expect(button).toBeInTheDocument();
-  
-  // Test button click
-  await userEvent.click(button);
-  expect(args.onPress).toHaveBeenCalled();
+  await runLoggedTest('Example/Button', 'Primary', canvasElement, args, async (context) => {
+    const canvas = loggedWithin(canvasElement, context);
+    
+    // Test that primary button is rendered
+    const button = canvas.getByRole('button', { name: 'Button' });
+    loggedExpect(button, context).toBeInTheDocument();
+    
+    // Test button click
+    await loggedUserEvent.click(button, context);
+    loggedExpect(args.onPress, context).toHaveBeenCalled();
+    
+    testLogger.stateChange(context.storyName, context.testName, 'Button', 'clicked', {
+      label: 'Button',
+      primary: true
+    });
+  });
 };
 
 export const Secondary: Story = {
@@ -51,15 +59,22 @@ export const Secondary: Story = {
   },
 };
 Secondary.play = async ({ canvasElement, args }) => {
-  const canvas = within(canvasElement);
-  
-  // Test that secondary button is rendered
-  const button = canvas.getByRole('button', { name: 'Button' });
-  expect(button).toBeInTheDocument();
-  
-  // Test button click
-  await userEvent.click(button);
-  expect(args.onPress).toHaveBeenCalled();
+  await runLoggedTest('Example/Button', 'Secondary', canvasElement, args, async (context) => {
+    const canvas = loggedWithin(canvasElement, context);
+    
+    // Test that secondary button is rendered
+    const button = canvas.getByRole('button', { name: 'Button' });
+    loggedExpect(button, context).toBeInTheDocument();
+    
+    // Test button click
+    await loggedUserEvent.click(button, context);
+    loggedExpect(args.onPress, context).toHaveBeenCalled();
+    
+    testLogger.stateChange(context.storyName, context.testName, 'Button', 'clicked', {
+      label: 'Button',
+      primary: false
+    });
+  });
 };
 
 export const Large: Story = {
@@ -69,15 +84,22 @@ export const Large: Story = {
   },
 };
 Large.play = async ({ canvasElement, args }) => {
-  const canvas = within(canvasElement);
-  
-  // Test that large button is rendered
-  const button = canvas.getByRole('button', { name: 'Button' });
-  expect(button).toBeInTheDocument();
-  
-  // Test button click
-  await userEvent.click(button);
-  expect(args.onPress).toHaveBeenCalled();
+  await runLoggedTest('Example/Button', 'Large', canvasElement, args, async (context) => {
+    const canvas = loggedWithin(canvasElement, context);
+    
+    // Test that large button is rendered
+    const button = canvas.getByRole('button', { name: 'Button' });
+    loggedExpect(button, context).toBeInTheDocument();
+    
+    // Test button click
+    await loggedUserEvent.click(button, context);
+    loggedExpect(args.onPress, context).toHaveBeenCalled();
+    
+    testLogger.stateChange(context.storyName, context.testName, 'Button', 'clicked', {
+      label: 'Button',
+      size: 'large'
+    });
+  });
 };
 
 export const Small: Story = {
@@ -87,13 +109,20 @@ export const Small: Story = {
   },
 };
 Small.play = async ({ canvasElement, args }) => {
-  const canvas = within(canvasElement);
-  
-  // Test that small button is rendered
-  const button = canvas.getByRole('button', { name: 'Button' });
-  expect(button).toBeInTheDocument();
-  
-  // Test button click
-  await userEvent.click(button);
-  expect(args.onPress).toHaveBeenCalled();
+  await runLoggedTest('Example/Button', 'Small', canvasElement, args, async (context) => {
+    const canvas = loggedWithin(canvasElement, context);
+    
+    // Test that small button is rendered
+    const button = canvas.getByRole('button', { name: 'Button' });
+    loggedExpect(button, context).toBeInTheDocument();
+    
+    // Test button click
+    await loggedUserEvent.click(button, context);
+    loggedExpect(args.onPress, context).toHaveBeenCalled();
+    
+    testLogger.stateChange(context.storyName, context.testName, 'Button', 'clicked', {
+      label: 'Button',
+      size: 'small'
+    });
+  });
 };

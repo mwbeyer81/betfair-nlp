@@ -27,9 +27,11 @@ class TestLogger {
 
   constructor() {
     // Check if we're running in headless mode (CI environment)
-    this.isHeadless = process.env.CI === 'true' || 
-                     process.env.STORYBOOK_HEADLESS === 'true' ||
-                     process.argv.includes('--ci');
+    // Handle case where process is not defined (browser environment)
+    this.isHeadless = (typeof process !== 'undefined' && process.env?.CI === 'true') || 
+                     (typeof process !== 'undefined' && process.env?.STORYBOOK_HEADLESS === 'true') ||
+                     (typeof process !== 'undefined' && process.argv?.includes('--ci')) ||
+                     false;
   }
 
   private formatTimestamp(): string {

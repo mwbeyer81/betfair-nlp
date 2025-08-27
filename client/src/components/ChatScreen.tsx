@@ -77,10 +77,11 @@ export const ChatScreen: React.FC = () => {
           style={styles.messagesList}
           contentContainerStyle={styles.messagesContent}
           inverted={false}
+          testID="message-list"
         />
 
         {isLoading && (
-          <View style={styles.loadingContainer}>
+          <View style={styles.loadingContainer} testID="loading-indicator">
             <Text style={styles.loadingText}>Assistant is typing...</Text>
           </View>
         )}

@@ -28,7 +28,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   return (
-    <View style={styles.inputContainer}>
+    <View style={styles.inputContainer} testID="chat-input">
       <TextInput
         style={styles.textInput}
         value={inputText}
@@ -38,6 +38,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         multiline
         maxLength={1000}
         editable={!isLoading}
+        testID="message-input"
       />
       <TouchableOpacity
         style={[
@@ -46,6 +47,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         ]}
         onPress={handleSend}
         disabled={!inputText.trim() || isLoading}
+        accessible={true}
+        accessibilityRole="button"
+        accessibilityLabel="Send message"
+        accessibilityHint="Sends the current message"
+        testID="send-button"
       >
         <Text style={styles.sendButtonText}>Send</Text>
       </TouchableOpacity>

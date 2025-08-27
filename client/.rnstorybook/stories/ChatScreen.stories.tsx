@@ -26,11 +26,11 @@ Default.play = async ({ canvasElement }) => {
   const canvas = within(canvasElement);
   
   // Test that the chat screen renders with input field
-  const input = canvas.getByPlaceholderText(/type your message/i);
+  const input = canvas.getByTestId("message-input");
   expect(input).toBeInTheDocument();
   
   // Test that send button is present
-  const sendButton = canvas.getByRole("button", { name: /send/i });
+  const sendButton = canvas.getByTestId("send-button");
   expect(sendButton).toBeInTheDocument();
   
   // Test typing in the input
@@ -51,11 +51,11 @@ WithInitialMessages.play = async ({ canvasElement }) => {
   const canvas = within(canvasElement);
   
   // Test that the chat interface is rendered
-  const input = canvas.getByPlaceholderText(/type your message/i);
+  const input = canvas.getByTestId("message-input");
   expect(input).toBeInTheDocument();
   
   // Test that the message list area is present
-  const messageList = canvas.getByTestId("message-list") || canvas.getByRole("list");
+  const messageList = canvas.getByTestId("message-list");
   expect(messageList).toBeInTheDocument();
 };
 
@@ -72,7 +72,7 @@ LoadingState.play = async ({ canvasElement }) => {
   const canvas = within(canvasElement);
   
   // Test that the chat interface is rendered even in loading state
-  const input = canvas.getByPlaceholderText(/type your message/i);
+  const input = canvas.getByTestId("message-input");
   expect(input).toBeInTheDocument();
   
   // Test that loading indicators might be present
