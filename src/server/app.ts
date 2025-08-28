@@ -9,12 +9,42 @@ import config from "config";
 // Create Express app
 const app = express();
 
+// Basic Auth Middleware
+const basicAuth = (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) => {
+  // Get auth header
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    res.setHeader("WWW-Authenticate", 'Basic realm="Authentication Required"');
+    return res.status(401).json({ error: "Authentication required" });
+  }
+
+  // Parse auth header
+  const auth = Buffer.from(authHeader.split(" ")[1], "base64").toString();
+  const [username, password] = auth.split(":");
+
+  // Check credentials
+  if (username === "matthew" && password === "beyer") {
+    next();
+  } else {
+    res.setHeader("WWW-Authenticate", 'Basic realm="Authentication Required"');
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+};
+
 // Middleware
 app.use(helmet());
 app.use(cors());
 app.use(morgan("combined"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
+
+// Apply basic auth to all routes
+app.use(basicAuth);
 
 // Initialize database connection
 let dbConnection: DatabaseConnection | null = null;

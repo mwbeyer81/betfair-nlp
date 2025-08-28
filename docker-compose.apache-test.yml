@@ -1,0 +1,46 @@
+version: "3.8"
+
+services:
+  # Node.js API server
+  api-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: betfair-nlp-api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      - ./config:/app/config
+    networks:
+      - app-network
+    restart: unless-stopped
+    # Connect to host MongoDB
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Apache proxy server
+  apache-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.apache
+    container_name: betfair-nlp-apache
+    ports:
+      - "80:80"
+    depends_on:
+      - api-server
+    networks:
+      - app-network
+    restart: unless-stopped
+    # Override the Apache config to point to the containerized API server
+    command: >
+      sh -c "
+      sed -i 's/localhost:3000/api-server:3000/g' /usr/local/apache2/conf/extra/apache-proxy.conf &&
+      httpd-foreground
+      "
+
+networks:
+  app-network:
+    driver: bridge

@@ -7,6 +7,7 @@ interface ChatResponse {
 
 class ChatApi {
   private baseUrl = "http://localhost:3000"; // Points to the local server
+  private credentials = btoa("matthew:beyer"); // Base64 encoded credentials
 
   async sendMessage(message: string): Promise<ChatResponse> {
     try {
@@ -14,6 +15,7 @@ class ChatApi {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Basic ${this.credentials}`,
         },
         body: JSON.stringify({ query: message }),
       });

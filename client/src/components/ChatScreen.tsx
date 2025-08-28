@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  TouchableOpacity,
 } from "react-native";
 import { Message } from "./Message";
 import { ChatInput } from "./ChatInput";
@@ -19,7 +20,11 @@ interface MessageData {
   timestamp: Date;
 }
 
-export const ChatScreen: React.FC = () => {
+interface ChatScreenProps {
+  onLogout?: () => void;
+}
+
+export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -68,6 +73,11 @@ export const ChatScreen: React.FC = () => {
       >
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Chat Assistant</Text>
+          {onLogout && (
+            <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
+              <Text style={styles.logoutButtonText}>Logout</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <FlatList
@@ -105,11 +115,24 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 20,
     alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: "600",
     color: "white",
+  },
+  logoutButton: {
+    backgroundColor: "red",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  logoutButtonText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "600",
   },
   messagesList: {
     flex: 1,
