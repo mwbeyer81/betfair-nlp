@@ -33,6 +33,11 @@ class ChatApi {
         const data = result.data;
         let reply = `Query: "${data.query}"\n\n`;
 
+        // Add natural language interpretation if available
+        if (data.naturalLanguageInterpretation) {
+          reply += `**How I interpreted your query:**\n${data.naturalLanguageInterpretation}\n\n`;
+        }
+
         if (data.mongoResults && data.mongoResults.length > 0) {
           reply += `Found ${data.mongoResults.length} result(s):\n\n`;
 

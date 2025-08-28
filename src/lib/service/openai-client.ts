@@ -30,8 +30,10 @@ export class OpenAIClient {
     }
   }
 
-  async createHorseQueryResponse(query: string): Promise<string> {
-    const mongoInstructions = `You are a MongoDB assistant. The database contains 3 collections: market_definitions, market_statuses, and price_updates. A **runner** means a horse. A **market** means a horse race. An **event** means a race day (like "Cheltenham 1st Jan"). Below is the schema for each collection:
+  async createHorseQueryResponse(
+    query: string
+  ): Promise<{ mongoQuery: string; naturalLanguageInterpretation: string }> {
+    const combinedInstructions = `You are a MongoDB assistant with expertise in horse racing data. The database contains 3 collections: market_definitions, market_statuses, and price_updates. A **runner** means a horse. A **market** means a horse race. An **event** means a race day (like "Cheltenham 1st Jan"). Below is the schema for each collection:
 
 ### market_definitions
 Represents a horse race (market) with all its details and runners.
@@ -101,9 +103,13 @@ Represents live odds updates for each horse.
 - publishTime (Date) → when this was published
 
 ### Instructions
-- When the user gives a **natural language query**, convert it into a valid **MongoDB command object** that can be passed to db.command().
-- Return ONLY a valid JSON string that represents the MongoDB command object.
-- The JSON should contain the command structure that db.command() expects.
+When the user gives a **natural language query**, you need to:
+
+1. **Generate a MongoDB query**: Convert the natural language query into a valid MongoDB command object that can be passed to db.command().
+2. **Provide a natural language interpretation**: Explain what the MongoDB query does in simple, user-friendly terms.
+
+### MongoDB Query Generation
+- Return a valid JSON string that represents the MongoDB command object
 - Use the correct collection names: market_definitions, market_statuses, price_updates
 - Example mappings:
   - "List all runners in race X" → {"find": "market_definitions", "filter": {"name": "X"}, "projection": {"runners": 1}}
@@ -112,10 +118,71 @@ Represents live odds updates for each horse.
   - "Show all open markets" → {"find": "market_definitions", "filter": {"status": "OPEN"}}
   - "Show latest prices for all horses" → {"find": "price_updates", "sort": {"timestamp": -1}}
   - "Show races with more than 10 runners" → {"find": "market_definitions", "filter": {"numberOfActiveRunners": {"$gt": 10}}}
-- Return ONLY the JSON string, no additional text or explanations.
+
+### Natural Language Interpretation
+- Explain what the MongoDB query is doing in simple, conversational terms
+- Use the schema knowledge to provide context about what data is being retrieved
+- Keep it user-friendly for someone who doesn't know MongoDB syntax
+
+### Response Format
+Return your response in this exact format:
+{
+  "mongoQuery": "the MongoDB query as a JSON string",
+  "naturalLanguageInterpretation": "a clear explanation of what the query does"
+}
 
 User Query: "${query}"`;
 
-    return this.createResponse(mongoInstructions);
+    const response = await this.createResponse(combinedInstructions);
+
+    try {
+      // Try to parse the response as JSON
+      const parsed = JSON.parse(response.trim());
+      return {
+        mongoQuery: parsed.mongoQuery,
+        naturalLanguageInterpretation: parsed.naturalLanguageInterpretation,
+      };
+    } catch (error) {
+      // If parsing fails, try to extract JSON from markdown code blocks
+      const codeBlockRegex = /```(?:json|javascript|js)?\s*\n([\s\S]*?)\n```/;
+      const match = response.match(codeBlockRegex);
+
+      if (match && match[1]) {
+        try {
+          const parsed = JSON.parse(match[1].trim());
+          return {
+            mongoQuery: parsed.mongoQuery,
+            naturalLanguageInterpretation: parsed.naturalLanguageInterpretation,
+          };
+        } catch (parseError) {
+          console.error("Failed to parse JSON from code block:", parseError);
+          throw new Error(
+            "Could not extract MongoDB query and interpretation from AI response"
+          );
+        }
+      }
+
+      // If no code block, try to find JSON in the text
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return {
+            mongoQuery: parsed.mongoQuery,
+            naturalLanguageInterpretation: parsed.naturalLanguageInterpretation,
+          };
+        } catch (parseError) {
+          console.error("Failed to parse JSON from text:", parseError);
+          throw new Error(
+            "Could not extract MongoDB query and interpretation from AI response"
+          );
+        }
+      }
+
+      console.error("Raw AI response:", response);
+      throw new Error(
+        "Could not extract MongoDB query and interpretation from AI response"
+      );
+    }
   }
 }

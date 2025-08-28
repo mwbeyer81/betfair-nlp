@@ -33,8 +33,13 @@ describe("OpenAI Integration Test", () => {
       const result = await openaiClient.createHorseQueryResponse(query);
 
       expect(result).toBeDefined();
-      expect(typeof result).toBe("string");
-      expect(result.length).toBeGreaterThan(0);
+      expect(typeof result).toBe("object");
+      expect(result.mongoQuery).toBeDefined();
+      expect(result.naturalLanguageInterpretation).toBeDefined();
+      expect(typeof result.mongoQuery).toBe("string");
+      expect(typeof result.naturalLanguageInterpretation).toBe("string");
+      expect(result.mongoQuery.length).toBeGreaterThan(0);
+      expect(result.naturalLanguageInterpretation.length).toBeGreaterThan(0);
 
       console.log("Horse Racing AI Response:", result);
     } catch (error) {

@@ -45,8 +45,10 @@ describe("NaturalLanguageService", () => {
 
   describe("processQuery", () => {
     it("should process query and return horses with MongoDB analysis and results", async () => {
-      const mockAIResponse =
-        '{"find": "market_definitions", "filter": {"name": "Cheltenham Chase"}, "projection": {"runners": 1, "name": 1}}';
+      const mockAIResponse = {
+        mongoQuery: '{"find": "market_definitions", "filter": {"name": "Cheltenham Chase"}, "projection": {"runners": 1, "name": 1}}',
+        naturalLanguageInterpretation: "I'm searching for market definitions where the name matches 'Cheltenham Chase' and showing the runners and name fields."
+      };
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
@@ -58,8 +60,9 @@ describe("NaturalLanguageService", () => {
       expect(result).toHaveProperty("query", query);
       expect(result).toHaveProperty("timestamp");
       expect(result).toHaveProperty("confidence", 0.95);
-      expect(result).toHaveProperty("aiAnalysis", mockAIResponse);
-      expect(result).toHaveProperty("mongoQuery");
+      expect(result).toHaveProperty("aiAnalysis");
+      expect(result).toHaveProperty("mongoQuery", mockAIResponse.mongoQuery);
+      expect(result).toHaveProperty("naturalLanguageInterpretation", mockAIResponse.naturalLanguageInterpretation);
       expect(result).toHaveProperty("mongoResults");
       expect(Array.isArray(result.horses)).toBe(true);
       expect(result.horses.length).toBe(0); // Empty since we return MongoDB results
@@ -78,7 +81,10 @@ describe("NaturalLanguageService", () => {
     });
 
     it("should throw error when no MongoDB query can be extracted", async () => {
-      const mockAIResponse = "This is a response without any MongoDB query";
+      const mockAIResponse = {
+        mongoQuery: "",
+        naturalLanguageInterpretation: "This is a response without any MongoDB query"
+      };
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
@@ -92,7 +98,10 @@ describe("NaturalLanguageService", () => {
 
     it("should throw error when database is not available", async () => {
       const serviceWithoutDb = new NaturalLanguageService();
-      const mockAIResponse = '{"find": "market_definitions", "filter": {}}';
+      const mockAIResponse = {
+        mongoQuery: '{"find": "market_definitions", "filter": {}}',
+        naturalLanguageInterpretation: "I'm searching for all market definitions."
+      };
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
@@ -124,8 +133,10 @@ describe("NaturalLanguageService", () => {
         null as any,
         mockDbWithEmptyResults
       );
-      const mockAIResponse =
-        '{"find": "market_definitions", "filter": {"name": "NonExistentRace"}}';
+      const mockAIResponse = {
+        mongoQuery: '{"find": "market_definitions", "filter": {"name": "NonExistentRace"}}',
+        naturalLanguageInterpretation: "I'm searching for market definitions where the name matches 'NonExistentRace'."
+      };
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
@@ -161,8 +172,10 @@ describe("NaturalLanguageService", () => {
         null as any,
         mockDbWithResults
       );
-      const mockAIResponse =
-        '{"find": "price_updates", "filter": {"lastTradedPrice": {"$lte": 5.0}}}';
+      const mockAIResponse = {
+        mongoQuery: '{"find": "price_updates", "filter": {"lastTradedPrice": {"$lte": 5.0}}}',
+        naturalLanguageInterpretation: "I'm searching for price updates where the last traded price is less than or equal to 5.0."
+      };
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
@@ -179,8 +192,10 @@ describe("NaturalLanguageService", () => {
     });
 
     it("should handle aggregation queries", async () => {
-      const mockAIResponse =
-        '{"aggregate": "market_definitions", "pipeline": [{"$match": {"name": "Cheltenham Chase"}}, {"$lookup": {"from": "event_definitions", "localField": "eventId", "foreignField": "eventId", "as": "event_details"}}]}';
+      const mockAIResponse = {
+        mongoQuery: '{"aggregate": "market_definitions", "pipeline": [{"$match": {"name": "Cheltenham Chase"}}, {"$lookup": {"from": "event_definitions", "localField": "eventId", "foreignField": "eventId", "as": "event_details"}}]}',
+        naturalLanguageInterpretation: "I'm performing an aggregation on market definitions to match 'Cheltenham Chase' and lookup event details."
+      };
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
@@ -193,8 +208,10 @@ describe("NaturalLanguageService", () => {
     });
 
     it("should handle findOne queries", async () => {
-      const mockAIResponse =
-        '{"findOne": "market_definitions", "filter": {"name": "Cheltenham Chase"}}';
+      const mockAIResponse = {
+        mongoQuery: '{"findOne": "market_definitions", "filter": {"name": "Cheltenham Chase"}}',
+        naturalLanguageInterpretation: "I'm finding one market definition where the name matches 'Cheltenham Chase'."
+      };
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
@@ -209,9 +226,10 @@ describe("NaturalLanguageService", () => {
 
   describe("getHorsesByQuery", () => {
     it("should return empty horses array since we now return MongoDB results", async () => {
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        '{"find": "market_definitions", "filter": {}}'
-      );
+      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue({
+        mongoQuery: '{"find": "market_definitions", "filter": {}}',
+        naturalLanguageInterpretation: "I'm searching for all market definitions."
+      });
 
       const horses = await service.getHorsesByQuery("test query");
 
@@ -222,9 +240,10 @@ describe("NaturalLanguageService", () => {
 
   describe("getTopHorses", () => {
     it("should return top horses with default limit", async () => {
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        '{"find": "market_definitions", "filter": {}, "limit": 5}'
-      );
+      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue({
+        mongoQuery: '{"find": "market_definitions", "filter": {}, "limit": 5}',
+        naturalLanguageInterpretation: "I'm searching for market definitions with a limit of 5 results."
+      });
 
       const horses = await service.getTopHorses();
 
@@ -233,9 +252,10 @@ describe("NaturalLanguageService", () => {
     });
 
     it("should return top horses with custom limit", async () => {
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        '{"find": "market_definitions", "filter": {}, "limit": 3}'
-      );
+      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue({
+        mongoQuery: '{"find": "market_definitions", "filter": {}, "limit": 3}',
+        naturalLanguageInterpretation: "I'm searching for market definitions with a limit of 3 results."
+      });
 
       const horses = await service.getTopHorses(3);
 
@@ -246,9 +266,10 @@ describe("NaturalLanguageService", () => {
 
   describe("getHorsesByOdds", () => {
     it("should return horses with odds under specified value", async () => {
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        '{"find": "price_updates", "filter": {"lastTradedPrice": {"$lte": 5.0}}}'
-      );
+      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue({
+        mongoQuery: '{"find": "price_updates", "filter": {"lastTradedPrice": {"$lte": 5.0}}}',
+        naturalLanguageInterpretation: "I'm searching for price updates where the last traded price is less than or equal to 5.0."
+      });
 
       const horses = await service.getHorsesByOdds(5.0);
 
@@ -259,9 +280,10 @@ describe("NaturalLanguageService", () => {
     });
 
     it("should return empty array when no horses meet criteria", async () => {
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        '{"find": "price_updates", "filter": {"lastTradedPrice": {"$lte": 1.0}}}'
-      );
+      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue({
+        mongoQuery: '{"find": "price_updates", "filter": {"lastTradedPrice": {"$lte": 1.0}}}',
+        naturalLanguageInterpretation: "I'm searching for price updates where the last traded price is less than or equal to 1.0."
+      });
 
       const horses = await service.getHorsesByOdds(1.0);
 

@@ -22,6 +22,7 @@ export interface NaturalLanguageResponse {
   aiAnalysis?: string;
   mongoQuery?: string;
   mongoResults?: any[];
+  naturalLanguageInterpretation?: string;
 }
 
 export class NaturalLanguageService {
@@ -73,8 +74,17 @@ export class NaturalLanguageService {
 
   private async executeMongoQuery(query: string): Promise<any[]> {
     try {
+      // Handle markdown code blocks in the query
+      let cleanQuery = query;
+      const codeBlockRegex = /```(?:json|javascript|js)?\s*\n([\s\S]*?)\n```/;
+      const match = query.match(codeBlockRegex);
+
+      if (match && match[1]) {
+        cleanQuery = match[1].trim();
+      }
+
       // Parse the JSON command
-      const command = JSON.parse(query);
+      const command = JSON.parse(cleanQuery);
 
       // Handle different command types
       if (command.find) {
@@ -149,13 +159,17 @@ export class NaturalLanguageService {
     let aiAnalysis: string | undefined;
     let mongoQuery: string | null = null;
     let mongoResults: any[] = [];
+    let naturalLanguageInterpretation: string | undefined;
 
     try {
-      aiAnalysis = await this.openaiClient.createHorseQueryResponse(query);
+      const aiResponse =
+        await this.openaiClient.createHorseQueryResponse(query);
 
-      // Extract MongoDB query from AI analysis
-      if (aiAnalysis) {
-        mongoQuery = this.extractMongoQuery(aiAnalysis);
+      // Extract MongoDB query and natural language interpretation from AI response
+      if (aiResponse) {
+        mongoQuery = aiResponse.mongoQuery || null;
+        naturalLanguageInterpretation =
+          aiResponse.naturalLanguageInterpretation || undefined;
 
         // Execute the MongoDB query if found
         if (mongoQuery && this.db) {
@@ -189,6 +203,7 @@ export class NaturalLanguageService {
       aiAnalysis,
       mongoQuery: mongoQuery || undefined,
       mongoResults: mongoResults,
+      naturalLanguageInterpretation: naturalLanguageInterpretation || undefined,
     };
   }
 
