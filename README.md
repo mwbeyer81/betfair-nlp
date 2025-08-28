@@ -160,6 +160,72 @@ npm run storybook:headful   # Browser mode
 3. Install dependencies: `yarn install`
 4. Build the project: `yarn build`
 
+## Apache Proxy Setup
+
+Apache is configured as a reverse proxy to forward requests to the Node.js API server running on port 3000.
+
+### Apache Installation Commands
+
+```bash
+# Update package list
+sudo apt update
+
+# Install Apache2
+sudo apt install -y apache2
+
+# Enable required modules for proxying
+sudo a2enmod proxy proxy_http rewrite headers
+
+# Copy the Apache configuration
+sudo cp apache.conf /etc/apache2/sites-available/betfair-nlp.conf
+
+# Enable the site and disable default site
+sudo a2ensite betfair-nlp
+sudo a2dissite 000-default
+
+# Test configuration
+sudo apache2ctl configtest
+
+# Restart Apache
+sudo systemctl restart apache2
+
+# Enable Apache to start on boot
+sudo systemctl enable apache2
+```
+
+### Apache Management Commands
+
+```bash
+# Check Apache status
+sudo systemctl status apache2
+
+# Start Apache
+sudo systemctl start apache2
+
+# Stop Apache
+sudo systemctl stop apache2
+
+# Restart Apache
+sudo systemctl restart apache2
+
+# Reload Apache configuration
+sudo systemctl reload apache2
+
+# View Apache error logs
+sudo tail -f /var/log/apache2/error.log
+
+# View Apache access logs
+sudo tail -f /var/log/apache2/access.log
+```
+
+### Apache Configuration
+
+The Apache configuration (`apache.conf`) is set up to:
+- Proxy all requests from port 80 to the Node.js server on port 3000
+- Handle WebSocket connections
+- Set proper security headers
+- Configure logging
+
 ## Available Commands
 
 ### API Server Commands

@@ -4,7 +4,8 @@
     "dbName": "MONGODB_DB_NAME"
   },
   "app": {
-    "environment": "NODE_ENV"
+    "environment": "NODE_ENV",
+    "apiUrl": "API_URL"
   },
   "logging": {
     "level": "LOG_LEVEL"

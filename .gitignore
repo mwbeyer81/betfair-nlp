@@ -16,3 +16,4 @@ mongo-init/
 docker-compose.override.yml
 
 config/local*
+nohup.out
