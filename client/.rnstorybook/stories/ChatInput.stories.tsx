@@ -169,7 +169,7 @@ EnterKeySubmit.args = {
   placeholder: "Type and press Enter...",
   onSendMessage: mockOnSendMessage(),
 };
-EnterKeySubmit.play = ({ canvasElement, args }) => {
+EnterKeySubmit.play = async ({ canvasElement, args }) => {
   const canvas = within(canvasElement);
 
   // Test that input field is present
@@ -188,4 +188,23 @@ EnterKeySubmit.play = ({ canvasElement, args }) => {
   // Note: In Storybook test environment, we can't easily simulate keyboard events
   // but we can verify the input has the necessary props for Enter key handling
   expect(input).toHaveAttribute("data-testid", "message-input");
+
+  // Test typing and Enter key submission
+  await userEvent.type(input, "Hello from Enter key test!");
+  expect(input).toHaveValue("Hello from Enter key test!");
+
+  // Verify send button is now enabled
+  expect(sendButton).toBeEnabled();
+
+  // Simulate pressing Enter key
+  await userEvent.keyboard("{Enter}");
+
+  // Verify the message was sent - check that the mock was called
+  expect(args.onSendMessage.mock.calls.length).toBeGreaterThan(0);
+
+  // Verify input is cleared after submission
+  expect(input).toHaveValue("");
+
+  // Verify send button is disabled again
+  expect(sendButton).toBeDisabled();
 };
