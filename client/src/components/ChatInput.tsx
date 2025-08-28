@@ -27,6 +27,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setInputText("");
   };
 
+  const handleKeyPress = (event: any) => {
+    // Check if Enter was pressed without Shift (Shift+Enter for new line)
+    if (event.nativeEvent.key === "Enter" && !event.nativeEvent.shiftKey) {
+      event.preventDefault();
+      handleSend();
+    }
+  };
+
   return (
     <View style={styles.inputContainer} testID="chat-input">
       <TextInput
@@ -39,6 +47,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         maxLength={1000}
         editable={!isLoading}
         testID="message-input"
+        onSubmitEditing={handleSend}
+        onKeyPress={handleKeyPress}
+        blurOnSubmit={false}
       />
       <TouchableOpacity
         style={[
