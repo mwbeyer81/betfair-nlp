@@ -1,4 +1,4 @@
-import config from 'config';
+import { config } from '../config';
 
 interface ChatResponse {
   reply: string;
@@ -8,7 +8,7 @@ interface ChatResponse {
 }
 
 class ChatApi {
-  private baseUrl = config.get<string>('baseUrl');
+  private baseUrl = config.baseUrl;
   private credentials = btoa("matthew:beyer"); // Base64 encoded credentials
 
   async sendMessage(message: string): Promise<ChatResponse> {
