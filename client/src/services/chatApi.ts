@@ -1,3 +1,5 @@
+import config from 'config';
+
 interface ChatResponse {
   reply: string;
   success?: boolean;
@@ -6,7 +8,7 @@ interface ChatResponse {
 }
 
 class ChatApi {
-  private baseUrl = "http://localhost:3000"; // Points to the local server
+  private baseUrl = config.get<string>('baseUrl');
   private credentials = btoa("matthew:beyer"); // Base64 encoded credentials
 
   async sendMessage(message: string): Promise<ChatResponse> {
