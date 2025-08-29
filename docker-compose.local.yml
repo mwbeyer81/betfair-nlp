@@ -1,0 +1,54 @@
+version: "3.8"
+
+services:
+  # MongoDB database
+  mongodb:
+    image: mongo:7.0
+    container_name: betfair-nlp-mongodb-local
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: betfair_nlp_dev
+    volumes:
+      - mongodb_data_local:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    networks:
+      - betfair-local-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Node.js API server
+  api-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: betfair-nlp-api-local
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=docker
+      - PORT=3000
+    volumes:
+      - ./config:/app/config
+      - ./src:/app/src
+      - ./BASIC:/app/BASIC
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    command: ["yarn", "server:dev"]
+    networks:
+      - betfair-local-network
+
+volumes:
+  mongodb_data_local:
+    driver: local
+
+networks:
+  betfair-local-network:
+    driver: bridge

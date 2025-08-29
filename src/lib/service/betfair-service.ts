@@ -1,55 +1,54 @@
-import { readFileSync } from "fs";
 import {
   BetfairMessage,
   MarketChange,
   MarketDefinition,
   RunnerChange,
-  PriceUpdateDocument,
   MarketDefinitionDocument,
+  PriceUpdateDocument,
+  MarketStatus,
 } from "../../types/betfair";
-import { MarketDefinitionDAO, MarketStatusDAO, PriceUpdateDAO } from "../dao";
+import { MarketDefinitionDAO } from "../dao/market-definition-dao";
+import { PriceUpdateDAO } from "../dao/price-update-dao";
+import { DatabaseConnection } from "../../config/database";
 
 export class BetfairService {
   private marketDefinitionDAO: MarketDefinitionDAO;
   private priceUpdateDAO: PriceUpdateDAO;
-  private marketStatusDAO: MarketStatusDAO;
 
-  constructor(
-    marketDefinitionDAO: MarketDefinitionDAO,
-    priceUpdateDAO: PriceUpdateDAO,
-    marketStatusDAO: MarketStatusDAO
-  ) {
-    this.marketDefinitionDAO = marketDefinitionDAO;
-    this.priceUpdateDAO = priceUpdateDAO;
-    this.marketStatusDAO = marketStatusDAO;
+  constructor() {
+    const db = DatabaseConnection.getInstance().getDb();
+    this.marketDefinitionDAO = new MarketDefinitionDAO(db);
+    this.priceUpdateDAO = new PriceUpdateDAO(db);
   }
 
   /**
-   * Process a Betfair data file and insert all messages into MongoDB
+   * Initialize the service by creating necessary indexes
+   */
+  public async initialize(): Promise<void> {
+    await this.marketDefinitionDAO.createIndexes();
+    await this.priceUpdateDAO.createIndexes();
+  }
+
+  /**
+   * Process a data file containing Betfair messages
    */
   public async processDataFile(filePath: string): Promise<void> {
     try {
-      console.log(`Processing file: ${filePath}`);
-
-      const fileContent = readFileSync(filePath, "utf-8");
-      const lines = fileContent.trim().split("\n");
+      const fs = await import("fs/promises");
+      const content = await fs.readFile(filePath, "utf-8");
+      const lines = content.trim().split("\n");
 
       let processedCount = 0;
       let errorCount = 0;
 
       for (const line of lines) {
-        if (line.trim()) {
-          try {
-            const message: BetfairMessage = JSON.parse(line);
-            await this.processBetfairMessage(message);
-            processedCount++;
-          } catch (error) {
-            console.error(
-              `Failed to process line: ${line.substring(0, 100)}...`,
-              error
-            );
-            errorCount++;
-          }
+        try {
+          const message: BetfairMessage = JSON.parse(line);
+          await this.processBetfairMessage(message);
+          processedCount++;
+        } catch (error) {
+          console.error(`Failed to process line: ${line}`, error);
+          errorCount++;
         }
       }
 
@@ -114,16 +113,13 @@ export class BetfairService {
     timestamp: Date,
     changeId: string
   ): Promise<void> {
-    // Insert market definition
+    // Insert market definition (contains all status information)
     await this.marketDefinitionDAO.insert(
       marketDef,
       marketId,
       timestamp,
       changeId
     );
-
-    // Create market status document
-    await this.marketStatusDAO.insert(marketDef, marketId, timestamp, changeId);
   }
 
   /**
@@ -178,127 +174,83 @@ export class BetfairService {
   }
 
   /**
-   * Get runner name from market info with fallback logic
+   * Get runner name from market definition
    */
   private getRunnerName(
     runnerId: number,
     marketInfo: MarketDefinitionDocument | null
   ): string {
-    if (!marketInfo?.runners) return `Runner_${runnerId}`;
+    if (!marketInfo?.runners) {
+      return `Runner ${runnerId}`;
+    }
 
     const runner = marketInfo.runners.find(r => r.id === runnerId);
-    return runner?.name || `Runner_${runnerId}`;
+    return runner?.name || `Runner ${runnerId}`;
   }
 
   /**
-   * Create all database indexes
+   * Get market definitions for a specific market
    */
-  public async createIndexes(): Promise<void> {
-    await Promise.all([
-      this.marketDefinitionDAO.createIndexes(),
-      this.priceUpdateDAO.createIndexes(),
-      this.marketStatusDAO.createIndexes(),
-    ]);
-    console.log("All database indexes created successfully");
+  public async getMarketDefinitions(
+    marketId: string
+  ): Promise<MarketDefinitionDocument[]> {
+    return await this.marketDefinitionDAO.getByMarketId(marketId);
   }
 
   /**
-   * Get comprehensive market analysis
+   * Get market definitions by event ID
    */
-  public async getMarketAnalysis(marketId: string): Promise<{
-    marketDefinition: MarketDefinitionDocument | null;
-    priceHistory: PriceUpdateDocument[];
-    statusHistory: any[];
-    summary: {
-      totalPriceUpdates: number;
-      priceRange: { min: number; max: number };
-      statusTransitions: string[];
-    };
-  }> {
-    const [marketDefinition, priceHistory, statusHistory] = await Promise.all([
-      this.marketDefinitionDAO.getLatestByMarketId(marketId),
-      this.priceUpdateDAO.getByMarketId(marketId, 1000),
-      this.marketStatusDAO.getByMarketId(marketId, 100),
-    ]);
-
-    // Calculate price range
-    const prices = priceHistory.map(p => p.lastTradedPrice);
-    const priceRange = {
-      min: Math.min(...prices),
-      max: Math.max(...prices),
-    };
-
-    // Get status transitions
-    const statusTransitions = statusHistory.map(s => s.status);
-
-    return {
-      marketDefinition,
-      priceHistory,
-      statusHistory,
-      summary: {
-        totalPriceUpdates: priceHistory.length,
-        priceRange,
-        statusTransitions,
-      },
-    };
+  public async getMarketDefinitionsByEvent(
+    eventId: string
+  ): Promise<MarketDefinitionDocument[]> {
+    return await this.marketDefinitionDAO.getByEventId(eventId);
   }
 
   /**
-   * Get event summary across multiple markets
+   * Get market definitions by status
    */
-  public async getEventSummary(eventId: string): Promise<{
-    eventId: string;
-    eventName: string;
-    markets: string[];
-    totalRunners: number;
-    activeMarkets: number;
-    suspendedMarkets: number;
-    closedMarkets: number;
-  }> {
-    const [marketDefinitions, marketStatuses] = await Promise.all([
-      this.marketDefinitionDAO.getByEventId(eventId, 1000),
-      this.marketStatusDAO.getByEventId(eventId, 1000),
-    ]);
+  public async getMarketDefinitionsByStatus(
+    status: MarketStatus
+  ): Promise<MarketDefinitionDocument[]> {
+    return await this.marketDefinitionDAO.getByStatus(status);
+  }
 
-    const markets = [...new Set(marketDefinitions.map(m => m.marketId))];
-    const latestStatuses = markets
-      .map(marketId =>
-        marketStatuses.find(
-          s =>
-            s.marketId === marketId &&
-            s.timestamp.getTime() ===
-              Math.max(
-                ...marketStatuses
-                  .filter(s2 => s2.marketId === marketId)
-                  .map(s2 => s2.timestamp.getTime())
-              )
-        )
-      )
-      .filter(Boolean);
+  /**
+   * Get latest market definition for a market
+   */
+  public async getLatestMarketDefinition(
+    marketId: string
+  ): Promise<MarketDefinitionDocument | null> {
+    return await this.marketDefinitionDAO.getLatestByMarketId(marketId);
+  }
 
-    const statusCounts = latestStatuses.reduce(
-      (acc, status) => {
-        if (status) {
-          acc[status.status] = (acc[status.status] || 0) + 1;
-        }
-        return acc;
-      },
-      {} as Record<string, number>
-    );
+  /**
+   * Get price updates for a specific market
+   */
+  public async getPriceUpdates(
+    marketId: string
+  ): Promise<PriceUpdateDocument[]> {
+    return await this.priceUpdateDAO.getByMarketId(marketId);
+  }
 
-    const totalRunners = marketDefinitions.reduce(
-      (sum, m) => sum + (m.runners?.length || 0),
-      0
-    );
+  /**
+   * Get price updates for a specific runner
+   */
+  public async getPriceUpdatesByRunner(
+    marketId: string,
+    runnerId: number
+  ): Promise<PriceUpdateDocument[]> {
+    // Note: This method only filters by runnerId, not marketId
+    return await this.priceUpdateDAO.getByRunnerId(runnerId);
+  }
 
-    return {
-      eventId,
-      eventName: marketDefinitions[0]?.eventName || "",
-      markets,
-      totalRunners,
-      activeMarkets: statusCounts.OPEN || 0,
-      suspendedMarkets: statusCounts.SUSPENDED || 0,
-      closedMarkets: statusCounts.CLOSED || 0,
-    };
+  /**
+   * Get latest price update for a runner
+   */
+  public async getLatestPriceUpdate(
+    marketId: string,
+    runnerId: number
+  ): Promise<PriceUpdateDocument | null> {
+    return await this.priceUpdateDAO.getLatestPriceByRunnerId(runnerId);
   }
 }

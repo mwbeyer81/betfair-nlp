@@ -268,9 +268,7 @@ docker exec -it betfair-nlp-mongodb mongosh
 use betfair_nlp
 
 # Drop all collections
-db.market_definitions.drop()
-db.price_updates.drop()
-db.market_statuses.drop()
+db.market_definitions.drop(); db.price_updates.drop(); db.market_statuses.drop();
 
 # Verify collections are dropped
 show collections

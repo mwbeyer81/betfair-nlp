@@ -7,7 +7,7 @@ WORKDIR /app
 # Copy package files
 COPY package.json yarn.lock ./
 
-# Install dependencies
+# Install dependencies (including dev dependencies)
 RUN yarn install --frozen-lockfile
 
 # Copy source code
@@ -19,5 +19,5 @@ RUN yarn build
 # Expose port
 EXPOSE 3000
 
-# Start the application
+# Start the application (default to production)
 CMD ["yarn", "server"]

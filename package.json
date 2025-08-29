@@ -9,6 +9,10 @@
     "dev": "ts-node src/index.ts",
     "server": "ts-node src/server/index.ts",
     "server:dev": "ts-node-dev --respawn src/server/index.ts",
+    "server:docker": "docker-compose -f docker-compose.local.yml up -d",
+    "server:docker:down": "docker-compose -f docker-compose.local.yml down",
+    "server:docker:logs": "docker-compose -f docker-compose.local.yml logs -f api-server",
+    "server:docker:build": "docker-compose -f docker-compose.local.yml build --no-cache",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
@@ -21,7 +25,9 @@
     "format:all": "prettier --write .",
     "process:file": "ts-node src/commands/process-file.ts",
     "process:directory": "ts-node src/commands/process-directory.ts",
-    "process:event": "ts-node src/commands/process-event.ts"
+    "process:event": "ts-node src/commands/process-event.ts",
+    "process:basic": "ts-node src/commands/process-basic-files.ts",
+    "process:basic:docker": "docker-compose -f docker-compose.local.yml exec api-server yarn process:basic"
   },
   "keywords": [
     "betfair",
@@ -56,6 +62,7 @@
     "supertest": "^7.1.4",
     "ts-jest": "^29.1.1",
     "ts-node": "^10.9.1",
+    "ts-node-dev": "^2.0.0",
     "typescript": "^5.3.0"
   }
 }

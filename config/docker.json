@@ -1,0 +1,13 @@
+{
+  "mongodb": {
+    "uri": "mongodb://mongodb:27017",
+    "dbName": "betfair_nlp_dev"
+  },
+  "app": {
+    "environment": "docker"
+  },
+  "logging": {
+    "level": "debug",
+    "enableConsole": true
+  }
+}
