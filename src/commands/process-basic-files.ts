@@ -20,7 +20,7 @@ async function processBasicFiles() {
     await dbConnection.connect();
     console.log("Connected to MongoDB");
 
-    // Initialize service
+    // Initialize service AFTER database connection
     const service = new BetfairService();
 
     // Create database indexes
@@ -99,7 +99,6 @@ async function processBasicFiles() {
   } finally {
     try {
       await DatabaseConnection.getInstance().disconnect();
-      console.log("Disconnected from MongoDB");
     } catch (error) {
       console.error("Error during disconnect:", error);
     }

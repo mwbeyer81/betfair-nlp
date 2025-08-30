@@ -61,9 +61,11 @@ export class DatabaseConnection {
 
   public async disconnect(): Promise<void> {
     try {
-      await this.mongoDB.disconnect();
-      this.db = null;
-      console.log("Disconnected from MongoDB");
+      if (this.mongoDB.isConnected()) {
+        await this.mongoDB.disconnect();
+        this.db = null;
+        console.log("Disconnected from MongoDB");
+      }
     } catch (error) {
       console.error("Failed to disconnect from MongoDB:", error);
       throw error;
