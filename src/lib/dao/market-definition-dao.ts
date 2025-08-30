@@ -26,8 +26,7 @@ export class MarketDefinitionDAO {
       ...marketDef,
       marketId,
       timestamp,
-      // Create unique changeId by combining original changeId with marketId
-      changeId: `${changeId}_${marketId}`,
+      changeId,
       publishTime: timestamp,
     };
 
@@ -105,7 +104,11 @@ export class MarketDefinitionDAO {
       await this.collection.createIndex({ marketId: 1, timestamp: -1 });
       await this.collection.createIndex({ eventId: 1, timestamp: -1 });
       await this.collection.createIndex({ status: 1 });
-      await this.collection.createIndex({ changeId: 1 }, { unique: true });
+      // Compound unique index prevents duplicate changeId + marketId combinations
+      await this.collection.createIndex(
+        { changeId: 1, marketId: 1 },
+        { unique: true }
+      );
       console.log("Market definition indexes created successfully");
     } catch (error) {
       console.error("Failed to create market definition indexes:", error);

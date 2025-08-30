@@ -15,28 +15,23 @@ export class PriceUpdateDAO {
     if (priceUpdates.length === 0) return;
 
     try {
-      // Check for existing documents to avoid duplicate key errors
-      const existingChangeIds = await this.collection.distinct("changeId", {
-        changeId: { $in: priceUpdates.map(p => p.changeId) },
+      // Let MongoDB handle duplicates with the unique index
+      const result = await this.collection.insertMany(priceUpdates, {
+        ordered: false,
       });
-
-      // Filter out updates that already exist
-      const newUpdates = priceUpdates.filter(
-        update => !existingChangeIds.includes(update.changeId)
-      );
-
-      if (newUpdates.length === 0) {
-        console.log("All price updates already exist, skipping insertion");
-        return;
+      console.log(`Inserted ${result.insertedCount} price updates`);
+    } catch (error: any) {
+      // Handle bulk write errors where some documents were inserted
+      if (error.code === 11000 && error.result) {
+        console.log(`Inserted ${error.result.insertedCount} price updates`);
+        const skippedCount = priceUpdates.length - error.result.insertedCount;
+        console.log(
+          `Skipped ${skippedCount} duplicate price updates (already existed)`
+        );
+      } else {
+        console.error("Failed to insert price updates:", error);
+        throw error;
       }
-
-      await this.collection.insertMany(newUpdates);
-      console.log(
-        `Inserted ${newUpdates.length} new price updates (${priceUpdates.length - newUpdates.length} already existed)`
-      );
-    } catch (error) {
-      console.error("Failed to insert price updates:", error);
-      throw error;
     }
   }
 
@@ -138,8 +133,11 @@ export class PriceUpdateDAO {
       await this.collection.createIndex({ runnerId: 1, timestamp: -1 });
       await this.collection.createIndex({ eventId: 1, timestamp: -1 });
       await this.collection.createIndex({ timestamp: -1 });
-      // changeId should be unique since each represents a unique system change
-      await this.collection.createIndex({ changeId: 1 }, { unique: true });
+      // Compound unique index prevents duplicate changeId + runnerId combinations
+      await this.collection.createIndex(
+        { changeId: 1, runnerId: 1 },
+        { unique: true }
+      );
       console.log("Price update indexes created successfully");
     } catch (error) {
       console.error("Failed to create price update indexes:", error);

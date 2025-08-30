@@ -182,8 +182,7 @@ export class BetfairService {
       runnerName: this.getRunnerName(rc.id, marketInfo),
       lastTradedPrice: rc.ltp,
       timestamp,
-      // Create unique changeId by combining original changeId with runnerId
-      changeId: `${changeId}_${rc.id}`,
+      changeId,
       publishTime: timestamp,
       eventId: marketInfo?.eventId || "",
       eventName: marketInfo?.eventName || "",
