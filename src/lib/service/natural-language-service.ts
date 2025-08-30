@@ -25,6 +25,8 @@ export interface NaturalLanguageResponse {
   naturalLanguageInterpretation?: string;
   noResultsFound?: boolean;
   noResultsMessage?: string;
+  queryGenerated?: boolean;
+  databaseConnected?: boolean;
 }
 
 export class NaturalLanguageService {
@@ -162,18 +164,18 @@ export class NaturalLanguageService {
     let mongoQuery: string | null = null;
     let mongoResults: any[] = [];
     let naturalLanguageInterpretation: string | undefined;
+    let aiResponse: any = null;
 
     try {
-      const aiResponse =
-        await this.openaiClient.createHorseQueryResponse(query);
+      // Always try to get AI response first
+      aiResponse = await this.openaiClient.createHorseQueryResponse(query);
 
-      // Extract MongoDB query and natural language interpretation from AI response
       if (aiResponse) {
         mongoQuery = aiResponse.mongoQuery || null;
         naturalLanguageInterpretation =
           aiResponse.naturalLanguageInterpretation || undefined;
 
-        // Execute the MongoDB query if found
+        // Execute the MongoDB query if found and database is available
         if (mongoQuery && this.db) {
           console.log("Executing MongoDB query:", mongoQuery);
           mongoResults = await this.executeMongoQuery(mongoQuery);
@@ -186,33 +188,52 @@ export class NaturalLanguageService {
             );
           }
         } else if (mongoQuery && !this.db) {
-          throw new Error("Database connection not available");
+          console.log(
+            "Database connection not available, but AI response received"
+          );
         } else if (!mongoQuery) {
-          throw new Error("Could not extract MongoDB query from AI analysis");
+          console.log("No MongoDB query generated, but AI response received");
         }
       } else {
-        throw new Error("Failed to get AI analysis from OpenAI");
+        console.log("Failed to get AI analysis from OpenAI");
       }
     } catch (error) {
       console.error("Error in processQuery:", error);
-      throw error; // Re-throw the error instead of continuing with stubbed data
+      // Don't throw error - we want to return the AI response if available
     }
 
-    // Return the MongoDB results directly
+    // Determine if we have a valid database query scenario
+    const hasValidQuery = mongoQuery && this.db;
+    const queryExecuted = hasValidQuery && mongoResults.length > 0;
+
+    // Generate appropriate message based on the scenario
+    let noResultsMessage: string | undefined;
+    if (!mongoQuery) {
+      noResultsMessage =
+        "I couldn't generate a database query for your question, but I can still help with general information about horse racing!";
+    } else if (!this.db) {
+      noResultsMessage =
+        "Database connection is not available right now, but I can still provide general assistance.";
+    } else if (mongoQuery && mongoResults.length === 0) {
+      // Only show "no results" message when we actually have a valid query but no results
+      noResultsMessage =
+        "No data found matching your query. This could mean the horse name doesn't exist in our database, or there are no records for the specified criteria.";
+    }
+
+    // Return the response with appropriate flags
     return {
       horses: [], // Empty since we're returning MongoDB results
       query: query,
       timestamp: new Date(),
-      confidence: 0.95, // Higher confidence since we have real data
-      aiAnalysis,
+      confidence: hasValidQuery ? 0.95 : 0.7, // Lower confidence when no query
+      aiAnalysis: aiResponse ? JSON.stringify(aiResponse) : undefined,
       mongoQuery: mongoQuery || undefined,
       mongoResults: mongoResults,
       naturalLanguageInterpretation: naturalLanguageInterpretation || undefined,
-      noResultsFound: mongoResults.length === 0,
-      noResultsMessage:
-        mongoResults.length === 0
-          ? "No data found matching your query. This could mean the horse name doesn't exist in our database, or there are no records for the specified criteria."
-          : undefined,
+      noResultsFound: !hasValidQuery || mongoResults.length === 0,
+      noResultsMessage,
+      queryGenerated: !!mongoQuery,
+      databaseConnected: !!this.db,
     };
   }
 
