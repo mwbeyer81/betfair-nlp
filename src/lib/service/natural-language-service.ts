@@ -23,6 +23,8 @@ export interface NaturalLanguageResponse {
   mongoQuery?: string;
   mongoResults?: any[];
   naturalLanguageInterpretation?: string;
+  noResultsFound?: boolean;
+  noResultsMessage?: string;
 }
 
 export class NaturalLanguageService {
@@ -177,9 +179,11 @@ export class NaturalLanguageService {
           mongoResults = await this.executeMongoQuery(mongoQuery);
           console.log("MongoDB query results:", mongoResults);
 
-          // If no results found, throw an error
+          // If no results found, we'll handle this gracefully instead of throwing an error
           if (mongoResults.length === 0) {
-            throw new Error(`No results found for query: ${mongoQuery}`);
+            console.log(
+              "No results found for query, continuing with empty results"
+            );
           }
         } else if (mongoQuery && !this.db) {
           throw new Error("Database connection not available");
@@ -204,6 +208,11 @@ export class NaturalLanguageService {
       mongoQuery: mongoQuery || undefined,
       mongoResults: mongoResults,
       naturalLanguageInterpretation: naturalLanguageInterpretation || undefined,
+      noResultsFound: mongoResults.length === 0,
+      noResultsMessage:
+        mongoResults.length === 0
+          ? "No data found matching your query. This could mean the horse name doesn't exist in our database, or there are no records for the specified criteria."
+          : undefined,
     };
   }
 
