@@ -31,9 +31,25 @@ export class BetfairService {
 
   /**
    * Process a data file containing Betfair messages
+   * Only processes uncompressed market files (files with dots in the filename, excluding .bz2)
    */
   public async processDataFile(filePath: string): Promise<void> {
     try {
+      // Check if this is a market file (contains a dot in the filename)
+      const fileName = filePath.split("/").pop() || "";
+      if (!fileName.includes(".")) {
+        console.log(
+          `Skipping event-level file: ${fileName} (no dot in filename)`
+        );
+        return;
+      }
+
+      // Skip compressed .bz2 files
+      if (fileName.endsWith(".bz2")) {
+        console.log(`Skipping compressed file: ${fileName} (.bz2 file)`);
+        return;
+      }
+
       const fs = await import("fs/promises");
       const content = await fs.readFile(filePath, "utf-8");
       const lines = content.trim().split("\n");
@@ -166,7 +182,8 @@ export class BetfairService {
       runnerName: this.getRunnerName(rc.id, marketInfo),
       lastTradedPrice: rc.ltp,
       timestamp,
-      changeId,
+      // Create unique changeId by combining original changeId with runnerId
+      changeId: `${changeId}_${rc.id}`,
       publishTime: timestamp,
       eventId: marketInfo?.eventId || "",
       eventName: marketInfo?.eventName || "",

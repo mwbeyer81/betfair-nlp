@@ -26,7 +26,8 @@ export class MarketDefinitionDAO {
       ...marketDef,
       marketId,
       timestamp,
-      changeId,
+      // Create unique changeId by combining original changeId with marketId
+      changeId: `${changeId}_${marketId}`,
       publishTime: timestamp,
     };
 

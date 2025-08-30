@@ -7,7 +7,7 @@ import { validateConfig, getAppEnvironment } from "../config";
 import { BetfairService } from "../lib/service/betfair-service";
 
 async function processBasicFiles() {
-  const directoryPath = process.argv[2] || "BASIC/2025/Jan/1/33858191";
+  const inputPath = process.argv[2] || "BASIC/2025/Jan/1/33858191";
 
   try {
     // Validate configuration before starting
@@ -27,18 +27,38 @@ async function processBasicFiles() {
     await service.initialize();
     console.log("Database indexes created");
 
-    // Find all files in the directory (excluding .bz2 files)
-    console.log(`Scanning directory: ${directoryPath}`);
-    const files = await findProcessableFiles(directoryPath);
+    // Check if input is a file or directory
+    const stats = await stat(inputPath);
+    let files: string[] = [];
 
-    if (files.length === 0) {
-      console.log("No processable files found in directory");
+    if (stats.isFile()) {
+      // Single file - check if it's processable
+      if (
+        inputPath.endsWith(".bz2") ||
+        inputPath.split("/").pop()?.startsWith(".")
+      ) {
+        console.log("❌ File is not processable (compressed or hidden)");
+        return;
+      }
+      files = [inputPath];
+      console.log(`📄 Processing single file: ${inputPath}`);
+    } else if (stats.isDirectory()) {
+      // Directory - find all processable files
+      console.log(`📁 Scanning directory: ${inputPath}`);
+      files = await findProcessableFiles(inputPath);
+
+      if (files.length === 0) {
+        console.log("No processable files found in directory");
+        return;
+      }
+
+      console.log(
+        `Found ${files.length} files to process (excluding .bz2 files)`
+      );
+    } else {
+      console.log("❌ Input path is neither a file nor a directory");
       return;
     }
-
-    console.log(
-      `Found ${files.length} files to process (excluding .bz2 files)`
-    );
 
     // Process files
     const startTime = Date.now();
