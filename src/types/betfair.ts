@@ -63,8 +63,37 @@ export interface RunnerChange {
 }
 
 // Document types for MongoDB collections
-export interface MarketDefinitionDocument extends MarketDefinition {
+export interface MarketDefinitionDocument {
   _id?: string;
+  bspMarket: boolean;
+  turnInPlayEnabled: boolean;
+  persistenceEnabled: boolean;
+  marketBaseRate: number;
+  eventId: string;
+  eventTypeId: string;
+  numberOfWinners: number;
+  bettingType: string;
+  marketType: string;
+  marketTime: string;
+  suspendTime: string;
+  bspReconciled: boolean;
+  complete: boolean;
+  inPlay: boolean;
+  crossMatching: boolean;
+  runnersVoidable: boolean;
+  numberOfActiveRunners: number;
+  betDelay: number;
+  status: MarketStatus;
+  runners: Runner[];
+  regulators: string[];
+  countryCode: string;
+  discountAllowed: boolean;
+  timezone: string;
+  openDate: string;
+  version: number;
+  name: string;
+  eventName: string;
+  settledTime?: string;
   marketId: string;
   timestamp: Date;
   changeId: string;
@@ -82,16 +111,4 @@ export interface PriceUpdateDocument {
   publishTime: Date;
   eventId: string;
   eventName: string;
-}
-
-export interface MarketStatusDocument {
-  _id?: string;
-  marketId: string;
-  status: MarketStatus;
-  timestamp: Date;
-  changeId: string;
-  publishTime: Date;
-  eventId: string;
-  eventName: string;
-  numberOfActiveRunners: number;
 }

@@ -4,7 +4,6 @@ import {
   BetfairMessage,
   MarketDefinitionDocument,
   PriceUpdateDocument,
-  MarketStatusDocument,
 } from "../../../types/betfair";
 
 export class TestUtils {
@@ -110,26 +109,6 @@ export class TestUtils {
       publishTime: new Date(),
       eventId: "33858191",
       eventName: "Test Event",
-      ...overrides,
-    };
-  }
-
-  /**
-   * Create a mock market status document with optional overrides
-   */
-  static createMockMarketStatusDocument(
-    overrides: Partial<MarketStatusDocument> = {}
-  ): MarketStatusDocument {
-    return {
-      _id: "test-id",
-      marketId: "1.237066150",
-      status: "OPEN",
-      timestamp: new Date(),
-      changeId: "123",
-      publishTime: new Date(),
-      eventId: "33858191",
-      eventName: "Test Event",
-      numberOfActiveRunners: 26,
       ...overrides,
     };
   }
