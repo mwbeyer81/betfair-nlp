@@ -27,7 +27,8 @@
     "process:directory": "ts-node src/commands/process-directory.ts",
     "process:event": "ts-node src/commands/process-event.ts",
     "process:basic": "ts-node src/commands/process-basic-files.ts",
-    "process:basic:docker": "docker-compose -f docker-compose.local.yml exec api-server yarn process:basic"
+    "process:basic:docker": "docker-compose -f docker-compose.local.yml exec api-server yarn process:basic",
+    "mongo:drop-all": "docker-compose -f docker-compose.local.yml exec mongodb mongosh betfair_nlp_dev --eval \"db.getCollectionNames().forEach(function(collection) { db[collection].drop(); print('Dropped collection: ' + collection); }); print('All collections dropped successfully.');\""
   },
   "keywords": [
     "betfair",
