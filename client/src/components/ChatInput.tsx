@@ -11,12 +11,18 @@ export interface ChatInputProps {
   onSendMessage: (message: string) => void;
   isLoading?: boolean;
   placeholder?: string;
+  queryHistory?: string[];
+  historyIndex?: number;
+  onHistoryChange?: (index: number) => void;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   isLoading = false,
   placeholder = "Type your message...",
+  queryHistory = [],
+  historyIndex = -1,
+  onHistoryChange,
 }) => {
   const [inputText, setInputText] = useState("");
 
@@ -28,10 +34,46 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleKeyPress = (event: any) => {
-    // Check if Enter was pressed without Shift (Shift+Enter for new line)
-    if (event.nativeEvent.key === "Enter" && !event.nativeEvent.shiftKey) {
+    const key = event.nativeEvent.key;
+
+    // Handle Enter key
+    if (key === "Enter" && !event.nativeEvent.shiftKey) {
       event.preventDefault();
       handleSend();
+    }
+
+    // Handle Arrow keys for history navigation
+    if (key === "ArrowUp") {
+      console.log(
+        "🔼 ArrowUp pressed, current historyIndex:",
+        historyIndex,
+        "queryHistory length:",
+        queryHistory.length
+      );
+      event.preventDefault();
+      if (queryHistory.length > 0 && historyIndex < queryHistory.length - 1) {
+        const newIndex = historyIndex + 1;
+        console.log("✅ Going back in history to index:", newIndex);
+        onHistoryChange?.(newIndex);
+        setInputText(queryHistory[queryHistory.length - 1 - newIndex]);
+      } else {
+        console.log("❌ Cannot go further back in history");
+      }
+    } else if (key === "ArrowDown") {
+      console.log("🔽 ArrowDown pressed, current historyIndex:", historyIndex);
+      event.preventDefault();
+      if (historyIndex > 0) {
+        const newIndex = historyIndex - 1;
+        console.log("✅ Going forward in history to index:", newIndex);
+        onHistoryChange?.(newIndex);
+        setInputText(queryHistory[queryHistory.length - 1 - newIndex]);
+      } else if (historyIndex === 0) {
+        console.log("✅ Back to current input");
+        onHistoryChange?.(-1);
+        setInputText("");
+      } else {
+        console.log("❌ Already at current input");
+      }
     }
   };
 

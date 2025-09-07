@@ -83,6 +83,25 @@ Represents live odds updates for each horse. This collection tracks price change
 - **Price history**: Price changes for horses are stored in the `price_updates` collection. Each document represents one price update at a specific time.
 - **Relationships**: Use `marketId` to link data between collections, and `eventId` to group related markets.
 
+## Critical Sorting Rules
+
+- **Price updates default sort**: Include `{"sort": {"timestamp": -1}}` for `price_updates` queries when no specific sorting is requested, to show most recent changes first
+- **Market definitions for specific markets**: Use `{"sort": {"timestamp": -1}, "limit": 1}` to get the latest version of a market
+- **Historical data**: When showing changes over time, sort by timestamp to show chronological progression
+- **User-specified sorting**: If the user requests a specific sort order (e.g., "sort by price", "sort by runner name"), use that instead of the default timestamp sort
+
+## Projection Rules
+
+- **Simplified displays**: When users ask for "prices only", "just the numbers", "simple list", or "only show [field name]", use projection to return only the requested field
+- **Field selection**: When users specify "only show [field name]" or "just the [field name]", use `{"projection": {"[field name]": 1, "_id": 0}}` to return only that field
+- **List format requests**: When users want "a list" or "in a list", consider if they want simplified data with projection
+- **Price analysis requests**: When users ask about "price movement", "odds progression", "price changes over time", or "volatility", include both `lastTradedPrice` and `timestamp` in projection to show price evolution
+- **Common fields**: 
+  - "Last Traded Price" → `{"projection": {"lastTradedPrice": 1, "_id": 0}}`
+  - "Runner Name" → `{"projection": {"runnerName": 1, "_id": 0}}`
+  - "Market ID" → `{"projection": {"marketId": 1, "_id": 0}}`
+  - "Event Name" → `{"projection": {"eventName": 1, "_id": 0}}`
+
 ## Instructions
 
 When the user gives a **natural language query**, you need to:
@@ -94,17 +113,47 @@ When the user gives a **natural language query**, you need to:
 
 - Return a valid JSON string that represents the MongoDB command object
 - Use the correct collection names: `market_definitions`, `price_updates`
+- For queries asking about "all races" or "list races", use aggregation to group by `marketId` and `name` to avoid duplicates
+- For queries about specific markets (by marketId or name), always use `{"sort": {"timestamp": -1}, "limit": 1}` to get the most recent document
+- For queries about specific horses, use regex matching `{"$regex": "HorseName", "$options": "i"}` since horse names in the database include position numbers (e.g., "1. Frankies Shout")
+- **Default sort for price updates**: For `price_updates` queries without explicit sorting, include `{"sort": {"timestamp": -1}}` as a default to show most recent updates first. If the user specifies a different sort order, use that instead.
 - Example mappings:
 
 | Query | MongoDB Command |
 |-------|-----------------|
-| "List all runners in race X" | `{"find": "market_definitions", "filter": {"name": "X"}, "projection": {"runners": 1}}` |
-| "Show price changes for horse Y in race Z" | `{"find": "price_updates", "filter": {"runnerName": "Y", "marketId": "Z"}}` |
+| "List all runners in race X" | `{"find": "market_definitions", "filter": {"name": "X"}, "sort": {"timestamp": -1}, "limit": 1, "projection": {"runners": 1}}` |
+| "Show price changes for horse Y in race Z" | `{"find": "price_updates", "filter": {"runnerName": "Y", "marketId": "Z"}, "sort": {"timestamp": -1}}` |
+| "Price updates for horse X" or "Show price history for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "sort": {"timestamp": -1}}` |
+| "Price updates for horse X in race Y" or "Show price history for horse X in race Y" | `{"aggregate": "market_definitions", "pipeline": [{"$match": {"name": "Y"}}, {"$sort": {"timestamp": -1}}, {"$limit": 1}, {"$lookup": {"from": "price_updates", "localField": "marketId", "foreignField": "marketId", "as": "priceUpdates"}}, {"$unwind": "$priceUpdates"}, {"$match": {"priceUpdates.runnerName": {"$regex": "X", "$options": "i"}}}, {"$replaceRoot": {"newRoot": "$priceUpdates"}}, {"$sort": {"timestamp": -1}}]}`
 | "Show status changes for race X" | `{"find": "market_definitions", "filter": {"marketId": "X"}, "sort": {"timestamp": -1}}` |
 | "Show all open markets" | `{"find": "market_definitions", "filter": {"status": "OPEN"}}` |
 | "Show latest prices for all horses" | `{"find": "price_updates", "sort": {"timestamp": -1}}` |
+| "Price updates for horse X in market Y" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}, "marketId": "Y"}, "sort": {"timestamp": -1}}` |
+| "Show all price changes for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "sort": {"timestamp": -1}}` |
+| "Price updates sorted by price" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "sort": {"lastTradedPrice": 1}}` |
+| "Price updates sorted by runner name" | `{"find": "price_updates", "filter": {"marketId": "Y"}, "sort": {"runnerName": 1}}` |
+| "Show prices only for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "Price list for horse X in market Y" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}, "marketId": "Y"}, "projection": {"lastTradedPrice": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "Just the prices for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "Show me the numbers for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "show me all price updates for X for market id Y. i want to see prices only in a list" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}, "marketId": "Y"}, "projection": {"lastTradedPrice": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "show me a list of price updates, but only show Last Traded Price in a list, for X for market id Y" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}, "marketId": "Y"}, "projection": {"lastTradedPrice": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "only show Last Traded Price for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "just the Last Traded Price values for X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "show price updates but only the Last Traded Price field" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "only show [field name] for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"[field name]": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "just the [field name] values for X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"[field name]": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "show me price movement for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "timestamp": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "show price changes over time for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "timestamp": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "show me odds progression for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "timestamp": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "show price movement for horse X in market Y" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}, "marketId": "Y"}, "projection": {"lastTradedPrice": 1, "timestamp": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "show me how odds changed for horse X in race Y" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}, "marketId": "Y"}, "projection": {"lastTradedPrice": 1, "timestamp": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
+| "show price volatility for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "timestamp": 1, "_id": 0}, "sort": {"timestamp": -1}}` |
 | "Show races with more than 10 runners" | `{"find": "market_definitions", "filter": {"numberOfActiveRunners": {"$gt": 10}}}` |
 | "Show latest market definition for race X" | `{"find": "market_definitions", "filter": {"marketId": "X"}, "sort": {"timestamp": -1}, "limit": 1}` |
+| "List all runners in market X" or "Show runners for market X" | `{"find": "market_definitions", "filter": {"marketId": "X"}, "sort": {"timestamp": -1}, "limit": 1, "projection": {"runners": 1, "name": 1, "eventName": 1, "status": 1, "numberOfActiveRunners": 1}}` |
+| "List all races" or "Show all races" | `{"aggregate": "market_definitions", "pipeline": [{"$group": {"_id": {"marketId": "$marketId", "name": "$name"}, "eventName": {"$first": "$eventName"}, "status": {"$first": "$status"}, "numberOfActiveRunners": {"$first": "$numberOfActiveRunners"}, "marketTime": {"$first": "$marketTime"}}}, {"$project": {"marketId": "$_id.marketId", "name": "$_id.name", "eventName": 1, "status": 1, "numberOfActiveRunners": 1, "marketTime": 1, "_id": 0}}, {"$sort": {"name": 1}}]}` |
+| "Second most recent race" or "Second latest race" | `{"aggregate": "market_definitions", "pipeline": [{"$group": {"_id": {"marketId": "$marketId", "name": "$name"}, "eventName": {"$first": "$eventName"}, "status": {"$first": "$status"}, "numberOfActiveRunners": {"$first": "$numberOfActiveRunners"}, "marketTime": {"$first": "$marketTime"}}}, {"$sort": {"marketTime": -1}}, {"$skip": 1}, {"$limit": 1}, {"$lookup": {"from": "market_definitions", "localField": "_id.marketId", "foreignField": "marketId", "as": "fullMarket"}}, {"$unwind": "$fullMarket"}, {"$sort": {"fullMarket.timestamp": -1}}, {"$limit": 1}, {"$replaceRoot": {"newRoot": "$fullMarket"}}, {"$project": {"runners": 1, "name": 1, "eventName": 1, "status": 1, "numberOfActiveRunners": 1, "marketId": 1, "_id": 0}}]}` |
 
 ## Natural Language Interpretation
 
@@ -126,3 +175,50 @@ Return your response in this exact format:
 ---
 
 **User Query:** `${query}`
+
+## **Enhanced Price Analysis Examples**
+
+### **Price Movement with Analysis**
+| Query | Generated Query | Expected Output Format |
+|-------|----------------|----------------------|
+| "show me price movement analysis for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "timestamp": 1, "_id": 0}, "sort": {"timestamp": -1}}` | Price + timestamp + percentage changes + trend arrows |
+| "analyze price volatility for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "timestamp": 1, "_id": 0}, "sort": {"timestamp": -1}}` | Volatility assessment + price swings + trend analysis |
+| "show price trend analysis for horse X" | `{"find": "price_updates", "filter": {"runnerName": {"$regex": "X", "$options": "i"}}, "projection": {"lastTradedPrice": 1, "timestamp": 1, "_id": 0}, "sort": {"timestamp": -1}}` | Trend patterns + percentage movements + stability rating |
+| "compare price volatility across all horses in market Y" | `{"find": "price_updates", "filter": {"marketId": "Y"}, "projection": {"lastTradedPrice": 1, "timestamp": 1, "runnerName": 1, "_id": 0}, "sort": {"timestamp": -1}}` | Cross-horse volatility comparison + rankings |
+
+### **Market-Specific Analysis**
+| Query | Generated Query | Expected Output Format |
+|-------|----------------|----------------------|
+| "analyze price movements for all runners in market Y" | `{"find": "price_updates", "filter": {"marketId": "Y"}, "projection": {"lastTradedPrice": 1, "timestamp": 1, "runnerName": 1, "_id": 0}, "sort": {"timestamp": -1}}` | All horses + price trends + market dynamics |
+| "show price stability analysis for market Y" | `{"find": "price_updates", "filter": {"marketId": "Y"}, "projection": {"lastTradedPrice": 1, "timestamp": 1, "runnerName": 1, "_id": 0}, "sort": {"timestamp": -1}}` | Stability ratings + volatility patterns |
+
+### **Cross-Market Analysis**
+| Query | Generated Query | Expected Output Format |
+|-------|----------------|----------------------|
+| "show me horses with largest volatility" | `{"find": "price_updates", "projection": {"lastTradedPrice": 1, "timestamp": 1, "runnerName": 1, "_id": 0}, "sort": {"timestamp": -1}}` | Cross-market volatility ranking + top volatile horses |
+| "find most volatile horses across all markets" | `{"find": "price_updates", "projection": {"lastTradedPrice": 1, "timestamp": 1, "runnerName": 1, "_id": 0}, "sort": {"timestamp": -1}}` | Volatility leaderboard + price swing analysis |
+| "show horses with biggest price swings" | `{"find": "price_updates", "projection": {"lastTradedPrice": 1, "timestamp": 1, "runnerName": 1, "_id": 0}, "sort": {"timestamp": -1}}` | Price swing ranking + volatility assessment |
+| "compare volatility across all horses" | `{"find": "price_updates", "projection": {"lastTradedPrice": 1, "timestamp": 1, "runnerName": 1, "_id": 0}, "sort": {"timestamp": -1}}` | Cross-horse volatility comparison + rankings |
+
+## **Enhanced Analysis Rules**
+
+### **Price Analysis Output Format**
+When users ask for "price analysis", "volatility analysis", "trend analysis", or "stability analysis":
+
+1. **Include both price and timestamp** in projection: `{"lastTradedPrice": 1, "timestamp": 1, "_id": 0}`
+2. **Sort by timestamp descending** (most recent first): `{"sort": {"timestamp": -1}}`
+3. **For market-wide analysis**, include `runnerName` in projection
+4. **For comparison queries**, use market ID filters
+
+### **Analysis Keywords**
+- **"price movement analysis"** → Full trend analysis with percentages
+- **"volatility analysis"** → Volatility assessment + price swings
+- **"trend analysis"** → Pattern identification + movement direction
+- **"stability analysis"** → Consistency rating + price stability
+- **"compare volatility"** → Cross-horse comparison + rankings
+
+### **Enhanced Data Requirements**
+- **Price + Timestamp**: Essential for trend calculation
+- **Runner Names**: Required for multi-horse analysis
+- **Market Context**: Include for market-specific insights
+- **Sorting**: Always by timestamp for chronological analysis

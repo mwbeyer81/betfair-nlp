@@ -112,3 +112,27 @@ export interface PriceUpdateDocument {
   eventId: string;
   eventName: string;
 }
+
+// Analysis and summary types
+export interface MarketAnalysis {
+  marketDefinition: MarketDefinitionDocument;
+  priceHistory: PriceUpdateDocument[];
+  summary: {
+    totalPriceUpdates: number;
+    priceRange: {
+      min: number;
+      max: number;
+    };
+    statusTransitions: MarketStatus[];
+  };
+}
+
+export interface EventSummary {
+  eventId: string;
+  eventName: string;
+  markets: string[];
+  totalRunners: number;
+  activeMarkets: number;
+  suspendedMarkets: number;
+  closedMarkets: number;
+}

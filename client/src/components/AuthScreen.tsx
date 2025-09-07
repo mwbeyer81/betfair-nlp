@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,15 +10,78 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import * as Linking from "expo-linking";
 
 interface AuthScreenProps {
   onAuthenticated: () => void;
+  // For testing in Storybook - simulates credentials loaded from URL
+  testCredentialsFromUrl?: boolean;
 }
 
-export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
+export const AuthScreen: React.FC<AuthScreenProps> = ({
+  onAuthenticated,
+  testCredentialsFromUrl = false,
+}) => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [autoLoginAttempted, setAutoLoginAttempted] = useState(false);
+  const [credentialsFromUrl, setCredentialsFromUrl] = useState(
+    testCredentialsFromUrl
+  );
+
+  // Parse URL parameters for authentication
+  useEffect(() => {
+    const parseUrlParams = async () => {
+      try {
+        const url = await Linking.getInitialURL();
+        if (url) {
+          const parsed = Linking.parse(url);
+          const authParam = parsed.queryParams?.auth;
+
+          if (authParam) {
+            console.log("🔐 Found auth parameter:", authParam);
+
+            // Try to decode as base64 first
+            let credentials: string;
+            try {
+              credentials = atob(authParam);
+              console.log("✅ Decoded base64 credentials");
+            } catch {
+              // If not base64, use as plain text
+              credentials = authParam;
+              console.log("📝 Using plain text credentials");
+            }
+
+            // Parse username:password format
+            const [urlUsername, urlPassword] = credentials.split(":");
+
+            if (urlUsername && urlPassword) {
+              console.log("👤 Setting credentials from URL");
+              setUsername(urlUsername);
+              setPassword(urlPassword);
+              setCredentialsFromUrl(true);
+
+              // Auto-login after a brief delay to ensure state is set
+              setTimeout(() => {
+                if (!autoLoginAttempted) {
+                  console.log("🚀 Attempting auto-login");
+                  setAutoLoginAttempted(true);
+                  handleLogin();
+                }
+              }, 100);
+            } else {
+              console.log("❌ Invalid credentials format in URL");
+            }
+          }
+        }
+      } catch (error) {
+        console.log("❌ Error parsing URL:", error);
+      }
+    };
+
+    parseUrlParams();
+  }, [autoLoginAttempted]);
 
   const handleLogin = () => {
     setIsLoading(true);
@@ -96,9 +159,25 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             </TouchableOpacity>
           </View>
 
+          {credentialsFromUrl && (
+            <View style={styles.urlCredentialsInfo}>
+              <Text style={styles.urlCredentialsText}>
+                💡 Credentials loaded from URL parameters
+              </Text>
+              <Text style={styles.urlCredentialsSubtext}>
+                Press Enter or tap Login to continue
+              </Text>
+            </View>
+          )}
+
           <View style={styles.footer}>
             <Text style={styles.footerText}>
               Please enter your credentials to access the chat assistant.
+            </Text>
+            <Text style={styles.urlInfoText}>
+              💡 Tip: You can also use URL parameters like{" "}
+              <Text style={styles.urlExample}>?auth=username:password</Text> or{" "}
+              <Text style={styles.urlExample}>?auth=base64encoded</Text>
             </Text>
           </View>
         </View>
@@ -179,5 +258,39 @@ const styles = StyleSheet.create({
     color: "#666",
     textAlign: "center",
     lineHeight: 20,
+  },
+  urlCredentialsInfo: {
+    backgroundColor: "#e8f5e8",
+    borderWidth: 1,
+    borderColor: "#4caf50",
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
+    alignItems: "center",
+  },
+  urlCredentialsText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#2e7d32",
+    marginBottom: 4,
+  },
+  urlCredentialsSubtext: {
+    fontSize: 14,
+    color: "#4caf50",
+    textAlign: "center",
+  },
+  urlInfoText: {
+    fontSize: 12,
+    color: "#888",
+    textAlign: "center",
+    marginTop: 8,
+    lineHeight: 16,
+  },
+  urlExample: {
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    backgroundColor: "#f0f0f0",
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
 });

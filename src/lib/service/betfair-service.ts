@@ -6,6 +6,8 @@ import {
   MarketDefinitionDocument,
   PriceUpdateDocument,
   MarketStatus,
+  MarketAnalysis,
+  EventSummary,
 } from "../../types/betfair";
 import { MarketDefinitionDAO } from "../dao/market-definition-dao";
 import { PriceUpdateDAO } from "../dao/price-update-dao";
@@ -15,10 +17,18 @@ export class BetfairService {
   private marketDefinitionDAO: MarketDefinitionDAO;
   private priceUpdateDAO: PriceUpdateDAO;
 
-  constructor() {
-    const db = DatabaseConnection.getInstance().getDb();
-    this.marketDefinitionDAO = new MarketDefinitionDAO(db);
-    this.priceUpdateDAO = new PriceUpdateDAO(db);
+  constructor(
+    marketDefinitionDAO?: MarketDefinitionDAO,
+    priceUpdateDAO?: PriceUpdateDAO
+  ) {
+    if (marketDefinitionDAO && priceUpdateDAO) {
+      this.marketDefinitionDAO = marketDefinitionDAO;
+      this.priceUpdateDAO = priceUpdateDAO;
+    } else {
+      const db = DatabaseConnection.getInstance().getDb();
+      this.marketDefinitionDAO = new MarketDefinitionDAO(db);
+      this.priceUpdateDAO = new PriceUpdateDAO(db);
+    }
   }
 
   /**
@@ -27,6 +37,13 @@ export class BetfairService {
   public async initialize(): Promise<void> {
     await this.marketDefinitionDAO.createIndexes();
     await this.priceUpdateDAO.createIndexes();
+  }
+
+  /**
+   * Create database indexes (alias for initialize for backward compatibility)
+   */
+  public async createIndexes(): Promise<void> {
+    await this.initialize();
   }
 
   /**
@@ -268,5 +285,96 @@ export class BetfairService {
     runnerId: number
   ): Promise<PriceUpdateDocument | null> {
     return await this.priceUpdateDAO.getLatestPriceByRunnerId(runnerId);
+  }
+
+  /**
+   * Get comprehensive market analysis
+   */
+  public async getMarketAnalysis(marketId: string): Promise<MarketAnalysis> {
+    const marketDefinition =
+      await this.marketDefinitionDAO.getLatestByMarketId(marketId);
+    const priceHistory = await this.priceUpdateDAO.getByMarketId(marketId);
+
+    if (!marketDefinition) {
+      throw new Error(`Market definition not found for market ID: ${marketId}`);
+    }
+
+    // Calculate price range
+    const prices = priceHistory.map(p => p.lastTradedPrice);
+    const priceRange = {
+      min: prices.length > 0 ? Math.min(...prices) : 0,
+      max: prices.length > 0 ? Math.max(...prices) : 0,
+    };
+
+    // Get status transitions from market definitions
+    const allMarketDefinitions =
+      await this.marketDefinitionDAO.getByMarketId(marketId);
+    const statusTransitions = allMarketDefinitions
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+      .map(md => md.status);
+
+    return {
+      marketDefinition,
+      priceHistory,
+      summary: {
+        totalPriceUpdates: priceHistory.length,
+        priceRange,
+        statusTransitions,
+      },
+    };
+  }
+
+  /**
+   * Get event summary across all markets
+   */
+  public async getEventSummary(eventId: string): Promise<EventSummary> {
+    const marketDefinitions =
+      await this.marketDefinitionDAO.getByEventId(eventId);
+
+    if (marketDefinitions.length === 0) {
+      throw new Error(`No markets found for event ID: ${eventId}`);
+    }
+
+    // Get unique markets and their latest status
+    const marketMap = new Map<string, MarketDefinitionDocument>();
+    marketDefinitions.forEach(md => {
+      const existing = marketMap.get(md.marketId);
+      if (!existing || md.timestamp > existing.timestamp) {
+        marketMap.set(md.marketId, md);
+      }
+    });
+
+    const markets = Array.from(marketMap.keys());
+    const latestMarketDefinitions = Array.from(marketMap.values());
+
+    // Count markets by status
+    const activeMarkets = latestMarketDefinitions.filter(
+      md => md.status === "OPEN"
+    ).length;
+    const suspendedMarkets = latestMarketDefinitions.filter(
+      md => md.status === "SUSPENDED"
+    ).length;
+    const closedMarkets = latestMarketDefinitions.filter(
+      md => md.status === "CLOSED"
+    ).length;
+
+    // Calculate total runners across all markets
+    const totalRunners = latestMarketDefinitions.reduce(
+      (sum, md) => sum + (md.runners?.length || 0),
+      0
+    );
+
+    // Get event name from first market definition
+    const eventName = latestMarketDefinitions[0]?.eventName || "Unknown Event";
+
+    return {
+      eventId,
+      eventName,
+      markets,
+      totalRunners,
+      activeMarkets,
+      suspendedMarkets,
+      closedMarkets,
+    };
   }
 }

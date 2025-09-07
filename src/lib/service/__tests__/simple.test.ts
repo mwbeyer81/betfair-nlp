@@ -1,9 +1,5 @@
 import { BetfairService } from "../betfair-service";
-import {
-  MarketDefinitionDAO,
-  PriceUpdateDAO,
-  MarketStatusDAO,
-} from "../../dao";
+import { MarketDefinitionDAO, PriceUpdateDAO } from "../../dao";
 import { TestUtils } from "./test-utils";
 
 jest.mock("../../dao");
@@ -12,7 +8,6 @@ describe("BetfairService - Simple Tests", () => {
   let service: BetfairService;
   let mockMarketDefinitionDAO: jest.Mocked<MarketDefinitionDAO>;
   let mockPriceUpdateDAO: jest.Mocked<PriceUpdateDAO>;
-  let mockMarketStatusDAO: jest.Mocked<MarketStatusDAO>;
 
   beforeEach(() => {
     // Clear all mocks
@@ -39,23 +34,8 @@ describe("BetfairService - Simple Tests", () => {
       createIndexes: jest.fn(),
     } as any;
 
-    mockMarketStatusDAO = {
-      insert: jest.fn(),
-      getByMarketId: jest.fn(),
-      getByStatus: jest.fn(),
-      getByEventId: jest.fn(),
-      getLatestStatusByMarketId: jest.fn(),
-      getStatusTransitions: jest.fn(),
-      getByActiveRunnerCount: jest.fn(),
-      createIndexes: jest.fn(),
-    } as any;
-
     // Create service instance with mocked DAOs
-    service = new BetfairService(
-      mockMarketDefinitionDAO,
-      mockPriceUpdateDAO,
-      mockMarketStatusDAO
-    );
+    service = new BetfairService(mockMarketDefinitionDAO, mockPriceUpdateDAO);
   });
 
   it("should create service instance successfully", () => {
@@ -66,7 +46,6 @@ describe("BetfairService - Simple Tests", () => {
     await service.createIndexes();
     expect(mockMarketDefinitionDAO.createIndexes).toHaveBeenCalled();
     expect(mockPriceUpdateDAO.createIndexes).toHaveBeenCalled();
-    expect(mockMarketStatusDAO.createIndexes).toHaveBeenCalled();
   });
 
   it("should handle empty price updates gracefully", async () => {
@@ -102,11 +81,7 @@ describe("BetfairService - Simple Tests", () => {
       expect.any(Date),
       "123"
     );
-    expect(mockMarketStatusDAO.insert).toHaveBeenCalledWith(
-      mockMarketDef,
-      "1.237066150",
-      expect.any(Date),
-      "123"
-    );
+    // Market status is now handled within market definition
+    // No separate market status DAO calls expected
   });
 });

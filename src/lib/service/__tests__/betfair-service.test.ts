@@ -1,9 +1,5 @@
 import { BetfairService } from "../betfair-service";
-import {
-  MarketDefinitionDAO,
-  PriceUpdateDAO,
-  MarketStatusDAO,
-} from "../../dao";
+import { MarketDefinitionDAO, PriceUpdateDAO } from "../../dao";
 import {
   BetfairMessage,
   MarketChange,
@@ -29,7 +25,6 @@ describe("BetfairService", () => {
   let service: BetfairService;
   let mockMarketDefinitionDAO: jest.Mocked<MarketDefinitionDAO>;
   let mockPriceUpdateDAO: jest.Mocked<PriceUpdateDAO>;
-  let mockMarketStatusDAO: jest.Mocked<MarketStatusDAO>;
 
   beforeEach(() => {
     // Clear all mocks
@@ -56,23 +51,8 @@ describe("BetfairService", () => {
       createIndexes: jest.fn(),
     } as any;
 
-    mockMarketStatusDAO = {
-      insert: jest.fn(),
-      getByMarketId: jest.fn(),
-      getByStatus: jest.fn(),
-      getByEventId: jest.fn(),
-      getLatestStatusByMarketId: jest.fn(),
-      getStatusTransitions: jest.fn(),
-      getByActiveRunnerCount: jest.fn(),
-      createIndexes: jest.fn(),
-    } as any;
-
     // Create service instance with mocked DAOs
-    service = new BetfairService(
-      mockMarketDefinitionDAO,
-      mockPriceUpdateDAO,
-      mockMarketStatusDAO
-    );
+    service = new BetfairService(mockMarketDefinitionDAO, mockPriceUpdateDAO);
   });
 
   describe("processDataFile", () => {
@@ -335,12 +315,8 @@ describe("BetfairService", () => {
         expect.any(Date),
         "123"
       );
-      expect(mockMarketStatusDAO.insert).toHaveBeenCalledWith(
-        mockMarketDef,
-        "1.237066150",
-        expect.any(Date),
-        "123"
-      );
+      // Market status is now handled within market definition
+      // No separate market status DAO calls expected
     });
   });
 
@@ -424,7 +400,6 @@ describe("BetfairService", () => {
 
       expect(mockMarketDefinitionDAO.createIndexes).toHaveBeenCalled();
       expect(mockPriceUpdateDAO.createIndexes).toHaveBeenCalled();
-      expect(mockMarketStatusDAO.createIndexes).toHaveBeenCalled();
     });
   });
 
@@ -442,17 +417,19 @@ describe("BetfairService", () => {
           lastTradedPrice: 15.5,
         }),
       ];
-      const mockStatusHistory = [
-        TestUtils.createMockMarketStatusDocument({ status: "OPEN" }),
-        TestUtils.createMockMarketStatusDocument({ status: "SUSPENDED" }),
-        TestUtils.createMockMarketStatusDocument({ status: "CLOSED" }),
+      const mockMarketDefinitions = [
+        TestUtils.createMockMarketDefinitionDocument({ status: "OPEN" }),
+        TestUtils.createMockMarketDefinitionDocument({ status: "SUSPENDED" }),
+        TestUtils.createMockMarketDefinitionDocument({ status: "CLOSED" }),
       ];
 
       mockMarketDefinitionDAO.getLatestByMarketId.mockResolvedValue(
         mockMarketDefinition
       );
+      mockMarketDefinitionDAO.getByMarketId.mockResolvedValue(
+        mockMarketDefinitions
+      );
       mockPriceUpdateDAO.getByMarketId.mockResolvedValue(mockPriceHistory);
-      mockMarketStatusDAO.getByMarketId.mockResolvedValue(mockStatusHistory);
 
       const result = await service.getMarketAnalysis("1.237066150");
 
@@ -485,22 +462,9 @@ describe("BetfairService", () => {
         }),
       ];
 
-      const mockMarketStatuses = [
-        TestUtils.createMockMarketStatusDocument({
-          marketId: "1.237066150",
-          numberOfActiveRunners: 1,
-        }),
-        TestUtils.createMockMarketStatusDocument({
-          marketId: "1.237066151",
-          status: "CLOSED",
-          numberOfActiveRunners: 1,
-        }),
-      ];
-
       mockMarketDefinitionDAO.getByEventId.mockResolvedValue(
         mockMarketDefinitions
       );
-      mockMarketStatusDAO.getByEventId.mockResolvedValue(mockMarketStatuses);
 
       const result = await service.getEventSummary("33858191");
 

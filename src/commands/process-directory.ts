@@ -4,11 +4,7 @@ import { readdir, stat } from "fs/promises";
 import { join } from "path";
 import { DatabaseConnection } from "../config/database";
 import { validateConfig, getAppEnvironment } from "../config";
-import {
-  MarketDefinitionDAO,
-  PriceUpdateDAO,
-  MarketStatusDAO,
-} from "../lib/dao";
+import { MarketDefinitionDAO, PriceUpdateDAO } from "../lib/dao";
 import { BetfairService } from "../lib/service/betfair-service";
 
 async function processDirectory() {
@@ -37,14 +33,9 @@ async function processDirectory() {
     const db = dbConnection.getDb();
     const marketDefinitionDAO = new MarketDefinitionDAO(db);
     const priceUpdateDAO = new PriceUpdateDAO(db);
-    const marketStatusDAO = new MarketStatusDAO(db);
 
     // Initialize service with DAOs
-    const service = new BetfairService(
-      marketDefinitionDAO,
-      priceUpdateDAO,
-      marketStatusDAO
-    );
+    const service = new BetfairService(marketDefinitionDAO, priceUpdateDAO);
 
     // Create database indexes
     await service.createIndexes();
@@ -119,12 +110,20 @@ async function findJsonlFiles(directoryPath: string): Promise<string[]> {
         // Recursively search subdirectories
         const subFiles = await findJsonlFiles(fullPath);
         files.push(...subFiles);
-      } else if (
-        stats.isFile() &&
-        (item.endsWith(".jsonl") || item.endsWith(".json"))
-      ) {
-        // Add JSONL/JSON files
-        files.push(fullPath);
+      } else if (stats.isFile()) {
+        // Skip system files
+        if (item.startsWith(".")) {
+          console.log(`Skipping system file: ${item}`);
+        } else if (item.endsWith(".bz2")) {
+          console.log(`Skipping compressed file: ${item} (.bz2 file)`);
+        } else if (item.endsWith(".jsonl") || item.endsWith(".json")) {
+          // Add JSONL/JSON files
+          files.push(fullPath);
+        } else if (item.includes(".")) {
+          // Add market files (files with dots in the filename, excluding .bz2)
+          files.push(fullPath);
+        }
+        // Skip event-level files (no dot in filename)
       }
     }
   } catch (error) {

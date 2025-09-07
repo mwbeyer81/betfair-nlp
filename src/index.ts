@@ -1,10 +1,6 @@
 import { DatabaseConnection } from "./config/database";
 import { validateConfig, getAppEnvironment } from "./config";
-import {
-  MarketDefinitionDAO,
-  PriceUpdateDAO,
-  MarketStatusDAO,
-} from "./lib/dao";
+import { MarketDefinitionDAO, PriceUpdateDAO } from "./lib/dao";
 import { BetfairService } from "./lib/service/betfair-service";
 
 async function main() {
@@ -22,14 +18,9 @@ async function main() {
     const db = dbConnection.getDb();
     const marketDefinitionDAO = new MarketDefinitionDAO(db);
     const priceUpdateDAO = new PriceUpdateDAO(db);
-    const marketStatusDAO = new MarketStatusDAO(db);
 
     // Initialize service with DAOs
-    const service = new BetfairService(
-      marketDefinitionDAO,
-      priceUpdateDAO,
-      marketStatusDAO
-    );
+    const service = new BetfairService(marketDefinitionDAO, priceUpdateDAO);
 
     // Create database indexes
     await service.createIndexes();

@@ -203,18 +203,19 @@ export class NaturalLanguageService {
     }
 
     // Determine if we have a valid database query scenario
-    const hasValidQuery = mongoQuery && this.db;
+    const hasValidQuery =
+      mongoQuery && this.db && mongoQuery !== "{}" && mongoQuery !== "null";
     const queryExecuted = hasValidQuery && mongoResults.length > 0;
 
     // Generate appropriate message based on the scenario
     let noResultsMessage: string | undefined;
-    if (!mongoQuery) {
+    if (!mongoQuery || mongoQuery === "{}" || mongoQuery === "null") {
       noResultsMessage =
         "I couldn't generate a database query for your question, but I can still help with general information about horse racing!";
     } else if (!this.db) {
       noResultsMessage =
         "Database connection is not available right now, but I can still provide general assistance.";
-    } else if (mongoQuery && mongoResults.length === 0) {
+    } else if (hasValidQuery && mongoResults.length === 0) {
       // Only show "no results" message when we actually have a valid query but no results
       noResultsMessage =
         "No data found matching your query. This could mean the horse name doesn't exist in our database, or there are no records for the specified criteria.";

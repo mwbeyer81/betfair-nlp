@@ -18,6 +18,8 @@ interface MessageData {
   text: string;
   isUser: boolean;
   timestamp: Date;
+  mongoQuery?: string;
+  aiAnalysis?: any;
 }
 
 interface ChatScreenProps {
@@ -27,8 +29,14 @@ interface ChatScreenProps {
 export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [queryHistory, setQueryHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
   const sendMessage = async (messageText: string) => {
+    // Add query to history
+    setQueryHistory(prev => [...prev, messageText]);
+    setHistoryIndex(-1); // Reset history index
+
     const userMessage: MessageData = {
       id: Date.now().toString(),
       text: messageText,
@@ -46,6 +54,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
         text: response.reply,
         isUser: false,
         timestamp: new Date(),
+        mongoQuery: response.data?.aiAnalysis
+          ? JSON.parse(response.data.aiAnalysis).mongoQuery
+          : undefined,
+        aiAnalysis: response.data?.aiAnalysis
+          ? JSON.parse(response.data.aiAnalysis)
+          : undefined,
       };
       setMessages(prev => [...prev, botMessage]);
     } catch (error) {
@@ -62,7 +76,13 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
   };
 
   const renderMessage = ({ item }: { item: MessageData }) => (
-    <Message text={item.text} isUser={item.isUser} timestamp={item.timestamp} />
+    <Message
+      text={item.text}
+      isUser={item.isUser}
+      timestamp={item.timestamp}
+      mongoQuery={item.mongoQuery}
+      aiAnalysis={item.aiAnalysis}
+    />
   );
 
   return (
@@ -96,7 +116,13 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
           </View>
         )}
 
-        <ChatInput onSendMessage={sendMessage} isLoading={isLoading} />
+        <ChatInput
+          onSendMessage={sendMessage}
+          isLoading={isLoading}
+          queryHistory={queryHistory}
+          historyIndex={historyIndex}
+          onHistoryChange={setHistoryIndex}
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
