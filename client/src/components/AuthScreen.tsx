@@ -42,14 +42,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           if (authParam) {
             console.log("🔐 Found auth parameter:", authParam);
 
+            // Ensure authParam is a string (handle case where it might be an array)
+            const authString = Array.isArray(authParam)
+              ? authParam[0]
+              : authParam;
+
             // Try to decode as base64 first
             let credentials: string;
             try {
-              credentials = atob(authParam);
+              credentials = atob(authString);
               console.log("✅ Decoded base64 credentials");
             } catch {
               // If not base64, use as plain text
-              credentials = authParam;
+              credentials = authString;
               console.log("📝 Using plain text credentials");
             }
 

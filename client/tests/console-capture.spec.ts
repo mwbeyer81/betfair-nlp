@@ -38,11 +38,13 @@ test.describe("Console Output Capture", () => {
       console.log(`[PAGE ERROR] ${error.message}`);
     });
 
-    // Listen to unhandled rejections
-    page.on("unhandledrejection", rejection => {
-      const errorMessage = `UNHANDLED REJECTION: ${rejection.reason}`;
-      errors.push(errorMessage);
-      console.log(`[UNHANDLED REJECTION] ${rejection.reason}`);
+    // Listen to console errors instead of unhandled rejections
+    page.on("console", msg => {
+      if (msg.type() === "error") {
+        const errorMessage = `CONSOLE ERROR: ${msg.text()}`;
+        errors.push(errorMessage);
+        console.log(`[Console Error] ${msg.text()}`);
+      }
     });
 
     // Navigate to Storybook
