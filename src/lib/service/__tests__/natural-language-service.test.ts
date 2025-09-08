@@ -1,294 +1,466 @@
 import { NaturalLanguageService } from "../natural-language-service";
 import { OpenAIClient } from "../openai-client";
+import { MongoScriptExecutor } from "../mongo-script-executor";
 import { Db } from "mongodb";
 
-// Mock the OpenAI client
+// Mock dependencies
 jest.mock("../openai-client");
+jest.mock("../mongo-script-executor");
 
-// Mock MongoDB
-const mockDb = {
-  command: jest.fn().mockResolvedValue({ cursor: { id: 0 } }),
-  collection: jest.fn().mockReturnValue({
-    find: jest.fn().mockReturnValue({
-      toArray: jest.fn().mockResolvedValue([{ id: 1, name: "Test Horse" }]),
-      sort: jest.fn().mockReturnThis(),
-      limit: jest.fn().mockReturnThis(),
-    }),
-    findOne: jest.fn().mockResolvedValue({ id: 1, name: "Test Horse" }),
-    aggregate: jest.fn().mockReturnValue({
-      toArray: jest.fn().mockResolvedValue([{ id: 1, name: "Test Horse" }]),
-    }),
-  }),
-} as any;
+const MockedOpenAIClient = OpenAIClient as jest.MockedClass<
+  typeof OpenAIClient
+>;
+const MockedMongoScriptExecutor = MongoScriptExecutor as jest.MockedClass<
+  typeof MongoScriptExecutor
+>;
 
 describe("NaturalLanguageService", () => {
   let service: NaturalLanguageService;
+  let mockDb: jest.Mocked<Db>;
   let mockOpenAIClient: jest.Mocked<OpenAIClient>;
+  let mockMongoScriptExecutor: jest.Mocked<MongoScriptExecutor>;
 
   beforeEach(() => {
-    // Reset mocks
     jest.clearAllMocks();
 
-    // Create mock OpenAI client
+    // Mock database
+    mockDb = {} as jest.Mocked<Db>;
+
+    // Mock OpenAI client
     mockOpenAIClient = {
-      createResponse: jest.fn(),
       createHorseQueryResponse: jest.fn(),
     } as any;
+    MockedOpenAIClient.mockImplementation(() => mockOpenAIClient);
 
-    // Mock the OpenAIClient constructor
-    (OpenAIClient as jest.MockedClass<typeof OpenAIClient>).mockImplementation(
-      () => mockOpenAIClient
-    );
+    // Mock MongoDB script executor
+    mockMongoScriptExecutor = {
+      executeScript: jest.fn(),
+    } as any;
+    MockedMongoScriptExecutor.mockImplementation(() => mockMongoScriptExecutor);
 
-    service = new NaturalLanguageService(null as any, mockDb);
+    service = new NaturalLanguageService(undefined, mockDb);
   });
 
   describe("processQuery", () => {
-    it("should process query and return horses with MongoDB analysis and results", async () => {
+    it("should process a query successfully with script execution", async () => {
       const mockAIResponse = {
-        mongoQuery: '{"find": "market_definitions", "filter": {"name": "Cheltenham Chase"}, "projection": {"runners": 1, "name": 1}}',
-        naturalLanguageInterpretation: "I'm searching for market definitions where the name matches 'Cheltenham Chase' and showing the runners and name fields."
+        mongoScript: 'db.price_updates.find({"runnerName": "Test Horse"})',
+        naturalLanguageInterpretation: "Finding price updates for Test Horse",
       };
+
+      const mockScriptResult = {
+        success: true,
+        data: [
+          {
+            _id: "1",
+            runnerName: "Test Horse",
+            lastTradedPrice: 2.5,
+            timestamp: new Date(),
+          },
+        ],
+      };
+
+      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
+        mockAIResponse
+      );
+      mockMongoScriptExecutor.executeScript.mockResolvedValue(mockScriptResult);
+
+      const result = await service.processQuery(
+        "Show price updates for Test Horse"
+      );
+
+      expect(result.query).toBe("Show price updates for Test Horse");
+      expect(result.mongoScript).toBe(mockAIResponse.mongoScript);
+      expect(result.naturalLanguageInterpretation).toBe(
+        mockAIResponse.naturalLanguageInterpretation
+      );
+      expect(result.mongoResults).toEqual(mockScriptResult.data);
+      expect(result.scriptGenerated).toBe(true);
+      expect(result.databaseConnected).toBe(true);
+      expect(result.noResultsFound).toBe(false);
+      expect(result.confidence).toBe(0.95);
+    });
+
+    it("should handle script execution errors gracefully", async () => {
+      const mockAIResponse = {
+        mongoScript: 'db.price_updates.find({"runnerName": "Test Horse"})',
+        naturalLanguageInterpretation: "Finding price updates for Test Horse",
+      };
+
+      const mockScriptResult = {
+        success: false,
+        error: "Script execution failed",
+      };
+
+      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
+        mockAIResponse
+      );
+      mockMongoScriptExecutor.executeScript.mockResolvedValue(mockScriptResult);
+
+      const result = await service.processQuery(
+        "Show price updates for Test Horse"
+      );
+
+      expect(result.mongoScript).toBe(mockAIResponse.mongoScript);
+      expect(result.scriptExecutionError).toBe("Script execution failed");
+      expect(result.noResultsMessage).toContain("Script execution failed");
+      expect(result.mongoResults).toEqual([]);
+    });
+
+    it("should handle no results found scenario", async () => {
+      const mockAIResponse = {
+        mongoScript:
+          'db.price_updates.find({"runnerName": "NonExistent Horse"})',
+        naturalLanguageInterpretation:
+          "Finding price updates for NonExistent Horse",
+      };
+
+      const mockScriptResult = {
+        success: true,
+        data: [],
+      };
+
+      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
+        mockAIResponse
+      );
+      mockMongoScriptExecutor.executeScript.mockResolvedValue(mockScriptResult);
+
+      const result = await service.processQuery(
+        "Show price updates for NonExistent Horse"
+      );
+
+      expect(result.noResultsFound).toBe(true);
+      expect(result.noResultsMessage).toContain(
+        "No data found matching your query"
+      );
+      expect(result.mongoResults).toEqual([]);
+    });
+
+    it("should handle AI response without script generation", async () => {
+      const mockAIResponse = {
+        mongoScript: "",
+        naturalLanguageInterpretation:
+          "I cannot generate a database query for this question",
+      };
+
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
 
-      const query = "Show me the top horses in the race";
-      const result = await service.processQuery(query);
+      const result = await service.processQuery("What is the weather like?");
 
-      expect(result).toHaveProperty("horses");
-      expect(result).toHaveProperty("query", query);
-      expect(result).toHaveProperty("timestamp");
-      expect(result).toHaveProperty("confidence", 0.95);
-      expect(result).toHaveProperty("aiAnalysis");
-      expect(result).toHaveProperty("mongoQuery", mockAIResponse.mongoQuery);
-      expect(result).toHaveProperty("naturalLanguageInterpretation", mockAIResponse.naturalLanguageInterpretation);
-      expect(result).toHaveProperty("mongoResults");
-      expect(Array.isArray(result.horses)).toBe(true);
-      expect(result.horses.length).toBe(0); // Empty since we return MongoDB results
+      expect(result.mongoScript).toBeUndefined();
+      expect(result.scriptGenerated).toBe(false);
+      expect(result.noResultsMessage).toContain(
+        "I couldn't generate a database script"
+      );
+      expect(result.confidence).toBe(0.7);
     });
 
-    it("should throw error when OpenAI fails", async () => {
-      mockOpenAIClient.createHorseQueryResponse.mockRejectedValue(
-        new Error("OpenAI API Error")
-      );
-
-      const query = "Show me the top horses";
-
-      await expect(service.processQuery(query)).rejects.toThrow(
-        "OpenAI API Error"
-      );
-    });
-
-    it("should throw error when no MongoDB query can be extracted", async () => {
-      const mockAIResponse = {
-        mongoQuery: "",
-        naturalLanguageInterpretation: "This is a response without any MongoDB query"
-      };
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        mockAIResponse
-      );
-
-      const query = "test query";
-
-      await expect(service.processQuery(query)).rejects.toThrow(
-        "Could not extract MongoDB query from AI analysis"
-      );
-    });
-
-    it("should throw error when database is not available", async () => {
+    it("should handle database connection unavailable", async () => {
       const serviceWithoutDb = new NaturalLanguageService();
       const mockAIResponse = {
-        mongoQuery: '{"find": "market_definitions", "filter": {}}',
-        naturalLanguageInterpretation: "I'm searching for all market definitions."
+        mongoScript: 'db.price_updates.find({"runnerName": "Test Horse"})',
+        naturalLanguageInterpretation: "Finding price updates for Test Horse",
       };
+
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
 
-      const query = "test query";
-
-      await expect(serviceWithoutDb.processQuery(query)).rejects.toThrow(
-        "Database connection not available"
+      const result = await serviceWithoutDb.processQuery(
+        "Show price updates for Test Horse"
       );
+
+      expect(result.databaseConnected).toBe(false);
+      expect(result.noResultsMessage).toContain(
+        "Database connection is not available"
+      );
+      expect(result.mongoResults).toEqual([]);
     });
 
-    it("should throw error when MongoDB query returns no results", async () => {
-      const mockDbWithEmptyResults = {
-        command: jest.fn().mockResolvedValue({ cursor: { id: 0 } }),
-        collection: jest.fn().mockReturnValue({
-          find: jest.fn().mockReturnValue({
-            toArray: jest.fn().mockResolvedValue([]),
-            sort: jest.fn().mockReturnThis(),
-            limit: jest.fn().mockReturnThis(),
-          }),
-          findOne: jest.fn().mockResolvedValue(null),
-          aggregate: jest.fn().mockReturnValue({
-            toArray: jest.fn().mockResolvedValue([]),
-          }),
-        }),
-      } as any;
-
-      const serviceWithEmptyResults = new NaturalLanguageService(
-        null as any,
-        mockDbWithEmptyResults
-      );
-      const mockAIResponse = {
-        mongoQuery: '{"find": "market_definitions", "filter": {"name": "NonExistentRace"}}',
-        naturalLanguageInterpretation: "I'm searching for market definitions where the name matches 'NonExistentRace'."
-      };
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        mockAIResponse
+    it("should handle OpenAI API errors gracefully", async () => {
+      mockOpenAIClient.createHorseQueryResponse.mockRejectedValue(
+        new Error("OpenAI API error")
       );
 
-      const query = "test query";
-
-      await expect(serviceWithEmptyResults.processQuery(query)).rejects.toThrow(
-        "No results found for query"
+      const result = await service.processQuery(
+        "Show price updates for Test Horse"
       );
+
+      expect(result.aiAnalysis).toBeUndefined();
+      expect(result.mongoScript).toBeUndefined();
+      expect(result.scriptGenerated).toBe(false);
+      expect(result.confidence).toBe(0.7);
     });
 
-    it("should return MongoDB results from processQuery", async () => {
-      const mockDbWithResults = {
-        command: jest.fn().mockResolvedValue({ cursor: { id: 0 } }),
-        collection: jest.fn().mockReturnValue({
-          find: jest.fn().mockReturnValue({
-            toArray: jest
-              .fn()
-              .mockResolvedValue([{ id: 1, name: "Test Horse" }]),
-            sort: jest.fn().mockReturnThis(),
-            limit: jest.fn().mockReturnThis(),
-          }),
-          findOne: jest.fn().mockResolvedValue({ id: 1, name: "Test Horse" }),
-          aggregate: jest.fn().mockReturnValue({
-            toArray: jest
-              .fn()
-              .mockResolvedValue([{ id: 1, name: "Test Horse" }]),
-          }),
-        }),
-      } as any;
+    it("should handle complex scripts with multiple operations", async () => {
+      const complexScript = `
+        var market = db.market_definitions.findOne({"name": "Test Race"});
+        if (market) {
+          db.price_updates.find({"marketId": market.marketId}).sort({"timestamp": -1})
+        }
+      `;
 
-      const serviceWithResults = new NaturalLanguageService(
-        null as any,
-        mockDbWithResults
-      );
       const mockAIResponse = {
-        mongoQuery: '{"find": "price_updates", "filter": {"lastTradedPrice": {"$lte": 5.0}}}',
-        naturalLanguageInterpretation: "I'm searching for price updates where the last traded price is less than or equal to 5.0."
+        mongoScript: complexScript,
+        naturalLanguageInterpretation: "Finding market and then price updates",
       };
+
+      const mockScriptResult = {
+        success: true,
+        data: [{ _id: "1", marketId: "market1", lastTradedPrice: 2.5 }],
+      };
+
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
+      mockMongoScriptExecutor.executeScript.mockResolvedValue(mockScriptResult);
 
-      const result = await serviceWithResults.processQuery("test query");
-
-      expect(result.mongoQuery).toBe(
-        '{"find":"price_updates","filter":{"lastTradedPrice":{"$lte":5}}}'
+      const result = await service.processQuery(
+        "Show price updates for Test Race"
       );
-      expect(result.mongoResults).toBeDefined();
-      expect(Array.isArray(result.mongoResults)).toBe(true);
-      expect(result.mongoResults!).toHaveLength(1);
-      expect(result.mongoResults![0]).toEqual({ id: 1, name: "Test Horse" });
+
+      expect(result.mongoScript).toBe(complexScript);
+      expect(result.mongoResults).toEqual(mockScriptResult.data);
+      expect(result.scriptGenerated).toBe(true);
     });
 
-    it("should handle aggregation queries", async () => {
+    it("should handle empty or invalid scripts", async () => {
       const mockAIResponse = {
-        mongoQuery: '{"aggregate": "market_definitions", "pipeline": [{"$match": {"name": "Cheltenham Chase"}}, {"$lookup": {"from": "event_definitions", "localField": "eventId", "foreignField": "eventId", "as": "event_details"}}]}',
-        naturalLanguageInterpretation: "I'm performing an aggregation on market definitions to match 'Cheltenham Chase' and lookup event details."
+        mongoScript: "{}",
+        naturalLanguageInterpretation: "Empty script",
       };
+
       mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
         mockAIResponse
       );
 
-      const result = await service.processQuery("test query");
+      const result = await service.processQuery("Invalid query");
 
-      expect(result.mongoQuery).toContain("aggregate");
-      expect(result.mongoResults).toBeDefined();
-      expect(result.mongoResults!.length).toBeGreaterThan(0);
+      expect(result.noResultsMessage).toContain(
+        "I couldn't generate a database script"
+      );
+      expect(result.scriptGenerated).toBe(false);
+    });
+  });
+
+  describe("extractMongoScript", () => {
+    it("should extract script from valid JSON response", () => {
+      const aiAnalysis = JSON.stringify({
+        mongoScript: "db.test.find({})",
+        naturalLanguageInterpretation: "Test query",
+      });
+
+      const script = (service as any).extractMongoScript(aiAnalysis);
+      expect(script).toBe("db.test.find({})");
     });
 
-    it("should handle findOne queries", async () => {
-      const mockAIResponse = {
-        mongoQuery: '{"findOne": "market_definitions", "filter": {"name": "Cheltenham Chase"}}',
-        naturalLanguageInterpretation: "I'm finding one market definition where the name matches 'Cheltenham Chase'."
+    it("should extract script from JSON code block", () => {
+      const aiAnalysis = `
+        Here's the MongoDB script:
+        \`\`\`json
+        {
+          "mongoScript": "db.test.find({})",
+          "naturalLanguageInterpretation": "Test query"
+        }
+        \`\`\`
+      `;
+
+      const script = (service as any).extractMongoScript(aiAnalysis);
+      expect(script).toBe("db.test.find({})");
+    });
+
+    it("should return null for invalid JSON", () => {
+      const aiAnalysis = "Invalid JSON response";
+      const script = (service as any).extractMongoScript(aiAnalysis);
+      expect(script).toBeNull();
+    });
+
+    it("should return null when mongoScript field is missing", () => {
+      const aiAnalysis = JSON.stringify({
+        naturalLanguageInterpretation: "Test query",
+      });
+
+      const script = (service as any).extractMongoScript(aiAnalysis);
+      expect(script).toBeNull();
+    });
+  });
+
+  describe("executeMongoScript", () => {
+    it("should execute script successfully", async () => {
+      const mockScriptResult = {
+        success: true,
+        data: [{ _id: "1", name: "Test" }],
       };
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue(
-        mockAIResponse
+
+      mockMongoScriptExecutor.executeScript.mockResolvedValue(mockScriptResult);
+
+      const result = await (service as any).executeMongoScript(
+        "db.test.find({})"
       );
 
-      const result = await service.processQuery("test query");
+      expect(result.data).toEqual(mockScriptResult.data);
+      expect(result.error).toBeUndefined();
+    });
 
-      expect(result.mongoQuery).toContain("findOne");
-      expect(result.mongoResults).toBeDefined();
-      expect(result.mongoResults!.length).toBeGreaterThan(0);
+    it("should handle script execution failure", async () => {
+      const mockScriptResult = {
+        success: false,
+        error: "Script execution failed",
+      };
+
+      mockMongoScriptExecutor.executeScript.mockResolvedValue(mockScriptResult);
+
+      const result = await (service as any).executeMongoScript(
+        "db.test.find({})"
+      );
+
+      expect(result.data).toEqual([]);
+      expect(result.error).toBe("Script execution failed");
+    });
+
+    it("should throw error when executor is not available", async () => {
+      const serviceWithoutDb = new NaturalLanguageService();
+
+      await expect(
+        (serviceWithoutDb as any).executeMongoScript("db.test.find({})")
+      ).rejects.toThrow("MongoDB script executor not available");
     });
   });
 
   describe("getHorsesByQuery", () => {
-    it("should return empty horses array since we now return MongoDB results", async () => {
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue({
-        mongoQuery: '{"find": "market_definitions", "filter": {}}',
-        naturalLanguageInterpretation: "I'm searching for all market definitions."
-      });
+    it("should return horses from processQuery response", async () => {
+      const mockResponse = {
+        horses: [
+          {
+            id: "1",
+            name: "Test Horse",
+            odds: 2.5,
+            position: 1,
+            jockey: "J. Smith",
+            trainer: "T. Jones",
+            weight: 60,
+            age: 4,
+            form: ["1", "2", "3"],
+          },
+        ],
+        query: "Test query",
+        timestamp: new Date(),
+        confidence: 0.95,
+      };
 
-      const horses = await service.getHorsesByQuery("test query");
+      jest.spyOn(service, "processQuery").mockResolvedValue(mockResponse);
 
-      expect(Array.isArray(horses)).toBe(true);
-      expect(horses.length).toBe(0); // Empty since we return MongoDB results instead
+      const result = await service.getHorsesByQuery("Test query");
+
+      expect(result).toEqual(mockResponse.horses);
     });
   });
 
   describe("getTopHorses", () => {
-    it("should return top horses with default limit", async () => {
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue({
-        mongoQuery: '{"find": "market_definitions", "filter": {}, "limit": 5}',
-        naturalLanguageInterpretation: "I'm searching for market definitions with a limit of 5 results."
-      });
+    it("should return top horses with limit", async () => {
+      const mockResponse = {
+        horses: [
+          {
+            id: "1",
+            name: "Horse 1",
+            odds: 1.5,
+            position: 1,
+            jockey: "J1",
+            trainer: "T1",
+            weight: 60,
+            age: 4,
+            form: ["1"],
+          },
+          {
+            id: "2",
+            name: "Horse 2",
+            odds: 2.0,
+            position: 2,
+            jockey: "J2",
+            trainer: "T2",
+            weight: 61,
+            age: 5,
+            form: ["2"],
+          },
+          {
+            id: "3",
+            name: "Horse 3",
+            odds: 3.0,
+            position: 3,
+            jockey: "J3",
+            trainer: "T3",
+            weight: 62,
+            age: 6,
+            form: ["3"],
+          },
+        ],
+        query: "Show me the top horses",
+        timestamp: new Date(),
+        confidence: 0.95,
+      };
 
-      const horses = await service.getTopHorses();
+      jest.spyOn(service, "processQuery").mockResolvedValue(mockResponse);
 
-      expect(Array.isArray(horses)).toBe(true);
-      expect(horses.length).toBeLessThanOrEqual(5);
-    });
+      const result = await service.getTopHorses(2);
 
-    it("should return top horses with custom limit", async () => {
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue({
-        mongoQuery: '{"find": "market_definitions", "filter": {}, "limit": 3}',
-        naturalLanguageInterpretation: "I'm searching for market definitions with a limit of 3 results."
-      });
-
-      const horses = await service.getTopHorses(3);
-
-      expect(Array.isArray(horses)).toBe(true);
-      expect(horses.length).toBeLessThanOrEqual(3);
+      expect(result).toHaveLength(2);
+      expect(result[0].name).toBe("Horse 1");
+      expect(result[1].name).toBe("Horse 2");
     });
   });
 
   describe("getHorsesByOdds", () => {
-    it("should return horses with odds under specified value", async () => {
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue({
-        mongoQuery: '{"find": "price_updates", "filter": {"lastTradedPrice": {"$lte": 5.0}}}',
-        naturalLanguageInterpretation: "I'm searching for price updates where the last traded price is less than or equal to 5.0."
-      });
+    it("should filter horses by maximum odds", async () => {
+      const mockResponse = {
+        horses: [
+          {
+            id: "1",
+            name: "Horse 1",
+            odds: 1.5,
+            position: 1,
+            jockey: "J1",
+            trainer: "T1",
+            weight: 60,
+            age: 4,
+            form: ["1"],
+          },
+          {
+            id: "2",
+            name: "Horse 2",
+            odds: 2.0,
+            position: 2,
+            jockey: "J2",
+            trainer: "T2",
+            weight: 61,
+            age: 5,
+            form: ["2"],
+          },
+          {
+            id: "3",
+            name: "Horse 3",
+            odds: 3.0,
+            position: 3,
+            jockey: "J3",
+            trainer: "T3",
+            weight: 62,
+            age: 6,
+            form: ["3"],
+          },
+        ],
+        query: "Show horses with odds under 2.5",
+        timestamp: new Date(),
+        confidence: 0.95,
+      };
 
-      const horses = await service.getHorsesByOdds(5.0);
+      jest.spyOn(service, "processQuery").mockResolvedValue(mockResponse);
 
-      expect(Array.isArray(horses)).toBe(true);
-      horses.forEach(horse => {
-        expect(horse.odds).toBeLessThanOrEqual(5.0);
-      });
-    });
+      const result = await service.getHorsesByOdds(2.5);
 
-    it("should return empty array when no horses meet criteria", async () => {
-      mockOpenAIClient.createHorseQueryResponse.mockResolvedValue({
-        mongoQuery: '{"find": "price_updates", "filter": {"lastTradedPrice": {"$lte": 1.0}}}',
-        naturalLanguageInterpretation: "I'm searching for price updates where the last traded price is less than or equal to 1.0."
-      });
-
-      const horses = await service.getHorsesByOdds(1.0);
-
-      expect(Array.isArray(horses)).toBe(true);
-      expect(horses.length).toBe(0);
+      expect(result).toHaveLength(2);
+      expect(result[0].odds).toBeLessThanOrEqual(2.5);
+      expect(result[1].odds).toBeLessThanOrEqual(2.5);
     });
   });
 });

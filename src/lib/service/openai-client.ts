@@ -48,7 +48,7 @@ export class OpenAIClient {
 
   async createHorseQueryResponse(
     query: string
-  ): Promise<{ mongoQuery: string; naturalLanguageInterpretation: string }> {
+  ): Promise<{ mongoScript: string; naturalLanguageInterpretation: string }> {
     const combinedInstructions = this.instructions.replace("${query}", query);
 
     const response = await this.createResponse(combinedInstructions);
@@ -57,7 +57,7 @@ export class OpenAIClient {
       // Try to parse the response as JSON
       const parsed = JSON.parse(response.trim());
       return {
-        mongoQuery: parsed.mongoQuery,
+        mongoScript: parsed.mongoScript,
         naturalLanguageInterpretation: parsed.naturalLanguageInterpretation,
       };
     } catch (error) {
@@ -69,13 +69,13 @@ export class OpenAIClient {
         try {
           const parsed = JSON.parse(match[1].trim());
           return {
-            mongoQuery: parsed.mongoQuery,
+            mongoScript: parsed.mongoScript,
             naturalLanguageInterpretation: parsed.naturalLanguageInterpretation,
           };
         } catch (parseError) {
           console.error("Failed to parse JSON from code block:", parseError);
           throw new Error(
-            "Could not extract MongoDB query and interpretation from AI response"
+            "Could not extract MongoDB script and interpretation from AI response"
           );
         }
       }
@@ -86,20 +86,20 @@ export class OpenAIClient {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
           return {
-            mongoQuery: parsed.mongoQuery,
+            mongoScript: parsed.mongoScript,
             naturalLanguageInterpretation: parsed.naturalLanguageInterpretation,
           };
         } catch (parseError) {
           console.error("Failed to parse JSON from text:", parseError);
           throw new Error(
-            "Could not extract MongoDB query and interpretation from AI response"
+            "Could not extract MongoDB script and interpretation from AI response"
           );
         }
       }
 
       console.error("Raw AI response:", response);
       throw new Error(
-        "Could not extract MongoDB query and interpretation from AI response"
+        "Could not extract MongoDB script and interpretation from AI response"
       );
     }
   }
