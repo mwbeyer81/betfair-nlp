@@ -1,4 +1,8 @@
 import { Db } from "mongodb";
+import { exec } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
 
 export interface MongoScriptResult {
   success: boolean;
@@ -15,28 +19,34 @@ export class MongoScriptExecutor {
   }
 
   /**
-   * Executes a MongoDB JavaScript script
-   * @param script The JavaScript script to execute
-   * @returns Promise<MongoScriptResult>
+   * Executes a MongoDB script and returns the results
    */
   async executeScript(script: string): Promise<MongoScriptResult> {
     const startTime = Date.now();
 
     try {
-      // Clean the script - remove any markdown code blocks
-      const cleanScript = this.cleanScript(script);
+      // Clean the script
+      console.log(
+        "🔍 Original script in executeScript:",
+        JSON.stringify(script)
+      );
+      const cleanedScript = this.cleanScript(script);
+      console.log(
+        "🔍 Cleaned script in executeScript:",
+        JSON.stringify(cleanedScript)
+      );
 
-      // Validate the script
-      if (!this.isValidScript(cleanScript)) {
+      // Validate the script for security
+      if (!this.isScriptSafe(cleanedScript)) {
         return {
           success: false,
-          error: "Invalid MongoDB script format",
+          error: "Script contains potentially dangerous operations",
           executionTime: Date.now() - startTime,
         };
       }
 
-      // Execute the script using eval in a controlled environment
-      const result = await this.executeInContext(cleanScript);
+      // Execute the script
+      const result = await this.executeInContext(cleanedScript);
 
       return {
         success: true,
@@ -53,84 +63,148 @@ export class MongoScriptExecutor {
   }
 
   /**
-   * Cleans the script by removing markdown code blocks and extra whitespace
+   * Cleans the script by removing markdown code blocks and fixing quotes
    */
   private cleanScript(script: string): string {
     // Remove markdown code blocks
-    const codeBlockRegex = /```(?:javascript|js|mongo)?\s*\n([\s\S]*?)\n```/;
-    const match = script.match(codeBlockRegex);
+    let cleaned = script
+      .replace(/```javascript\n?/g, "")
+      .replace(/```\n?/g, "");
 
-    if (match && match[1]) {
-      return match[1].trim();
+    // Remove outer quotes if present (handle both single and double quotes)
+    // Keep removing quotes until none are left
+    while (
+      (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+      (cleaned.startsWith("'") && cleaned.endsWith("'"))
+    ) {
+      cleaned = cleaned.slice(1, -1).trim();
     }
 
-    return script.trim();
+    // Unescape inner quotes
+    cleaned = cleaned.replace(/\\"/g, '"');
+    cleaned = cleaned.replace(/\\'/g, "'");
+
+    return cleaned;
   }
 
   /**
-   * Validates that the script is a valid MongoDB JavaScript script
+   * Validates that the script doesn't contain dangerous operations
    */
-  private isValidScript(script: string): boolean {
-    // Basic validation - should contain db. references
-    if (!script.includes("db.")) {
-      return false;
-    }
-
-    // Should not contain dangerous operations
+  private isScriptSafe(script: string): boolean {
     const dangerousPatterns = [
-      /db\.dropDatabase/,
-      /db\.dropCollection/,
-      /db\.createCollection/,
-      /db\.admin/,
-      /db\.system/,
-      /eval\s*\(/,
-      /Function\s*\(/,
-      /setTimeout/,
-      /setInterval/,
-      /require\s*\(/,
-      /import\s+/,
-      /process\./,
-      /global\./,
-      /__dirname/,
-      /__filename/,
+      /drop\s+database/i,
+      /drop\s+collection/i,
+      /remove\s*\(\s*\{\s*\}\s*\)/i,
+      /deleteMany\s*\(\s*\{\s*\}\s*\)/i,
+      /system\./i,
+      /admin\./i,
+      /eval\s*\(/i,
+      /__proto__/i,
+      /constructor/i,
     ];
 
     return !dangerousPatterns.some(pattern => pattern.test(script));
   }
 
   /**
-   * Executes the script in a controlled context with access to the db object
+   * Executes the MongoDB shell script using mongosh
    */
   private async executeInContext(script: string): Promise<any> {
-    // Create a safe execution context
-    const context = {
-      db: this.db,
-      // Add any other safe globals that might be needed
-      print: console.log,
-      printjson: (obj: any) => console.log(JSON.stringify(obj, null, 2)),
-    };
+    try {
+      // Get the database name from the connection
+      const dbName = this.db.databaseName;
+      // Use localhost for local development (MongoDB running in Docker, Node.js on Mac)
+      const mongoUri = `mongodb://localhost:27017/${dbName}`;
 
-    // Create a function that executes the script
-    const executeFunction = new Function(
-      "db",
-      "print",
-      "printjson",
-      `
+      // Create a temporary script file
+      const fs = require("fs");
+      const path = require("path");
+      const os = require("os");
+
+      const tempDir = os.tmpdir();
+      const scriptPath = path.join(tempDir, `mongo-script-${Date.now()}.js`);
+
+      // Script is already cleaned in executeScript method
+      console.log("🔍 Script to write to file:", JSON.stringify(script));
+      fs.writeFileSync(scriptPath, script);
+
       try {
-        return ${script};
-      } catch (error) {
-        throw new Error('Script execution error: ' + error.message);
-      }
-      `
-    );
+        // Execute the script using mongosh with --eval and cat
+        const command = `mongosh "${mongoUri}" --eval "$(cat "${scriptPath}")"`;
+        const { stdout, stderr } = await execAsync(command);
 
-    // Execute the function with the context
-    return await executeFunction.call(
-      context,
-      context.db,
-      context.print,
-      context.printjson
-    );
+        // Clean up the temporary file
+        fs.unlinkSync(scriptPath);
+
+        if (stderr) {
+          console.error("MongoDB stderr:", stderr);
+        }
+
+        // Parse the output to extract the results
+        const lines = stdout.split("\n");
+        const resultLines = lines.filter(
+          line =>
+            line.trim() &&
+            !line.includes("Current Mongosh Log ID:") &&
+            !line.includes("Connecting to:") &&
+            !line.includes("Using MongoDB:") &&
+            !line.includes("Using Mongosh:") &&
+            !line.includes("For mongosh info see:") &&
+            !line.includes("To help improve our products,") &&
+            !line.includes(
+              "The server generated these startup warnings when booting:"
+            ) &&
+            !line.includes("---") &&
+            !line.startsWith(">") &&
+            !line.startsWith("...")
+        );
+
+        // Join all result lines and convert MongoDB format to valid JSON
+        const resultText = resultLines.join("\n").trim();
+
+        try {
+          // Convert MongoDB output format to valid JSON
+          let jsonText = resultText
+            // Replace single quotes with double quotes
+            .replace(/'/g, '"')
+            // Add quotes around property names (but not around values that are already quoted)
+            .replace(/(\w+):/g, '"$1":')
+            // Fix any double quotes that got doubled up
+            .replace(/""/g, '"');
+
+          // Try to parse the converted JSON
+          const parsed = JSON.parse(jsonText);
+          return Array.isArray(parsed) ? parsed : [parsed];
+        } catch (e) {
+          // If parsing as complete JSON fails, try line by line
+          const results = [];
+          for (const line of resultLines) {
+            try {
+              const parsed = JSON.parse(line);
+              results.push(parsed);
+            } catch (lineError) {
+              // If it's not JSON, just add as string
+              if (line.trim()) {
+                results.push(line.trim());
+              }
+            }
+          }
+          return results.length > 0 ? results : null;
+        }
+      } catch (execError) {
+        // Clean up the temporary file even if there's an error
+        try {
+          fs.unlinkSync(scriptPath);
+        } catch (cleanupError) {
+          // Ignore cleanup errors
+        }
+        throw execError;
+      }
+    } catch (error) {
+      throw new Error(
+        `Script execution error: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   /**
@@ -141,8 +215,26 @@ export class MongoScriptExecutor {
     filter: any = {},
     options: any = {}
   ): Promise<MongoScriptResult> {
-    const script = this.buildFindScript(collection, filter, options);
-    return this.executeScript(script);
+    const startTime = Date.now();
+
+    try {
+      const result = await this.db
+        .collection(collection)
+        .find(filter, options)
+        .toArray();
+
+      return {
+        success: true,
+        data: result,
+        executionTime: Date.now() - startTime,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        executionTime: Date.now() - startTime,
+      };
+    }
   }
 
   /**
@@ -152,45 +244,25 @@ export class MongoScriptExecutor {
     collection: string,
     pipeline: any[]
   ): Promise<MongoScriptResult> {
-    const script = this.buildAggregationScript(collection, pipeline);
-    return this.executeScript(script);
-  }
+    const startTime = Date.now();
 
-  /**
-   * Builds a find script from parameters
-   */
-  private buildFindScript(
-    collection: string,
-    filter: any,
-    options: any
-  ): string {
-    let script = `db.${collection}.find(${JSON.stringify(filter)}`;
+    try {
+      const result = await this.db
+        .collection(collection)
+        .aggregate(pipeline)
+        .toArray();
 
-    if (options.projection) {
-      script += `, ${JSON.stringify(options.projection)}`;
+      return {
+        success: true,
+        data: result,
+        executionTime: Date.now() - startTime,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        executionTime: Date.now() - startTime,
+      };
     }
-
-    script += ")";
-
-    if (options.sort) {
-      script += `.sort(${JSON.stringify(options.sort)})`;
-    }
-
-    if (options.limit) {
-      script += `.limit(${options.limit})`;
-    }
-
-    if (options.skip) {
-      script += `.skip(${options.skip})`;
-    }
-
-    return script;
-  }
-
-  /**
-   * Builds an aggregation script from parameters
-   */
-  private buildAggregationScript(collection: string, pipeline: any[]): string {
-    return `db.${collection}.aggregate(${JSON.stringify(pipeline)})`;
   }
 }

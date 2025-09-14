@@ -33,13 +33,18 @@ export class OpenAIClient {
 
   async createResponse(input: string): Promise<string> {
     try {
-      const response = await this.client.responses.create({
+      const response = await this.client.chat.completions.create({
         model: "gpt-4o-mini",
-        input: input,
-        store: true,
+        messages: [
+          {
+            role: "user",
+            content: input,
+          },
+        ],
+        temperature: 0.1,
       });
 
-      return response.output_text;
+      return response.choices[0]?.message?.content || "";
     } catch (error) {
       console.error("OpenAI API error:", error);
       throw new Error(`Failed to get response from OpenAI: ${error}`);
@@ -55,7 +60,10 @@ export class OpenAIClient {
 
     try {
       // Try to parse the response as JSON
+      console.log("🔍 Raw OpenAI response:", response);
       const parsed = JSON.parse(response.trim());
+      console.log("🔍 Parsed JSON:", JSON.stringify(parsed, null, 2));
+      console.log("🔍 mongoScript value:", parsed.mongoScript);
       return {
         mongoScript: parsed.mongoScript,
         naturalLanguageInterpretation: parsed.naturalLanguageInterpretation,
@@ -67,16 +75,46 @@ export class OpenAIClient {
 
       if (match && match[1]) {
         try {
-          const parsed = JSON.parse(match[1].trim());
+          // Clean the JSON string before parsing
+          let jsonString = match[1].trim();
+          console.log("🔍 Extracted from code block:", jsonString);
+
+          // Remove any extra quotes that might be wrapping the JSON
+          if (jsonString.startsWith('"') && jsonString.endsWith('"')) {
+            jsonString = jsonString.slice(1, -1);
+            console.log("🔍 Removed outer quotes:", jsonString);
+          }
+
+          // Don't unescape - the JSON needs the escaped quotes to be valid
+          console.log("🔍 JSON string ready for parsing:", jsonString);
+
+          const parsed = JSON.parse(jsonString);
+          console.log(
+            "🔍 Parsed JSON from code block:",
+            JSON.stringify(parsed, null, 2)
+          );
+          console.log("🔍 mongoScript from code block:", parsed.mongoScript);
           return {
             mongoScript: parsed.mongoScript,
             naturalLanguageInterpretation: parsed.naturalLanguageInterpretation,
           };
         } catch (parseError) {
           console.error("Failed to parse JSON from code block:", parseError);
-          throw new Error(
-            "Could not extract MongoDB script and interpretation from AI response"
-          );
+          // Try to fix common JSON issues
+          const fixedJson = this.fixJsonString(match[1].trim());
+          try {
+            const parsed = JSON.parse(fixedJson);
+            return {
+              mongoScript: parsed.mongoScript,
+              naturalLanguageInterpretation:
+                parsed.naturalLanguageInterpretation,
+            };
+          } catch (fixError) {
+            console.error("Failed to parse fixed JSON:", fixError);
+            throw new Error(
+              "Could not extract MongoDB script and interpretation from AI response"
+            );
+          }
         }
       }
 
@@ -91,9 +129,21 @@ export class OpenAIClient {
           };
         } catch (parseError) {
           console.error("Failed to parse JSON from text:", parseError);
-          throw new Error(
-            "Could not extract MongoDB script and interpretation from AI response"
-          );
+          // Try to fix common JSON issues
+          const fixedJson = this.fixJsonString(jsonMatch[0]);
+          try {
+            const parsed = JSON.parse(fixedJson);
+            return {
+              mongoScript: parsed.mongoScript,
+              naturalLanguageInterpretation:
+                parsed.naturalLanguageInterpretation,
+            };
+          } catch (fixError) {
+            console.error("Failed to parse fixed JSON:", fixError);
+            throw new Error(
+              "Could not extract MongoDB script and interpretation from AI response"
+            );
+          }
         }
       }
 
@@ -102,5 +152,54 @@ export class OpenAIClient {
         "Could not extract MongoDB script and interpretation from AI response"
       );
     }
+  }
+
+  /**
+   * Attempts to fix common JSON parsing issues by manually extracting values
+   */
+  private fixJsonString(jsonString: string): string {
+    try {
+      // Find the mongoScript value by looking for the pattern
+      const mongoScriptStart = jsonString.indexOf('"mongoScript": "') + 15;
+
+      // Find the end of mongoScript by looking for the closing quote before naturalLanguageInterpretation
+      const interpretationStart = jsonString.indexOf(
+        '"naturalLanguageInterpretation": "'
+      );
+      const mongoScriptEnd = jsonString.lastIndexOf('",', interpretationStart);
+
+      // Find the naturalLanguageInterpretation value - look for the end of the JSON object
+      const interpretationValueStart = interpretationStart + 35;
+
+      // Find the end of the interpretation by looking for the closing brace of the JSON object
+      const jsonEnd = jsonString.lastIndexOf("}");
+      const interpretationEnd = jsonString.lastIndexOf('"', jsonEnd);
+
+      if (
+        mongoScriptStart > 14 &&
+        mongoScriptEnd > mongoScriptStart &&
+        interpretationValueStart > 34 &&
+        interpretationEnd > interpretationValueStart
+      ) {
+        const mongoScript = jsonString.substring(
+          mongoScriptStart,
+          mongoScriptEnd
+        );
+        const interpretation = jsonString.substring(
+          interpretationValueStart,
+          interpretationEnd
+        );
+
+        // Create a properly formatted JSON object
+        return JSON.stringify({
+          mongoScript: mongoScript,
+          naturalLanguageInterpretation: interpretation,
+        });
+      }
+    } catch (error) {
+      console.error("Error in fixJsonString:", error);
+    }
+
+    return jsonString;
   }
 }

@@ -109,28 +109,31 @@ When the user gives a **natural language query**, you need to:
 1. **Generate a MongoDB JavaScript script**: Convert the natural language query into a valid MongoDB JavaScript script that can be executed using MongoDB's `eval()` function or similar execution methods.
 2. **Provide a natural language interpretation**: Explain what the MongoDB script does in simple, user-friendly terms.
 
-## MongoDB JavaScript Script Generation
+## MongoDB Shell Script Generation
 
-- Return a valid JavaScript string that represents a MongoDB script
+- Return a simple MongoDB shell script that can be executed with `mongosh` or the Node.js MongoDB client
 - Use the correct collection names: `market_definitions`, `price_updates`
-- The script should use the `db` object to access collections (e.g., `db.market_definitions.find()`)
+- **KEEP IT SIMPLE**: Only use basic `find()` and `aggregate()` operations
+- **NO COMPLEX LOGIC**: Avoid variables, loops, or complex JavaScript - just direct MongoDB operations
 - For queries asking about "all races" or "list races", use aggregation to group by `marketId` and `name` to avoid duplicates
 - For queries about specific markets (by marketId or name), always use `{"sort": {"timestamp": -1}, "limit": 1}` to get the most recent document
 - For queries about specific horses, use regex matching `{"$regex": "HorseName", "$options": "i"}` since horse names in the database include position numbers (e.g., "1. Frankies Shout")
 - **Default sort for price updates**: For `price_updates` queries without explicit sorting, include `{"sort": {"timestamp": -1}}` as a default to show most recent updates first. If the user specifies a different sort order, use that instead.
-- **Script flexibility**: You can spread logic across multiple lines, use variables, and perform complex operations that wouldn't be possible with a single query
+- **Examples of what to generate**:
+  - `db.price_updates.find({"runnerName": {"$regex": "HorseName", "$options": "i"}}).sort({"timestamp": -1})`
+  - `db.market_definitions.find({"status": "OPEN"})`
+  - `db.market_definitions.aggregate([{"$group": {"_id": {"marketId": "$marketId", "name": "$name"}}}])`
 - Example mappings:
 
-| Query | MongoDB JavaScript Script |
-|-------|---------------------------|
+| Query | MongoDB Shell Script |
+|-------|---------------------|
 | "List all runners in race X" | `db.market_definitions.find({"name": "X"}).sort({"timestamp": -1}).limit(1).project({"runners": 1})` |
 | "Show price changes for horse Y in race Z" | `db.price_updates.find({"runnerName": "Y", "marketId": "Z"}).sort({"timestamp": -1})` |
 | "Price updates for horse X" or "Show price history for horse X" | `db.price_updates.find({"runnerName": {"$regex": "X", "$options": "i"}}).sort({"timestamp": -1})` |
-| "Price updates for horse X in race Y" or "Show price history for horse X in race Y" | `var market = db.market_definitions.findOne({"name": "Y"}, {}, {"sort": {"timestamp": -1}}); if (market) { db.price_updates.find({"runnerName": {"$regex": "X", "$options": "i"}, "marketId": market.marketId}).sort({"timestamp": -1}) }` |
+| "Price updates for horse X in market Y" | `db.price_updates.find({"runnerName": {"$regex": "X", "$options": "i"}, "marketId": "Y"}).sort({"timestamp": -1})` |
 | "Show status changes for race X" | `db.market_definitions.find({"marketId": "X"}).sort({"timestamp": -1})` |
 | "Show all open markets" | `db.market_definitions.find({"status": "OPEN"})` |
 | "Show latest prices for all horses" | `db.price_updates.find({}).sort({"timestamp": -1})` |
-| "Price updates for horse X in market Y" | `db.price_updates.find({"runnerName": {"$regex": "X", "$options": "i"}, "marketId": "Y"}).sort({"timestamp": -1})` |
 | "Show all price changes for horse X" | `db.price_updates.find({"runnerName": {"$regex": "X", "$options": "i"}}).sort({"timestamp": -1})` |
 | "Price updates sorted by price" | `db.price_updates.find({"runnerName": {"$regex": "X", "$options": "i"}}).sort({"lastTradedPrice": 1})` |
 | "Price updates sorted by runner name" | `db.price_updates.find({"marketId": "Y"}).sort({"runnerName": 1})` |
@@ -155,7 +158,6 @@ When the user gives a **natural language query**, you need to:
 | "Show latest market definition for race X" | `db.market_definitions.find({"marketId": "X"}).sort({"timestamp": -1}).limit(1)` |
 | "List all runners in market X" or "Show runners for market X" | `db.market_definitions.find({"marketId": "X"}).sort({"timestamp": -1}).limit(1).project({"runners": 1, "name": 1, "eventName": 1, "status": 1, "numberOfActiveRunners": 1})` |
 | "List all races" or "Show all races" | `db.market_definitions.aggregate([{"$group": {"_id": {"marketId": "$marketId", "name": "$name"}, "eventName": {"$first": "$eventName"}, "status": {"$first": "$status"}, "numberOfActiveRunners": {"$first": "$numberOfActiveRunners"}, "marketTime": {"$first": "$marketTime"}}}, {"$project": {"marketId": "$_id.marketId", "name": "$_id.name", "eventName": 1, "status": 1, "numberOfActiveRunners": 1, "marketTime": 1, "_id": 0}}, {"$sort": {"name": 1}}])` |
-| "Second most recent race" or "Second latest race" | `var races = db.market_definitions.aggregate([{"$group": {"_id": {"marketId": "$marketId", "name": "$name"}, "eventName": {"$first": "$eventName"}, "status": {"$first": "$status"}, "numberOfActiveRunners": {"$first": "$numberOfActiveRunners"}, "marketTime": {"$first": "$marketTime"}}}, {"$sort": {"marketTime": -1}}, {"$skip": 1}, {"$limit": 1}]); var secondRace = races.next(); if (secondRace) { db.market_definitions.find({"marketId": secondRace._id.marketId}).sort({"timestamp": -1}).limit(1).project({"runners": 1, "name": 1, "eventName": 1, "status": 1, "numberOfActiveRunners": 1, "marketId": 1, "_id": 0}) }` |
 
 ## Natural Language Interpretation
 
@@ -173,6 +175,9 @@ Return your response in this exact format:
   "naturalLanguageInterpretation": "a clear explanation of what the script does"
 }
 ```
+
+**IMPORTANT**: The mongoScript should be properly escaped for JSON. Use `\"` for quotes inside the script.
+For example: `"db.collection.find({\"field\": \"value\"})"`
 
 ---
 

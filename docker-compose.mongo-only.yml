@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  # MongoDB database only
+  mongodb:
+    image: mongo:7.0
+    container_name: betfair-nlp-mongodb-local
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: betfair_nlp_dev
+    volumes:
+      - mongodb_data_local:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  mongodb_data_local:
+    driver: local

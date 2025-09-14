@@ -42,27 +42,16 @@ class ChatApi {
           reply += `**How I interpreted your query:**\n${data.naturalLanguageInterpretation}\n\n`;
         }
 
-        if (data.mongoResults && data.mongoResults.length > 0) {
-          reply += `Found ${data.mongoResults.length} result(s):\n\n`;
-
-          // Format the results based on the collection type
-          if (
-            data.mongoQuery &&
-            data.mongoQuery.includes("market_definitions")
-          ) {
-            reply += this.formatMarketDefinitions(data.mongoResults);
-          } else if (
-            data.mongoQuery &&
-            data.mongoQuery.includes("price_updates")
-          ) {
-            reply += this.formatPriceUpdates(data.mongoResults, data.query);
-          } else if (
-            data.mongoQuery &&
-            data.mongoQuery.includes("market_statuses")
-          ) {
-            reply += this.formatMarketStatuses(data.mongoResults);
-          } else {
-            reply += JSON.stringify(data.mongoResults, null, 2);
+        // Use AI-formatted results if available, otherwise fall back to raw results
+        if (data.formattedResults) {
+          reply += data.formattedResults;
+        } else if (data.mongoResults && data.mongoResults.length > 0) {
+          // Filter out null values from mongoResults
+          const validResults = data.mongoResults.filter(result => result !== null);
+          
+          if (validResults.length > 0) {
+            reply += `Found ${validResults.length} result(s):\n\n`;
+            reply += JSON.stringify(validResults, null, 2);
           }
         } else if (data.noResultsMessage) {
           // Use the backend's custom message instead of hardcoded text
@@ -84,41 +73,22 @@ class ChatApi {
       }
     } catch (error) {
       console.error("Error calling chat API:", error);
+      console.error("Error details:", {
+        message: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : undefined,
+      });
       return {
-        reply: `Connection error: Unable to reach the server. Please make sure the server is running on ${this.baseUrl}`,
+        reply: `Connection error: Unable to reach the server. Please make sure the server is running on ${this.baseUrl}. Error: ${error instanceof Error ? error.message : "Unknown error"}`,
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
       };
     }
   }
 
-  private formatMarketDefinitions(results: any[]): string {
-    let formatted = "";
-    results.forEach((market, index) => {
-      formatted += `${index + 1}. **${market.name}** (${market.eventName})\n`;
-      formatted += `   - Market ID: ${market.marketId}\n`;
-      formatted += `   - Status: ${market.status}\n`;
-      formatted += `   - Active Runners: ${market.numberOfActiveRunners}\n`;
-      if (market.runners && market.runners.length > 0) {
-        formatted += `   - Runners:\n`;
-        market.runners.forEach((runner: any, runnerIndex: number) => {
-          const status = runner.status || "UNKNOWN";
-          const statusColor =
-            status === "ACTIVE" ? "🟢" : status === "REMOVED" ? "🔴" : "🟡";
-          formatted += `     ${runnerIndex + 1}. ${statusColor} ${runner.name} (${status})\n`;
-        });
 
-        // Add status key/legend
-        formatted += `\n   **Status Key:**\n`;
-        formatted += `   🟢 = ACTIVE runners\n`;
-        formatted += `   🔴 = REMOVED runners\n`;
-        formatted += `   🟡 = WINNER/LOSER runners\n`;
-      }
-      formatted += "\n";
-    });
-    return formatted;
-  }
-
+  // Removed hardcoded formatting methods - now using AI formatting
+  /*
   private formatPriceUpdates(results: any[], query?: string): string {
     let formatted = "";
 
@@ -488,6 +458,7 @@ class ChatApi {
     });
     return formatted;
   }
+  */
 }
 
 export const chatApi = new ChatApi();

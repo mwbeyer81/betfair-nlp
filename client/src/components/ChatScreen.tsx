@@ -18,7 +18,7 @@ interface MessageData {
   text: string;
   isUser: boolean;
   timestamp: Date;
-  mongoQuery?: string;
+  mongoScript?: string;
   aiAnalysis?: any;
 }
 
@@ -54,9 +54,11 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
         text: response.reply,
         isUser: false,
         timestamp: new Date(),
-        mongoQuery: response.data?.aiAnalysis
-          ? JSON.parse(response.data.aiAnalysis).mongoQuery
-          : undefined,
+        mongoScript:
+          response.data?.mongoScript ||
+          (response.data?.aiAnalysis
+            ? JSON.parse(response.data.aiAnalysis).mongoScript
+            : undefined),
         aiAnalysis: response.data?.aiAnalysis
           ? JSON.parse(response.data.aiAnalysis)
           : undefined,
@@ -80,7 +82,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
       text={item.text}
       isUser={item.isUser}
       timestamp={item.timestamp}
-      mongoQuery={item.mongoQuery}
+      mongoScript={item.mongoScript}
       aiAnalysis={item.aiAnalysis}
     />
   );

@@ -3,26 +3,14 @@ import { OpenAIClient } from "./openai-client";
 import { MongoScriptExecutor } from "./mongo-script-executor";
 import { Db } from "mongodb";
 
-export interface Horse {
-  id: string;
-  name: string;
-  odds: number;
-  position: number;
-  jockey: string;
-  trainer: string;
-  weight: number;
-  age: number;
-  form: string[];
-}
-
 export interface NaturalLanguageResponse {
-  horses: Horse[];
   query: string;
   timestamp: Date;
   confidence: number;
   aiAnalysis?: string;
   mongoScript?: string;
   mongoResults?: any[];
+  formattedResults?: string;
   naturalLanguageInterpretation?: string;
   noResultsFound?: boolean;
   noResultsMessage?: string;
@@ -180,15 +168,31 @@ export class NaturalLanguageService {
         "No data found matching your query. This could mean the horse name doesn't exist in our database, or there are no records for the specified criteria.";
     }
 
+    // Format MongoDB results using AI if we have results
+    let formattedResults = undefined;
+    if (mongoResults && mongoResults.length > 0 && this.openaiClient) {
+      try {
+        formattedResults = await this.formatMongoResultsWithAI(
+          query,
+          mongoResults,
+          mongoScript || undefined
+        );
+      } catch (error) {
+        console.error("Error formatting results with AI:", error);
+        // Fall back to raw results if AI formatting fails
+        formattedResults = JSON.stringify(mongoResults, null, 2);
+      }
+    }
+
     // Return the response with appropriate flags
     return {
-      horses: [], // Empty since we're returning MongoDB results
       query: query,
       timestamp: new Date(),
       confidence: hasValidScript ? 0.95 : 0.7, // Lower confidence when no script
       aiAnalysis: aiResponse ? JSON.stringify(aiResponse) : undefined,
       mongoScript: mongoScript || undefined,
       mongoResults: mongoResults,
+      formattedResults: formattedResults,
       naturalLanguageInterpretation: naturalLanguageInterpretation || undefined,
       noResultsFound: !hasValidScript || mongoResults.length === 0,
       noResultsMessage,
@@ -198,20 +202,43 @@ export class NaturalLanguageService {
     };
   }
 
-  async getHorsesByQuery(query: string): Promise<Horse[]> {
-    const response = await this.processQuery(query);
-    return response.horses;
-  }
+  /**
+   * Formats MongoDB results using AI to create human-readable text
+   */
+  private async formatMongoResultsWithAI(
+    query: string,
+    mongoResults: any[],
+    mongoScript?: string
+  ): Promise<string> {
+    const prompt = `You are a data formatting assistant for a horse racing database. 
 
-  async getTopHorses(limit: number = 5): Promise<Horse[]> {
-    const response = await this.processQuery("Show me the top horses");
-    return response.horses.slice(0, limit);
-  }
+User Query: "${query}"
 
-  async getHorsesByOdds(maxOdds: number): Promise<Horse[]> {
-    const response = await this.processQuery(
-      `Show horses with odds under ${maxOdds}`
-    );
-    return response.horses.filter(horse => horse.odds <= maxOdds);
+MongoDB Script Used: ${mongoScript || "N/A"}
+
+Raw MongoDB Results:
+${JSON.stringify(mongoResults, null, 2)}
+
+Please format these results into a clear, human-readable response that directly answers the user's query. 
+
+Guidelines:
+1. Use clear, conversational language
+2. Organize the data in a logical way (e.g., by race, by horse, by time)
+3. Include relevant details like race names, dates, status, number of runners, etc.
+4. Use bullet points or numbered lists for multiple items
+5. Highlight important information
+6. If there are multiple races, group them appropriately
+7. Use emojis sparingly but effectively (e.g., 🏇 for races, 🟢 for active status)
+8. Make it easy to scan and understand quickly
+
+Format the response as plain text (no markdown formatting).`;
+
+    try {
+      const response = await this.openaiClient.createResponse(prompt);
+      return response.trim();
+    } catch (error) {
+      console.error("Error calling OpenAI for result formatting:", error);
+      throw error;
+    }
   }
 }

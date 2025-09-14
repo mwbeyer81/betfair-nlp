@@ -5,7 +5,7 @@ export interface MessageProps {
   text: string;
   isUser: boolean;
   timestamp: Date;
-  mongoQuery?: string;
+  mongoScript?: string;
   aiAnalysis?: any;
 }
 
@@ -13,10 +13,10 @@ export const Message: React.FC<MessageProps> = ({
   text,
   isUser,
   timestamp,
-  mongoQuery,
+  mongoScript,
   aiAnalysis,
 }) => {
-  const [showMongoQuery, setShowMongoQuery] = useState(false);
+  const [showMongoScript, setShowMongoScript] = useState(false);
 
   return (
     <View
@@ -40,13 +40,15 @@ export const Message: React.FC<MessageProps> = ({
           {text}
         </Text>
 
-        {/* Show MongoDB Query button for bot messages with queries */}
-        {!isUser && mongoQuery && (
+        {/* Show MongoDB Script button for bot messages with scripts */}
+        {!isUser && mongoScript && (
           <TouchableOpacity
-            style={styles.mongoQueryButton}
-            onPress={() => setShowMongoQuery(true)}
+            style={styles.mongoScriptButton}
+            onPress={() => setShowMongoScript(true)}
           >
-            <Text style={styles.mongoQueryButtonText}>View MongoDB Query</Text>
+            <Text style={styles.mongoScriptButtonText}>
+              View MongoDB Script
+            </Text>
           </TouchableOpacity>
         )}
 
@@ -58,28 +60,28 @@ export const Message: React.FC<MessageProps> = ({
         </Text>
       </View>
 
-      {/* MongoDB Query Modal */}
+      {/* MongoDB Script Modal */}
       <Modal
-        visible={showMongoQuery}
+        visible={showMongoScript}
         transparent={true}
         animationType="slide"
-        onRequestClose={() => setShowMongoQuery(false)}
+        onRequestClose={() => setShowMongoScript(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>MongoDB Query</Text>
+              <Text style={styles.modalTitle}>MongoDB JavaScript Script</Text>
               <TouchableOpacity
                 style={styles.closeButton}
-                onPress={() => setShowMongoQuery(false)}
+                onPress={() => setShowMongoScript(false)}
               >
                 <Text style={styles.closeButtonText}>✕</Text>
               </TouchableOpacity>
             </View>
 
-            <View style={styles.queryContainer}>
-              <Text style={styles.queryLabel}>Generated Query:</Text>
-              <Text style={styles.queryText}>{mongoQuery}</Text>
+            <View style={styles.scriptContainer}>
+              <Text style={styles.scriptLabel}>Generated Script:</Text>
+              <Text style={styles.scriptText}>{mongoScript}</Text>
             </View>
 
             {aiAnalysis?.naturalLanguageInterpretation && (
@@ -139,7 +141,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     alignSelf: "flex-end",
   },
-  mongoQueryButton: {
+  mongoScriptButton: {
     backgroundColor: "#007AFF",
     paddingVertical: 8,
     paddingHorizontal: 12,
@@ -147,7 +149,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     alignSelf: "flex-start",
   },
-  mongoQueryButtonText: {
+  mongoScriptButtonText: {
     color: "white",
     fontSize: 12,
     fontWeight: "600",
@@ -188,16 +190,16 @@ const styles = StyleSheet.create({
     color: "#666",
     fontWeight: "600",
   },
-  queryContainer: {
+  scriptContainer: {
     marginBottom: 16,
   },
-  queryLabel: {
+  scriptLabel: {
     fontSize: 14,
     fontWeight: "600",
     color: "#333",
     marginBottom: 8,
   },
-  queryText: {
+  scriptText: {
     fontSize: 12,
     fontFamily: "monospace",
     backgroundColor: "#f5f5f5",

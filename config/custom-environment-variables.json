@@ -9,5 +9,8 @@
   },
   "logging": {
     "level": "LOG_LEVEL"
+  },
+  "openai": {
+    "apiKey": "OPENAI_API_KEY"
   }
 }

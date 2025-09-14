@@ -15,5 +15,8 @@
   "logging": {
     "level": "info",
     "enableConsole": true
+  },
+  "openai": {
+    "apiKey": "your-openai-api-key-here"
   }
 }

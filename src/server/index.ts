@@ -8,7 +8,6 @@ const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on http://${HOST}:${PORT}`);
   console.log(`📊 Health check: http://${HOST}:${PORT}/health`);
   console.log(`🔍 API endpoint: http://${HOST}:${PORT}/api/query`);
-  console.log(`🐎 Horses endpoint: http://${HOST}:${PORT}/api/horses/top`);
 });
 
 // Graceful shutdown
