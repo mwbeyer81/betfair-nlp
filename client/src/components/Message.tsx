@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Modal } from "react-native";
+import Markdown from "react-native-markdown-display";
 
 export interface MessageProps {
   text: string;
@@ -31,14 +32,17 @@ export const Message: React.FC<MessageProps> = ({
           isUser ? styles.userBubble : styles.botBubble,
         ]}
       >
-        <Text
-          style={[
-            styles.messageText,
-            isUser ? styles.userText : styles.botText,
-          ]}
-        >
-          {text}
-        </Text>
+        {isUser ? (
+          <Text style={[styles.messageText, styles.userText]}>{text}</Text>
+        ) : (
+          <Markdown
+            style={{
+              body: [styles.messageText, styles.botText],
+            }}
+          >
+            {text}
+          </Markdown>
+        )}
 
         {/* Show MongoDB Script button for bot messages with scripts */}
         {!isUser && mongoScript && (

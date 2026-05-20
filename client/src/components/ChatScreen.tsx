@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -31,6 +31,16 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [queryHistory, setQueryHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const flatListRef = useRef<FlatList>(null);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [messages]);
 
   const sendMessage = async (messageText: string) => {
     // Add query to history
@@ -103,6 +113,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
         </View>
 
         <FlatList
+          ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
           keyExtractor={item => item.id}

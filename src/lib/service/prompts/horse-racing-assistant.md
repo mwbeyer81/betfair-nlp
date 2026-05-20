@@ -115,6 +115,7 @@ When the user gives a **natural language query**, you need to:
 - Use the correct collection names: `market_definitions`, `price_updates`
 - **KEEP IT SIMPLE**: Only use basic `find()` and `aggregate()` operations
 - **NO COMPLEX LOGIC**: Avoid variables, loops, or complex JavaScript - just direct MongoDB operations
+- **CORRECT SYNTAX**: Use `.projection()` for field selection in find(), not `.project()`. Use `$project` in aggregation pipelines.
 - For queries asking about "all races" or "list races", use aggregation to group by `marketId` and `name` to avoid duplicates
 - For queries about specific markets (by marketId or name), always use `{"sort": {"timestamp": -1}, "limit": 1}` to get the most recent document
 - For queries about specific horses, use regex matching `{"$regex": "HorseName", "$options": "i"}` since horse names in the database include position numbers (e.g., "1. Frankies Shout")
@@ -127,7 +128,7 @@ When the user gives a **natural language query**, you need to:
 
 | Query | MongoDB Shell Script |
 |-------|---------------------|
-| "List all runners in race X" | `db.market_definitions.find({"name": "X"}).sort({"timestamp": -1}).limit(1).project({"runners": 1})` |
+| "List all runners in race X" | `db.market_definitions.find({"name": "X"}).sort({"timestamp": -1}).limit(1).projection({"runners": 1})` |
 | "Show price changes for horse Y in race Z" | `db.price_updates.find({"runnerName": "Y", "marketId": "Z"}).sort({"timestamp": -1})` |
 | "Price updates for horse X" or "Show price history for horse X" | `db.price_updates.find({"runnerName": {"$regex": "X", "$options": "i"}}).sort({"timestamp": -1})` |
 | "Price updates for horse X in market Y" | `db.price_updates.find({"runnerName": {"$regex": "X", "$options": "i"}, "marketId": "Y"}).sort({"timestamp": -1})` |
@@ -156,7 +157,7 @@ When the user gives a **natural language query**, you need to:
 | "show price volatility for horse X" | `db.price_updates.find({"runnerName": {"$regex": "X", "$options": "i"}}, {"lastTradedPrice": 1, "timestamp": 1, "_id": 0}).sort({"timestamp": -1})` |
 | "Show races with more than 10 runners" | `db.market_definitions.find({"numberOfActiveRunners": {"$gt": 10}})` |
 | "Show latest market definition for race X" | `db.market_definitions.find({"marketId": "X"}).sort({"timestamp": -1}).limit(1)` |
-| "List all runners in market X" or "Show runners for market X" | `db.market_definitions.find({"marketId": "X"}).sort({"timestamp": -1}).limit(1).project({"runners": 1, "name": 1, "eventName": 1, "status": 1, "numberOfActiveRunners": 1})` |
+| "List all runners in market X" or "Show runners for market X" | `db.market_definitions.find({"marketId": "X"}).sort({"timestamp": -1}).limit(1).projection({"runners": 1, "name": 1, "eventName": 1, "status": 1, "numberOfActiveRunners": 1})` |
 | "List all races" or "Show all races" | `db.market_definitions.aggregate([{"$group": {"_id": {"marketId": "$marketId", "name": "$name"}, "eventName": {"$first": "$eventName"}, "status": {"$first": "$status"}, "numberOfActiveRunners": {"$first": "$numberOfActiveRunners"}, "marketTime": {"$first": "$marketTime"}}}, {"$project": {"marketId": "$_id.marketId", "name": "$_id.name", "eventName": 1, "status": 1, "numberOfActiveRunners": 1, "marketTime": 1, "_id": 0}}, {"$sort": {"name": 1}}])` |
 
 ## Natural Language Interpretation
@@ -229,3 +230,50 @@ When users ask for "price analysis", "volatility analysis", "trend analysis", or
 - **Runner Names**: Required for multi-horse analysis
 - **Market Context**: Include for market-specific insights
 - **Sorting**: Always by timestamp for chronological analysis
+
+## **Update Operations**
+
+For update operations, use the following patterns:
+
+1. **Find and update multiple documents:**
+   ```javascript
+   db.collection.updateMany(
+     { filterField: "value" },
+     { $set: { fieldToUpdate: newValue } }
+   )
+   ```
+
+2. **Update with arithmetic operations:**
+   ```javascript
+   db.collection.updateMany(
+     { filterField: "value" },
+     { $mul: { numericField: multiplier } }
+   )
+   ```
+
+3. **Return updated documents:**
+   ```javascript
+   db.collection.findAndModify(
+     { filterField: "value" },
+     { $set: { fieldToUpdate: newValue } },
+     { new: true }
+   )
+   ```
+
+4. **For displaying updated documents after update:**
+   ```javascript
+   // First update
+   db.collection.updateMany(
+     { filterField: "value" },
+     { $set: { fieldToUpdate: newValue } }
+   )
+   
+   // Then find and display
+   db.collection.find({ filterField: "value" })
+   ```
+
+### **Update Examples**
+| Query | Generated Script | Expected Output Format |
+|-------|----------------|----------------------|
+| "find all price updates for runner ID: 48412317 and for each document multiple changeId by 1000 and display updated documents" | `db.price_updates.updateMany({"runnerId": "48412317"}, {"$mul": {"changeId": 1000}}); db.price_updates.find({"runnerId": "48412317"})` | Updated documents with new changeId values |
+| "update all market definitions for event 'Cheltenham' and set status to 'UPDATED'" | `db.market_definitions.updateMany({"eventName": "Cheltenham"}, {"$set": {"status": "UPDATED"}}); db.market_definitions.find({"eventName": "Cheltenham"})` | Updated market definitions with new status |
