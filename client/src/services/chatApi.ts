@@ -1,5 +1,26 @@
 import { config } from "../config";
 
+export interface EventGroup {
+  eventId: string;
+  eventName: string;
+  marketIds: string[];
+  count: number;
+}
+
+export interface MarketDefinitionDoc {
+  _id: string;
+  changeId: string;
+  marketId: string;
+  eventId: string;
+  eventName: string;
+  status: string;
+  marketType: string;
+  marketTime: string;
+  numberOfActiveRunners: number;
+  timestamp: string;
+  runners: Array<{ id: number; name: string; status: string; sortPriority: number }>;
+}
+
 interface ChatResponse {
   reply: string;
   success?: boolean;
@@ -10,6 +31,25 @@ interface ChatResponse {
 class ChatApi {
   private baseUrl = config.baseUrl;
   private credentials = btoa("matthew:beyer"); // Base64 encoded credentials
+
+  async getEventDefinitions(eventId: string): Promise<MarketDefinitionDoc[]> {
+    const response = await fetch(
+      `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/definitions`,
+      { headers: { Authorization: `Basic ${this.credentials}` } }
+    );
+    if (!response.ok) throw new Error("Failed to fetch event definitions");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getEventGroups(): Promise<EventGroup[]> {
+    const response = await fetch(`${this.baseUrl}/api/events/grouped`, {
+      headers: { Authorization: `Basic ${this.credentials}` },
+    });
+    if (!response.ok) throw new Error("Failed to fetch event groups");
+    const result = await response.json();
+    return result.data;
+  }
 
   async sendMessage(message: string): Promise<ChatResponse> {
     try {

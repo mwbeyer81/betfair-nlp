@@ -1,10 +1,10 @@
 import type { StorybookConfig } from "@storybook/react-webpack5";
+import webpack from "webpack";
 
 const config: StorybookConfig = {
   stories: [
     "../src/**/*.mdx",
     "../src/**/*.stories.@(js|jsx|mjs|ts|tsx)",
-    "../.rnstorybook/stories/**/*.stories.@(js|jsx|mjs|ts|tsx)",
   ],
   addons: ["@storybook/addon-links"],
   framework: {
@@ -43,39 +43,49 @@ const config: StorybookConfig = {
       };
     }
 
+    const babelOptions = {
+      presets: [
+        [
+          "@babel/preset-env",
+          {
+            loose: true,
+            targets: {
+              browsers: ["last 2 versions"],
+            },
+          },
+        ],
+        ["@babel/preset-react", { runtime: "automatic" }],
+        "@babel/preset-typescript",
+      ],
+      plugins: [
+        ["@babel/plugin-transform-react-jsx", { runtime: "automatic" }],
+        ["@babel/plugin-transform-class-properties", { loose: true }],
+        ["@babel/plugin-transform-private-methods", { loose: true }],
+        [
+          "@babel/plugin-transform-private-property-in-object",
+          { loose: true },
+        ],
+        "@babel/plugin-transform-runtime",
+      ],
+    };
+
     // Add babel-loader for TypeScript and JSX
     if (config.module && config.module.rules) {
       config.module.rules.push({
         test: /\.(ts|tsx|js|jsx)$/,
         exclude: /node_modules/,
-        use: {
-          loader: "babel-loader",
-          options: {
-            presets: [
-              [
-                "@babel/preset-env",
-                {
-                  loose: true,
-                  targets: {
-                    browsers: ["last 2 versions"],
-                  },
-                },
-              ],
-              ["@babel/preset-react", { runtime: "automatic" }],
-              "@babel/preset-typescript",
-            ],
-            plugins: [
-              ["@babel/plugin-transform-react-jsx", { runtime: "automatic" }],
-              ["@babel/plugin-transform-class-properties", { loose: true }],
-              ["@babel/plugin-transform-private-methods", { loose: true }],
-              [
-                "@babel/plugin-transform-private-property-in-object",
-                { loose: true },
-              ],
-              "@babel/plugin-transform-runtime",
-            ],
-          },
-        },
+        use: { loader: "babel-loader", options: babelOptions },
+      });
+
+      // Some node_modules ship raw TypeScript/JSX and need transpilation
+      config.module.rules.push({
+        test: /\.(ts|tsx|js|jsx)$/,
+        include: [
+          /node_modules\/expo-modules-core/,
+          /node_modules\/expo-linking/,
+          /node_modules\/react-native-markdown-display/,
+        ],
+        use: { loader: "babel-loader", options: babelOptions },
       });
     }
 
@@ -95,6 +105,12 @@ const config: StorybookConfig = {
           : []),
       ];
     }
+
+    // Define React Native globals missing in browser/webpack
+    config.plugins = [
+      ...(config.plugins || []),
+      new webpack.DefinePlugin({ __DEV__: JSON.stringify(true) }),
+    ];
 
     return config;
   },

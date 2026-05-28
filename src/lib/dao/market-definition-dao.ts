@@ -5,6 +5,13 @@ import {
   MarketStatus,
 } from "../../types/betfair";
 
+export interface EventGroup {
+  eventId: string;
+  eventName: string;
+  marketIds: string[];
+  count: number;
+}
+
 export class MarketDefinitionDAO {
   private collection: Collection<MarketDefinitionDocument>;
 
@@ -93,6 +100,34 @@ export class MarketDefinitionDAO {
       .find({ status })
       .sort({ timestamp: -1 })
       .limit(limit)
+      .toArray();
+  }
+
+  /**
+   * Group market definitions by eventId, returning unique markets and doc count per event
+   */
+  public async groupByEventId(): Promise<EventGroup[]> {
+    return await this.collection
+      .aggregate<EventGroup>([
+        {
+          $group: {
+            _id: "$eventId",
+            eventName: { $first: "$eventName" },
+            marketIds: { $addToSet: "$marketId" },
+            count: { $sum: 1 },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            eventId: "$_id",
+            eventName: 1,
+            marketIds: 1,
+            count: 1,
+          },
+        },
+        { $sort: { count: -1 } },
+      ])
       .toArray();
   }
 

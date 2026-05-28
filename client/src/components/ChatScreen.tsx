@@ -11,7 +11,9 @@ import {
 } from "react-native";
 import { Message } from "./Message";
 import { ChatInput } from "./ChatInput";
-import { chatApi } from "../services/chatApi";
+import { EventGroupsPanel } from "./EventGroupsPanel";
+import { EventDocsPanel } from "./EventDocsPanel";
+import { chatApi, EventGroup, MarketDefinitionDoc } from "../services/chatApi";
 
 interface MessageData {
   id: string;
@@ -31,6 +33,16 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [queryHistory, setQueryHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [showEventsPanel, setShowEventsPanel] = useState(false);
+  const [eventGroups, setEventGroups] = useState<EventGroup[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+  const [showDocsPanel, setShowDocsPanel] = useState(false);
+  const [selectedEventId, setSelectedEventId] = useState("");
+  const [selectedEventName, setSelectedEventName] = useState("");
+  const [eventDocs, setEventDocs] = useState<MarketDefinitionDoc[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [docsError, setDocsError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   // Auto-scroll to bottom when messages change
@@ -41,6 +53,36 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
       }, 100);
     }
   }, [messages]);
+
+  const loadEventGroups = async () => {
+    setShowEventsPanel(true);
+    setEventsLoading(true);
+    setEventsError(null);
+    try {
+      const groups = await chatApi.getEventGroups();
+      setEventGroups(groups);
+    } catch {
+      setEventsError("Failed to load events");
+    } finally {
+      setEventsLoading(false);
+    }
+  };
+
+  const loadEventDocs = async (eventId: string, eventName: string) => {
+    setSelectedEventId(eventId);
+    setSelectedEventName(eventName);
+    setShowDocsPanel(true);
+    setDocsLoading(true);
+    setDocsError(null);
+    try {
+      const docs = await chatApi.getEventDefinitions(eventId);
+      setEventDocs(docs);
+    } catch {
+      setDocsError("Failed to load documents");
+    } finally {
+      setDocsLoading(false);
+    }
+  };
 
   const sendMessage = async (messageText: string) => {
     // Add query to history
@@ -105,11 +147,20 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
       >
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Chat Assistant</Text>
-          {onLogout && (
-            <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
-              <Text style={styles.logoutButtonText}>Logout</Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              testID="events-button"
+              style={styles.eventsButton}
+              onPress={loadEventGroups}
+            >
+              <Text style={styles.eventsButtonText}>Events</Text>
             </TouchableOpacity>
-          )}
+            {onLogout && (
+              <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
+                <Text style={styles.logoutButtonText}>Logout</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         <FlatList
@@ -127,6 +178,27 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
           <View style={styles.loadingContainer} testID="loading-indicator">
             <Text style={styles.loadingText}>Assistant is typing...</Text>
           </View>
+        )}
+
+        {showEventsPanel && (
+          <EventGroupsPanel
+            groups={eventGroups}
+            isLoading={eventsLoading}
+            error={eventsError}
+            onClose={() => setShowEventsPanel(false)}
+            onViewDocs={loadEventDocs}
+          />
+        )}
+
+        {showDocsPanel && (
+          <EventDocsPanel
+            eventId={selectedEventId}
+            eventName={selectedEventName}
+            docs={eventDocs}
+            isLoading={docsLoading}
+            error={docsError}
+            onClose={() => setShowDocsPanel(false)}
+          />
         )}
 
         <ChatInput
@@ -161,6 +233,22 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
     color: "white",
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  eventsButton: {
+    backgroundColor: "#0056b3",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  eventsButtonText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "600",
   },
   logoutButton: {
     backgroundColor: "red",

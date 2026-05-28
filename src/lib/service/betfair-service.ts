@@ -9,7 +9,7 @@ import {
   MarketAnalysis,
   EventSummary,
 } from "../../types/betfair";
-import { MarketDefinitionDAO } from "../dao/market-definition-dao";
+import { MarketDefinitionDAO, EventGroup } from "../dao/market-definition-dao";
 import { PriceUpdateDAO } from "../dao/price-update-dao";
 import { DatabaseConnection } from "../../config/database";
 
@@ -44,6 +44,17 @@ export class BetfairService {
    */
   public async createIndexes(): Promise<void> {
     await this.initialize();
+  }
+
+  public async getEventGroups(): Promise<EventGroup[]> {
+    return this.marketDefinitionDAO.groupByEventId();
+  }
+
+  public async getEventDefinitions(
+    eventId: string,
+    limit: number = 100
+  ): Promise<MarketDefinitionDocument[]> {
+    return this.marketDefinitionDAO.getByEventId(eventId, limit);
   }
 
   /**

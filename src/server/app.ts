@@ -3,8 +3,8 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import { NaturalLanguageService } from "../lib/service/natural-language-service";
+import { BetfairService } from "../lib/service/betfair-service";
 import { DatabaseConnection } from "../config/database";
-import config from "config";
 
 // Create Express app
 const app = express();
@@ -15,6 +15,8 @@ const basicAuth = (
   res: express.Response,
   next: express.NextFunction
 ) => {
+  if (req.method === "OPTIONS") return next();
+
   // Get auth header
   const authHeader = req.headers.authorization;
 
@@ -37,8 +39,13 @@ const basicAuth = (
 };
 
 // Middleware
-app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: true,
+  methods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+}));
+app.use(helmet({ crossOriginOpenerPolicy: false, crossOriginResourcePolicy: false }));
 app.use(morgan("combined"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -49,6 +56,7 @@ app.use(basicAuth);
 // Initialize database connection
 let dbConnection: DatabaseConnection | null = null;
 let naturalLanguageService: NaturalLanguageService | null = null;
+let betfairService: BetfairService | null = null;
 
 // Initialize services
 const initializeServices = async () => {
@@ -63,6 +71,8 @@ const initializeServices = async () => {
       dbConnection.getDb()
     );
 
+    betfairService = new BetfairService(undefined, undefined);
+
     console.log("Services initialized successfully");
   } catch (error) {
     console.error("Failed to initialize services:", error);
@@ -76,6 +86,7 @@ initializeServices();
 
 // Health check endpoint
 app.get("/health", (req, res) => {
+  console.log("Health check endpoint called");
   res.status(200).json({
     status: "OK",
     timestamp: new Date().toISOString(),
@@ -87,7 +98,7 @@ app.get("/health", (req, res) => {
 // Natural language query endpoint
 app.post("/api/query", async (req, res) => {
   try {
-    const { query } = req.body;
+    const { query } = req.body || {};
 
     if (!query || typeof query !== "string") {
       return res.status(400).json({
@@ -145,6 +156,33 @@ app.post("/api/query", async (req, res) => {
   }
 });
 
+// Event definitions endpoint
+app.get("/api/events/:eventId/definitions", async (req, res) => {
+  try {
+    if (!betfairService) {
+      return res.status(503).json({ success: false, error: "Service not initialized" });
+    }
+    const { eventId } = req.params;
+    const limit = Math.min(parseInt(String(req.query.limit ?? "100"), 10) || 100, 200);
+    const docs = await betfairService.getEventDefinitions(eventId, limit);
+    res.status(200).json({ success: true, data: docs, count: docs.length });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch event definitions" });
+  }
+});
+
+// Event groups endpoint
+app.get("/api/events/grouped", async (req, res) => {
+  try {
+    if (!betfairService) {
+      return res.status(503).json({ success: false, error: "Service not initialized" });
+    }
+    const groups = await betfairService.getEventGroups();
+    res.status(200).json({ success: true, data: groups });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch event groups" });
+  }
+});
 
 // 404 handler
 app.use((req, res) => {

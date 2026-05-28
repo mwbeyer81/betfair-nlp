@@ -17,3 +17,10 @@ docker-compose.override.yml
 
 config/local*
 nohup.out
+
+# Large data files
+horse-racing-data/
+horse-racing-results-ukireland-2015-2025.zip
+
+# Playwright MCP cache
+.playwright-mcp/

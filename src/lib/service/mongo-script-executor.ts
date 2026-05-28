@@ -1,8 +1,4 @@
 import { Db } from "mongodb";
-import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
 
 export interface MongoScriptResult {
   success: boolean;
@@ -18,25 +14,14 @@ export class MongoScriptExecutor {
     this.db = db;
   }
 
-  /**
-   * Executes a MongoDB script and returns the results
-   */
   async executeScript(script: string): Promise<MongoScriptResult> {
     const startTime = Date.now();
 
     try {
-      // Clean the script
-      console.log(
-        "🔍 Original script in executeScript:",
-        JSON.stringify(script)
-      );
+      console.log("🔍 Original script in executeScript:", JSON.stringify(script));
       const cleanedScript = this.cleanScript(script);
-      console.log(
-        "🔍 Cleaned script in executeScript:",
-        JSON.stringify(cleanedScript)
-      );
+      console.log("🔍 Cleaned script in executeScript:", JSON.stringify(cleanedScript));
 
-      // Validate the script for security
       if (!this.isScriptSafe(cleanedScript)) {
         return {
           success: false,
@@ -45,7 +30,6 @@ export class MongoScriptExecutor {
         };
       }
 
-      // Execute the script
       const result = await this.executeInContext(cleanedScript);
 
       return {
@@ -62,17 +46,11 @@ export class MongoScriptExecutor {
     }
   }
 
-  /**
-   * Cleans the script by removing markdown code blocks and fixing quotes
-   */
   private cleanScript(script: string): string {
-    // Remove markdown code blocks
     let cleaned = script
       .replace(/```javascript\n?/g, "")
       .replace(/```\n?/g, "");
 
-    // Remove outer quotes if present (handle both single and double quotes)
-    // Keep removing quotes until none are left
     while (
       (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
       (cleaned.startsWith("'") && cleaned.endsWith("'"))
@@ -80,16 +58,12 @@ export class MongoScriptExecutor {
       cleaned = cleaned.slice(1, -1).trim();
     }
 
-    // Unescape inner quotes
     cleaned = cleaned.replace(/\\"/g, '"');
     cleaned = cleaned.replace(/\\'/g, "'");
 
     return cleaned;
   }
 
-  /**
-   * Validates that the script doesn't contain dangerous operations
-   */
   private isScriptSafe(script: string): boolean {
     const dangerousPatterns = [
       /drop\s+database/i,
@@ -107,99 +81,50 @@ export class MongoScriptExecutor {
   }
 
   /**
-   * Executes the MongoDB shell script using mongosh
+   * Executes the script using the live MongoDB driver connection — no mongosh required.
+   * Builds a `db` proxy that maps shell-style expressions to driver calls,
+   * then evaluates the script via AsyncFunction so await works naturally.
    */
   private async executeInContext(script: string): Promise<any> {
     try {
-      // Get the database name from the connection
-      const dbName = this.db.databaseName;
-      // Use localhost for local development (MongoDB running in Docker, Node.js on Mac)
-      const mongoUri = `mongodb://localhost:27017/${dbName}`;
+      const realDb = this.db;
 
-      // Create a temporary script file
-      const fs = require("fs");
-      const path = require("path");
-      const os = require("os");
-
-      const tempDir = os.tmpdir();
-      const scriptPath = path.join(tempDir, `mongo-script-${Date.now()}.js`);
-
-      // Script is already cleaned in executeScript method
-      console.log("🔍 Script to write to file:", JSON.stringify(script));
-      fs.writeFileSync(scriptPath, script);
-
-      try {
-        // Execute the script using mongosh with --eval and cat
-        const command = `mongosh "${mongoUri}" --eval "$(cat "${scriptPath}")"`;
-        const { stdout, stderr } = await execAsync(command);
-
-        // Clean up the temporary file
-        fs.unlinkSync(scriptPath);
-
-        if (stderr) {
-          console.error("MongoDB stderr:", stderr);
+      // Proxy each property access on `db` to the real collection
+      const dbProxy = new Proxy(
+        {},
+        {
+          get(_target, collectionName: string) {
+            const coll = realDb.collection(collectionName);
+            return {
+              find: (filter: any = {}, options: any = {}) =>
+                coll.find(filter, options),
+              findOne: (filter: any = {}, options: any = {}) =>
+                coll.findOne(filter, options),
+              aggregate: (pipeline: any[]) => coll.aggregate(pipeline),
+              countDocuments: (filter: any = {}) =>
+                coll.countDocuments(filter),
+              distinct: (field: string, filter: any = {}) =>
+                coll.distinct(field, filter),
+            };
+          },
         }
+      );
 
-        // Parse the output to extract the results
-        const lines = stdout.split("\n");
-        const resultLines = lines.filter(
-          line =>
-            line.trim() &&
-            !line.includes("Current Mongosh Log ID:") &&
-            !line.includes("Connecting to:") &&
-            !line.includes("Using MongoDB:") &&
-            !line.includes("Using Mongosh:") &&
-            !line.includes("For mongosh info see:") &&
-            !line.includes("To help improve our products,") &&
-            !line.includes(
-              "The server generated these startup warnings when booting:"
-            ) &&
-            !line.includes("---") &&
-            !line.startsWith(">") &&
-            !line.startsWith("...")
-        );
+      // eslint-disable-next-line no-new-func
+      const AsyncFunction = Object.getPrototypeOf(
+        async function () {}
+      ).constructor as new (...args: string[]) => (...a: any[]) => Promise<any>;
 
-        // Join all result lines and convert MongoDB format to valid JSON
-        const resultText = resultLines.join("\n").trim();
+      const fn = new AsyncFunction("db", `return await (${script})`);
+      let result = await fn(dbProxy);
 
-        try {
-          // Convert MongoDB output format to valid JSON
-          let jsonText = resultText
-            // Replace single quotes with double quotes
-            .replace(/'/g, '"')
-            // Add quotes around property names (but not around values that are already quoted)
-            .replace(/(\w+):/g, '"$1":')
-            // Fix any double quotes that got doubled up
-            .replace(/""/g, '"');
-
-          // Try to parse the converted JSON
-          const parsed = JSON.parse(jsonText);
-          return Array.isArray(parsed) ? parsed : [parsed];
-        } catch (e) {
-          // If parsing as complete JSON fails, try line by line
-          const results = [];
-          for (const line of resultLines) {
-            try {
-              const parsed = JSON.parse(line);
-              results.push(parsed);
-            } catch (lineError) {
-              // If it's not JSON, just add as string
-              if (line.trim()) {
-                results.push(line.trim());
-              }
-            }
-          }
-          return results.length > 0 ? results : null;
-        }
-      } catch (execError) {
-        // Clean up the temporary file even if there's an error
-        try {
-          fs.unlinkSync(scriptPath);
-        } catch (cleanupError) {
-          // Ignore cleanup errors
-        }
-        throw execError;
+      // If the script returned a cursor (find/aggregate without .toArray()), resolve it
+      if (result != null && typeof result.toArray === "function") {
+        result = await result.toArray();
       }
+
+      if (result == null) return [];
+      return Array.isArray(result) ? result : [result];
     } catch (error) {
       throw new Error(
         `Script execution error: ${error instanceof Error ? error.message : String(error)}`
@@ -207,9 +132,6 @@ export class MongoScriptExecutor {
     }
   }
 
-  /**
-   * Executes a simple find query (for backward compatibility)
-   */
   async executeFindQuery(
     collection: string,
     filter: any = {},
@@ -237,9 +159,6 @@ export class MongoScriptExecutor {
     }
   }
 
-  /**
-   * Executes an aggregation pipeline (for backward compatibility)
-   */
   async executeAggregation(
     collection: string,
     pipeline: any[]
