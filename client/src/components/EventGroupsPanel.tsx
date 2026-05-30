@@ -15,6 +15,8 @@ interface EventGroupsPanelProps {
   error: string | null;
   onClose: () => void;
   onViewDocs: (eventId: string, eventName: string) => void;
+  onViewRunners: (eventId: string, eventName: string) => void;
+  onViewPriceUpdates: (eventId: string, eventName: string) => void;
 }
 
 export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
@@ -23,6 +25,8 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
   error,
   onClose,
   onViewDocs,
+  onViewRunners,
+  onViewPriceUpdates,
 }) => {
   return (
     <View testID="events-panel" style={styles.panel}>
@@ -66,13 +70,29 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
               <Text style={styles.meta}>
                 Markets: {group.marketIds.join(", ")}
               </Text>
-              <TouchableOpacity
-                testID={`event-docs-badge-${group.eventId}`}
-                style={styles.badge}
-                onPress={() => onViewDocs(group.eventId, group.eventName)}
-              >
-                <Text style={styles.badgeText}>{group.count} docs</Text>
-              </TouchableOpacity>
+              <View style={styles.badgeRow}>
+                <TouchableOpacity
+                  testID={`event-docs-badge-${group.eventId}`}
+                  style={styles.badge}
+                  onPress={() => onViewDocs(group.eventId, group.eventName)}
+                >
+                  <Text style={styles.badgeText}>{group.count} docs</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  testID={`event-runners-badge-${group.eventId}`}
+                  style={[styles.badge, styles.runnersBadge]}
+                  onPress={() => onViewRunners(group.eventId, group.eventName)}
+                >
+                  <Text style={styles.badgeText}>runners</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  testID={`event-price-updates-badge-${group.eventId}`}
+                  style={[styles.badge, styles.priceUpdatesBadge]}
+                  onPress={() => onViewPriceUpdates(group.eventId, group.eventName)}
+                >
+                  <Text style={styles.badgeText}>price updates</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           ))}
         </ScrollView>
@@ -147,13 +167,24 @@ const styles = StyleSheet.create({
     color: "#666",
     marginBottom: 2,
   },
+  badgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 4,
+  },
   badge: {
     alignSelf: "flex-start",
-    marginTop: 4,
     backgroundColor: "#007AFF",
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 2,
+  },
+  runnersBadge: {
+    backgroundColor: "#28a745",
+  },
+  priceUpdatesBadge: {
+    backgroundColor: "#6f42c1",
   },
   badgeText: {
     color: "#fff",

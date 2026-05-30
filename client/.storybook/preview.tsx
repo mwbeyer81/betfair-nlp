@@ -1,4 +1,8 @@
 import React from "react";
+import { initialize, mswLoader } from "msw-storybook-addon";
+
+// Initialize MSW
+initialize({ onUnhandledRequest: "bypass" });
 
 // Initialize React Native Web
 if (typeof window !== "undefined") {
@@ -14,6 +18,7 @@ if (typeof window !== "undefined") {
 }
 
 const preview = {
+  loaders: [mswLoader],
   parameters: {
     actions: { argTypesRegex: "^on[A-Z].*" },
     controls: {

@@ -11,6 +11,7 @@ import {
   Platform,
 } from "react-native";
 import * as Linking from "expo-linking";
+import { chatApi } from "../services/chatApi";
 
 interface AuthScreenProps {
   onAuthenticated: () => void;
@@ -88,12 +89,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     parseUrlParams();
   }, [autoLoginAttempted]);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setIsLoading(true);
-
-    // Simulate a brief loading state
-    setTimeout(() => {
-      if (username === "matthew" && password === "beyer") {
+    try {
+      const valid = await chatApi.validateCredentials(username, password);
+      if (valid) {
+        chatApi.setCredentials(username, password);
         onAuthenticated();
       } else {
         Alert.alert(
@@ -102,8 +103,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           [{ text: "OK" }]
         );
       }
+    } catch {
+      Alert.alert("Connection Error", "Unable to reach the server. Please try again.", [{ text: "OK" }]);
+    } finally {
       setIsLoading(false);
-    }, 500);
+    }
   };
 
   const isFormValid = username.trim() !== "" && password.trim() !== "";
@@ -124,6 +128,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Username</Text>
               <TextInput
+                testID="auth-username-input"
                 style={styles.input}
                 value={username}
                 onChangeText={setUsername}
@@ -137,6 +142,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Password</Text>
               <TextInput
+                testID="auth-password-input"
                 style={styles.input}
                 value={password}
                 onChangeText={setPassword}
@@ -151,6 +157,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </View>
 
             <TouchableOpacity
+              testID="auth-login-button"
               style={[
                 styles.loginButton,
                 (!isFormValid || isLoading) && styles.loginButtonDisabled,

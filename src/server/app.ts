@@ -171,6 +171,35 @@ app.get("/api/events/:eventId/definitions", async (req, res) => {
   }
 });
 
+// Unique runners by event endpoint
+app.get("/api/events/:eventId/runners", async (req, res) => {
+  try {
+    if (!betfairService) {
+      return res.status(503).json({ success: false, error: "Service not initialized" });
+    }
+    const { eventId } = req.params;
+    const runners = await betfairService.getUniqueRunnersByEvent(eventId);
+    res.status(200).json({ success: true, data: runners, count: runners.length });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch runners" });
+  }
+});
+
+// Price updates by event endpoint
+app.get("/api/events/:eventId/price-updates", async (req, res) => {
+  try {
+    if (!betfairService) {
+      return res.status(503).json({ success: false, error: "Service not initialized" });
+    }
+    const { eventId } = req.params;
+    const limit = Math.min(parseInt(String(req.query.limit ?? "100"), 10) || 100, 500);
+    const docs = await betfairService.getPriceUpdatesByEvent(eventId, limit);
+    res.status(200).json({ success: true, data: docs, count: docs.length });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch price updates" });
+  }
+});
+
 // Event groups endpoint
 app.get("/api/events/grouped", async (req, res) => {
   try {

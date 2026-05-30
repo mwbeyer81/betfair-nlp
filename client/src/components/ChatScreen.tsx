@@ -13,7 +13,9 @@ import { Message } from "./Message";
 import { ChatInput } from "./ChatInput";
 import { EventGroupsPanel } from "./EventGroupsPanel";
 import { EventDocsPanel } from "./EventDocsPanel";
-import { chatApi, EventGroup, MarketDefinitionDoc } from "../services/chatApi";
+import { PriceUpdatesPanel } from "./PriceUpdatesPanel";
+import { RunnersPanel } from "./RunnersPanel";
+import { chatApi, EventGroup, MarketDefinitionDoc, PriceUpdate, Runner } from "../services/chatApi";
 
 interface MessageData {
   id: string;
@@ -43,6 +45,18 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
   const [eventDocs, setEventDocs] = useState<MarketDefinitionDoc[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
+  const [showPriceUpdatesPanel, setShowPriceUpdatesPanel] = useState(false);
+  const [priceUpdatesEventId, setPriceUpdatesEventId] = useState("");
+  const [priceUpdatesEventName, setPriceUpdatesEventName] = useState("");
+  const [priceUpdates, setPriceUpdates] = useState<PriceUpdate[]>([]);
+  const [priceUpdatesLoading, setPriceUpdatesLoading] = useState(false);
+  const [priceUpdatesError, setPriceUpdatesError] = useState<string | null>(null);
+  const [showRunnersPanel, setShowRunnersPanel] = useState(false);
+  const [runnersEventId, setRunnersEventId] = useState("");
+  const [runnersEventName, setRunnersEventName] = useState("");
+  const [runners, setRunners] = useState<Runner[]>([]);
+  const [runnersLoading, setRunnersLoading] = useState(false);
+  const [runnersError, setRunnersError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   // Auto-scroll to bottom when messages change
@@ -81,6 +95,38 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
       setDocsError("Failed to load documents");
     } finally {
       setDocsLoading(false);
+    }
+  };
+
+  const loadRunners = async (eventId: string, eventName: string) => {
+    setRunnersEventId(eventId);
+    setRunnersEventName(eventName);
+    setShowRunnersPanel(true);
+    setRunnersLoading(true);
+    setRunnersError(null);
+    try {
+      const data = await chatApi.getEventRunners(eventId);
+      setRunners(data);
+    } catch {
+      setRunnersError("Failed to load runners");
+    } finally {
+      setRunnersLoading(false);
+    }
+  };
+
+  const loadPriceUpdates = async (eventId: string, eventName: string) => {
+    setPriceUpdatesEventId(eventId);
+    setPriceUpdatesEventName(eventName);
+    setShowPriceUpdatesPanel(true);
+    setPriceUpdatesLoading(true);
+    setPriceUpdatesError(null);
+    try {
+      const updates = await chatApi.getPriceUpdates(eventId);
+      setPriceUpdates(updates);
+    } catch {
+      setPriceUpdatesError("Failed to load price updates");
+    } finally {
+      setPriceUpdatesLoading(false);
     }
   };
 
@@ -187,6 +233,30 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onLogout }) => {
             error={eventsError}
             onClose={() => setShowEventsPanel(false)}
             onViewDocs={loadEventDocs}
+            onViewRunners={loadRunners}
+            onViewPriceUpdates={loadPriceUpdates}
+          />
+        )}
+
+        {showRunnersPanel && (
+          <RunnersPanel
+            eventId={runnersEventId}
+            eventName={runnersEventName}
+            runners={runners}
+            isLoading={runnersLoading}
+            error={runnersError}
+            onClose={() => setShowRunnersPanel(false)}
+          />
+        )}
+
+        {showPriceUpdatesPanel && (
+          <PriceUpdatesPanel
+            eventId={priceUpdatesEventId}
+            eventName={priceUpdatesEventName}
+            updates={priceUpdates}
+            isLoading={priceUpdatesLoading}
+            error={priceUpdatesError}
+            onClose={() => setShowPriceUpdatesPanel(false)}
           />
         )}
 

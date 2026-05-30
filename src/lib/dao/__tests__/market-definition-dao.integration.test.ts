@@ -1,7 +1,7 @@
 import { MongoClient, Db } from "mongodb";
-import { MarketDefinitionDAO, EventGroup } from "../market-definition-dao";
+import { MarketDefinitionDAO } from "../market-definition-dao";
 
-const MONGO_URI = "mongodb://localhost:27017";
+const MONGO_URI = "mongodb://localhost:27019";
 const DB_NAME = "betfair_nlp_dev";
 
 describe("MarketDefinitionDAO.getByEventId (integration)", () => {
@@ -134,5 +134,57 @@ describe("MarketDefinitionDAO.groupByEventId (integration)", () => {
     expect(cheltenham!.eventName).toBe("Cheltenham 1st Jan");
     expect(cheltenham!.marketIds).toContain("1.237066150");
     expect(cheltenham!.count).toBeGreaterThan(0);
+  });
+});
+
+describe("MarketDefinitionDAO.getUniqueRunnersByEventId (integration)", () => {
+  let client: MongoClient;
+  let db: Db;
+  let dao: MarketDefinitionDAO;
+
+  beforeAll(async () => {
+    client = new MongoClient(MONGO_URI);
+    await client.connect();
+    db = client.db(DB_NAME);
+    dao = new MarketDefinitionDAO(db);
+  }, 15000);
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  it("returns runners for eventId 33858191", async () => {
+    const runners = await dao.getUniqueRunnersByEventId("33858191");
+    expect(runners.length).toBeGreaterThan(0);
+  });
+
+  it("each runner has required fields with correct types", async () => {
+    const runners = await dao.getUniqueRunnersByEventId("33858191");
+    for (const runner of runners) {
+      expect(typeof runner.id).toBe("number");
+      expect(typeof runner.name).toBe("string");
+      expect(runner.name.length).toBeGreaterThan(0);
+      expect(typeof runner.status).toBe("string");
+      expect(typeof runner.sortPriority).toBe("number");
+    }
+  });
+
+  it("runner ids are unique — no duplicates across markets", async () => {
+    const runners = await dao.getUniqueRunnersByEventId("33858191");
+    const ids = runners.map(r => r.id);
+    const uniqueIds = new Set(ids);
+    expect(uniqueIds.size).toBe(ids.length);
+  });
+
+  it("returns empty array for unknown eventId", async () => {
+    const runners = await dao.getUniqueRunnersByEventId("unknown-event-xyz-000");
+    expect(runners).toEqual([]);
+  });
+
+  it("returns runners sorted by sortPriority ascending", async () => {
+    const runners = await dao.getUniqueRunnersByEventId("33858191");
+    for (let i = 1; i < runners.length; i++) {
+      expect(runners[i].sortPriority).toBeGreaterThanOrEqual(runners[i - 1].sortPriority);
+    }
   });
 });

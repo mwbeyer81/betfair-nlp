@@ -8,6 +8,8 @@ import {
   StyleSheet,
 } from "react-native";
 
+import { MarketDefinitionDoc } from "../services/chatApi";
+
 function formatIfTimestamp(value: string): string {
   const n = Number(value);
   if (isNaN(n)) return value;
@@ -15,7 +17,6 @@ function formatIfTimestamp(value: string): string {
   if (n >= 1e9 && n < 1e10) return new Date(n * 1000).toLocaleString("en-GB");
   return n.toLocaleString();
 }
-import { MarketDefinitionDoc } from "../services/chatApi";
 
 const STATUS_COLORS: Record<string, string> = {
   OPEN: "#28a745",
@@ -40,6 +41,18 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
   error,
   onClose,
 }) => {
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+
+  const sortedDocs = useMemo(
+    () =>
+      [...docs].sort((a, b) =>
+        sortDir === "desc"
+          ? Number(b.changeId) - Number(a.changeId)
+          : Number(a.changeId) - Number(b.changeId)
+      ),
+    [docs, sortDir]
+  );
+
   return (
     <View testID="event-docs-panel" style={styles.panel}>
       <View style={styles.header}>
@@ -49,6 +62,15 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
           </Text>
           <Text style={styles.subtitle}>{docs.length} documents</Text>
         </View>
+        <TouchableOpacity
+          testID="event-docs-sort-toggle"
+          onPress={() => setSortDir(d => (d === "desc" ? "asc" : "desc"))}
+          style={styles.sortButton}
+        >
+          <Text style={styles.sortText}>
+            Change {sortDir === "desc" ? "↓" : "↑"}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity
           testID="event-docs-close"
           onPress={onClose}
@@ -76,7 +98,7 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
           {docs.length === 0 && (
             <Text style={styles.emptyText}>No documents found.</Text>
           )}
-          {docs.map((doc, index) => {
+          {sortedDocs.map((doc, index) => {
             const statusColor = STATUS_COLORS[doc.status] ?? "#999";
             const marketDate = doc.marketTime
               ? new Date(doc.marketTime).toLocaleString("en-GB", {
@@ -92,7 +114,7 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
               >
                 <View style={styles.itemHeader}>
                   <Text style={styles.changeId} numberOfLines={1}>
-                    Change: {doc.changeId}
+                    Change: {formatIfTimestamp(doc.changeId)}
                   </Text>
                   <View
                     testID={`event-doc-status-${index}`}
@@ -156,6 +178,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#888",
     marginTop: 1,
+  },
+  sortButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: 8,
+    backgroundColor: "#f0f0f0",
+    borderRadius: 6,
+  },
+  sortText: {
+    fontSize: 12,
+    color: "#555",
+    fontWeight: "600",
   },
   closeButton: {
     padding: 4,

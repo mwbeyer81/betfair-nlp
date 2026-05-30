@@ -7,6 +7,7 @@ const config: StorybookConfig = {
     "../src/**/*.stories.@(js|jsx|mjs|ts|tsx)",
   ],
   addons: ["@storybook/addon-links"],
+  staticDirs: ["../public"],
   framework: {
     name: "@storybook/react-webpack5",
     options: {},

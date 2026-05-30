@@ -1,6 +1,6 @@
 {
   "mongodb": {
-    "uri": "mongodb://localhost:27017",
+    "uri": "mongodb://localhost:27019",
     "dbName": "betfair_nlp_local"
   },
   "app": {

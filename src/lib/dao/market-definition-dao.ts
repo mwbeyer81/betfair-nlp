@@ -132,6 +132,41 @@ export class MarketDefinitionDAO {
   }
 
   /**
+   * Get unique runners for an event by aggregating across all market definitions,
+   * using the most recent definition per market to avoid duplicates over time.
+   */
+  public async getUniqueRunnersByEventId(
+    eventId: string
+  ): Promise<Array<{ id: number; name: string; status: string; sortPriority: number }>> {
+    return await this.collection
+      .aggregate<{ id: number; name: string; status: string; sortPriority: number }>([
+        { $match: { eventId } },
+        { $sort: { timestamp: -1 } },
+        { $group: { _id: "$marketId", runners: { $first: "$runners" } } },
+        { $unwind: "$runners" },
+        {
+          $group: {
+            _id: "$runners.id",
+            name: { $first: "$runners.name" },
+            status: { $first: "$runners.status" },
+            sortPriority: { $first: "$runners.sortPriority" },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            id: "$_id",
+            name: 1,
+            status: 1,
+            sortPriority: 1,
+          },
+        },
+        { $sort: { sortPriority: 1 } },
+      ])
+      .toArray();
+  }
+
+  /**
    * Create indexes for better query performance
    */
   public async createIndexes(): Promise<void> {

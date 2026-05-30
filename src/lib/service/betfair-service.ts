@@ -57,6 +57,19 @@ export class BetfairService {
     return this.marketDefinitionDAO.getByEventId(eventId, limit);
   }
 
+  public async getUniqueRunnersByEvent(
+    eventId: string
+  ): Promise<Array<{ id: number; name: string; status: string; sortPriority: number }>> {
+    return this.marketDefinitionDAO.getUniqueRunnersByEventId(eventId);
+  }
+
+  public async getPriceUpdatesByEvent(
+    eventId: string,
+    limit: number = 100
+  ): Promise<PriceUpdateDocument[]> {
+    return this.priceUpdateDAO.getByEventId(eventId, limit);
+  }
+
   /**
    * Process a data file containing Betfair messages
    * Only processes uncompressed market files (files with dots in the filename, excluding .bz2)

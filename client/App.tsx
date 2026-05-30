@@ -4,7 +4,7 @@ import { ChatScreen } from "./src/components/ChatScreen";
 import { AuthScreen } from "./src/components/AuthScreen";
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(true);
 
   const handleAuthenticated = () => {
     setIsAuthenticated(true);

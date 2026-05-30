@@ -33,6 +33,8 @@ const meta: Meta<typeof EventGroupsPanel> = {
   args: {
     onClose: fn(),
     onViewDocs: fn(),
+    onViewRunners: fn(),
+    onViewPriceUpdates: fn(),
   },
 };
 
@@ -127,6 +129,40 @@ export const DocsBadgeClick: Story = {
 
     await userEvent.click(badge);
     await expect(args.onViewDocs).toHaveBeenCalledWith("33858191", "Cheltenham 1st Jan");
+  },
+};
+
+export const RunnersBadgeClick: Story = {
+  args: {
+    groups: MOCK_GROUPS,
+    isLoading: false,
+    error: null,
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+
+    const badge = canvas.getByTestId("event-runners-badge-33858191");
+    await expect(badge).toBeInTheDocument();
+
+    await userEvent.click(badge);
+    await expect(args.onViewRunners).toHaveBeenCalledWith("33858191", "Cheltenham 1st Jan");
+  },
+};
+
+export const PriceUpdatesBadgeClick: Story = {
+  args: {
+    groups: MOCK_GROUPS,
+    isLoading: false,
+    error: null,
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+
+    const badge = canvas.getByTestId("event-price-updates-badge-33858191");
+    await expect(badge).toBeInTheDocument();
+
+    await userEvent.click(badge);
+    await expect(args.onViewPriceUpdates).toHaveBeenCalledWith("33858191", "Cheltenham 1st Jan");
   },
 };
 

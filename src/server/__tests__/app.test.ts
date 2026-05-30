@@ -34,17 +34,28 @@ jest.mock("../../config/database", () => ({
                 numberOfActiveRunners: 5,
                 timestamp: new Date().toISOString(),
                 runners: [],
+                runnerId: 12345,
+                runnerName: "Springwell Bay",
+                lastTradedPrice: 4.5,
+                eventName: "Cheltenham 1st Jan",
               },
             ]),
           }),
+          countDocuments: jest.fn().mockResolvedValue(42),
           findOne: jest.fn().mockResolvedValue({ id: 1, name: "Test Horse" }),
           aggregate: jest.fn().mockReturnValue({
             toArray: jest.fn().mockResolvedValue([
               {
+                // EventGroup shape (for /api/events/grouped)
                 eventId: "33858191",
                 eventName: "Cheltenham 1st Jan",
                 marketIds: ["1.237066150"],
                 count: 25,
+                // Runner shape (for /api/events/:eventId/runners)
+                id: 12345,
+                name: "Springwell Bay",
+                status: "ACTIVE",
+                sortPriority: 1,
               },
             ]),
           }),
@@ -270,6 +281,82 @@ describe("API Endpoints", () => {
       expect(cheltenham.eventName).toBe("Cheltenham 1st Jan");
       expect(cheltenham.marketIds).toContain("1.237066150");
       expect(cheltenham.count).toBe(25);
+    });
+  });
+
+  describe("GET /api/events/:eventId/runners", () => {
+    it("should return runners for a known eventId", async () => {
+      const response = await request(app)
+        .get("/api/events/33858191/runners")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(typeof response.body.count).toBe("number");
+    });
+
+    it("each runner document has required fields", async () => {
+      const response = await request(app)
+        .get("/api/events/33858191/runners")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      const runner = response.body.data[0];
+      expect(runner).toHaveProperty("id");
+      expect(runner).toHaveProperty("name");
+      expect(runner).toHaveProperty("status");
+      expect(runner).toHaveProperty("sortPriority");
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/events/33858191/runners").expect(401);
+    });
+
+    it("returns count matching data length", async () => {
+      const response = await request(app)
+        .get("/api/events/33858191/runners")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+  });
+
+  describe("GET /api/events/:eventId/price-updates", () => {
+    it("should return price updates for a known eventId", async () => {
+      const response = await request(app)
+        .get("/api/events/33858191/price-updates")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(typeof response.body.count).toBe("number");
+    });
+
+    it("each document has required fields", async () => {
+      const response = await request(app)
+        .get("/api/events/33858191/price-updates")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      const doc = response.body.data[0];
+      expect(doc).toHaveProperty("eventId");
+      expect(doc).toHaveProperty("marketId");
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/events/33858191/price-updates").expect(401);
+    });
+
+    it("returns count matching data length", async () => {
+      const response = await request(app)
+        .get("/api/events/33858191/price-updates")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body.count).toBe(response.body.data.length);
     });
   });
 

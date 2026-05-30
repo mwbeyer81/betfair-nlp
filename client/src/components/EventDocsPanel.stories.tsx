@@ -146,6 +146,29 @@ export const CloseButton: Story = {
   },
 };
 
+export const SortToggle: Story = {
+  args: {
+    docs: MOCK_DOCS,
+    isLoading: false,
+    error: null,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    const toggle = canvas.getByTestId("event-docs-sort-toggle");
+    await expect(toggle).toBeInTheDocument();
+
+    // Default desc — first item should be higher changeId (12890365545 > 12890365544)
+    const firstItem = canvas.getByTestId("event-doc-item-0");
+    await expect(firstItem).toHaveTextContent("12,890,365,545");
+
+    // Click to sort asc
+    await userEvent.click(toggle);
+    const firstItemAsc = canvas.getByTestId("event-doc-item-0");
+    await expect(firstItemAsc).toHaveTextContent("12,890,365,544");
+  },
+};
+
 export const LoadingState: Story = {
   args: {
     docs: [],

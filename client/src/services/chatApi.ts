@@ -7,6 +7,26 @@ export interface EventGroup {
   count: number;
 }
 
+export interface PriceUpdate {
+  _id?: string;
+  marketId: string;
+  runnerId: number;
+  runnerName: string;
+  lastTradedPrice: number;
+  timestamp: string;
+  changeId: string;
+  publishTime?: string;
+  eventId: string;
+  eventName: string;
+}
+
+export interface Runner {
+  id: number;
+  name: string;
+  status: string;
+  sortPriority: number;
+}
+
 export interface MarketDefinitionDoc {
   _id: string;
   changeId: string;
@@ -30,7 +50,23 @@ interface ChatResponse {
 
 class ChatApi {
   private baseUrl = config.baseUrl;
-  private credentials = btoa("matthew:beyer"); // Base64 encoded credentials
+  private credentials = btoa("matthew:beyer");
+
+  setCredentials(username: string, password: string) {
+    this.credentials = btoa(`${username}:${password}`);
+  }
+
+  async validateCredentials(username: string, password: string): Promise<boolean> {
+    const creds = btoa(`${username}:${password}`);
+    try {
+      const response = await fetch(`${this.baseUrl}/health`, {
+        headers: { Authorization: `Basic ${creds}` },
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
 
   async getEventDefinitions(eventId: string): Promise<MarketDefinitionDoc[]> {
     const response = await fetch(
@@ -38,6 +74,26 @@ class ChatApi {
       { headers: { Authorization: `Basic ${this.credentials}` } }
     );
     if (!response.ok) throw new Error("Failed to fetch event definitions");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getEventRunners(eventId: string): Promise<Runner[]> {
+    const response = await fetch(
+      `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/runners`,
+      { headers: { Authorization: `Basic ${this.credentials}` } }
+    );
+    if (!response.ok) throw new Error("Failed to fetch runners");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getPriceUpdates(eventId: string): Promise<PriceUpdate[]> {
+    const response = await fetch(
+      `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/price-updates`,
+      { headers: { Authorization: `Basic ${this.credentials}` } }
+    );
+    if (!response.ok) throw new Error("Failed to fetch price updates");
     const result = await response.json();
     return result.data;
   }
@@ -87,7 +143,7 @@ class ChatApi {
           reply += data.formattedResults;
         } else if (data.mongoResults && data.mongoResults.length > 0) {
           // Filter out null values from mongoResults
-          const validResults = data.mongoResults.filter(result => result !== null);
+          const validResults = data.mongoResults.filter((result: unknown) => result !== null);
           
           if (validResults.length > 0) {
             reply += `Found ${validResults.length} result(s):\n\n`;
