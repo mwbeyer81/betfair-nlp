@@ -105,6 +105,29 @@ export const handlers = [
     })
   ),
 
+  http.get(`${BASE}/api/runners`, () =>
+    HttpResponse.json({
+      success: true,
+      count: 1,
+      totalRunners: 3,
+      data: [
+        {
+          marketId: "1.237066150",
+          marketTime: "2025-01-01T14:01:00.000Z",
+          marketType: "ANTEPOST_WIN",
+          marketName: "Cheltenham Chase",
+          eventId: "33858191",
+          eventName: "Cheltenham 1st Jan",
+          runners: [
+            { id: 12345, name: "Springwell Bay", status: "ACTIVE", sortPriority: 1 },
+            { id: 12346, name: "Gaelic Warrior", status: "ACTIVE", sortPriority: 2 },
+            { id: 12347, name: "Fact To File", status: "WINNER", sortPriority: 3 },
+          ],
+        },
+      ],
+    })
+  ),
+
   http.get(`${BASE}/health`, () =>
     HttpResponse.json({ status: "OK", service: "Betfair NLP API", database: "connected" })
   ),

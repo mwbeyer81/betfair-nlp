@@ -41,28 +41,24 @@ test.describe("GET /api/runners (live server @ localhost:3000)", () => {
   });
 });
 
-test.describe("All Runners view (Expo web @ localhost:8081)", () => {
-  test("runners stat in stats bar is visible and styled as a link", async ({ page }) => {
-    await goToEvents(page);
-    await expect(page.getByTestId("events-stats-bar")).toBeVisible({ timeout: 10000 });
-    const runnersBtn = page.getByTestId("events-total-runners");
-    await expect(runnersBtn).toBeVisible();
-    await expect(runnersBtn).toContainText("runners");
-  });
-
-  test("clicking runners stat opens the All Runners panel", async ({ page }) => {
+test.describe("All Runners screen (Expo web @ localhost:8081)", () => {
+  test("clicking runners stat navigates to /runners full-screen view", async ({ page }) => {
     await goToEvents(page);
     await expect(page.getByTestId("events-stats-bar")).toBeVisible({ timeout: 10000 });
 
     await page.getByTestId("events-total-runners").click();
 
-    await expect(page.getByTestId("all-runners-panel")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("events-screen")).not.toBeVisible();
   });
 
-  test("All Runners panel loads data and shows race sections", async ({ page }) => {
-    await goToEvents(page);
-    await page.getByTestId("events-total-runners").click();
+  test("/runners URL shows All Runners screen directly", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
+  });
 
+  test("All Runners screen loads data and shows runner rows", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
     await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("all-runners-list")).toBeVisible({ timeout: 10000 });
 
@@ -71,18 +67,16 @@ test.describe("All Runners view (Expo web @ localhost:8081)", () => {
     expect(await items.count()).toBeGreaterThan(0);
   });
 
-  test("All Runners panel shows event section headers", async ({ page }) => {
-    await goToEvents(page);
-    await page.getByTestId("events-total-runners").click();
+  test("All Runners screen shows event section headers for both events", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
     await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
 
     await expect(page.getByTestId("all-runners-event-33858191")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("all-runners-event-33988522")).toBeVisible();
   });
 
-  test("All Runners panel shows race time headers within each event", async ({ page }) => {
-    await goToEvents(page);
-    await page.getByTestId("events-total-runners").click();
+  test("All Runners screen shows race time headers within each event", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
     await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
 
     const raceHeaders = page.locator('[data-testid^="all-runners-race-"]');
@@ -90,12 +84,20 @@ test.describe("All Runners view (Expo web @ localhost:8081)", () => {
     expect(await raceHeaders.count()).toBeGreaterThan(1);
   });
 
-  test("All Runners panel close button dismisses it", async ({ page }) => {
-    await goToEvents(page);
-    await page.getByTestId("events-total-runners").click();
-    await expect(page.getByTestId("all-runners-panel")).toBeVisible({ timeout: 10000 });
+  test("header shows total runners and races count", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("all-runners-screen")).toContainText("runners");
+    await expect(page.getByTestId("all-runners-screen")).toContainText("races");
+  });
 
-    await page.getByTestId("all-runners-panel-close").click();
-    await expect(page.getByTestId("all-runners-panel")).not.toBeVisible();
+  test("← Events button navigates back to /events", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("all-runners-screen-events-button").click();
+
+    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("all-runners-screen")).not.toBeVisible();
   });
 });

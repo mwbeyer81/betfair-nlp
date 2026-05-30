@@ -8,7 +8,6 @@ import {
   StyleSheet,
   SafeAreaView,
 } from "react-native";
-import { AllRunnersPanel } from "./AllRunnersPanel";
 import { EventDocsPanel } from "./EventDocsPanel";
 import { PriceUpdatesPanel } from "./PriceUpdatesPanel";
 import { RunnersPanel } from "./RunnersPanel";
@@ -18,17 +17,18 @@ import {
   MarketDefinitionDoc,
   PriceUpdate,
   Race,
-  RaceWithEvent,
   Stats,
 } from "../services/chatApi";
 
 interface EventsScreenProps {
   onNavigateToChat: () => void;
+  onNavigateToAllRunners: () => void;
   onLogout?: () => void;
 }
 
 export const EventsScreen: React.FC<EventsScreenProps> = ({
   onNavigateToChat,
+  onNavigateToAllRunners,
   onLogout,
 }) => {
   const [groups, setGroups] = useState<EventGroup[]>([]);
@@ -57,11 +57,6 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
   const [priceUpdatesLoading, setPriceUpdatesLoading] = useState(false);
   const [priceUpdatesError, setPriceUpdatesError] = useState<string | null>(null);
 
-  const [showAllRunnersPanel, setShowAllRunnersPanel] = useState(false);
-  const [allRunners, setAllRunners] = useState<RaceWithEvent[]>([]);
-  const [allRunnersLoading, setAllRunnersLoading] = useState(false);
-  const [allRunnersError, setAllRunnersError] = useState<string | null>(null);
-
   const [showRunnerPriceUpdatesPanel, setShowRunnerPriceUpdatesPanel] = useState(false);
   const [runnerPriceUpdatesRunnerId, setRunnerPriceUpdatesRunnerId] = useState(0);
   const [runnerPriceUpdatesRunnerName, setRunnerPriceUpdatesRunnerName] = useState("");
@@ -88,19 +83,6 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
       }
     })();
   }, []);
-
-  const loadAllRunners = async () => {
-    setShowAllRunnersPanel(true);
-    setAllRunnersLoading(true);
-    setAllRunnersError(null);
-    try {
-      setAllRunners(await chatApi.getAllRunners());
-    } catch {
-      setAllRunnersError("Failed to load runners");
-    } finally {
-      setAllRunnersLoading(false);
-    }
-  };
 
   const loadDocs = async (eventId: string, eventName: string) => {
     setDocsEventId(eventId);
@@ -174,7 +156,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
       <View testID="events-stats-bar" style={styles.statsBar}>
         <TouchableOpacity
           testID="events-total-runners"
-          onPress={loadAllRunners}
+          onPress={onNavigateToAllRunners}
           style={styles.statLink}
         >
           <Text style={[styles.statText, styles.statLinkText]}>
@@ -267,15 +249,6 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
           </ScrollView>
         )}
       </View>
-
-      {showAllRunnersPanel && (
-        <AllRunnersPanel
-          races={allRunners}
-          isLoading={allRunnersLoading}
-          error={allRunnersError}
-          onClose={() => setShowAllRunnersPanel(false)}
-        />
-      )}
 
       {showRunnersPanel && (
         <RunnersPanel
