@@ -112,6 +112,11 @@ export const RunnersPanel: React.FC<RunnersPanelProps> = ({
                     <Text style={styles.runnerName} numberOfLines={1}>
                       {runner.name}
                     </Text>
+                    {runner.bsp != null && (
+                      <Text testID={`runner-bsp-${runner.id}`} style={styles.bspBadge}>
+                        SP {runner.bsp}
+                      </Text>
+                    )}
                     <View
                       style={[
                         styles.statusBadge,
@@ -262,5 +267,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: "#aaa",
     marginLeft: 6,
+  },
+  bspBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#0056b3",
+    backgroundColor: "#e8f0fe",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    marginRight: 6,
   },
 });

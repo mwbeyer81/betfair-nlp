@@ -212,6 +212,30 @@ describe("MarketDefinitionDAO.getRunnersByRaceForEvent (integration)", () => {
     const races = await dao.getRunnersByRaceForEvent("nonexistent-event-99999");
     expect(races).toHaveLength(0);
   });
+
+  it("BSP market runners include bsp field", async () => {
+    // Leopardstown 33988522 has bspMarket WIN races
+    const races = await dao.getRunnersByRaceForEvent("33988522");
+    const bspRaces = races.filter(r => r.marketType === "WIN");
+    expect(bspRaces.length).toBeGreaterThan(0);
+    for (const race of bspRaces) {
+      const runnersWithBsp = race.runners.filter(r => r.bsp != null);
+      expect(runnersWithBsp.length).toBeGreaterThan(0);
+      for (const runner of runnersWithBsp) {
+        expect(typeof runner.bsp).toBe("number");
+        expect(runner.bsp).toBeGreaterThan(1);
+      }
+    }
+  });
+
+  it("bsp is undefined for antepost market runners without BSP reconciliation", async () => {
+    // Cheltenham 33858191 is ANTEPOST_WIN with bspMarket false — no bsp on runners
+    const races = await dao.getRunnersByRaceForEvent("33858191");
+    expect(races.length).toBeGreaterThan(0);
+    for (const runner of races[0].runners) {
+      expect(runner.bsp).toBeUndefined();
+    }
+  });
 });
 
 describe("MarketDefinitionDAO.getLatestPerMarketByEventId (integration)", () => {

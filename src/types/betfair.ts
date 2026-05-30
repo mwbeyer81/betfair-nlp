@@ -53,6 +53,7 @@ export interface Runner {
   sortPriority: number;
   id: number;
   name: string;
+  bsp?: number;
 }
 
 export type RunnerStatus = "ACTIVE" | "HIDDEN" | "WINNER" | "LOSER";

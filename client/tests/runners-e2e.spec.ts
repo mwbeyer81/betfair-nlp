@@ -40,6 +40,22 @@ test.describe("Runners API (live server @ localhost:3000)", () => {
     expect(typeof runner.sortPriority).toBe("number");
   });
 
+  test("BSP market runners include bsp field", async ({ request }) => {
+    // Leopardstown WIN markets have bspReconciled=true
+    const res = await request.get(`${API_URL}/api/events/33988522/runners`, {
+      headers: { Authorization: AUTH },
+    });
+    const body = await res.json();
+    const winRaces = body.data.filter((r: any) => r.marketType === "WIN");
+    expect(winRaces.length).toBeGreaterThan(0);
+    const allRunners = winRaces.flatMap((r: any) => r.runners);
+    const runnersWithBsp = allRunners.filter((r: any) => r.bsp != null);
+    expect(runnersWithBsp.length).toBeGreaterThan(0);
+    for (const runner of runnersWithBsp) {
+      expect(typeof runner.bsp).toBe("number");
+    }
+  });
+
   test("no REMOVED runners in any race", async ({ request }) => {
     const res = await request.get(`${API_URL}/api/events/33858191/runners`, {
       headers: { Authorization: AUTH },
@@ -111,5 +127,19 @@ test.describe("Runners feature (Expo web @ localhost:8081)", () => {
     await expect(page.getByTestId("runners-panel")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("runners-panel-close").click();
     await expect(page.getByTestId("runners-panel")).not.toBeVisible();
+  });
+
+  test("BSP price is displayed for runners in a BSP market", async ({ page }) => {
+    // Leopardstown 33988522 has WIN markets with bspReconciled=true
+    await goToEvents(page);
+    await page.getByTestId("event-runners-badge-33988522").click();
+    await expect(page.getByTestId("runners-loading")).not.toBeVisible({ timeout: 15000 });
+
+    const bspBadges = page.locator('[data-testid^="runner-bsp-"]');
+    await expect(bspBadges.first()).toBeVisible({ timeout: 10000 });
+    expect(await bspBadges.count()).toBeGreaterThan(0);
+
+    const firstBspText = await bspBadges.first().textContent();
+    expect(firstBspText).toMatch(/^SP \d/);
   });
 });

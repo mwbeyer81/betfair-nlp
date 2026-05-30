@@ -10,11 +10,11 @@ const CHELTENHAM_RACES: Race[] = [
     marketType: "ANTEPOST_WIN",
     marketName: "Cheltenham Chase",
     runners: [
-      { id: 12345, name: "Springwell Bay", status: "ACTIVE", sortPriority: 1 },
-      { id: 12346, name: "Gaelic Warrior", status: "ACTIVE", sortPriority: 2 },
-      { id: 12347, name: "Navan Rullah", status: "ACTIVE", sortPriority: 3 },
-      { id: 12348, name: "Fact To File", status: "WINNER", sortPriority: 4 },
-      { id: 12349, name: "Embassy Gardens", status: "LOSER", sortPriority: 5 },
+      { id: 12345, name: "Springwell Bay", status: "ACTIVE", sortPriority: 1, bsp: 4.5 },
+      { id: 12346, name: "Gaelic Warrior", status: "ACTIVE", sortPriority: 2, bsp: 9.2 },
+      { id: 12347, name: "Navan Rullah", status: "ACTIVE", sortPriority: 3, bsp: 15.0 },
+      { id: 12348, name: "Fact To File", status: "WINNER", sortPriority: 4, bsp: 2.1 },
+      { id: 12349, name: "Embassy Gardens", status: "LOSER", sortPriority: 5, bsp: 34.0 },
     ],
   },
 ];
@@ -26,9 +26,9 @@ const LEOPARDSTOWN_RACES: Race[] = [
     marketType: "WIN",
     marketName: "Leopardstown 13:15",
     runners: [
-      { id: 21001, name: "Galopin Des Champs", status: "WINNER", sortPriority: 1 },
-      { id: 21002, name: "Meetingofthewaters", status: "LOSER", sortPriority: 2 },
-      { id: 21003, name: "Gerri Colombe", status: "LOSER", sortPriority: 3 },
+      { id: 21001, name: "Galopin Des Champs", status: "WINNER", sortPriority: 1, bsp: 1.95 },
+      { id: 21002, name: "Meetingofthewaters", status: "LOSER", sortPriority: 2, bsp: 5.5 },
+      { id: 21003, name: "Gerri Colombe", status: "LOSER", sortPriority: 3, bsp: 8.0 },
     ],
   },
   {
@@ -37,9 +37,9 @@ const LEOPARDSTOWN_RACES: Race[] = [
     marketType: "WIN",
     marketName: "Leopardstown 13:50",
     runners: [
-      { id: 22001, name: "State Man", status: "WINNER", sortPriority: 1 },
-      { id: 22002, name: "Brighterdaysahead", status: "LOSER", sortPriority: 2 },
-      { id: 22003, name: "Lossiemouth", status: "LOSER", sortPriority: 3 },
+      { id: 22001, name: "State Man", status: "WINNER", sortPriority: 1, bsp: 1.4 },
+      { id: 22002, name: "Brighterdaysahead", status: "LOSER", sortPriority: 2, bsp: 6.0 },
+      { id: 22003, name: "Lossiemouth", status: "LOSER", sortPriority: 3, bsp: 3.2 },
     ],
   },
 ];
@@ -213,6 +213,44 @@ export const EmptyState: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByTestId("runners-list")).toBeInTheDocument();
     await expect(canvas.getByText("No runners found.")).toBeInTheDocument();
+  },
+};
+
+export const BspDisplayed: Story = {
+  args: {
+    races: CHELTENHAM_RACES,
+    isLoading: false,
+    error: null,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    for (const runner of CHELTENHAM_RACES[0].runners) {
+      const bspEl = canvas.getByTestId(`runner-bsp-${runner.id}`);
+      await expect(bspEl).toBeInTheDocument();
+      await expect(bspEl).toHaveTextContent(`SP ${runner.bsp}`);
+    }
+  },
+};
+
+export const NoBspWhenAbsent: Story = {
+  args: {
+    races: [
+      {
+        marketId: "1.999000001",
+        marketTime: "2025-01-01T14:01:00.000Z",
+        marketType: "WIN",
+        marketName: "No BSP Race",
+        runners: [
+          { id: 99001, name: "Horse Without BSP", status: "ACTIVE", sortPriority: 1 },
+        ],
+      },
+    ],
+    isLoading: false,
+    error: null,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByTestId("runner-bsp-99001")).not.toBeInTheDocument();
   },
 };
 

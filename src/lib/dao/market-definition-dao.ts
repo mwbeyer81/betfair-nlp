@@ -22,7 +22,7 @@ export interface RaceWithRunners {
   marketTime: string;
   marketType: string;
   marketName: string;
-  runners: Array<{ id: number; name: string; status: string; sortPriority: number }>;
+  runners: Array<{ id: number; name: string; status: string; sortPriority: number; bsp?: number }>;
 }
 
 export interface RaceWithEvent extends RaceWithRunners {
@@ -202,6 +202,7 @@ export class MarketDefinitionDAO {
                 name: "$runners.name",
                 status: "$runners.status",
                 sortPriority: "$runners.sortPriority",
+                bsp: "$runners.bsp",
               },
             },
           },
@@ -258,6 +259,7 @@ export class MarketDefinitionDAO {
                 name: "$runners.name",
                 status: "$runners.status",
                 sortPriority: "$runners.sortPriority",
+                bsp: "$runners.bsp",
               },
             },
           },

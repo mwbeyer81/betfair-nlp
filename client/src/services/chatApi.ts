@@ -25,6 +25,7 @@ export interface Runner {
   name: string;
   status: string;
   sortPriority: number;
+  bsp?: number;
 }
 
 export interface Stats {
