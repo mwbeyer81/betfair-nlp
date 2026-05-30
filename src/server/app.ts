@@ -50,6 +50,11 @@ app.use(morgan("combined"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+// Public routes (before auth)
+app.get("/hello-world", (req, res) => {
+  res.status(200).json({ message: "Hello, World!" });
+});
+
 // Apply basic auth to all routes
 app.use(basicAuth);
 
