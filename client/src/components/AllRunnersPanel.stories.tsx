@@ -25,8 +25,8 @@ const MOCK_RACES: RaceWithEvent[] = [
     eventId: "33988522",
     eventName: "Leopardstown 1st Feb",
     runners: [
-      { id: 21001, name: "Galopin Des Champs", status: "WINNER", sortPriority: 1 },
-      { id: 21002, name: "Meetingofthewaters", status: "LOSER", sortPriority: 2 },
+      { id: 21001, name: "Galopin Des Champs", status: "WINNER", sortPriority: 1, bsp: 1.95 },
+      { id: 21002, name: "Meetingofthewaters", status: "LOSER", sortPriority: 2, bsp: 5.5 },
     ],
   },
   {
@@ -37,8 +37,8 @@ const MOCK_RACES: RaceWithEvent[] = [
     eventId: "33988522",
     eventName: "Leopardstown 1st Feb",
     runners: [
-      { id: 22001, name: "State Man", status: "WINNER", sortPriority: 1 },
-      { id: 22002, name: "Brighterdaysahead", status: "LOSER", sortPriority: 2 },
+      { id: 22001, name: "State Man", status: "WINNER", sortPriority: 1, bsp: 1.4 },
+      { id: 22002, name: "Brighterdaysahead", status: "LOSER", sortPriority: 2, bsp: 6.0 },
     ],
   },
 ];
@@ -200,5 +200,37 @@ export const EmptyState: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByTestId("all-runners-list")).toBeInTheDocument();
     await expect(canvas.getByText("No runners found.")).toBeInTheDocument();
+  },
+};
+
+export const BspDisplayed: Story = {
+  args: {
+    races: MOCK_RACES,
+    isLoading: false,
+    error: null,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // BSP races are the Leopardstown WIN markets
+    const bspRunners = MOCK_RACES.filter(r => r.marketType === "WIN").flatMap(r => r.runners);
+    for (const runner of bspRunners) {
+      const bspEl = canvas.getByTestId(`all-runner-bsp-${runner.id}`);
+      await expect(bspEl).toBeInTheDocument();
+      await expect(bspEl).toHaveTextContent(`SP ${runner.bsp}`);
+    }
+  },
+};
+
+export const NoBspWhenAbsent: Story = {
+  args: {
+    races: [MOCK_RACES[0]], // Cheltenham ANTEPOST_WIN — no bsp on runners
+    isLoading: false,
+    error: null,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    for (const runner of MOCK_RACES[0].runners) {
+      await expect(canvas.queryByTestId(`all-runner-bsp-${runner.id}`)).not.toBeInTheDocument();
+    }
   },
 };

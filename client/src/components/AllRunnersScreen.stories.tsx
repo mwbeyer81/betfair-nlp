@@ -28,8 +28,8 @@ const MOCK_RACES = [
     eventId: "33988522",
     eventName: "Leopardstown 1st Feb",
     runners: [
-      { id: 21001, name: "Galopin Des Champs", status: "WINNER", sortPriority: 1 },
-      { id: 21002, name: "Meetingofthewaters", status: "LOSER", sortPriority: 2 },
+      { id: 21001, name: "Galopin Des Champs", status: "WINNER", sortPriority: 1, bsp: 1.95 },
+      { id: 21002, name: "Meetingofthewaters", status: "LOSER", sortPriority: 2, bsp: 5.5 },
     ],
   },
   {
@@ -40,8 +40,8 @@ const MOCK_RACES = [
     eventId: "33988522",
     eventName: "Leopardstown 1st Feb",
     runners: [
-      { id: 22001, name: "State Man", status: "WINNER", sortPriority: 1 },
-      { id: 22002, name: "Brighterdaysahead", status: "LOSER", sortPriority: 2 },
+      { id: 22001, name: "State Man", status: "WINNER", sortPriority: 1, bsp: 1.4 },
+      { id: 22002, name: "Brighterdaysahead", status: "LOSER", sortPriority: 2, bsp: 6.0 },
     ],
   },
 ];
@@ -148,5 +148,31 @@ export const EventsButtonNavigates: Story = {
     await expect(btn).toBeInTheDocument();
     await userEvent.click(btn);
     await expect(args.onNavigateToEvents).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const BspDisplayed: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    // WIN market runners have bsp; verify they appear with SP badge
+    const bspRunners = MOCK_RACES.filter(r => r.marketType === "WIN").flatMap(r => r.runners);
+    for (const runner of bspRunners) {
+      const bspEl = await canvas.findByTestId(`all-runner-bsp-${runner.id}`);
+      await expect(bspEl).toBeInTheDocument();
+      await expect(bspEl).toHaveTextContent(`SP ${runner.bsp}`);
+    }
+  },
+};
+
+export const NoBspWhenAbsent: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    // Cheltenham ANTEPOST_WIN runners have no bsp
+    const cheltenhamRunners = MOCK_RACES.filter(r => r.eventId === "33858191").flatMap(r => r.runners);
+    for (const runner of cheltenhamRunners) {
+      await expect(canvas.queryByTestId(`all-runner-bsp-${runner.id}`)).not.toBeInTheDocument();
+    }
   },
 };

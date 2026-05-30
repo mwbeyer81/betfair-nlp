@@ -39,6 +39,21 @@ test.describe("GET /api/runners (live server @ localhost:3000)", () => {
     const res = await request.get(`${API_URL}/api/runners`);
     expect(res.status()).toBe(401);
   });
+
+  test("BSP market runners include bsp field", async ({ request }) => {
+    const res = await request.get(`${API_URL}/api/runners`, {
+      headers: { Authorization: AUTH },
+    });
+    const body = await res.json();
+    const winRaces = body.data.filter((r: any) => r.marketType === "WIN");
+    expect(winRaces.length).toBeGreaterThan(0);
+    const allRunners = winRaces.flatMap((r: any) => r.runners);
+    const runnersWithBsp = allRunners.filter((r: any) => r.bsp != null);
+    expect(runnersWithBsp.length).toBeGreaterThan(0);
+    for (const runner of runnersWithBsp) {
+      expect(typeof runner.bsp).toBe("number");
+    }
+  });
 });
 
 test.describe("All Runners screen (Expo web @ localhost:8081)", () => {
@@ -89,6 +104,18 @@ test.describe("All Runners screen (Expo web @ localhost:8081)", () => {
     await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("all-runners-screen")).toContainText("runners");
     await expect(page.getByTestId("all-runners-screen")).toContainText("races");
+  });
+
+  test("BSP price is displayed for runners in WIN markets", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
+
+    const bspBadges = page.locator('[data-testid^="all-runner-bsp-"]');
+    await expect(bspBadges.first()).toBeVisible({ timeout: 10000 });
+    expect(await bspBadges.count()).toBeGreaterThan(0);
+
+    const firstBspText = await bspBadges.first().textContent();
+    expect(firstBspText).toMatch(/^SP \d/);
   });
 
   test("← Events button navigates back to /events", async ({ page }) => {
