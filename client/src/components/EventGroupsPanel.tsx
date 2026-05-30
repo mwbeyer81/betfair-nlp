@@ -19,6 +19,7 @@ interface EventGroupsPanelProps {
   onViewPriceUpdates: (eventId: string, eventName: string) => void;
   totalRaces?: number;
   totalRunners?: number;
+  onViewAllRunners?: () => void;
 }
 
 export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
@@ -31,14 +32,22 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
   onViewPriceUpdates,
   totalRaces,
   totalRunners,
+  onViewAllRunners,
 }) => {
   return (
     <View testID="events-panel" style={styles.panel}>
       {(totalRaces !== undefined || totalRunners !== undefined) && (
         <View testID="events-stats-bar" style={styles.statsBar}>
-          <Text testID="events-total-runners" style={styles.statText}>
-            {totalRunners ?? "—"} runners
-          </Text>
+          <TouchableOpacity
+            testID="events-total-runners"
+            onPress={onViewAllRunners}
+            disabled={!onViewAllRunners}
+            style={styles.statLink}
+          >
+            <Text style={[styles.statText, onViewAllRunners && styles.statLinkText]}>
+              {totalRunners ?? "—"} runners
+            </Text>
+          </TouchableOpacity>
           <Text style={styles.statDot}>·</Text>
           <Text testID="events-total-races" style={styles.statText}>
             {totalRaces ?? "—"} races
@@ -220,6 +229,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#4a5568",
     fontWeight: "600",
+  },
+  statLink: {
+    paddingVertical: 2,
+  },
+  statLinkText: {
+    color: "#007AFF",
+    textDecorationLine: "underline",
   },
   statDot: {
     fontSize: 12,

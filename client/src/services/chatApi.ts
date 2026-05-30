@@ -40,6 +40,11 @@ export interface Race {
   runners: Runner[];
 }
 
+export interface RaceWithEvent extends Race {
+  eventId: string;
+  eventName: string;
+}
+
 export interface MarketDefinitionDoc {
   _id: string;
   changeId: string;
@@ -121,6 +126,15 @@ class ChatApi {
       { headers: { Authorization: `Basic ${this.credentials}` } }
     );
     if (!response.ok) throw new Error("Failed to fetch runner price updates");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getAllRunners(): Promise<RaceWithEvent[]> {
+    const response = await fetch(`${this.baseUrl}/api/runners`, {
+      headers: { Authorization: `Basic ${this.credentials}` },
+    });
+    if (!response.ok) throw new Error("Failed to fetch all runners");
     const result = await response.json();
     return result.data;
   }

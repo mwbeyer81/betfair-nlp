@@ -376,6 +376,47 @@ describe("API Endpoints", () => {
     });
   });
 
+  describe("GET /api/runners", () => {
+    it("returns all races with runners", async () => {
+      const response = await request(app)
+        .get("/api/runners")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(typeof response.body.count).toBe("number");
+      expect(typeof response.body.totalRunners).toBe("number");
+    });
+
+    it("each race has eventId, eventName, marketId, marketType, runners", async () => {
+      const response = await request(app)
+        .get("/api/runners")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      const race = response.body.data[0];
+      expect(race).toHaveProperty("eventId");
+      expect(race).toHaveProperty("eventName");
+      expect(race).toHaveProperty("marketId");
+      expect(race).toHaveProperty("marketType");
+      expect(Array.isArray(race.runners)).toBe(true);
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/runners").expect(401);
+    });
+
+    it("count equals data.length", async () => {
+      const response = await request(app)
+        .get("/api/runners")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+  });
+
   describe("GET /api/stats", () => {
     it("returns success with totalRaces and totalRunners", async () => {
       const response = await request(app)

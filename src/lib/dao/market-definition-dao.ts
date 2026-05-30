@@ -25,6 +25,11 @@ export interface RaceWithRunners {
   runners: Array<{ id: number; name: string; status: string; sortPriority: number }>;
 }
 
+export interface RaceWithEvent extends RaceWithRunners {
+  eventId: string;
+  eventName: string;
+}
+
 export class MarketDefinitionDAO {
   private collection: Collection<MarketDefinitionDocument>;
 
@@ -206,6 +211,64 @@ export class MarketDefinitionDAO {
           $project: {
             _id: 0,
             marketId: "$_id",
+            marketTime: 1,
+            marketType: 1,
+            marketName: 1,
+            runners: 1,
+          },
+        },
+      ])
+      .toArray();
+  }
+
+  /**
+   * Return all runners across every event grouped by WIN/ANTEPOST_WIN market,
+   * sorted chronologically. REMOVED runners excluded.
+   */
+  public async getAllRunnersByRace(): Promise<RaceWithEvent[]> {
+    return await this.collection
+      .aggregate<RaceWithEvent>([
+        { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] } } },
+        { $sort: { timestamp: -1 } },
+        {
+          $group: {
+            _id: "$marketId",
+            eventId: { $first: "$eventId" },
+            eventName: { $first: "$eventName" },
+            marketTime: { $first: "$marketTime" },
+            marketType: { $first: "$marketType" },
+            marketName: { $first: "$name" },
+            runners: { $first: "$runners" },
+          },
+        },
+        { $unwind: "$runners" },
+        { $match: { "runners.status": { $ne: "REMOVED" } } },
+        { $sort: { marketTime: 1, "runners.sortPriority": 1 } },
+        {
+          $group: {
+            _id: "$_id",
+            eventId: { $first: "$eventId" },
+            eventName: { $first: "$eventName" },
+            marketTime: { $first: "$marketTime" },
+            marketType: { $first: "$marketType" },
+            marketName: { $first: "$marketName" },
+            runners: {
+              $push: {
+                id: "$runners.id",
+                name: "$runners.name",
+                status: "$runners.status",
+                sortPriority: "$runners.sortPriority",
+              },
+            },
+          },
+        },
+        { $sort: { marketTime: 1 } },
+        {
+          $project: {
+            _id: 0,
+            marketId: "$_id",
+            eventId: 1,
+            eventName: 1,
             marketTime: 1,
             marketType: 1,
             marketName: 1,

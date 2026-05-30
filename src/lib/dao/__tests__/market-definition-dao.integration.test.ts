@@ -272,3 +272,69 @@ describe("MarketDefinitionDAO.getLatestPerMarketByEventId (integration)", () => 
     expect(docs.length).toBeLessThanOrEqual(5);
   });
 });
+
+describe("MarketDefinitionDAO.getAllRunnersByRace (integration)", () => {
+  let client: MongoClient;
+  let db: Db;
+  let dao: MarketDefinitionDAO;
+
+  beforeAll(async () => {
+    client = new MongoClient(MONGO_URI);
+    await client.connect();
+    db = client.db(DB_NAME);
+    dao = new MarketDefinitionDAO(db);
+  }, 15000);
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  it("returns races from all events (Cheltenham + Leopardstown)", async () => {
+    const races = await dao.getAllRunnersByRace();
+    const eventIds = new Set(races.map(r => r.eventId));
+    expect(eventIds.has("33858191")).toBe(true);
+    expect(eventIds.has("33988522")).toBe(true);
+  });
+
+  it("each race has eventId, eventName, marketId, marketType, runners", async () => {
+    const races = await dao.getAllRunnersByRace();
+    for (const race of races) {
+      expect(typeof race.eventId).toBe("string");
+      expect(typeof race.eventName).toBe("string");
+      expect(typeof race.marketId).toBe("string");
+      expect(typeof race.marketType).toBe("string");
+      expect(Array.isArray(race.runners)).toBe(true);
+    }
+  });
+
+  it("no REMOVED runners in any race", async () => {
+    const races = await dao.getAllRunnersByRace();
+    for (const race of races) {
+      for (const runner of race.runners) {
+        expect(runner.status).not.toBe("REMOVED");
+      }
+    }
+  });
+
+  it("Cheltenham race is ANTEPOST_WIN, Leopardstown races are WIN", async () => {
+    const races = await dao.getAllRunnersByRace();
+    const cheltenham = races.filter(r => r.eventId === "33858191");
+    const leopardstown = races.filter(r => r.eventId === "33988522");
+    expect(cheltenham.every(r => r.marketType === "ANTEPOST_WIN" || r.marketType === "WIN")).toBe(true);
+    expect(leopardstown.every(r => r.marketType === "WIN")).toBe(true);
+  });
+
+  it("races are sorted by marketTime ascending", async () => {
+    const races = await dao.getAllRunnersByRace();
+    for (let i = 1; i < races.length; i++) {
+      expect(new Date(races[i - 1].marketTime).getTime())
+        .toBeLessThanOrEqual(new Date(races[i].marketTime).getTime());
+    }
+  });
+
+  it("total runner count across all races is positive", async () => {
+    const races = await dao.getAllRunnersByRace();
+    const total = races.reduce((sum, r) => sum + r.runners.length, 0);
+    expect(total).toBeGreaterThan(0);
+  });
+});

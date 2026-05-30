@@ -35,6 +35,7 @@ const meta: Meta<typeof EventGroupsPanel> = {
     onViewDocs: fn(),
     onViewRunners: fn(),
     onViewPriceUpdates: fn(),
+    onViewAllRunners: fn(),
     totalRaces: 8,
     totalRunners: 110,
   },
@@ -97,6 +98,25 @@ export const PanelVisible: Story = {
 
     // Event name is displayed
     await expect(canvas.getByText("Cheltenham 1st Jan")).toBeInTheDocument();
+  },
+};
+
+export const RunnersStatClick: Story = {
+  name: "Runners stat — click opens all-runners view",
+  args: {
+    groups: MOCK_GROUPS,
+    isLoading: false,
+    error: null,
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+
+    const runnersBtn = canvas.getByTestId("events-total-runners");
+    await expect(runnersBtn).toBeInTheDocument();
+    await expect(runnersBtn).toHaveTextContent("110 runners");
+
+    await userEvent.click(runnersBtn);
+    await expect(args.onViewAllRunners).toHaveBeenCalledTimes(1);
   },
 };
 

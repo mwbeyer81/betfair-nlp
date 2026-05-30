@@ -247,6 +247,20 @@ app.get("/api/stats", async (req, res) => {
   }
 });
 
+// All runners across all events, grouped by WIN race
+app.get("/api/runners", async (req, res) => {
+  try {
+    if (!betfairService) {
+      return res.status(503).json({ success: false, error: "Service not initialized" });
+    }
+    const races = await betfairService.getAllRunnersByRace();
+    const totalRunners = races.reduce((sum, r) => sum + r.runners.length, 0);
+    res.status(200).json({ success: true, data: races, count: races.length, totalRunners });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch all runners" });
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({
