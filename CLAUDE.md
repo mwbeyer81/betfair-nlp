@@ -93,3 +93,13 @@ Add a `describe` block for the new DAO method:
 - Deduplication invariant holds (e.g. unique IDs).
 - Returns empty array for an unknown eventId.
 - Results are sorted as expected.
+
+---
+
+## Committing changes after every prompt
+
+After completing code changes in response to a user prompt, **always end your response by offering to commit**. Show the user a one-line summary of what changed and ask:
+
+> "Want me to commit these changes? I'll stage everything and generate a message — just say yes to proceed."
+
+**Do not commit without explicit confirmation.** Use the `/commit` command pattern when the user confirms.

@@ -171,17 +171,38 @@ app.get("/api/events/:eventId/definitions", async (req, res) => {
   }
 });
 
-// Unique runners by event endpoint
+// Runners by race (grouped by WIN market) endpoint
 app.get("/api/events/:eventId/runners", async (req, res) => {
   try {
     if (!betfairService) {
       return res.status(503).json({ success: false, error: "Service not initialized" });
     }
     const { eventId } = req.params;
-    const runners = await betfairService.getUniqueRunnersByEvent(eventId);
-    res.status(200).json({ success: true, data: runners, count: runners.length });
+    const races = await betfairService.getRunnersByRace(eventId);
+    res.status(200).json({ success: true, data: races, count: races.length });
   } catch (error) {
     res.status(500).json({ success: false, error: "Failed to fetch runners" });
+  }
+});
+
+// Price updates by event and runner endpoint
+app.get("/api/events/:eventId/runners/:runnerId/price-updates", async (req, res) => {
+  try {
+    if (!betfairService) {
+      return res.status(503).json({ success: false, error: "Service not initialized" });
+    }
+    const { eventId, runnerId } = req.params;
+    const runnerIdNum = parseInt(runnerId, 10);
+    if (isNaN(runnerIdNum)) {
+      return res.status(400).json({ success: false, error: "runnerId must be a number" });
+    }
+    const limit = Math.min(parseInt(String(req.query.limit ?? "100"), 10) || 100, 500);
+    const sortParam = String(req.query.sort ?? "desc");
+    const sort = sortParam === "asc" ? "asc" : "desc";
+    const docs = await betfairService.getPriceUpdatesByEventAndRunner(eventId, runnerIdNum, limit, sort);
+    res.status(200).json({ success: true, data: docs, count: docs.length });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch runner price updates" });
   }
 });
 
@@ -210,6 +231,19 @@ app.get("/api/events/grouped", async (req, res) => {
     res.status(200).json({ success: true, data: groups });
   } catch (error) {
     res.status(500).json({ success: false, error: "Failed to fetch event groups" });
+  }
+});
+
+// Summary stats endpoint
+app.get("/api/stats", async (req, res) => {
+  try {
+    if (!betfairService) {
+      return res.status(503).json({ success: false, error: "Service not initialized" });
+    }
+    const stats = await betfairService.getSummaryStats();
+    res.status(200).json({ success: true, data: stats });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch stats" });
   }
 });
 

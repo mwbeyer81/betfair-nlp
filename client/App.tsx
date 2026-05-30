@@ -1,26 +1,46 @@
 import { StatusBar } from "expo-status-bar";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChatScreen } from "./src/components/ChatScreen";
 import { AuthScreen } from "./src/components/AuthScreen";
+import { EventsScreen } from "./src/components/EventsScreen";
+import { useRouter } from "./src/hooks/useRouter";
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const { route, navigate } = useRouter();
 
-  const handleAuthenticated = () => {
-    setIsAuthenticated(true);
-  };
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("msw") === "1") {
+      import("./src/mocks/browser").then(({ worker }) => {
+        worker.start({ onUnhandledRequest: "bypass" });
+      });
+    }
+  }, []);
 
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-  };
+  if (!isAuthenticated) {
+    return <AuthScreen onAuthenticated={() => setIsAuthenticated(true)} />;
+  }
+
+  if (route === "/chat") {
+    return (
+      <>
+        <ChatScreen
+          onLogout={() => setIsAuthenticated(false)}
+          onNavigateToEvents={() => navigate("/events")}
+        />
+        <StatusBar style="light" />
+      </>
+    );
+  }
 
   return (
     <>
-      {isAuthenticated ? (
-        <ChatScreen onLogout={handleLogout} />
-      ) : (
-        <AuthScreen onAuthenticated={handleAuthenticated} />
-      )}
+      <EventsScreen
+        onNavigateToChat={() => navigate("/chat")}
+        onLogout={() => setIsAuthenticated(false)}
+      />
       <StatusBar style="light" />
     </>
   );

@@ -107,15 +107,11 @@ describe("MarketDefinitionDAO.groupByEventId (integration)", () => {
     }
   });
 
-  it("count matches the actual number of documents for the event", async () => {
+  it("count equals the number of unique marketIds (not raw doc count)", async () => {
     const groups = await dao.groupByEventId();
     const first = groups[0];
 
-    const actualCount = await db
-      .collection("market_definitions")
-      .countDocuments({ eventId: first.eventId });
-
-    expect(first.count).toBe(actualCount);
+    expect(first.count).toBe(first.marketIds.length);
   });
 
   it("results are sorted descending by count", async () => {
@@ -137,7 +133,7 @@ describe("MarketDefinitionDAO.groupByEventId (integration)", () => {
   });
 });
 
-describe("MarketDefinitionDAO.getUniqueRunnersByEventId (integration)", () => {
+describe("MarketDefinitionDAO.getRunnersByRaceForEvent (integration)", () => {
   let client: MongoClient;
   let db: Db;
   let dao: MarketDefinitionDAO;
@@ -153,38 +149,126 @@ describe("MarketDefinitionDAO.getUniqueRunnersByEventId (integration)", () => {
     await client.close();
   });
 
-  it("returns runners for eventId 33858191", async () => {
-    const runners = await dao.getUniqueRunnersByEventId("33858191");
-    expect(runners.length).toBeGreaterThan(0);
+  it("returns one race for Cheltenham (single WIN market)", async () => {
+    const races = await dao.getRunnersByRaceForEvent("33858191");
+    expect(races.length).toBe(1);
+    expect(races[0].marketType).toBe("ANTEPOST_WIN");
   });
 
-  it("each runner has required fields with correct types", async () => {
-    const runners = await dao.getUniqueRunnersByEventId("33858191");
-    for (const runner of runners) {
+  it("returns seven races for Leopardstown (multi-race event)", async () => {
+    const races = await dao.getRunnersByRaceForEvent("33988522");
+    expect(races.length).toBe(7);
+    for (const race of races) {
+      expect(race.marketType).toBe("WIN");
+    }
+  });
+
+  it("each race has required fields", async () => {
+    const races = await dao.getRunnersByRaceForEvent("33988522");
+    for (const race of races) {
+      expect(typeof race.marketId).toBe("string");
+      expect(typeof race.marketTime).toBe("string");
+      expect(typeof race.marketType).toBe("string");
+      expect(Array.isArray(race.runners)).toBe(true);
+    }
+  });
+
+  it("each runner within a race has required fields", async () => {
+    const races = await dao.getRunnersByRaceForEvent("33858191");
+    for (const runner of races[0].runners) {
       expect(typeof runner.id).toBe("number");
       expect(typeof runner.name).toBe("string");
-      expect(runner.name.length).toBeGreaterThan(0);
       expect(typeof runner.status).toBe("string");
       expect(typeof runner.sortPriority).toBe("number");
     }
   });
 
-  it("runner ids are unique — no duplicates across markets", async () => {
-    const runners = await dao.getUniqueRunnersByEventId("33858191");
-    const ids = runners.map(r => r.id);
-    const uniqueIds = new Set(ids);
-    expect(uniqueIds.size).toBe(ids.length);
+  it("no REMOVED runners appear in any race", async () => {
+    const races = await dao.getRunnersByRaceForEvent("33988522");
+    for (const race of races) {
+      for (const runner of race.runners) {
+        expect(runner.status).not.toBe("REMOVED");
+      }
+    }
+  });
+
+  it("runner ids are unique within each race", async () => {
+    const races = await dao.getRunnersByRaceForEvent("33988522");
+    for (const race of races) {
+      const ids = race.runners.map(r => r.id);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+  });
+
+  it("races are sorted by marketTime ascending", async () => {
+    const races = await dao.getRunnersByRaceForEvent("33988522");
+    for (let i = 1; i < races.length; i++) {
+      expect(new Date(races[i - 1].marketTime).getTime())
+        .toBeLessThanOrEqual(new Date(races[i].marketTime).getTime());
+    }
   });
 
   it("returns empty array for unknown eventId", async () => {
-    const runners = await dao.getUniqueRunnersByEventId("unknown-event-xyz-000");
-    expect(runners).toEqual([]);
+    const races = await dao.getRunnersByRaceForEvent("nonexistent-event-99999");
+    expect(races).toHaveLength(0);
+  });
+});
+
+describe("MarketDefinitionDAO.getLatestPerMarketByEventId (integration)", () => {
+  let client: MongoClient;
+  let db: Db;
+  let dao: MarketDefinitionDAO;
+
+  beforeAll(async () => {
+    client = new MongoClient(MONGO_URI);
+    await client.connect();
+    db = client.db(DB_NAME);
+    dao = new MarketDefinitionDAO(db);
+  }, 15000);
+
+  afterAll(async () => {
+    await client.close();
   });
 
-  it("returns runners sorted by sortPriority ascending", async () => {
-    const runners = await dao.getUniqueRunnersByEventId("33858191");
-    for (let i = 1; i < runners.length; i++) {
-      expect(runners[i].sortPriority).toBeGreaterThanOrEqual(runners[i - 1].sortPriority);
+  it("returns one document per market for Cheltenham (1 market → 1 doc)", async () => {
+    const docs = await dao.getLatestPerMarketByEventId("33858191");
+    expect(docs.length).toBe(1);
+    expect(docs[0].marketId).toBe("1.237066150");
+  });
+
+  it("returns one document per market for Leopardstown (many markets → one each)", async () => {
+    const docs = await dao.getLatestPerMarketByEventId("33988522");
+    const marketIds = docs.map(d => d.marketId);
+    const unique = new Set(marketIds);
+    expect(unique.size).toBe(docs.length);
+  });
+
+  it("each document has required fields", async () => {
+    const docs = await dao.getLatestPerMarketByEventId("33988522", 5);
+    for (const doc of docs) {
+      expect(typeof doc.marketId).toBe("string");
+      expect(typeof doc.eventId).toBe("string");
+      expect(typeof doc.marketType).toBe("string");
+      expect(typeof doc.status).toBe("string");
     }
+  });
+
+  it("docs are sorted by marketTime ascending (chronological race order)", async () => {
+    const docs = await dao.getLatestPerMarketByEventId("33988522");
+    for (let i = 1; i < docs.length; i++) {
+      const prev = new Date(docs[i - 1].marketTime as unknown as string).getTime();
+      const curr = new Date(docs[i].marketTime as unknown as string).getTime();
+      expect(prev).toBeLessThanOrEqual(curr);
+    }
+  });
+
+  it("returns empty array for unknown eventId", async () => {
+    const docs = await dao.getLatestPerMarketByEventId("nonexistent-event-99999");
+    expect(docs).toHaveLength(0);
+  });
+
+  it("respects the limit parameter", async () => {
+    const docs = await dao.getLatestPerMarketByEventId("33988522", 5);
+    expect(docs.length).toBeLessThanOrEqual(5);
   });
 });

@@ -1,5 +1,6 @@
 import { MongoClient, Db } from "mongodb";
 import { PriceUpdateDAO } from "../price-update-dao";
+import { MarketDefinitionDAO } from "../market-definition-dao";
 
 const MONGO_URI = "mongodb://localhost:27019";
 const DB_NAME = "betfair_nlp_dev";
@@ -60,6 +61,94 @@ describe("PriceUpdateDAO.getByEventId (integration)", () => {
     const docs = await dao.getByEventId("33858191", 20);
     for (const doc of docs) {
       expect(doc.eventId).toBe("33858191");
+    }
+  });
+});
+
+describe("PriceUpdateDAO.getByEventIdAndRunnerId (integration)", () => {
+  let client: MongoClient;
+  let db: Db;
+  let dao: PriceUpdateDAO;
+  let knownRunnerId: number;
+
+  beforeAll(async () => {
+    client = new MongoClient(MONGO_URI);
+    await client.connect();
+    db = client.db(DB_NAME);
+    dao = new PriceUpdateDAO(db);
+
+    const marketDao = new MarketDefinitionDAO(db);
+    const runners = await marketDao.getUniqueRunnersByEventId("33858191");
+    if (runners.length === 0) throw new Error("No runners found for test event");
+    knownRunnerId = runners[0].id;
+  }, 15000);
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  it("returns results for a known eventId and runnerId", async () => {
+    const docs = await dao.getByEventIdAndRunnerId("33858191", knownRunnerId);
+    expect(docs.length).toBeGreaterThan(0);
+  });
+
+  it("each document has required fields", async () => {
+    const docs = await dao.getByEventIdAndRunnerId("33858191", knownRunnerId, 10);
+    for (const doc of docs) {
+      expect(typeof doc.eventId).toBe("string");
+      expect(typeof doc.runnerId).toBe("number");
+      expect(typeof doc.runnerName).toBe("string");
+      expect(typeof doc.lastTradedPrice).toBe("number");
+      expect(typeof doc.marketId).toBe("string");
+    }
+  });
+
+  it("all documents belong to the requested runner", async () => {
+    const docs = await dao.getByEventIdAndRunnerId("33858191", knownRunnerId, 20);
+    for (const doc of docs) {
+      expect(doc.runnerId).toBe(knownRunnerId);
+      expect(doc.eventId).toBe("33858191");
+    }
+  });
+
+  it("respects the limit parameter", async () => {
+    const docs = await dao.getByEventIdAndRunnerId("33858191", knownRunnerId, 3);
+    expect(docs.length).toBeLessThanOrEqual(3);
+  });
+
+  it("returns empty array for unknown eventId", async () => {
+    const docs = await dao.getByEventIdAndRunnerId("nonexistent-event-99999", knownRunnerId);
+    expect(docs).toHaveLength(0);
+  });
+
+  it("returns empty array for unknown runnerId", async () => {
+    const docs = await dao.getByEventIdAndRunnerId("33858191", 999999999);
+    expect(docs).toHaveLength(0);
+  });
+
+  it("default sort is descending (newest first)", async () => {
+    const docs = await dao.getByEventIdAndRunnerId("33858191", knownRunnerId, 10);
+    for (let i = 1; i < docs.length; i++) {
+      const prev = new Date(docs[i - 1].timestamp).getTime();
+      const curr = new Date(docs[i].timestamp).getTime();
+      expect(prev).toBeGreaterThanOrEqual(curr);
+    }
+  });
+
+  it("sort=asc returns oldest records first", async () => {
+    const docs = await dao.getByEventIdAndRunnerId("33858191", knownRunnerId, 10, "asc");
+    for (let i = 1; i < docs.length; i++) {
+      const prev = new Date(docs[i - 1].timestamp).getTime();
+      const curr = new Date(docs[i].timestamp).getTime();
+      expect(prev).toBeLessThanOrEqual(curr);
+    }
+  });
+
+  it("sort=asc and sort=desc return the same records in opposite order", async () => {
+    const desc = await dao.getByEventIdAndRunnerId("33858191", knownRunnerId, 10, "desc");
+    const asc = await dao.getByEventIdAndRunnerId("33858191", knownRunnerId, 10, "asc");
+    if (desc.length > 1) {
+      expect(desc[0].changeId).toBe(asc[asc.length - 1].changeId);
     }
   });
 });

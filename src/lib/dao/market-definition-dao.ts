@@ -12,6 +12,19 @@ export interface EventGroup {
   count: number;
 }
 
+export interface SummaryStats {
+  totalRaces: number;
+  totalRunners: number;
+}
+
+export interface RaceWithRunners {
+  marketId: string;
+  marketTime: string;
+  marketType: string;
+  marketName: string;
+  runners: Array<{ id: number; name: string; status: string; sortPriority: number }>;
+}
+
 export class MarketDefinitionDAO {
   private collection: Collection<MarketDefinitionDocument>;
 
@@ -104,7 +117,8 @@ export class MarketDefinitionDAO {
   }
 
   /**
-   * Group market definitions by eventId, returning unique markets and doc count per event
+   * Group market definitions by eventId.
+   * count = number of unique markets (not raw snapshot docs).
    */
   public async groupByEventId(): Promise<EventGroup[]> {
     return await this.collection
@@ -114,7 +128,6 @@ export class MarketDefinitionDAO {
             _id: "$eventId",
             eventName: { $first: "$eventName" },
             marketIds: { $addToSet: "$marketId" },
-            count: { $sum: 1 },
           },
         },
         {
@@ -123,7 +136,7 @@ export class MarketDefinitionDAO {
             eventId: "$_id",
             eventName: 1,
             marketIds: 1,
-            count: 1,
+            count: { $size: "$marketIds" },
           },
         },
         { $sort: { count: -1 } },
@@ -132,38 +145,108 @@ export class MarketDefinitionDAO {
   }
 
   /**
-   * Get unique runners for an event by aggregating across all market definitions,
-   * using the most recent definition per market to avoid duplicates over time.
+   * Return the latest market definition snapshot per marketId for an event,
+   * sorted by race time. One row per market — no historical noise.
    */
-  public async getUniqueRunnersByEventId(
-    eventId: string
-  ): Promise<Array<{ id: number; name: string; status: string; sortPriority: number }>> {
+  public async getLatestPerMarketByEventId(
+    eventId: string,
+    limit: number = 200
+  ): Promise<MarketDefinitionDocument[]> {
     return await this.collection
-      .aggregate<{ id: number; name: string; status: string; sortPriority: number }>([
+      .aggregate<MarketDefinitionDocument>([
         { $match: { eventId } },
         { $sort: { timestamp: -1 } },
-        { $group: { _id: "$marketId", runners: { $first: "$runners" } } },
-        { $unwind: "$runners" },
+        { $group: { _id: "$marketId", doc: { $first: "$$ROOT" } } },
+        { $replaceRoot: { newRoot: "$doc" } },
+        { $sort: { marketTime: 1 } },
+        { $limit: limit },
+      ])
+      .toArray();
+  }
+
+  /**
+   * Return runners grouped by WIN/ANTEPOST_WIN market, sorted by race time.
+   * REMOVED runners are excluded. One entry per race.
+   */
+  public async getRunnersByRaceForEvent(eventId: string): Promise<RaceWithRunners[]> {
+    return await this.collection
+      .aggregate<RaceWithRunners>([
+        { $match: { eventId, marketType: { $in: ["WIN", "ANTEPOST_WIN"] } } },
+        { $sort: { timestamp: -1 } },
         {
           $group: {
-            _id: "$runners.id",
-            name: { $first: "$runners.name" },
-            status: { $first: "$runners.status" },
-            sortPriority: { $first: "$runners.sortPriority" },
+            _id: "$marketId",
+            marketTime: { $first: "$marketTime" },
+            marketType: { $first: "$marketType" },
+            marketName: { $first: "$name" },
+            runners: { $first: "$runners" },
+          },
+        },
+        { $unwind: "$runners" },
+        { $match: { "runners.status": { $ne: "REMOVED" } } },
+        { $sort: { marketTime: 1, "runners.sortPriority": 1 } },
+        {
+          $group: {
+            _id: "$_id",
+            marketTime: { $first: "$marketTime" },
+            marketType: { $first: "$marketType" },
+            marketName: { $first: "$marketName" },
+            runners: {
+              $push: {
+                id: "$runners.id",
+                name: "$runners.name",
+                status: "$runners.status",
+                sortPriority: "$runners.sortPriority",
+              },
+            },
+          },
+        },
+        { $sort: { marketTime: 1 } },
+        {
+          $project: {
+            _id: 0,
+            marketId: "$_id",
+            marketTime: 1,
+            marketType: 1,
+            marketName: 1,
+            runners: 1,
+          },
+        },
+      ])
+      .toArray();
+  }
+
+  /**
+   * Count total unique races (WIN/ANTEPOST_WIN markets) and unique active runners
+   * across all events in a single aggregation pass.
+   */
+  public async getSummaryStats(): Promise<SummaryStats> {
+    const result = await this.collection
+      .aggregate<{ totalRaces: number; totalRunners: number }>([
+        { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] } } },
+        { $sort: { timestamp: -1 } },
+        { $group: { _id: "$marketId", runners: { $first: "$runners" } } },
+        {
+          $facet: {
+            races: [{ $count: "count" }],
+            runners: [
+              { $unwind: "$runners" },
+              { $match: { "runners.status": { $ne: "REMOVED" } } },
+              { $group: { _id: "$runners.id" } },
+              { $count: "count" },
+            ],
           },
         },
         {
           $project: {
-            _id: 0,
-            id: "$_id",
-            name: 1,
-            status: 1,
-            sortPriority: 1,
+            totalRaces: { $ifNull: [{ $arrayElemAt: ["$races.count", 0] }, 0] },
+            totalRunners: { $ifNull: [{ $arrayElemAt: ["$runners.count", 0] }, 0] },
           },
         },
-        { $sort: { sortPriority: 1 } },
       ])
       .toArray();
+
+    return result[0] ?? { totalRaces: 0, totalRunners: 0 };
   }
 
   /**

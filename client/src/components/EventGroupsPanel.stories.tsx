@@ -35,6 +35,8 @@ const meta: Meta<typeof EventGroupsPanel> = {
     onViewDocs: fn(),
     onViewRunners: fn(),
     onViewPriceUpdates: fn(),
+    totalRaces: 8,
+    totalRunners: 110,
   },
 };
 
@@ -163,6 +165,66 @@ export const PriceUpdatesBadgeClick: Story = {
 
     await userEvent.click(badge);
     await expect(args.onViewPriceUpdates).toHaveBeenCalledWith("33858191", "Cheltenham 1st Jan");
+  },
+};
+
+export const WithStats: Story = {
+  name: "With stats bar",
+  args: {
+    groups: MOCK_GROUPS,
+    isLoading: false,
+    error: null,
+    totalRaces: 8,
+    totalRunners: 110,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    const bar = canvas.getByTestId("events-stats-bar");
+    await expect(bar).toBeInTheDocument();
+    await expect(canvas.getByTestId("events-total-runners")).toHaveTextContent("110 runners");
+    await expect(canvas.getByTestId("events-total-races")).toHaveTextContent("8 races");
+  },
+};
+
+export const StatsBarAboveHeader: Story = {
+  name: "Stats bar renders above Events header",
+  args: {
+    groups: MOCK_GROUPS,
+    isLoading: false,
+    error: null,
+    totalRaces: 8,
+    totalRunners: 110,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    const statsBar = canvas.getByTestId("events-stats-bar");
+    const header = canvas.getByText("Events");
+
+    // Stats bar and header are both present
+    await expect(statsBar).toBeInTheDocument();
+    await expect(header).toBeInTheDocument();
+
+    // Stats bar appears before header in DOM order
+    expect(
+      statsBar.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  },
+};
+
+export const NoStats: Story = {
+  name: "Without stats (stats bar hidden)",
+  args: {
+    groups: MOCK_GROUPS,
+    isLoading: false,
+    error: null,
+    totalRaces: undefined,
+    totalRunners: undefined,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByTestId("events-stats-bar")).not.toBeInTheDocument();
   },
 };
 

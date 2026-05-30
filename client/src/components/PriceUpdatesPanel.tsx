@@ -16,6 +16,8 @@ interface PriceUpdatesPanelProps {
   isLoading: boolean;
   error: string | null;
   onClose: () => void;
+  sort?: "asc" | "desc";
+  onSortChange?: (sort: "asc" | "desc") => void;
 }
 
 export const PriceUpdatesPanel: React.FC<PriceUpdatesPanelProps> = ({
@@ -25,6 +27,8 @@ export const PriceUpdatesPanel: React.FC<PriceUpdatesPanelProps> = ({
   isLoading,
   error,
   onClose,
+  sort = "desc",
+  onSortChange,
 }) => {
   return (
     <View testID="price-updates-panel" style={styles.panel}>
@@ -45,6 +49,29 @@ export const PriceUpdatesPanel: React.FC<PriceUpdatesPanelProps> = ({
           <Text style={styles.closeText}>✕</Text>
         </TouchableOpacity>
       </View>
+
+      {onSortChange && (
+        <View style={styles.sortRow}>
+          <TouchableOpacity
+            testID="price-updates-sort-desc"
+            style={[styles.sortButton, sort === "desc" && styles.sortButtonActive]}
+            onPress={() => onSortChange("desc")}
+          >
+            <Text style={[styles.sortButtonText, sort === "desc" && styles.sortButtonTextActive]}>
+              Newest
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="price-updates-sort-asc"
+            style={[styles.sortButton, sort === "asc" && styles.sortButtonActive]}
+            onPress={() => onSortChange("asc")}
+          >
+            <Text style={[styles.sortButtonText, sort === "asc" && styles.sortButtonTextActive]}>
+              Oldest
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {isLoading && (
         <View testID="price-updates-loading" style={styles.centered}>
@@ -181,5 +208,34 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#888",
     marginBottom: 1,
+  },
+  sortRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
+    backgroundColor: "#fafafa",
+  },
+  sortButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    backgroundColor: "#fff",
+  },
+  sortButtonActive: {
+    backgroundColor: "#007AFF",
+    borderColor: "#007AFF",
+  },
+  sortButtonText: {
+    fontSize: 12,
+    color: "#555",
+    fontWeight: "500",
+  },
+  sortButtonTextActive: {
+    color: "#fff",
   },
 });

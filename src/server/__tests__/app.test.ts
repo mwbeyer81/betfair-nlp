@@ -46,15 +46,26 @@ jest.mock("../../config/database", () => ({
           aggregate: jest.fn().mockReturnValue({
             toArray: jest.fn().mockResolvedValue([
               {
-                // EventGroup shape (for /api/events/grouped)
+                // Shared mock — fields satisfy all aggregate-based endpoints:
+                // /api/stats (SummaryStats shape)
+                totalRaces: 8,
+                totalRunners: 110,
+                // /api/events/grouped (EventGroup shape)
                 eventId: "33858191",
                 eventName: "Cheltenham 1st Jan",
                 marketIds: ["1.237066150"],
-                count: 25,
-                // Runner shape (for /api/events/:eventId/runners)
+                count: 1,
+                // /api/events/:eventId/definitions (MarketDefinitionDocument shape)
+                // /api/events/:eventId/runners (Race shape)
+                marketId: "1.237066150",
+                marketTime: "2025-01-01T14:01:00.000Z",
+                marketType: "ANTEPOST_WIN",
+                marketName: "Cheltenham Chase",
+                status: "CLOSED",
+                runners: [{ id: 12345, name: "Springwell Bay", status: "ACTIVE", sortPriority: 1 }],
+                // Runner shape fields (for aggregate-based runner queries)
                 id: 12345,
                 name: "Springwell Bay",
-                status: "ACTIVE",
                 sortPriority: 1,
               },
             ]),
@@ -280,12 +291,12 @@ describe("API Endpoints", () => {
       expect(cheltenham).toBeDefined();
       expect(cheltenham.eventName).toBe("Cheltenham 1st Jan");
       expect(cheltenham.marketIds).toContain("1.237066150");
-      expect(cheltenham.count).toBe(25);
+      expect(cheltenham.count).toBe(cheltenham.marketIds.length);
     });
   });
 
   describe("GET /api/events/:eventId/runners", () => {
-    it("should return runners for a known eventId", async () => {
+    it("should return races for a known eventId", async () => {
       const response = await request(app)
         .get("/api/events/33858191/runners")
         .auth("matthew", "beyer")
@@ -296,13 +307,18 @@ describe("API Endpoints", () => {
       expect(typeof response.body.count).toBe("number");
     });
 
-    it("each runner document has required fields", async () => {
+    it("each race has marketId, marketTime, marketType, runners array", async () => {
       const response = await request(app)
         .get("/api/events/33858191/runners")
         .auth("matthew", "beyer")
         .expect(200);
 
-      const runner = response.body.data[0];
+      const race = response.body.data[0];
+      expect(race).toHaveProperty("marketId");
+      expect(race).toHaveProperty("marketTime");
+      expect(race).toHaveProperty("marketType");
+      expect(Array.isArray(race.runners)).toBe(true);
+      const runner = race.runners[0];
       expect(runner).toHaveProperty("id");
       expect(runner).toHaveProperty("name");
       expect(runner).toHaveProperty("status");
@@ -313,7 +329,7 @@ describe("API Endpoints", () => {
       await request(app).get("/api/events/33858191/runners").expect(401);
     });
 
-    it("returns count matching data length", async () => {
+    it("count equals number of races", async () => {
       const response = await request(app)
         .get("/api/events/33858191/runners")
         .auth("matthew", "beyer")
@@ -353,6 +369,75 @@ describe("API Endpoints", () => {
     it("returns count matching data length", async () => {
       const response = await request(app)
         .get("/api/events/33858191/price-updates")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+  });
+
+  describe("GET /api/stats", () => {
+    it("returns success with totalRaces and totalRunners", async () => {
+      const response = await request(app)
+        .get("/api/stats")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data).toHaveProperty("totalRaces");
+      expect(response.body.data).toHaveProperty("totalRunners");
+      expect(typeof response.body.data.totalRaces).toBe("number");
+      expect(typeof response.body.data.totalRunners).toBe("number");
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/stats").expect(401);
+    });
+  });
+
+  describe("GET /api/events/:eventId/runners/:runnerId/price-updates", () => {
+    it("should return price updates for a known eventId and runnerId", async () => {
+      const response = await request(app)
+        .get("/api/events/33858191/runners/12345/price-updates")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(typeof response.body.count).toBe("number");
+    });
+
+    it("each document has required fields", async () => {
+      const response = await request(app)
+        .get("/api/events/33858191/runners/12345/price-updates")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      const doc = response.body.data[0];
+      expect(doc).toHaveProperty("runnerId");
+      expect(doc).toHaveProperty("runnerName");
+      expect(doc).toHaveProperty("lastTradedPrice");
+      expect(doc).toHaveProperty("eventId");
+    });
+
+    it("returns 400 for non-numeric runnerId", async () => {
+      const response = await request(app)
+        .get("/api/events/33858191/runners/not-a-number/price-updates")
+        .auth("matthew", "beyer")
+        .expect(400);
+
+      expect(response.body).toHaveProperty("success", false);
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app)
+        .get("/api/events/33858191/runners/12345/price-updates")
+        .expect(401);
+    });
+
+    it("returns count matching data length", async () => {
+      const response = await request(app)
+        .get("/api/events/33858191/runners/12345/price-updates")
         .auth("matthew", "beyer")
         .expect(200);
 

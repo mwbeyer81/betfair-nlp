@@ -9,7 +9,7 @@ import {
   MarketAnalysis,
   EventSummary,
 } from "../../types/betfair";
-import { MarketDefinitionDAO, EventGroup } from "../dao/market-definition-dao";
+import { MarketDefinitionDAO, EventGroup, RaceWithRunners, SummaryStats } from "../dao/market-definition-dao";
 import { PriceUpdateDAO } from "../dao/price-update-dao";
 import { DatabaseConnection } from "../../config/database";
 
@@ -52,15 +52,17 @@ export class BetfairService {
 
   public async getEventDefinitions(
     eventId: string,
-    limit: number = 100
+    limit: number = 200
   ): Promise<MarketDefinitionDocument[]> {
-    return this.marketDefinitionDAO.getByEventId(eventId, limit);
+    return this.marketDefinitionDAO.getLatestPerMarketByEventId(eventId, limit);
   }
 
-  public async getUniqueRunnersByEvent(
-    eventId: string
-  ): Promise<Array<{ id: number; name: string; status: string; sortPriority: number }>> {
-    return this.marketDefinitionDAO.getUniqueRunnersByEventId(eventId);
+  public async getRunnersByRace(eventId: string): Promise<RaceWithRunners[]> {
+    return this.marketDefinitionDAO.getRunnersByRaceForEvent(eventId);
+  }
+
+  public async getSummaryStats(): Promise<SummaryStats> {
+    return this.marketDefinitionDAO.getSummaryStats();
   }
 
   public async getPriceUpdatesByEvent(
@@ -68,6 +70,15 @@ export class BetfairService {
     limit: number = 100
   ): Promise<PriceUpdateDocument[]> {
     return this.priceUpdateDAO.getByEventId(eventId, limit);
+  }
+
+  public async getPriceUpdatesByEventAndRunner(
+    eventId: string,
+    runnerId: number,
+    limit: number = 100,
+    sort: "asc" | "desc" = "desc"
+  ): Promise<PriceUpdateDocument[]> {
+    return this.priceUpdateDAO.getByEventIdAndRunnerId(eventId, runnerId, limit, sort);
   }
 
   /**

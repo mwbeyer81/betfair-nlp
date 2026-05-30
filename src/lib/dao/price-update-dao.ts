@@ -93,6 +93,22 @@ export class PriceUpdateDAO {
   }
 
   /**
+   * Get price updates for a specific runner within an event
+   */
+  public async getByEventIdAndRunnerId(
+    eventId: string,
+    runnerId: number,
+    limit: number = 100,
+    sort: "asc" | "desc" = "desc"
+  ): Promise<PriceUpdateDocument[]> {
+    return await this.collection
+      .find({ eventId, runnerId })
+      .sort({ timestamp: sort === "asc" ? 1 : -1 })
+      .limit(limit)
+      .toArray();
+  }
+
+  /**
    * Get price updates within a time range
    */
   public async getByTimeRange(

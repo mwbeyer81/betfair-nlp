@@ -17,6 +17,8 @@ interface EventGroupsPanelProps {
   onViewDocs: (eventId: string, eventName: string) => void;
   onViewRunners: (eventId: string, eventName: string) => void;
   onViewPriceUpdates: (eventId: string, eventName: string) => void;
+  totalRaces?: number;
+  totalRunners?: number;
 }
 
 export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
@@ -27,9 +29,22 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
   onViewDocs,
   onViewRunners,
   onViewPriceUpdates,
+  totalRaces,
+  totalRunners,
 }) => {
   return (
     <View testID="events-panel" style={styles.panel}>
+      {(totalRaces !== undefined || totalRunners !== undefined) && (
+        <View testID="events-stats-bar" style={styles.statsBar}>
+          <Text testID="events-total-runners" style={styles.statText}>
+            {totalRunners ?? "—"} runners
+          </Text>
+          <Text style={styles.statDot}>·</Text>
+          <Text testID="events-total-races" style={styles.statText}>
+            {totalRaces ?? "—"} races
+          </Text>
+        </View>
+      )}
       <View style={styles.header}>
         <Text style={styles.title}>Events</Text>
         <TouchableOpacity
@@ -83,14 +98,14 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
                   style={[styles.badge, styles.runnersBadge]}
                   onPress={() => onViewRunners(group.eventId, group.eventName)}
                 >
-                  <Text style={styles.badgeText}>runners</Text>
+                  <Text style={styles.badgeText}>Runners</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   testID={`event-price-updates-badge-${group.eventId}`}
                   style={[styles.badge, styles.priceUpdatesBadge]}
                   onPress={() => onViewPriceUpdates(group.eventId, group.eventName)}
                 >
-                  <Text style={styles.badgeText}>price updates</Text>
+                  <Text style={styles.badgeText}>Price updates</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -190,5 +205,24 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 11,
     fontWeight: "600",
+  },
+  statsBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 5,
+    backgroundColor: "#f0f4ff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#dde3f0",
+  },
+  statText: {
+    fontSize: 12,
+    color: "#4a5568",
+    fontWeight: "600",
+  },
+  statDot: {
+    fontSize: 12,
+    color: "#a0aec0",
   },
 });

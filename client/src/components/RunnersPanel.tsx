@@ -7,15 +7,16 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
-import { Runner } from "../services/chatApi";
+import { Race, Runner } from "../services/chatApi";
 
 interface RunnersPanelProps {
   eventId: string;
   eventName: string;
-  runners: Runner[];
+  races: Race[];
   isLoading: boolean;
   error: string | null;
   onClose: () => void;
+  onRunnerSelect?: (runnerId: number, runnerName: string) => void;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -23,16 +24,36 @@ const STATUS_COLOR: Record<string, string> = {
   WINNER: "#ffc107",
   LOSER: "#dc3545",
   HIDDEN: "#6c757d",
+  PLACED: "#17a2b8",
 };
+
+function formatRaceTime(isoTime: string): string {
+  try {
+    return new Date(isoTime).toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Europe/London",
+    });
+  } catch {
+    return isoTime;
+  }
+}
 
 export const RunnersPanel: React.FC<RunnersPanelProps> = ({
   eventId,
   eventName,
-  runners,
+  races,
   isLoading,
   error,
   onClose,
+  onRunnerSelect,
 }) => {
+  const totalRunners = races.reduce((sum, r) => sum + r.runners.length, 0);
+  const subtitle =
+    races.length === 1
+      ? `Runners · ${totalRunners} runners`
+      : `${races.length} races · ${totalRunners} runners`;
+
   return (
     <View testID="runners-panel" style={styles.panel}>
       <View style={styles.header}>
@@ -40,9 +61,7 @@ export const RunnersPanel: React.FC<RunnersPanelProps> = ({
           <Text style={styles.title} numberOfLines={1}>
             {eventName}
           </Text>
-          <Text style={styles.subtitle}>
-            Runners · {runners.length} unique
-          </Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
         <TouchableOpacity
           testID="runners-panel-close"
@@ -68,30 +87,44 @@ export const RunnersPanel: React.FC<RunnersPanelProps> = ({
 
       {!isLoading && !error && (
         <ScrollView testID="runners-list" style={styles.list}>
-          {runners.length === 0 && (
+          {races.length === 0 && (
             <Text style={styles.emptyText}>No runners found.</Text>
           )}
-          {runners.map((runner) => (
-            <View
-              key={runner.id}
-              testID={`runner-item-${runner.id}`}
-              style={styles.item}
-            >
-              <View style={styles.itemRow}>
-                <Text style={styles.priority}>{runner.sortPriority}.</Text>
-                <Text style={styles.runnerName} numberOfLines={1}>
-                  {runner.name}
-                </Text>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    { backgroundColor: STATUS_COLOR[runner.status] ?? "#6c757d" },
-                  ]}
-                >
-                  <Text style={styles.statusText}>{runner.status}</Text>
+          {races.map((race) => (
+            <View key={race.marketId} testID={`race-section-${race.marketId}`}>
+              {races.length > 1 && (
+                <View style={styles.raceHeader}>
+                  <Text style={styles.raceTime}>{formatRaceTime(race.marketTime)}</Text>
+                  <Text style={styles.raceType}>{race.marketType}</Text>
+                  <Text style={styles.raceCount}>{race.runners.length} runners</Text>
                 </View>
-              </View>
-              <Text style={styles.meta}>ID: {runner.id}</Text>
+              )}
+              {race.runners.map((runner: Runner) => (
+                <TouchableOpacity
+                  key={runner.id}
+                  testID={`runner-item-${runner.id}`}
+                  style={styles.item}
+                  onPress={() => onRunnerSelect?.(runner.id, runner.name)}
+                  activeOpacity={onRunnerSelect ? 0.7 : 1}
+                >
+                  <View style={styles.itemRow}>
+                    <Text style={styles.priority}>{runner.sortPriority}.</Text>
+                    <Text style={styles.runnerName} numberOfLines={1}>
+                      {runner.name}
+                    </Text>
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        { backgroundColor: STATUS_COLOR[runner.status] ?? "#6c757d" },
+                      ]}
+                    >
+                      <Text style={styles.statusText}>{runner.status}</Text>
+                    </View>
+                    {onRunnerSelect && <Text style={styles.chevron}>›</Text>}
+                  </View>
+                  <Text style={styles.meta}>ID: {runner.id}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
           ))}
         </ScrollView>
@@ -105,7 +138,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopWidth: 1,
     borderTopColor: "#e0e0e0",
-    maxHeight: 350,
+    maxHeight: 400,
   },
   header: {
     flexDirection: "row",
@@ -159,6 +192,34 @@ const styles = StyleSheet.create({
     color: "#999",
     fontSize: 14,
   },
+  raceHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: "#f8f9fa",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
+    gap: 8,
+  },
+  raceTime: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#333",
+  },
+  raceType: {
+    fontSize: 11,
+    color: "#666",
+    backgroundColor: "#e9ecef",
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  raceCount: {
+    fontSize: 11,
+    color: "#999",
+    marginLeft: "auto",
+  },
   item: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -196,5 +257,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#aaa",
     marginLeft: 22,
+  },
+  chevron: {
+    fontSize: 18,
+    color: "#aaa",
+    marginLeft: 6,
   },
 });

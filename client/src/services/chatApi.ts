@@ -27,6 +27,19 @@ export interface Runner {
   sortPriority: number;
 }
 
+export interface Stats {
+  totalRaces: number;
+  totalRunners: number;
+}
+
+export interface Race {
+  marketId: string;
+  marketTime: string;
+  marketType: string;
+  marketName: string;
+  runners: Runner[];
+}
+
 export interface MarketDefinitionDoc {
   _id: string;
   changeId: string;
@@ -78,7 +91,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getEventRunners(eventId: string): Promise<Runner[]> {
+  async getEventRunners(eventId: string): Promise<Race[]> {
     const response = await fetch(
       `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/runners`,
       { headers: { Authorization: `Basic ${this.credentials}` } }
@@ -94,6 +107,29 @@ class ChatApi {
       { headers: { Authorization: `Basic ${this.credentials}` } }
     );
     if (!response.ok) throw new Error("Failed to fetch price updates");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getRunnerPriceUpdates(
+    eventId: string,
+    runnerId: number,
+    sort: "asc" | "desc" = "desc"
+  ): Promise<PriceUpdate[]> {
+    const response = await fetch(
+      `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/runners/${runnerId}/price-updates?sort=${sort}`,
+      { headers: { Authorization: `Basic ${this.credentials}` } }
+    );
+    if (!response.ok) throw new Error("Failed to fetch runner price updates");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getStats(): Promise<Stats> {
+    const response = await fetch(`${this.baseUrl}/api/stats`, {
+      headers: { Authorization: `Basic ${this.credentials}` },
+    });
+    if (!response.ok) throw new Error("Failed to fetch stats");
     const result = await response.json();
     return result.data;
   }

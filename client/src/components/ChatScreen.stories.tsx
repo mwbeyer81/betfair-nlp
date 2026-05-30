@@ -1,6 +1,6 @@
 import React from "react";
 import type { Meta, StoryObj } from "@storybook/react";
-import { within, userEvent, expect } from "@storybook/test";
+import { within, userEvent, expect, fn } from "@storybook/test";
 import { http, HttpResponse } from "msw";
 import { ChatScreen } from "./ChatScreen";
 
@@ -81,6 +81,10 @@ const meta: Meta<typeof ChatScreen> = {
       </div>
     ),
   ],
+  args: {
+    onNavigateToEvents: fn(),
+    onLogout: fn(),
+  },
 };
 
 export default meta;
