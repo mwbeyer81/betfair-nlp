@@ -5,7 +5,8 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 /**
  * Playwright config for MSW-powered tests.
- * Builds the Expo web export once then serves it statically — no dev server required.
+ * Serves the pre-built Expo web export statically — no dev server required.
+ * Build once with: yarn build:web
  *
  * Run: npx playwright test --config playwright.msw.config.ts
  */
@@ -27,9 +28,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `npx expo export --platform web --dev --output-dir dist && npx serve -s dist -p ${PORT}`,
+    command: `npx serve -s dist -p ${PORT}`,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 30_000,
   },
 });
