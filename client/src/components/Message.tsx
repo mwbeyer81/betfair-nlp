@@ -37,7 +37,7 @@ export const Message: React.FC<MessageProps> = ({
         ) : (
           <Markdown
             style={{
-              body: [styles.messageText, styles.botText],
+              body: StyleSheet.flatten([styles.messageText, styles.botText]),
             }}
           >
             {text}

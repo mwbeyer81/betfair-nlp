@@ -108,6 +108,16 @@ Add a `describe` block for the new DAO method:
 
 ---
 
+## Build check after every change
+
+After making any code changes to the frontend (`client/src/`), always run `yarn build` from the `client/` directory and fix all TypeScript errors before offering to commit. A passing build is a hard requirement — never leave the repo in a state where `yarn build` fails.
+
+```bash
+cd client && yarn build
+```
+
+---
+
 ## Committing changes after every prompt
 
 After completing code changes in response to a user prompt, **always end your response by offering to commit**. Show the user a one-line summary of what changed and ask:

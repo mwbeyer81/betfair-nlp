@@ -12,6 +12,7 @@ import { chatApi, RaceWithEvent, Runner } from "../services/chatApi";
 
 interface AllRunnersScreenProps {
   onNavigateToEvents: () => void;
+  onNavigateToRunner: (eventId: string, runnerId: number, runnerName: string) => void;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -21,6 +22,32 @@ const STATUS_COLOR: Record<string, string> = {
   HIDDEN: "#6c757d",
   PLACED: "#17a2b8",
 };
+
+function stakeToWin1(bsp: number): number {
+  return 1 / (bsp - 1);
+}
+
+function calcPnl(races: RaceWithEvent[]): { staked: number; returns: number; pnl: number } {
+  const bspRunners = races.flatMap(r => r.runners).filter(r => r.bsp != null);
+  const staked = bspRunners.reduce((sum, r) => sum + stakeToWin1(r.bsp as number), 0);
+  const returns = bspRunners
+    .filter(r => r.status === "WINNER")
+    .reduce((sum, r) => sum + stakeToWin1(r.bsp as number) + 1, 0);
+  return { staked, returns, pnl: returns - staked };
+}
+
+function formatGbp(val: number): string {
+  return `£${Math.abs(val).toFixed(2)}`;
+}
+
+function formatPnl(val: number): string {
+  return val >= 0 ? `+${formatGbp(val)}` : `-${formatGbp(val)}`;
+}
+
+function runnerPnl(runner: Runner): number | null {
+  if (runner.bsp == null) return null;
+  return runner.status === "WINNER" ? 1 : -stakeToWin1(runner.bsp);
+}
 
 function formatRaceTime(isoTime: string): string {
   try {
@@ -36,10 +63,12 @@ function formatRaceTime(isoTime: string): string {
 
 export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   onNavigateToEvents,
+  onNavigateToRunner,
 }) => {
   const [races, setRaces] = useState<RaceWithEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showNoBsp, setShowNoBsp] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -55,9 +84,17 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     })();
   }, []);
 
-  const totalRunners = races.reduce((sum, r) => sum + r.runners.length, 0);
+  const { staked, returns, pnl } = calcPnl(races);
 
-  const byEvent = races.reduce<Record<string, { eventName: string; races: RaceWithEvent[] }>>(
+  const visibleRaces = showNoBsp
+    ? races
+    : races
+        .map(race => ({ ...race, runners: race.runners.filter(r => r.bsp != null) }))
+        .filter(race => race.runners.length > 0);
+
+  const totalRunners = visibleRaces.reduce((sum, r) => sum + r.runners.length, 0);
+
+  const byEvent = visibleRaces.reduce<Record<string, { eventName: string; races: RaceWithEvent[] }>>(
     (acc, race) => {
       if (!acc[race.eventId]) {
         acc[race.eventId] = { eventName: race.eventName, races: [] };
@@ -75,10 +112,19 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           <Text style={styles.title}>All Runners</Text>
           {!isLoading && (
             <Text style={styles.subtitle}>
-              {totalRunners} runners · {races.length} races
+              {totalRunners} runners · {visibleRaces.length} races
             </Text>
           )}
         </View>
+        <TouchableOpacity
+          testID="all-runners-bsp-toggle"
+          style={[styles.toggleButton, showNoBsp && styles.toggleButtonActive]}
+          onPress={() => setShowNoBsp(v => !v)}
+        >
+          <Text style={styles.toggleButtonText}>
+            {showNoBsp ? "BSP only" : "Show all"}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity
           testID="all-runners-screen-events-button"
           style={styles.eventsButton}
@@ -87,6 +133,23 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           <Text style={styles.eventsButtonText}>← Events</Text>
         </TouchableOpacity>
       </View>
+
+      {!isLoading && staked > 0 && (
+        <View testID="all-runners-pnl-bar" style={styles.pnlBar}>
+          <Text style={styles.pnlLabel}>Stake to win £1 per runner</Text>
+          <View style={styles.pnlStats}>
+            <Text style={styles.pnlStat}>
+              <Text style={styles.pnlStatLabel}>Staked </Text>{formatGbp(staked)}
+            </Text>
+            <Text style={styles.pnlStat}>
+              <Text style={styles.pnlStatLabel}>Return </Text>{formatGbp(returns)}
+            </Text>
+            <Text testID="all-runners-pnl" style={[styles.pnlValue, pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+              {formatPnl(pnl)}
+            </Text>
+          </View>
+        </View>
+      )}
 
       <View style={styles.body}>
         {isLoading && (
@@ -104,7 +167,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
 
         {!isLoading && !error && (
           <ScrollView testID="all-runners-list" style={styles.list}>
-            {races.length === 0 && (
+            {visibleRaces.length === 0 && (
               <Text style={styles.emptyText}>No runners found.</Text>
             )}
             {Object.entries(byEvent).map(([eventId, { eventName, races: eventRaces }]) => (
@@ -123,10 +186,12 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
                       <Text style={styles.raceCount}>{race.runners.length} runners</Text>
                     </View>
                     {race.runners.map((runner: Runner) => (
-                      <View
+                      <TouchableOpacity
                         key={runner.id}
                         testID={`all-runner-item-${runner.id}`}
                         style={styles.runnerRow}
+                        onPress={() => onNavigateToRunner(eventId, runner.id, runner.name)}
+                        activeOpacity={0.6}
                       >
                         <Text style={styles.priority}>{runner.sortPriority}.</Text>
                         <Text style={styles.runnerName} numberOfLines={1}>
@@ -137,6 +202,19 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
                             SP {runner.bsp}
                           </Text>
                         )}
+                        {runner.bsp != null && (
+                          <Text testID={`all-runner-stake-${runner.id}`} style={styles.stakeBadge}>
+                            Bet {formatGbp(stakeToWin1(runner.bsp))}
+                          </Text>
+                        )}
+                        {runnerPnl(runner) != null && (
+                          <Text
+                            testID={`all-runner-pnl-${runner.id}`}
+                            style={[styles.runnerPnl, runnerPnl(runner)! >= 0 ? styles.pnlPos : styles.pnlNeg]}
+                          >
+                            {formatPnl(runnerPnl(runner)!)}
+                          </Text>
+                        )}
                         <View
                           style={[
                             styles.statusBadge,
@@ -145,7 +223,8 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
                         >
                           <Text style={styles.statusText}>{runner.status}</Text>
                         </View>
-                      </View>
+                        <Text style={styles.chevron}>›</Text>
+                      </TouchableOpacity>
                     ))}
                   </View>
                 ))}
@@ -154,6 +233,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           </ScrollView>
         )}
       </View>
+
     </SafeAreaView>
   );
 };
@@ -185,6 +265,23 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.8)",
     marginTop: 2,
   },
+  toggleButton: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.4)",
+  },
+  toggleButtonActive: {
+    backgroundColor: "rgba(255,255,255,0.35)",
+  },
+  toggleButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
   eventsButton: {
     backgroundColor: "#0056b3",
     paddingVertical: 7,
@@ -195,6 +292,40 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "600",
+  },
+  pnlBar: {
+    backgroundColor: "#1a1a2e",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  pnlLabel: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.5)",
+  },
+  pnlStats: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  pnlStat: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.75)",
+  },
+  pnlStatLabel: {
+    color: "rgba(255,255,255,0.4)",
+  },
+  pnlValue: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  pnlPos: {
+    color: "#4caf50",
+  },
+  pnlNeg: {
+    color: "#ef5350",
   },
   body: {
     flex: 1,
@@ -302,6 +433,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 4,
+    marginRight: 6,
+  },
+  stakeBadge: {
+    fontSize: 11,
+    color: "#555",
+    backgroundColor: "#f0f0f0",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  chevron: {
+    fontSize: 16,
+    color: "#bbb",
+    marginLeft: 4,
+  },
+  runnerPnl: {
+    fontSize: 12,
+    fontWeight: "700",
     marginRight: 6,
   },
 });

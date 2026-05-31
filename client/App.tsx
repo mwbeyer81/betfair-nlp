@@ -4,7 +4,8 @@ import { ChatScreen } from "./src/components/ChatScreen";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { EventsScreen } from "./src/components/EventsScreen";
 import { AllRunnersScreen } from "./src/components/AllRunnersScreen";
-import { useRouter } from "./src/hooks/useRouter";
+import { RunnerScreen } from "./src/components/RunnerScreen";
+import { useRouter, parseRunnerRoute } from "./src/hooks/useRouter";
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(true);
@@ -26,10 +27,30 @@ export default function App() {
     );
   }
 
+  const runnerParams = parseRunnerRoute(route);
+  if (runnerParams) {
+    return (
+      <>
+        <RunnerScreen
+          eventId={runnerParams.eventId}
+          runnerId={runnerParams.runnerId}
+          runnerName={runnerParams.runnerName}
+          onBack={() => navigate("/runners")}
+        />
+        <StatusBar style="light" />
+      </>
+    );
+  }
+
   if (route === "/runners") {
     return (
       <>
-        <AllRunnersScreen onNavigateToEvents={() => navigate("/events")} />
+        <AllRunnersScreen
+          onNavigateToEvents={() => navigate("/events")}
+          onNavigateToRunner={(eventId, runnerId, runnerName) =>
+            navigate(`/runner/${eventId}/${runnerId}?name=${encodeURIComponent(runnerName)}`)
+          }
+        />
         <StatusBar style="light" />
       </>
     );

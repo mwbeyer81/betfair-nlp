@@ -11,7 +11,7 @@
     "storybook-generate": "sb-rn-get-stories",
     "storybook:headless": "storybook dev --port 6007 --ci",
     "storybook:headless:with-logs": "STORYBOOK_HEADLESS=true storybook dev --port 6007 --ci",
-    "storybook:headful": "storybook dev --port 6006",
+    "storybook": "storybook dev --port 6006",
     "storybook:build": "storybook build",
     "storybook:test": "STORYBOOK_HEADLESS=true CI=true storybook dev --port 6007 --ci",
     "storybook:test-runner": "test-storybook --url http://localhost:6007",

@@ -6,7 +6,15 @@ import { AllRunnersScreen } from "./AllRunnersScreen";
 
 const BASE = "http://localhost:3000";
 
-const MOCK_RACES = [
+const MOCK_RACES: Array<{
+  marketId: string;
+  marketTime: string;
+  marketType: string;
+  marketName: string;
+  eventId: string;
+  eventName: string;
+  runners: Array<{ id: number; name: string; status: string; sortPriority: number; bsp?: number }>;
+}> = [
   {
     marketId: "1.237066150",
     marketTime: "2025-01-01T14:01:00.000Z",
@@ -46,6 +54,11 @@ const MOCK_RACES = [
   },
 ];
 
+const MOCK_PRICE_UPDATES = [
+  { _id: "pu1", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 1.9, timestamp: "2025-02-01T13:10:00.000Z", changeId: "c1", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
+  { _id: "pu2", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 1.95, timestamp: "2025-02-01T13:05:00.000Z", changeId: "c2", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
+];
+
 const defaultHandlers = [
   http.get(`${BASE}/api/runners`, () =>
     HttpResponse.json({
@@ -54,6 +67,9 @@ const defaultHandlers = [
       count: MOCK_RACES.length,
       totalRunners: MOCK_RACES.reduce((s, r) => s + r.runners.length, 0),
     })
+  ),
+  http.get(`${BASE}/api/events/:eventId/runners/:runnerId/price-updates`, () =>
+    HttpResponse.json({ success: true, data: MOCK_PRICE_UPDATES, count: MOCK_PRICE_UPDATES.length })
   ),
 ];
 
@@ -66,6 +82,7 @@ const meta: Meta<typeof AllRunnersScreen> = {
   },
   args: {
     onNavigateToEvents: fn(),
+    onNavigateToRunner: fn(),
   },
 };
 
@@ -112,9 +129,9 @@ export const ScreenLoaded: Story = {
     await expect(canvas.getByTestId("all-runners-screen")).toBeInTheDocument();
     await expect(canvas.findByTestId("all-runners-list")).resolves.toBeInTheDocument();
 
-    // Header shows title and runner count
+    // Default view: BSP only — 4 runners across 2 Leopardstown races
     await expect(canvas.findByText("All Runners")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("7 runners · 3 races")).resolves.toBeInTheDocument();
+    await expect(canvas.findByText("4 runners · 2 races")).resolves.toBeInTheDocument();
   },
 };
 
@@ -122,8 +139,8 @@ export const EventSections: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expect(canvas.findByTestId("all-runners-event-33858191")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("Cheltenham 1st Jan")).resolves.toBeInTheDocument();
+    // Cheltenham runners have no BSP so the section is hidden by default
+    await expect(canvas.queryByTestId("all-runners-event-33858191")).not.toBeInTheDocument();
     await expect(canvas.findByTestId("all-runners-event-33988522")).resolves.toBeInTheDocument();
     await expect(canvas.findByText("Leopardstown 1st Feb")).resolves.toBeInTheDocument();
   },
@@ -133,9 +150,9 @@ export const RaceAndRunnerRows: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expect(canvas.findByTestId("all-runners-race-1.237066150")).resolves.toBeInTheDocument();
+    // Cheltenham race (no BSP runners) is hidden by default
+    await expect(canvas.queryByTestId("all-runners-race-1.237066150")).not.toBeInTheDocument();
     await expect(canvas.findByTestId("all-runners-race-1.238923739")).resolves.toBeInTheDocument();
-    await expect(canvas.findByTestId("all-runner-item-26817268")).resolves.toBeInTheDocument();
     await expect(canvas.findByText("Galopin Des Champs")).resolves.toBeInTheDocument();
   },
 };
@@ -165,6 +182,60 @@ export const BspDisplayed: Story = {
   },
 };
 
+export const PnlBar: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    // Stake to win £1 each: staked ≈ £3.97, returns ≈ £5.55, P&L ≈ +£1.58
+    const bar = await canvas.findByTestId("all-runners-pnl-bar");
+    await expect(bar).toBeInTheDocument();
+    await expect(canvas.getByTestId("all-runners-pnl")).toHaveTextContent("+£1.58");
+    await expect(bar).toHaveTextContent("£3.97");
+    await expect(bar).toHaveTextContent("£5.55");
+  },
+};
+
+export const PerRunnerPnl: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    // Galopin Des Champs: WINNER at SP 1.95, stake £1.05 → +£1.00
+    await expect(await canvas.findByTestId("all-runner-pnl-21001")).toHaveTextContent("+£1.00");
+    await expect(canvas.getByTestId("all-runner-stake-21001")).toHaveTextContent("Bet £1.05");
+    // Meetingofthewaters: LOSER at SP 5.5, stake £0.22 → -£0.22
+    await expect(canvas.getByTestId("all-runner-pnl-21002")).toHaveTextContent("-£0.22");
+    await expect(canvas.getByTestId("all-runner-stake-21002")).toHaveTextContent("Bet £0.22");
+    // State Man: WINNER at SP 1.4, stake £2.50 → +£1.00
+    await expect(canvas.getByTestId("all-runner-pnl-22001")).toHaveTextContent("+£1.00");
+    await expect(canvas.getByTestId("all-runner-stake-22001")).toHaveTextContent("Bet £2.50");
+    // Brighterdaysahead: LOSER at SP 6.0, stake £0.20 → -£0.20
+    await expect(canvas.getByTestId("all-runner-pnl-22002")).toHaveTextContent("-£0.20");
+    await expect(canvas.getByTestId("all-runner-stake-22002")).toHaveTextContent("Bet £0.20");
+    // Cheltenham runner (no BSP) → no stake or P&L
+    await expect(canvas.queryByTestId("all-runner-pnl-26817268")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("all-runner-stake-26817268")).not.toBeInTheDocument();
+  },
+};
+
+export const ShowAllToggle: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    // Default: Cheltenham hidden, button reads "Show all"
+    await expect(canvas.findByTestId("all-runners-list")).resolves.toBeInTheDocument();
+    await expect(canvas.queryByTestId("all-runners-event-33858191")).not.toBeInTheDocument();
+    const toggle = canvas.getByTestId("all-runners-bsp-toggle");
+    await expect(toggle).toHaveTextContent("Show all");
+
+    // After click: all runners visible, button reads "BSP only"
+    await userEvent.click(toggle);
+    await expect(canvas.findByTestId("all-runners-event-33858191")).resolves.toBeInTheDocument();
+    await expect(canvas.findByText("Cheltenham 1st Jan")).resolves.toBeInTheDocument();
+    await expect(toggle).toHaveTextContent("BSP only");
+  },
+};
+
 export const NoBspWhenAbsent: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -174,5 +245,26 @@ export const NoBspWhenAbsent: Story = {
     for (const runner of cheltenhamRunners) {
       await expect(canvas.queryByTestId(`all-runner-bsp-${runner.id}`)).not.toBeInTheDocument();
     }
+  },
+};
+
+export const RunnerClick: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+
+    // Wait for runners to load
+    await canvas.findByTestId("all-runner-item-21001");
+
+    // Row has a chevron indicating it's tappable
+    const row = canvas.getByTestId("all-runner-item-21001");
+    await expect(row).toHaveTextContent("›");
+
+    // Click Galopin Des Champs → fires onNavigateToRunner
+    await userEvent.click(row);
+    await expect(args.onNavigateToRunner).toHaveBeenCalledWith(
+      "33988522",
+      21001,
+      "Galopin Des Champs"
+    );
   },
 };
