@@ -253,6 +253,18 @@ app.get("/api/stats", async (req, res) => {
 });
 
 // All runners across all events, grouped by WIN race
+app.get("/api/runners/pnl-stats", async (req, res) => {
+  try {
+    if (!betfairService) {
+      return res.status(503).json({ success: false, error: "Service not initialized" });
+    }
+    const pnlStats = await betfairService.getRunnersPnlStats();
+    res.status(200).json({ success: true, data: pnlStats });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch P&L stats" });
+  }
+});
+
 app.get("/api/runners", async (req, res) => {
   try {
     if (!betfairService) {
@@ -260,7 +272,10 @@ app.get("/api/runners", async (req, res) => {
     }
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
-    const { data, total } = await betfairService.getAllRunnersByRace(page, limit);
+    const [{ data, total }, pnlStats] = await Promise.all([
+      betfairService.getAllRunnersByRace(page, limit),
+      betfairService.getRunnersPnlStats(),
+    ]);
     const totalRunners = data.reduce((sum, r) => sum + r.runners.length, 0);
     const totalPages = Math.ceil(total / limit);
     res.status(200).json({
@@ -272,6 +287,7 @@ app.get("/api/runners", async (req, res) => {
       limit,
       totalPages,
       totalRunners,
+      pnlStats,
     });
   } catch (error) {
     res.status(500).json({ success: false, error: "Failed to fetch all runners" });

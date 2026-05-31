@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
-import { RaceWithEvent, Runner } from "../services/chatApi";
+import { chatApi, RaceWithEvent, Runner, PnlStats } from "../services/chatApi";
 
 interface AllRunnersPanelProps {
   races: RaceWithEvent[];
@@ -26,15 +26,6 @@ const STATUS_COLOR: Record<string, string> = {
 
 function stakeToWin1(bsp: number): number {
   return 1 / (bsp - 1);
-}
-
-function calcPnl(races: RaceWithEvent[]): { staked: number; returns: number; pnl: number } {
-  const bspRunners = races.flatMap(r => r.runners).filter(r => r.bsp != null);
-  const staked = bspRunners.reduce((sum, r) => sum + stakeToWin1(r.bsp as number), 0);
-  const returns = bspRunners
-    .filter(r => r.status === "WINNER")
-    .reduce((sum, r) => sum + stakeToWin1(r.bsp as number) + 1, 0);
-  return { staked, returns, pnl: returns - staked };
 }
 
 function formatGbp(val: number): string {
@@ -69,8 +60,15 @@ export const AllRunnersPanel: React.FC<AllRunnersPanelProps> = ({
   onClose,
 }) => {
   const [showNoBsp, setShowNoBsp] = useState(false);
+  const [pnlStats, setPnlStats] = useState<PnlStats>({ staked: 0, returns: 0, pnl: 0 });
 
-  const { staked, returns, pnl } = calcPnl(races);
+  useEffect(() => {
+    chatApi.getRunnersPnlStats()
+      .then(setPnlStats)
+      .catch(() => {});
+  }, []);
+
+  const { staked, returns, pnl } = pnlStats;
 
   const visibleRaces = showNoBsp
     ? races

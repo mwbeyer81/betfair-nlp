@@ -113,13 +113,35 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
                   timeStyle: "medium",
                 })
               : "—";
+            const prev = updates[i + 1]; // list is newest-first when sort=desc
+            const priceDiff = prev ? u.lastTradedPrice - prev.lastTradedPrice : 0;
+            const directionLabel = i === updates.length - 1 || priceDiff === 0
+              ? "–"
+              : priceDiff < 0 ? "▼" : "▲";
+            const directionStyle = priceDiff < 0
+              ? styles.directionDown
+              : priceDiff > 0
+              ? styles.directionUp
+              : styles.directionFlat;
+            const volDelta =
+              u.tradedVolume !== undefined && prev?.tradedVolume !== undefined
+                ? u.tradedVolume - prev.tradedVolume
+                : undefined;
             return (
               <View
                 key={u._id ?? `${u.changeId}-${i}`}
                 testID={`runner-screen-item-${i}`}
                 style={styles.item}
               >
-                <Text style={styles.price}>£{u.lastTradedPrice.toFixed(2)}</Text>
+                <Text testID={`runner-screen-direction-${i}`} style={[styles.direction, directionStyle]}>
+                  {directionLabel}
+                </Text>
+                <Text style={styles.price}>{u.lastTradedPrice.toFixed(2)}</Text>
+                {volDelta !== undefined && (
+                  <Text testID={`runner-screen-volume-${i}`} style={styles.volumeDelta}>
+                    +£{volDelta.toFixed(0)} matched
+                  </Text>
+                )}
                 <Text style={styles.timestamp}>{ts}</Text>
               </View>
             );
@@ -229,10 +251,31 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
   },
+  direction: {
+    fontSize: 18,
+    fontWeight: "700",
+    width: 24,
+    textAlign: "center",
+  },
+  directionDown: {
+    color: "#28a745",
+  },
+  directionUp: {
+    color: "#dc3545",
+  },
+  directionFlat: {
+    color: "#aaa",
+  },
   price: {
     fontSize: 22,
     fontWeight: "700",
     color: "#222",
+    minWidth: 60,
+  },
+  volumeDelta: {
+    fontSize: 13,
+    color: "#666",
+    flex: 1,
   },
   timestamp: {
     fontSize: 13,

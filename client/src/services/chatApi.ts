@@ -13,6 +13,7 @@ export interface PriceUpdate {
   runnerId: number;
   runnerName: string;
   lastTradedPrice: number;
+  tradedVolume?: number;
   timestamp: string;
   changeId: string;
   publishTime?: string;
@@ -46,6 +47,12 @@ export interface RaceWithEvent extends Race {
   eventName: string;
 }
 
+export interface PnlStats {
+  staked: number;
+  returns: number;
+  pnl: number;
+}
+
 export interface RunnersPage {
   success: boolean;
   data: RaceWithEvent[];
@@ -55,6 +62,7 @@ export interface RunnersPage {
   limit: number;
   totalPages: number;
   totalRunners: number;
+  pnlStats: PnlStats;
 }
 
 export interface MarketDefinitionDoc {
@@ -149,6 +157,15 @@ class ChatApi {
     );
     if (!response.ok) throw new Error("Failed to fetch all runners");
     return response.json();
+  }
+
+  async getRunnersPnlStats(): Promise<PnlStats> {
+    const response = await fetch(`${this.baseUrl}/api/runners/pnl-stats`, {
+      headers: { Authorization: `Basic ${this.credentials}` },
+    });
+    if (!response.ok) throw new Error("Failed to fetch runners P&L stats");
+    const result = await response.json();
+    return result.data;
   }
 
   async getStats(): Promise<Stats> {

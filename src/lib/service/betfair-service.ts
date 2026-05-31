@@ -68,6 +68,10 @@ export class BetfairService {
     return this.marketDefinitionDAO.getAllRunnersByRace(page, limit);
   }
 
+  public async getRunnersPnlStats(): Promise<{ staked: number; returns: number; pnl: number }> {
+    return this.marketDefinitionDAO.getRunnersPnlStats();
+  }
+
   public async getSummaryStats(): Promise<SummaryStats> {
     return this.marketDefinitionDAO.getSummaryStats();
   }
@@ -240,6 +244,7 @@ export class BetfairService {
       runnerId: rc.id,
       runnerName: this.getRunnerName(rc.id, marketInfo),
       lastTradedPrice: rc.ltp,
+      ...(rc.tv !== undefined && { tradedVolume: rc.tv }),
       timestamp,
       changeId,
       publishTime: timestamp,

@@ -8,7 +8,7 @@ import {
   StyleSheet,
   SafeAreaView,
 } from "react-native";
-import { chatApi, RaceWithEvent, Runner, RunnersPage } from "../services/chatApi";
+import { chatApi, RaceWithEvent, Runner, PnlStats } from "../services/chatApi";
 
 interface AllRunnersScreenProps {
   onNavigateToEvents: () => void;
@@ -25,15 +25,6 @@ const STATUS_COLOR: Record<string, string> = {
 
 function stakeToWin1(bsp: number): number {
   return 1 / (bsp - 1);
-}
-
-function calcPnl(races: RaceWithEvent[]): { staked: number; returns: number; pnl: number } {
-  const bspRunners = races.flatMap(r => r.runners).filter(r => r.bsp != null);
-  const staked = bspRunners.reduce((sum, r) => sum + stakeToWin1(r.bsp as number), 0);
-  const returns = bspRunners
-    .filter(r => r.status === "WINNER")
-    .reduce((sum, r) => sum + stakeToWin1(r.bsp as number) + 1, 0);
-  return { staked, returns, pnl: returns - staked };
 }
 
 function formatGbp(val: number): string {
@@ -73,6 +64,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRaces, setTotalRaces] = useState(0);
+  const [pnlStats, setPnlStats] = useState<PnlStats>({ staked: 0, returns: 0, pnl: 0 });
   const PAGE_SIZE = 20;
 
   useEffect(() => {
@@ -85,6 +77,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
         setPage(1);
         setTotalPages(result.totalPages);
         setTotalRaces(result.total);
+        setPnlStats(result.pnlStats);
       } catch {
         setError("Failed to load runners");
       } finally {
@@ -109,7 +102,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     }
   }
 
-  const { staked, returns, pnl } = calcPnl(races);
+  const { staked, returns, pnl } = pnlStats;
 
   const visibleRaces = showNoBsp
     ? races

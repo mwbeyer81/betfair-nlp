@@ -1,7 +1,11 @@
+import React from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { within, userEvent, expect, fn } from "@storybook/test";
+import { http, HttpResponse } from "msw";
 import { AllRunnersPanel } from "./AllRunnersPanel";
 import { RaceWithEvent } from "../services/chatApi";
+
+const BASE = "http://localhost:3000";
 
 const MOCK_RACES: RaceWithEvent[] = [
   {
@@ -43,10 +47,16 @@ const MOCK_RACES: RaceWithEvent[] = [
   },
 ];
 
+const MOCK_PNL = { staked: 3.97, returns: 5.55, pnl: 1.58 };
+
+const pnlHandler = http.get(`${BASE}/api/runners/pnl-stats`, () =>
+  HttpResponse.json({ success: true, data: MOCK_PNL })
+);
+
 const meta: Meta<typeof AllRunnersPanel> = {
   title: "Components/AllRunnersPanel",
   component: AllRunnersPanel,
-  parameters: { layout: "centered" },
+  parameters: { layout: "centered", msw: { handlers: [pnlHandler] } },
   tags: ["autodocs"],
   decorators: [
     Story => (

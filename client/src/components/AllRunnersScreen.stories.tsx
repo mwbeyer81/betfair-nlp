@@ -70,7 +70,11 @@ const defaultHandlers = [
       limit: 20,
       totalPages: 1,
       totalRunners: MOCK_RACES.reduce((s, r) => s + r.runners.length, 0),
+      pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58 },
     })
+  ),
+  http.get(`${BASE}/api/runners/pnl-stats`, () =>
+    HttpResponse.json({ success: true, data: { staked: 3.97, returns: 5.55, pnl: 1.58 } })
   ),
   http.get(`${BASE}/api/events/:eventId/runners/:runnerId/price-updates`, () =>
     HttpResponse.json({ success: true, data: MOCK_PRICE_UPDATES, count: MOCK_PRICE_UPDATES.length })

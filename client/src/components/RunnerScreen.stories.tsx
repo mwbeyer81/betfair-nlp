@@ -7,9 +7,9 @@ import { RunnerScreen } from "./RunnerScreen";
 const BASE = "http://localhost:3000";
 
 const MOCK_UPDATES = [
-  { _id: "pu1", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 1.95, timestamp: "2025-02-01T13:14:00.000Z", changeId: "c1", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
-  { _id: "pu2", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 1.9, timestamp: "2025-02-01T13:10:00.000Z", changeId: "c2", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
-  { _id: "pu3", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 2.0, timestamp: "2025-02-01T13:05:00.000Z", changeId: "c3", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
+  { _id: "pu1", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 1.95, tradedVolume: 1500, timestamp: "2025-02-01T13:14:00.000Z", changeId: "c1", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
+  { _id: "pu2", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 1.9, tradedVolume: 1350, timestamp: "2025-02-01T13:10:00.000Z", changeId: "c2", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
+  { _id: "pu3", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 2.0, tradedVolume: 1200, timestamp: "2025-02-01T13:05:00.000Z", changeId: "c3", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
 ];
 
 const defaultHandlers = [
@@ -93,7 +93,7 @@ export const ItemsRendered: Story = {
     await expect(canvas.findByTestId("runner-screen-item-0")).resolves.toBeInTheDocument();
     await expect(canvas.findByTestId("runner-screen-item-1")).resolves.toBeInTheDocument();
     await expect(canvas.findByTestId("runner-screen-item-2")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("£1.95")).resolves.toBeInTheDocument();
+    await expect(canvas.findByText("1.95")).resolves.toBeInTheDocument();
   },
 };
 
@@ -133,5 +133,31 @@ export const EmptyState: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.findByTestId("runner-screen-list")).resolves.toBeInTheDocument();
     await expect(canvas.findByText("No price updates found.")).resolves.toBeInTheDocument();
+  },
+};
+
+export const PriceDirection: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("runner-screen-item-0");
+    // Row 0 (1.95) vs row 1 (1.90): price went up → drifted → ▲ red
+    await expect(canvas.getByTestId("runner-screen-direction-0")).toHaveTextContent("▲");
+    // Row 1 (1.90) vs row 2 (2.00): price shortened → ▼ green
+    await expect(canvas.getByTestId("runner-screen-direction-1")).toHaveTextContent("▼");
+    // Last row: no previous → –
+    await expect(canvas.getByTestId("runner-screen-direction-2")).toHaveTextContent("–");
+  },
+};
+
+export const VolumeDelta: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("runner-screen-item-0");
+    // Row 0: 1500 - 1350 = 150 matched
+    await expect(canvas.getByTestId("runner-screen-volume-0")).toHaveTextContent("+£150 matched");
+    // Row 1: 1350 - 1200 = 150 matched
+    await expect(canvas.getByTestId("runner-screen-volume-1")).toHaveTextContent("+£150 matched");
+    // Last row: no previous volume → no volume element
+    await expect(canvas.queryByTestId("runner-screen-volume-2")).not.toBeInTheDocument();
   },
 };

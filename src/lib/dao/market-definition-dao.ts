@@ -302,6 +302,42 @@ export class MarketDefinitionDAO {
     };
   }
 
+  public async getRunnersPnlStats(): Promise<{ staked: number; returns: number; pnl: number }> {
+    const [result] = await this.collection
+      .aggregate<{ staked: number; returns: number }>([
+        { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] } } },
+        { $sort: { timestamp: -1 } },
+        {
+          $group: {
+            _id: "$marketId",
+            runners: { $first: "$runners" },
+          },
+        },
+        { $unwind: "$runners" },
+        { $match: { "runners.status": { $ne: "REMOVED" }, "runners.bsp": { $exists: true, $gt: 1 } } },
+        {
+          $group: {
+            _id: null,
+            staked: { $sum: { $divide: [1, { $subtract: ["$runners.bsp", 1] }] } },
+            returns: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$runners.status", "WINNER"] },
+                  { $add: [{ $divide: [1, { $subtract: ["$runners.bsp", 1] }] }, 1] },
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ])
+      .toArray();
+
+    const staked = result?.staked ?? 0;
+    const returns = result?.returns ?? 0;
+    return { staked, returns, pnl: returns - staked };
+  }
+
   /**
    * Count total unique races (WIN/ANTEPOST_WIN markets) and unique active runners
    * across all events in a single aggregation pass.
