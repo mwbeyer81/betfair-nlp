@@ -1,12 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const PORT = 3737;
+const BASE_URL = `http://localhost:${PORT}`;
+
 /**
  * Playwright config for MSW-powered tests.
- * These tests run against the Expo dev server (localhost:8081) with MSW
- * activated via ?msw=1, so no live backend is required.
+ * Builds the Expo web export once then serves it statically — no dev server required.
  *
  * Run: npx playwright test --config playwright.msw.config.ts
- * (Requires: Expo dev server running on port 8081)
  */
 export default defineConfig({
   testDir: "./tests-msw",
@@ -16,7 +17,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: "html",
   use: {
-    baseURL: "http://localhost:8081",
+    baseURL: BASE_URL,
     trace: "on-first-retry",
   },
   projects: [
@@ -25,4 +26,10 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
+  webServer: {
+    command: `npx expo export --platform web --dev --output-dir dist && npx serve -s dist -p ${PORT}`,
+    url: BASE_URL,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
 });

@@ -1,16 +1,8 @@
-/**
- * MSW-powered tests for the Events view.
- * Navigate to /?msw=1 — the app activates MSW which intercepts all API calls
- * using the handlers in src/mocks/handlers.ts. No live backend required.
- */
-import { test, expect } from "@playwright/test";
-
-const APP = "http://localhost:8081";
-const MSW_URL = `${APP}/?msw=1`;
+import { test, expect } from "./fixtures";
 
 test.describe("Events view — MSW mocked network", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto(MSW_URL);
+    await page.goto("/");
     // Wait for MSW service worker to activate and events to load
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("event-group-loading")).not.toBeVisible({ timeout: 10000 });

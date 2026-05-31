@@ -15,6 +15,8 @@
     "storybook:build": "storybook build",
     "storybook:test": "STORYBOOK_HEADLESS=true CI=true storybook dev --port 6007 --ci",
     "storybook:test-runner": "test-storybook --url http://localhost:6007",
+    "build:web": "expo export --platform web --dev --output-dir dist",
+    "test:msw": "playwright test --config playwright.msw.config.ts",
     "test:playwright": "playwright test",
     "test:playwright:ui": "playwright test --ui",
     "test:playwright:headed": "playwright test --headed",
