@@ -86,6 +86,18 @@ Cover end-to-end with a running app (`localhost:8081`) and real API:
 - Panel header shows event name.
 - Close button dismisses the panel.
 
+### E. MSW navigation/routing tests (`client/tests-msw/`)
+These tests run against a **static build** with all API calls mocked via Playwright's `page.route()` — no backend or dev server required.
+
+```bash
+cd client
+yarn build:web   # one-time build (~1s); uses metro.config.js with useWatchman=false
+yarn test:msw    # 19 tests, static files served on port 3737
+```
+
+Config: `client/playwright.msw.config.ts` — serves `dist/` with `npx serve -s`.
+Fixtures: `client/tests-msw/fixtures.ts` — all API routes mocked with `page.route()`.
+
 ### D. MongoDB integration tests (`src/lib/dao/__tests__/market-definition-dao.integration.test.ts` or a new file)
 Add a `describe` block for the new DAO method:
 - Returns results for the known `eventId 33858191`.

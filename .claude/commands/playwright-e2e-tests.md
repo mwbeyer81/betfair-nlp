@@ -60,3 +60,19 @@ cd /Users/mwbeyer/betfair-nlp/client && npx playwright test tests/<feature>-e2e.
 ```
 
 Requires both the Expo dev server (`localhost:8081`) and the API server (`localhost:3000`) to be running.
+
+---
+
+## MSW mock suite (no live servers needed)
+
+For navigation and UI tests that don't need the real API, use the MSW suite in `client/tests-msw/`. All API calls are intercepted by Playwright's `page.route()` via `client/tests-msw/fixtures.ts`.
+
+```bash
+cd /Users/mwbeyer/betfair-nlp/client
+yarn build:web   # build static Expo web export to dist/ (~1s)
+yarn test:msw    # run 19 tests against static dist on port 3737
+```
+
+- Config: `playwright.msw.config.ts` — `webServer` serves `dist/` with `npx serve -s`
+- `metro.config.js` sets `resolver.useWatchman = false` so `expo export` never hangs
+- Rebuild `dist/` after frontend code changes; tests need no rebuild themselves
