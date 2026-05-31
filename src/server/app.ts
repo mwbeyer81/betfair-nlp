@@ -258,9 +258,21 @@ app.get("/api/runners", async (req, res) => {
     if (!betfairService) {
       return res.status(503).json({ success: false, error: "Service not initialized" });
     }
-    const races = await betfairService.getAllRunnersByRace();
-    const totalRunners = races.reduce((sum, r) => sum + r.runners.length, 0);
-    res.status(200).json({ success: true, data: races, count: races.length, totalRunners });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const { data, total } = await betfairService.getAllRunnersByRace(page, limit);
+    const totalRunners = data.reduce((sum, r) => sum + r.runners.length, 0);
+    const totalPages = Math.ceil(total / limit);
+    res.status(200).json({
+      success: true,
+      data,
+      count: data.length,
+      total,
+      page,
+      limit,
+      totalPages,
+      totalRunners,
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: "Failed to fetch all runners" });
   }

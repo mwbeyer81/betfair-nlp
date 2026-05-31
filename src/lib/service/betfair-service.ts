@@ -61,8 +61,11 @@ export class BetfairService {
     return this.marketDefinitionDAO.getRunnersByRaceForEvent(eventId);
   }
 
-  public async getAllRunnersByRace(): Promise<RaceWithEvent[]> {
-    return this.marketDefinitionDAO.getAllRunnersByRace();
+  public async getAllRunnersByRace(
+    page = 1,
+    limit = 20
+  ): Promise<{ data: RaceWithEvent[]; total: number }> {
+    return this.marketDefinitionDAO.getAllRunnersByRace(page, limit);
   }
 
   public async getSummaryStats(): Promise<SummaryStats> {

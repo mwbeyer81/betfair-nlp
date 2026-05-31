@@ -8,7 +8,7 @@ import {
   StyleSheet,
   SafeAreaView,
 } from "react-native";
-import { chatApi, RaceWithEvent, Runner } from "../services/chatApi";
+import { chatApi, RaceWithEvent, Runner, RunnersPage } from "../services/chatApi";
 
 interface AllRunnersScreenProps {
   onNavigateToEvents: () => void;
@@ -67,15 +67,24 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
 }) => {
   const [races, setRaces] = useState<RaceWithEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showNoBsp, setShowNoBsp] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalRaces, setTotalRaces] = useState(0);
+  const PAGE_SIZE = 20;
 
   useEffect(() => {
     (async () => {
       setIsLoading(true);
       setError(null);
       try {
-        setRaces(await chatApi.getAllRunners());
+        const result = await chatApi.getAllRunners(1, PAGE_SIZE);
+        setRaces(result.data);
+        setPage(1);
+        setTotalPages(result.totalPages);
+        setTotalRaces(result.total);
       } catch {
         setError("Failed to load runners");
       } finally {
@@ -83,6 +92,22 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       }
     })();
   }, []);
+
+  async function loadMore() {
+    if (isLoadingMore || page >= totalPages) return;
+    setIsLoadingMore(true);
+    try {
+      const next = page + 1;
+      const result = await chatApi.getAllRunners(next, PAGE_SIZE);
+      setRaces(prev => [...prev, ...result.data]);
+      setPage(next);
+      setTotalPages(result.totalPages);
+    } catch {
+      // silently ignore load-more errors
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
 
   const { staked, returns, pnl } = calcPnl(races);
 
@@ -112,7 +137,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           <Text style={styles.title}>All Runners</Text>
           {!isLoading && (
             <Text style={styles.subtitle}>
-              {totalRunners} runners · {visibleRaces.length} races
+              {totalRunners} runners · {visibleRaces.length}/{totalRaces} races
             </Text>
           )}
         </View>
@@ -230,10 +255,22 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
                 ))}
               </View>
             ))}
+            {page < totalPages && (
+              <TouchableOpacity
+                testID="all-runners-load-more"
+                style={styles.loadMoreButton}
+                onPress={loadMore}
+                disabled={isLoadingMore}
+              >
+                {isLoadingMore
+                  ? <ActivityIndicator size="small" color="#007AFF" />
+                  : <Text style={styles.loadMoreText}>Load more ({totalRaces - races.length} remaining)</Text>
+                }
+              </TouchableOpacity>
+            )}
           </ScrollView>
         )}
       </View>
-
     </SafeAreaView>
   );
 };
@@ -424,6 +461,18 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 10,
     fontWeight: "600",
+  },
+  loadMoreButton: {
+    margin: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: "#e8f0fe",
+    alignItems: "center",
+  },
+  loadMoreText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0056b3",
   },
   bspBadge: {
     fontSize: 11,

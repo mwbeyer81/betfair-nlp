@@ -46,6 +46,17 @@ export interface RaceWithEvent extends Race {
   eventName: string;
 }
 
+export interface RunnersPage {
+  success: boolean;
+  data: RaceWithEvent[];
+  count: number;
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  totalRunners: number;
+}
+
 export interface MarketDefinitionDoc {
   _id: string;
   changeId: string;
@@ -131,13 +142,13 @@ class ChatApi {
     return result.data;
   }
 
-  async getAllRunners(): Promise<RaceWithEvent[]> {
-    const response = await fetch(`${this.baseUrl}/api/runners`, {
-      headers: { Authorization: `Basic ${this.credentials}` },
-    });
+  async getAllRunners(page = 1, limit = 20): Promise<RunnersPage> {
+    const response = await fetch(
+      `${this.baseUrl}/api/runners?page=${page}&limit=${limit}`,
+      { headers: { Authorization: `Basic ${this.credentials}` } }
+    );
     if (!response.ok) throw new Error("Failed to fetch all runners");
-    const result = await response.json();
-    return result.data;
+    return response.json();
   }
 
   async getStats(): Promise<Stats> {

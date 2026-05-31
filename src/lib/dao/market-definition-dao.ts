@@ -226,59 +226,80 @@ export class MarketDefinitionDAO {
    * Return all runners across every event grouped by WIN/ANTEPOST_WIN market,
    * sorted chronologically. REMOVED runners excluded.
    */
-  public async getAllRunnersByRace(): Promise<RaceWithEvent[]> {
-    return await this.collection
-      .aggregate<RaceWithEvent>([
-        { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] } } },
-        { $sort: { timestamp: -1 } },
-        {
-          $group: {
-            _id: "$marketId",
-            eventId: { $first: "$eventId" },
-            eventName: { $first: "$eventName" },
-            marketTime: { $first: "$marketTime" },
-            marketType: { $first: "$marketType" },
-            marketName: { $first: "$name" },
-            runners: { $first: "$runners" },
-          },
+  public async getAllRunnersByRace(
+    page = 1,
+    limit = 20
+  ): Promise<{ data: RaceWithEvent[]; total: number }> {
+    const skip = (page - 1) * limit;
+
+    const basePipeline = [
+      { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] } } },
+      { $sort: { timestamp: -1 } },
+      {
+        $group: {
+          _id: "$marketId",
+          eventId: { $first: "$eventId" },
+          eventName: { $first: "$eventName" },
+          marketTime: { $first: "$marketTime" },
+          marketType: { $first: "$marketType" },
+          marketName: { $first: "$name" },
+          runners: { $first: "$runners" },
         },
-        { $unwind: "$runners" },
-        { $match: { "runners.status": { $ne: "REMOVED" } } },
-        { $sort: { marketTime: 1, "runners.sortPriority": 1 } },
-        {
-          $group: {
-            _id: "$_id",
-            eventId: { $first: "$eventId" },
-            eventName: { $first: "$eventName" },
-            marketTime: { $first: "$marketTime" },
-            marketType: { $first: "$marketType" },
-            marketName: { $first: "$marketName" },
-            runners: {
-              $push: {
-                id: "$runners.id",
-                name: "$runners.name",
-                status: "$runners.status",
-                sortPriority: "$runners.sortPriority",
-                bsp: "$runners.bsp",
-              },
+      },
+      { $unwind: "$runners" },
+      { $match: { "runners.status": { $ne: "REMOVED" } } },
+      { $sort: { marketTime: 1, "runners.sortPriority": 1 } },
+      {
+        $group: {
+          _id: "$_id",
+          eventId: { $first: "$eventId" },
+          eventName: { $first: "$eventName" },
+          marketTime: { $first: "$marketTime" },
+          marketType: { $first: "$marketType" },
+          marketName: { $first: "$marketName" },
+          runners: {
+            $push: {
+              id: "$runners.id",
+              name: "$runners.name",
+              status: "$runners.status",
+              sortPriority: "$runners.sortPriority",
+              bsp: "$runners.bsp",
             },
           },
         },
-        { $sort: { marketTime: 1 } },
+      },
+      { $sort: { marketTime: 1 } },
+    ];
+
+    const projectStage = {
+      $project: {
+        _id: 0,
+        marketId: "$_id",
+        eventId: 1,
+        eventName: 1,
+        marketTime: 1,
+        marketType: 1,
+        marketName: 1,
+        runners: 1,
+      },
+    };
+
+    const [result] = await this.collection
+      .aggregate<{ data: RaceWithEvent[]; total: [{ count: number }] }>([
+        ...basePipeline,
         {
-          $project: {
-            _id: 0,
-            marketId: "$_id",
-            eventId: 1,
-            eventName: 1,
-            marketTime: 1,
-            marketType: 1,
-            marketName: 1,
-            runners: 1,
+          $facet: {
+            data: [{ $skip: skip }, { $limit: limit }, projectStage],
+            total: [{ $count: "count" }],
           },
         },
       ])
       .toArray();
+
+    return {
+      data: result?.data ?? [],
+      total: result?.total?.[0]?.count ?? 0,
+    };
   }
 
   /**

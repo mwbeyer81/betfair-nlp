@@ -116,6 +116,14 @@ After making any code changes to the frontend (`client/src/`), always run `yarn 
 cd client && yarn build
 ```
 
+Then run the Storybook interaction tests to confirm component behaviour (requires Storybook already running on `localhost:6007` via `yarn storybook`):
+
+```bash
+cd client && yarn storybook:test-runner
+```
+
+All play-function tests must pass before offering to commit.
+
 ---
 
 ## Committing changes after every prompt

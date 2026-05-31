@@ -67,6 +67,19 @@ jest.mock("../../config/database", () => ({
                 id: 12345,
                 name: "Springwell Bay",
                 sortPriority: 1,
+                // $facet shape for getAllRunnersByRace (paginated)
+                data: [
+                  {
+                    eventId: "33858191",
+                    eventName: "Cheltenham 1st Jan",
+                    marketId: "1.237066150",
+                    marketTime: "2025-01-01T14:01:00.000Z",
+                    marketType: "ANTEPOST_WIN",
+                    marketName: "Cheltenham Chase",
+                    runners: [{ id: 12345, name: "Springwell Bay", status: "ACTIVE", sortPriority: 1 }],
+                  },
+                ],
+                total: [{ count: 1 }],
               },
             ]),
           }),
@@ -377,7 +390,7 @@ describe("API Endpoints", () => {
   });
 
   describe("GET /api/runners", () => {
-    it("returns all races with runners", async () => {
+    it("returns paginated races with pagination metadata", async () => {
       const response = await request(app)
         .get("/api/runners")
         .auth("matthew", "beyer")
@@ -386,6 +399,10 @@ describe("API Endpoints", () => {
       expect(response.body).toHaveProperty("success", true);
       expect(Array.isArray(response.body.data)).toBe(true);
       expect(typeof response.body.count).toBe("number");
+      expect(typeof response.body.total).toBe("number");
+      expect(typeof response.body.page).toBe("number");
+      expect(typeof response.body.limit).toBe("number");
+      expect(typeof response.body.totalPages).toBe("number");
       expect(typeof response.body.totalRunners).toBe("number");
     });
 
@@ -414,6 +431,26 @@ describe("API Endpoints", () => {
         .expect(200);
 
       expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    it("respects page and limit query params", async () => {
+      const response = await request(app)
+        .get("/api/runners?page=1&limit=5")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body.page).toBe(1);
+      expect(response.body.limit).toBe(5);
+      expect(response.body.data.length).toBeLessThanOrEqual(5);
+    });
+
+    it("data.length does not exceed limit", async () => {
+      const response = await request(app)
+        .get("/api/runners?limit=3")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body.data.length).toBeLessThanOrEqual(3);
     });
   });
 
