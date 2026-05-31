@@ -92,59 +92,13 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-export const EventsPanelFlow: Story = {
-  parameters: {
-    msw: { handlers: BASE_HANDLERS },
-  },
-  play: async ({ canvasElement }) => {
+export const EventsButtonNavigates: Story = {
+  play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
 
-    // Open events panel
     const eventsBtn = canvas.getByTestId("events-button");
     await expect(eventsBtn).toBeInTheDocument();
     await userEvent.click(eventsBtn);
-
-    // Wait for panel + data to load
-    await expect(canvas.getByTestId("events-panel")).toBeInTheDocument();
-    const cheltenhamItem = await canvas.findByTestId("event-group-item-33858191", {}, { timeout: 8000 });
-    await expect(cheltenhamItem).toBeInTheDocument();
-
-    // Both badges should be visible
-    await expect(canvas.getByTestId("event-docs-badge-33858191")).toBeInTheDocument();
-    await expect(canvas.getByTestId("event-price-updates-badge-33858191")).toBeInTheDocument();
-  },
-};
-
-export const PriceUpdatesFlow: Story = {
-  parameters: {
-    msw: { handlers: BASE_HANDLERS },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    // 1. Open events panel
-    await userEvent.click(canvas.getByTestId("events-button"));
-
-    // 2. Wait for Cheltenham event to appear
-    const cheltenhamItem = await canvas.findByTestId("event-group-item-33858191", {}, { timeout: 8000 });
-    await expect(cheltenhamItem).toBeInTheDocument();
-
-    // 3. Click the price updates badge
-    const priceUpdatesBadge = canvas.getByTestId("event-price-updates-badge-33858191");
-    await userEvent.click(priceUpdatesBadge);
-
-    // 4. Price updates panel should open
-    await expect(canvas.getByTestId("price-updates-panel")).toBeInTheDocument();
-
-    // 5. Wait for records to load
-    const firstItem = await canvas.findByTestId("price-update-item-0", {}, { timeout: 8000 });
-    await expect(firstItem).toBeInTheDocument();
-
-    // 6. Verify runner name from mock data
-    await expect(canvas.getByText(/Springwell Bay/)).toBeInTheDocument();
-
-    // 7. Close the panel
-    await userEvent.click(canvas.getByTestId("price-updates-close"));
-    await expect(canvas.queryByTestId("price-updates-panel")).not.toBeInTheDocument();
+    await expect(args.onNavigateToEvents).toHaveBeenCalledTimes(1);
   },
 };

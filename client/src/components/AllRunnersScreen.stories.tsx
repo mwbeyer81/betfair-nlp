@@ -65,6 +65,10 @@ const defaultHandlers = [
       success: true,
       data: MOCK_RACES,
       count: MOCK_RACES.length,
+      total: MOCK_RACES.length,
+      page: 1,
+      limit: 20,
+      totalPages: 1,
       totalRunners: MOCK_RACES.reduce((s, r) => s + r.runners.length, 0),
     })
   ),
@@ -131,7 +135,7 @@ export const ScreenLoaded: Story = {
 
     // Default view: BSP only — 4 runners across 2 Leopardstown races
     await expect(canvas.findByText("All Runners")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("4 runners · 2 races")).resolves.toBeInTheDocument();
+    await expect(canvas.findByText("4 runners · 2/3 races")).resolves.toBeInTheDocument();
   },
 };
 

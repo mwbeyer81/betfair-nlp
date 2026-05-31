@@ -216,7 +216,8 @@ export const SingleRunnerItems: Story = {
     const canvas = within(canvasElement);
 
     await expect(canvas.getByTestId("price-updates-panel")).toBeInTheDocument();
-    await expect(canvas.getByText("Springwell Bay")).toBeInTheDocument();
+    // eventName appears in header AND in each runner row — use getAllByText
+    await expect(canvas.getAllByText("Springwell Bay").length).toBeGreaterThan(0);
     await expect(canvas.getByText(`Price updates · ${SPRINGWELL_UPDATES.length} records`)).toBeInTheDocument();
 
     for (let i = 0; i < SPRINGWELL_UPDATES.length; i++) {
