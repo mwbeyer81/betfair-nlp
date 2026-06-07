@@ -232,8 +232,12 @@ app.get("/api/events/grouped", async (req, res) => {
     if (!betfairService) {
       return res.status(503).json({ success: false, error: "Service not initialized" });
     }
-    const groups = await betfairService.getEventGroups();
-    res.status(200).json({ success: true, data: groups });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const sort = req.query.sort === "desc" ? "desc" : "asc";
+    const { data, total } = await betfairService.getEventGroups(page, limit, sort);
+    const totalPages = Math.ceil(total / limit);
+    res.status(200).json({ success: true, data, count: data.length, total, totalPages });
   } catch (error) {
     res.status(500).json({ success: false, error: "Failed to fetch event groups" });
   }
@@ -265,6 +269,18 @@ app.get("/api/runners/pnl-stats", async (req, res) => {
   }
 });
 
+app.get("/api/runners/countries", async (req, res) => {
+  try {
+    if (!betfairService) {
+      return res.status(503).json({ success: false, error: "Service not initialized" });
+    }
+    const countries = await betfairService.getDistinctCountryCodes();
+    res.status(200).json({ success: true, data: countries });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch countries" });
+  }
+});
+
 app.get("/api/runners", async (req, res) => {
   try {
     if (!betfairService) {
@@ -272,11 +288,13 @@ app.get("/api/runners", async (req, res) => {
     }
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
-    const [{ data, total }, pnlStats] = await Promise.all([
-      betfairService.getAllRunnersByRace(page, limit),
-      betfairService.getRunnersPnlStats(),
-    ]);
-    const totalRunners = data.reduce((sum, r) => sum + r.runners.length, 0);
+    const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
+    const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
+    const countries = req.query.countries
+      ? (req.query.countries as string).split(",").map(c => c.trim()).filter(Boolean)
+      : [];
+    const { data, total, totalRunners, pnlStats } =
+      await betfairService.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries);
     const totalPages = Math.ceil(total / limit);
     res.status(200).json({
       success: true,

@@ -9,6 +9,7 @@ const CHELTENHAM_RACES: Race[] = [
     marketTime: "2025-01-01T14:01:00.000Z",
     marketType: "ANTEPOST_WIN",
     marketName: "Cheltenham Chase",
+    countryCode: "GB",
     runners: [
       { id: 12345, name: "Springwell Bay", status: "ACTIVE", sortPriority: 1, bsp: 4.5 },
       { id: 12346, name: "Gaelic Warrior", status: "ACTIVE", sortPriority: 2, bsp: 9.2 },
@@ -25,6 +26,7 @@ const LEOPARDSTOWN_RACES: Race[] = [
     marketTime: "2025-02-01T13:15:00.000Z",
     marketType: "WIN",
     marketName: "Leopardstown 13:15",
+    countryCode: "IE",
     runners: [
       { id: 21001, name: "Galopin Des Champs", status: "WINNER", sortPriority: 1, bsp: 1.95 },
       { id: 21002, name: "Meetingofthewaters", status: "LOSER", sortPriority: 2, bsp: 5.5 },
@@ -36,6 +38,7 @@ const LEOPARDSTOWN_RACES: Race[] = [
     marketTime: "2025-02-01T13:50:00.000Z",
     marketType: "WIN",
     marketName: "Leopardstown 13:50",
+    countryCode: "IE",
     runners: [
       { id: 22001, name: "State Man", status: "WINNER", sortPriority: 1, bsp: 1.4 },
       { id: 22002, name: "Brighterdaysahead", status: "LOSER", sortPriority: 2, bsp: 6.0 },
@@ -240,6 +243,7 @@ export const NoBspWhenAbsent: Story = {
         marketTime: "2025-01-01T14:01:00.000Z",
         marketType: "WIN",
         marketName: "No BSP Race",
+        countryCode: "GB",
         runners: [
           { id: 99001, name: "Horse Without BSP", status: "ACTIVE", sortPriority: 1 },
         ],

@@ -113,36 +113,49 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
                   timeStyle: "medium",
                 })
               : "—";
-            const prev = updates[i + 1]; // list is newest-first when sort=desc
+            const prev = updates[sort === "desc" ? i + 1 : i - 1];
             const priceDiff = prev ? u.lastTradedPrice - prev.lastTradedPrice : 0;
-            const directionLabel = i === updates.length - 1 || priceDiff === 0
-              ? "–"
-              : priceDiff < 0 ? "▼" : "▲";
-            const directionStyle = priceDiff < 0
-              ? styles.directionDown
-              : priceDiff > 0
-              ? styles.directionUp
-              : styles.directionFlat;
-            const volDelta =
-              u.tradedVolume !== undefined && prev?.tradedVolume !== undefined
-                ? u.tradedVolume - prev.tradedVolume
-                : undefined;
+            const directionLabel = !prev || priceDiff === 0 ? "–" : priceDiff < 0 ? "▼" : "▲";
+            const directionStyle = priceDiff < 0 ? styles.directionDown
+              : priceDiff > 0 ? styles.directionUp : styles.directionFlat;
+            const impliedProb = (1 / u.lastTradedPrice * 100).toFixed(1);
+            const volDelta = u.tradedVolume !== undefined && prev?.tradedVolume !== undefined
+              ? Math.abs(u.tradedVolume - prev.tradedVolume) : undefined;
             return (
               <View
                 key={u._id ?? `${u.changeId}-${i}`}
                 testID={`runner-screen-item-${i}`}
                 style={styles.item}
               >
-                <Text testID={`runner-screen-direction-${i}`} style={[styles.direction, directionStyle]}>
-                  {directionLabel}
-                </Text>
-                <Text style={styles.price}>{u.lastTradedPrice.toFixed(2)}</Text>
-                {volDelta !== undefined && (
-                  <Text testID={`runner-screen-volume-${i}`} style={styles.volumeDelta}>
-                    +£{volDelta.toFixed(0)} matched
+                {/* Row 1: direction + price + implied prob + timestamp */}
+                <View style={styles.itemRow}>
+                  <Text testID={`runner-screen-direction-${i}`} style={[styles.direction, directionStyle]}>
+                    {directionLabel}
                   </Text>
+                  <Text style={styles.price}>{u.lastTradedPrice.toFixed(2)}</Text>
+                  <Text testID={`runner-screen-prob-${i}`} style={styles.impliedProb}>{impliedProb}%</Text>
+                  <Text style={styles.timestamp}>{ts}</Text>
+                </View>
+                {/* Row 2: order book + volume (shown when available) */}
+                {(u.bestBackSize != null || u.bestLaySize != null || volDelta != null) && (
+                  <View style={styles.dataRow}>
+                    {u.bestBackSize != null && (
+                      <Text testID={`runner-screen-back-${i}`} style={styles.backChip}>
+                        Back £{u.bestBackSize.toFixed(0)} @ {u.bestBackPrice?.toFixed(2)}
+                      </Text>
+                    )}
+                    {u.bestLaySize != null && (
+                      <Text testID={`runner-screen-lay-${i}`} style={styles.layChip}>
+                        Lay £{u.bestLaySize.toFixed(0)} @ {u.bestLayPrice?.toFixed(2)}
+                      </Text>
+                    )}
+                    {volDelta != null && (
+                      <Text testID={`runner-screen-volume-${i}`} style={styles.volumeChip}>
+                        +£{volDelta.toFixed(0)} matched
+                      </Text>
+                    )}
+                  </View>
                 )}
-                <Text style={styles.timestamp}>{ts}</Text>
               </View>
             );
           })}
@@ -242,14 +255,23 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   item: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
+  },
+  itemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  dataRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 6,
+    paddingLeft: 32,
   },
   direction: {
     fontSize: 18,
@@ -257,28 +279,48 @@ const styles = StyleSheet.create({
     width: 24,
     textAlign: "center",
   },
-  directionDown: {
-    color: "#28a745",
-  },
-  directionUp: {
-    color: "#dc3545",
-  },
-  directionFlat: {
-    color: "#aaa",
-  },
+  directionDown: { color: "#28a745" },
+  directionUp:   { color: "#dc3545" },
+  directionFlat: { color: "#aaa" },
   price: {
     fontSize: 22,
     fontWeight: "700",
     color: "#222",
-    minWidth: 60,
+    minWidth: 55,
   },
-  volumeDelta: {
+  impliedProb: {
     fontSize: 13,
-    color: "#666",
+    color: "#888",
     flex: 1,
   },
   timestamp: {
-    fontSize: 13,
-    color: "#888",
+    fontSize: 12,
+    color: "#aaa",
+  },
+  backChip: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#0056b3",
+    backgroundColor: "#e8f0fe",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
+  layChip: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#842029",
+    backgroundColor: "#f8d7da",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
+  volumeChip: {
+    fontSize: 12,
+    color: "#555",
+    backgroundColor: "#f0f0f0",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 5,
   },
 });

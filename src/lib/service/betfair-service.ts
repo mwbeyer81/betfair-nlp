@@ -46,8 +46,12 @@ export class BetfairService {
     await this.initialize();
   }
 
-  public async getEventGroups(): Promise<EventGroup[]> {
-    return this.marketDefinitionDAO.groupByEventId();
+  public async getEventGroups(
+    page: number = 1,
+    limit: number = 20,
+    sort: "asc" | "desc" = "asc"
+  ): Promise<{ data: EventGroup[]; total: number }> {
+    return this.marketDefinitionDAO.groupByEventId(page, limit, sort);
   }
 
   public async getEventDefinitions(
@@ -63,9 +67,12 @@ export class BetfairService {
 
   public async getAllRunnersByRace(
     page = 1,
-    limit = 20
-  ): Promise<{ data: RaceWithEvent[]; total: number }> {
-    return this.marketDefinitionDAO.getAllRunnersByRace(page, limit);
+    limit = 20,
+    minRunners = 1,
+    maxRunners = 30,
+    countries: string[] = []
+  ): Promise<{ data: RaceWithEvent[]; total: number; totalRunners: number; pnlStats: { staked: number; returns: number; pnl: number } }> {
+    return this.marketDefinitionDAO.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries);
   }
 
   public async getRunnersPnlStats(): Promise<{ staked: number; returns: number; pnl: number }> {
@@ -74,6 +81,10 @@ export class BetfairService {
 
   public async getSummaryStats(): Promise<SummaryStats> {
     return this.marketDefinitionDAO.getSummaryStats();
+  }
+
+  public async getDistinctCountryCodes(): Promise<string[]> {
+    return this.marketDefinitionDAO.getDistinctCountryCodes();
   }
 
   public async getPriceUpdatesByEvent(
@@ -245,6 +256,8 @@ export class BetfairService {
       runnerName: this.getRunnerName(rc.id, marketInfo),
       lastTradedPrice: rc.ltp,
       ...(rc.tv !== undefined && { tradedVolume: rc.tv }),
+      ...(rc.batb?.[0] && { bestBackPrice: rc.batb[0][1], bestBackSize: rc.batb[0][2] }),
+      ...(rc.batl?.[0] && { bestLayPrice: rc.batl[0][1], bestLaySize: rc.batl[0][2] }),
       timestamp,
       changeId,
       publishTime: timestamp,

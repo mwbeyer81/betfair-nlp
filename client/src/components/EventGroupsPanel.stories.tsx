@@ -9,12 +9,14 @@ const MOCK_GROUPS: EventGroup[] = [
     eventName: "Cheltenham 1st Jan",
     marketIds: ["1.237066150"],
     count: 25,
+    earliestMarketTime: "2024-01-01T13:00:00.000Z",
   },
   {
     eventId: "33928245",
     eventName: "Newbury 15th Feb",
     marketIds: ["1.238000001", "1.238000002"],
     count: 12,
+    earliestMarketTime: "2024-02-15T14:00:00.000Z",
   },
 ];
 

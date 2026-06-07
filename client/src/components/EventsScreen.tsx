@@ -33,8 +33,13 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
 }) => {
   const [groups, setGroups] = useState<EventGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [sort, setSort] = useState<"asc" | "desc">("asc");
+  const PAGE_SIZE = 20;
 
   const [showDocsPanel, setShowDocsPanel] = useState(false);
   const [docsEventId, setDocsEventId] = useState("");
@@ -69,12 +74,15 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
     (async () => {
       setIsLoading(true);
       setError(null);
+      setGroups([]);
       try {
-        const [groupData, statsData] = await Promise.all([
-          chatApi.getEventGroups(),
+        const [result, statsData] = await Promise.all([
+          chatApi.getEventGroups(1, PAGE_SIZE, sort),
           chatApi.getStats(),
         ]);
-        setGroups(groupData);
+        setGroups(result.data);
+        setPage(1);
+        setTotalPages(result.totalPages);
         setStats(statsData);
       } catch {
         setError("Failed to load events");
@@ -82,7 +90,23 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
         setIsLoading(false);
       }
     })();
-  }, []);
+  }, [sort]);
+
+  const loadMore = async () => {
+    if (isLoadingMore || page >= totalPages) return;
+    const nextPage = page + 1;
+    setIsLoadingMore(true);
+    try {
+      const result = await chatApi.getEventGroups(nextPage, PAGE_SIZE, sort);
+      setGroups(prev => [...prev, ...result.data]);
+      setPage(nextPage);
+      setTotalPages(result.totalPages);
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const loadDocs = async (eventId: string, eventName: string) => {
     setDocsEventId(eventId);
@@ -173,6 +197,15 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
         <Text style={styles.title}>Events</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity
+            testID="events-sort-toggle"
+            style={styles.sortButton}
+            onPress={() => setSort(s => s === "asc" ? "desc" : "asc")}
+          >
+            <Text style={styles.sortButtonText}>
+              {sort === "asc" ? "Oldest first" : "Newest first"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             testID="events-screen-chat-button"
             style={styles.chatButton}
             onPress={onNavigateToChat}
@@ -218,6 +251,13 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
               >
                 <Text style={styles.eventName}>{group.eventName}</Text>
                 <Text style={styles.meta}>ID: {group.eventId}</Text>
+                {group.earliestMarketTime && (
+                  <Text style={styles.meta}>
+                    Date: {new Date(group.earliestMarketTime).toLocaleDateString("en-GB", {
+                      day: "2-digit", month: "short", year: "numeric",
+                    })}
+                  </Text>
+                )}
                 <Text style={styles.meta}>
                   Markets: {group.marketIds.join(", ")}
                 </Text>
@@ -246,6 +286,20 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
                 </View>
               </View>
             ))}
+            {page < totalPages && (
+              <TouchableOpacity
+                testID="events-load-more"
+                style={styles.loadMoreButton}
+                onPress={loadMore}
+                disabled={isLoadingMore}
+              >
+                {isLoadingMore ? (
+                  <ActivityIndicator size="small" color="#007AFF" />
+                ) : (
+                  <Text style={styles.loadMoreText}>Load more</Text>
+                )}
+              </TouchableOpacity>
+            )}
           </ScrollView>
         )}
       </View>
@@ -348,6 +402,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
+  sortButton: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.4)",
+  },
+  sortButtonText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+  },
   chatButton: {
     backgroundColor: "#0056b3",
     paddingVertical: 7,
@@ -437,6 +504,20 @@ const styles = StyleSheet.create({
   badgeText: {
     color: "#fff",
     fontSize: 12,
+    fontWeight: "600",
+  },
+  loadMoreButton: {
+    margin: 16,
+    paddingVertical: 12,
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#007AFF",
+  },
+  loadMoreText: {
+    color: "#007AFF",
+    fontSize: 14,
     fontWeight: "600",
   },
 });

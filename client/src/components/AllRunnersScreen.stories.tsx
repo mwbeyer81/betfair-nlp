@@ -11,6 +11,7 @@ const MOCK_RACES: Array<{
   marketTime: string;
   marketType: string;
   marketName: string;
+  countryCode: string;
   eventId: string;
   eventName: string;
   runners: Array<{ id: number; name: string; status: string; sortPriority: number; bsp?: number }>;
@@ -22,6 +23,7 @@ const MOCK_RACES: Array<{
     marketName: "Cheltenham Chase",
     eventId: "33858191",
     eventName: "Cheltenham 1st Jan",
+    countryCode: "GB",
     runners: [
       { id: 26817268, name: "Gemirande", status: "LOSER", sortPriority: 1 },
       { id: 39281327, name: "Springwell Bay", status: "WINNER", sortPriority: 2 },
@@ -35,6 +37,7 @@ const MOCK_RACES: Array<{
     marketName: "Leopardstown 13:15",
     eventId: "33988522",
     eventName: "Leopardstown 1st Feb",
+    countryCode: "IE",
     runners: [
       { id: 21001, name: "Galopin Des Champs", status: "WINNER", sortPriority: 1, bsp: 1.95 },
       { id: 21002, name: "Meetingofthewaters", status: "LOSER", sortPriority: 2, bsp: 5.5 },
@@ -47,6 +50,7 @@ const MOCK_RACES: Array<{
     marketName: "Leopardstown 13:50",
     eventId: "33988522",
     eventName: "Leopardstown 1st Feb",
+    countryCode: "IE",
     runners: [
       { id: 22001, name: "State Man", status: "WINNER", sortPriority: 1, bsp: 1.4 },
       { id: 22002, name: "Brighterdaysahead", status: "LOSER", sortPriority: 2, bsp: 6.0 },
@@ -59,6 +63,8 @@ const MOCK_PRICE_UPDATES = [
   { _id: "pu2", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 1.95, timestamp: "2025-02-01T13:05:00.000Z", changeId: "c2", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
 ];
 
+const TOTAL_RUNNERS_IN_DB = MOCK_RACES.reduce((s, r) => s + r.runners.length, 0); // 7
+
 const defaultHandlers = [
   http.get(`${BASE}/api/runners`, () =>
     HttpResponse.json({
@@ -69,9 +75,15 @@ const defaultHandlers = [
       page: 1,
       limit: 20,
       totalPages: 1,
-      totalRunners: MOCK_RACES.reduce((s, r) => s + r.runners.length, 0),
+      totalRunners: TOTAL_RUNNERS_IN_DB,
       pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58 },
     })
+  ),
+  http.get(`${BASE}/api/stats`, () =>
+    HttpResponse.json({ success: true, data: { totalRaces: MOCK_RACES.length, totalRunners: TOTAL_RUNNERS_IN_DB } })
+  ),
+  http.get(`${BASE}/api/runners/countries`, () =>
+    HttpResponse.json({ success: true, data: ["GB", "IE"] })
   ),
   http.get(`${BASE}/api/runners/pnl-stats`, () =>
     HttpResponse.json({ success: true, data: { staked: 3.97, returns: 5.55, pnl: 1.58 } })
@@ -99,14 +111,22 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
+const countriesHandler = http.get(`${BASE}/api/runners/countries`, () =>
+  HttpResponse.json({ success: true, data: ["GB", "IE"] })
+);
+
 export const Loading: Story = {
   parameters: {
     msw: {
       handlers: [
         http.get(`${BASE}/api/runners`, async () => {
           await new Promise(r => setTimeout(r, 99999));
-          return HttpResponse.json({ success: true, data: [], count: 0, totalRunners: 0 });
+          return HttpResponse.json({ success: true, data: [], count: 0 });
         }),
+        http.get(`${BASE}/api/stats`, () =>
+          HttpResponse.json({ success: true, data: { totalRaces: 0, totalRunners: 0 } })
+        ),
+        countriesHandler,
       ],
     },
   },
@@ -114,7 +134,7 @@ export const Loading: Story = {
 
 export const WithError: Story = {
   parameters: {
-    msw: { handlers: [http.get(`${BASE}/api/runners`, () => HttpResponse.error())] },
+    msw: { handlers: [http.get(`${BASE}/api/runners`, () => HttpResponse.error()), countriesHandler] },
   },
 };
 
@@ -123,8 +143,12 @@ export const Empty: Story = {
     msw: {
       handlers: [
         http.get(`${BASE}/api/runners`, () =>
-          HttpResponse.json({ success: true, data: [], count: 0, totalRunners: 0 })
+          HttpResponse.json({ success: true, data: [], count: 0 })
         ),
+        http.get(`${BASE}/api/stats`, () =>
+          HttpResponse.json({ success: true, data: { totalRaces: 0, totalRunners: 0 } })
+        ),
+        countriesHandler,
       ],
     },
   },
@@ -139,7 +163,7 @@ export const ScreenLoaded: Story = {
 
     // Default view: BSP only — 4 runners across 2 Leopardstown races
     await expect(canvas.findByText("All Runners")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("4 runners · 2/3 races")).resolves.toBeInTheDocument();
+    await expect(canvas.findByText("4/7 runners · 2/3 races")).resolves.toBeInTheDocument();
   },
 };
 

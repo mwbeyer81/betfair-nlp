@@ -10,6 +10,7 @@ export interface EventGroup {
   eventName: string;
   marketIds: string[];
   count: number;
+  earliestMarketTime: string;
 }
 
 export interface SummaryStats {
@@ -22,6 +23,7 @@ export interface RaceWithRunners {
   marketTime: string;
   marketType: string;
   marketName: string;
+  countryCode: string;
   runners: Array<{ id: number; name: string; status: string; sortPriority: number; bsp?: number }>;
 }
 
@@ -121,18 +123,21 @@ export class MarketDefinitionDAO {
       .toArray();
   }
 
-  /**
-   * Group market definitions by eventId.
-   * count = number of unique markets (not raw snapshot docs).
-   */
-  public async groupByEventId(): Promise<EventGroup[]> {
-    return await this.collection
-      .aggregate<EventGroup>([
+  public async groupByEventId(
+    page: number = 1,
+    limit: number = 20,
+    sort: "asc" | "desc" = "asc"
+  ): Promise<{ data: EventGroup[]; total: number }> {
+    const sortDir = sort === "asc" ? 1 : -1;
+    const skip = (page - 1) * limit;
+    const result = await this.collection
+      .aggregate<{ data: EventGroup[]; total: [{ count: number }] }>([
         {
           $group: {
             _id: "$eventId",
             eventName: { $first: "$eventName" },
             marketIds: { $addToSet: "$marketId" },
+            earliestMarketTime: { $min: "$marketTime" },
           },
         },
         {
@@ -142,11 +147,20 @@ export class MarketDefinitionDAO {
             eventName: 1,
             marketIds: 1,
             count: { $size: "$marketIds" },
+            earliestMarketTime: 1,
           },
         },
-        { $sort: { count: -1 } },
+        { $sort: { earliestMarketTime: sortDir } },
+        {
+          $facet: {
+            data: [{ $skip: skip }, { $limit: limit }],
+            total: [{ $count: "count" }],
+          },
+        },
       ])
       .toArray();
+    const { data, total } = result[0];
+    return { data, total: total[0]?.count ?? 0 };
   }
 
   /**
@@ -228,12 +242,16 @@ export class MarketDefinitionDAO {
    */
   public async getAllRunnersByRace(
     page = 1,
-    limit = 20
-  ): Promise<{ data: RaceWithEvent[]; total: number }> {
+    limit = 20,
+    minRunners = 1,
+    maxRunners = 30,
+    countries: string[] = []
+  ): Promise<{ data: RaceWithEvent[]; total: number; totalRunners: number; pnlStats: { staked: number; returns: number; pnl: number } }> {
     const skip = (page - 1) * limit;
+    const countryMatch = countries.length > 0 ? { countryCode: { $in: countries } } : {};
 
     const basePipeline = [
-      { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] } } },
+      { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] }, ...countryMatch } },
       { $sort: { timestamp: -1 } },
       {
         $group: {
@@ -243,6 +261,7 @@ export class MarketDefinitionDAO {
           marketTime: { $first: "$marketTime" },
           marketType: { $first: "$marketType" },
           marketName: { $first: "$name" },
+          countryCode: { $first: "$countryCode" },
           runners: { $first: "$runners" },
         },
       },
@@ -257,6 +276,7 @@ export class MarketDefinitionDAO {
           marketTime: { $first: "$marketTime" },
           marketType: { $first: "$marketType" },
           marketName: { $first: "$marketName" },
+          countryCode: { $first: "$countryCode" },
           runners: {
             $push: {
               id: "$runners.id",
@@ -265,6 +285,16 @@ export class MarketDefinitionDAO {
               sortPriority: "$runners.sortPriority",
               bsp: "$runners.bsp",
             },
+          },
+        },
+      },
+      {
+        $match: {
+          $expr: {
+            $and: [
+              { $gte: [{ $size: "$runners" }, minRunners] },
+              { $lte: [{ $size: "$runners" }, maxRunners] },
+            ],
           },
         },
       },
@@ -280,25 +310,56 @@ export class MarketDefinitionDAO {
         marketTime: 1,
         marketType: 1,
         marketName: 1,
+        countryCode: 1,
         runners: 1,
       },
     };
 
     const [result] = await this.collection
-      .aggregate<{ data: RaceWithEvent[]; total: [{ count: number }] }>([
+      .aggregate<{
+        data: RaceWithEvent[];
+        total: [{ count: number }];
+        totalRunners: [{ count: number }];
+        pnlStats: [{ staked: number; returns: number }];
+      }>([
         ...basePipeline,
         {
           $facet: {
             data: [{ $skip: skip }, { $limit: limit }, projectStage],
             total: [{ $count: "count" }],
+            totalRunners: [{ $group: { _id: null, count: { $sum: { $size: "$runners" } } } }],
+            pnlStats: [
+              { $unwind: "$runners" },
+              { $match: { "runners.bsp": { $exists: true, $gt: 1 } } },
+              {
+                $group: {
+                  _id: null,
+                  staked: { $sum: { $divide: [1, { $subtract: ["$runners.bsp", 1] }] } },
+                  returns: {
+                    $sum: {
+                      $cond: [
+                        { $eq: ["$runners.status", "WINNER"] },
+                        { $add: [{ $divide: [1, { $subtract: ["$runners.bsp", 1] }] }, 1] },
+                        0,
+                      ],
+                    },
+                  },
+                },
+              },
+            ],
           },
         },
       ])
       .toArray();
 
+    const staked = result?.pnlStats?.[0]?.staked ?? 0;
+    const returns = result?.pnlStats?.[0]?.returns ?? 0;
+
     return {
       data: result?.data ?? [],
       total: result?.total?.[0]?.count ?? 0,
+      totalRunners: result?.totalRunners?.[0]?.count ?? 0,
+      pnlStats: { staked, returns, pnl: returns - staked },
     };
   }
 
@@ -369,6 +430,14 @@ export class MarketDefinitionDAO {
       .toArray();
 
     return result[0] ?? { totalRaces: 0, totalRunners: 0 };
+  }
+
+  public async getDistinctCountryCodes(): Promise<string[]> {
+    const codes = await this.collection.distinct("countryCode", {
+      marketType: { $in: ["WIN", "ANTEPOST_WIN"] },
+      countryCode: { $exists: true, $ne: "" },
+    });
+    return (codes as string[]).filter(Boolean).sort();
   }
 
   /**

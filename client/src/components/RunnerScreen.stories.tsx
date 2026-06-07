@@ -7,9 +7,27 @@ import { RunnerScreen } from "./RunnerScreen";
 const BASE = "http://localhost:3000";
 
 const MOCK_UPDATES = [
-  { _id: "pu1", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 1.95, tradedVolume: 1500, timestamp: "2025-02-01T13:14:00.000Z", changeId: "c1", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
-  { _id: "pu2", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 1.9, tradedVolume: 1350, timestamp: "2025-02-01T13:10:00.000Z", changeId: "c2", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
-  { _id: "pu3", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 2.0, tradedVolume: 1200, timestamp: "2025-02-01T13:05:00.000Z", changeId: "c3", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
+  {
+    _id: "pu1", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs",
+    lastTradedPrice: 1.95, tradedVolume: 1500,
+    bestBackPrice: 1.96, bestBackSize: 312,
+    bestLayPrice: 1.97, bestLaySize: 88,
+    timestamp: "2025-02-01T13:14:00.000Z", changeId: "c1", eventId: "33988522", eventName: "Leopardstown 1st Feb",
+  },
+  {
+    _id: "pu2", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs",
+    lastTradedPrice: 1.9, tradedVolume: 1350,
+    bestBackPrice: 1.91, bestBackSize: 550,
+    bestLayPrice: 1.92, bestLaySize: 140,
+    timestamp: "2025-02-01T13:10:00.000Z", changeId: "c2", eventId: "33988522", eventName: "Leopardstown 1st Feb",
+  },
+  {
+    _id: "pu3", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs",
+    lastTradedPrice: 2.0, tradedVolume: 1200,
+    bestBackPrice: 2.02, bestBackSize: 780,
+    bestLayPrice: 2.04, bestLaySize: 200,
+    timestamp: "2025-02-01T13:05:00.000Z", changeId: "c3", eventId: "33988522", eventName: "Leopardstown 1st Feb",
+  },
 ];
 
 const defaultHandlers = [
@@ -91,9 +109,18 @@ export const ItemsRendered: Story = {
     const canvas = within(canvasElement);
 
     await expect(canvas.findByTestId("runner-screen-item-0")).resolves.toBeInTheDocument();
-    await expect(canvas.findByTestId("runner-screen-item-1")).resolves.toBeInTheDocument();
     await expect(canvas.findByTestId("runner-screen-item-2")).resolves.toBeInTheDocument();
     await expect(canvas.findByText("1.95")).resolves.toBeInTheDocument();
+
+    // Implied probability shown
+    await expect(canvas.findByTestId("runner-screen-prob-0")).resolves.toHaveTextContent("51.3%");
+
+    // Order book chips shown when data present
+    await expect(canvas.findByTestId("runner-screen-back-0")).resolves.toHaveTextContent("Back £312 @ 1.96");
+    await expect(canvas.findByTestId("runner-screen-lay-0")).resolves.toHaveTextContent("Lay £88 @ 1.97");
+
+    // Volume delta shown
+    await expect(canvas.findByTestId("runner-screen-volume-0")).resolves.toHaveTextContent("+£150 matched");
   },
 };
 

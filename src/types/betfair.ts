@@ -59,8 +59,11 @@ export interface Runner {
 export type RunnerStatus = "ACTIVE" | "HIDDEN" | "WINNER" | "LOSER";
 
 export interface RunnerChange {
-  ltp: number; // Last traded price
-  id: number; // Runner ID
+  ltp: number;  // Last traded price
+  id: number;   // Runner ID
+  tv?: number;  // Total volume matched on this runner (cumulative)
+  batb?: [number, number, number][]; // Best available to back: [level, price, size]
+  batl?: [number, number, number][]; // Best available to lay:  [level, price, size]
 }
 
 // Document types for MongoDB collections
@@ -107,6 +110,11 @@ export interface PriceUpdateDocument {
   runnerId: number;
   runnerName: string;
   lastTradedPrice: number;
+  tradedVolume?: number;      // Total matched on runner (cumulative)
+  bestBackPrice?: number;     // Best available back price
+  bestBackSize?: number;      // £ available to back at best price
+  bestLayPrice?: number;      // Best available lay price
+  bestLaySize?: number;       // £ available to lay at best price
   timestamp: Date;
   changeId: string;
   publishTime: Date;

@@ -13,6 +13,7 @@ const MOCK_RACES: RaceWithEvent[] = [
     marketTime: "2025-01-01T14:01:00.000Z",
     marketType: "ANTEPOST_WIN",
     marketName: "Cheltenham Chase",
+    countryCode: "GB",
     eventId: "33858191",
     eventName: "Cheltenham 1st Jan",
     runners: [
@@ -26,6 +27,7 @@ const MOCK_RACES: RaceWithEvent[] = [
     marketTime: "2025-02-01T13:15:00.000Z",
     marketType: "WIN",
     marketName: "Leopardstown 13:15",
+    countryCode: "IE",
     eventId: "33988522",
     eventName: "Leopardstown 1st Feb",
     runners: [
@@ -38,6 +40,7 @@ const MOCK_RACES: RaceWithEvent[] = [
     marketTime: "2025-02-01T13:50:00.000Z",
     marketType: "WIN",
     marketName: "Leopardstown 13:50",
+    countryCode: "IE",
     eventId: "33988522",
     eventName: "Leopardstown 1st Feb",
     runners: [

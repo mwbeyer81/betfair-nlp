@@ -5,6 +5,7 @@ export interface EventGroup {
   eventName: string;
   marketIds: string[];
   count: number;
+  earliestMarketTime: string;
 }
 
 export interface PriceUpdate {
@@ -13,7 +14,11 @@ export interface PriceUpdate {
   runnerId: number;
   runnerName: string;
   lastTradedPrice: number;
-  tradedVolume?: number;
+  tradedVolume?: number;    // Total matched on runner (cumulative £)
+  bestBackPrice?: number;   // Best available back price
+  bestBackSize?: number;    // £ available to back at best price
+  bestLayPrice?: number;    // Best available lay price
+  bestLaySize?: number;     // £ available to lay at best price
   timestamp: string;
   changeId: string;
   publishTime?: string;
@@ -39,6 +44,7 @@ export interface Race {
   marketTime: string;
   marketType: string;
   marketName: string;
+  countryCode: string;
   runners: Runner[];
 }
 
@@ -150,9 +156,25 @@ class ChatApi {
     return result.data;
   }
 
-  async getAllRunners(page = 1, limit = 20): Promise<RunnersPage> {
+  async getRunnerCountries(): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/api/runners/countries`, {
+      headers: { Authorization: `Basic ${this.credentials}` },
+    });
+    if (!response.ok) throw new Error("Failed to fetch countries");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getAllRunners(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = []): Promise<RunnersPage> {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+      minRunners: String(minRunners),
+      maxRunners: String(maxRunners),
+    });
+    if (countries.length > 0) params.set("countries", countries.join(","));
     const response = await fetch(
-      `${this.baseUrl}/api/runners?page=${page}&limit=${limit}`,
+      `${this.baseUrl}/api/runners?${params}`,
       { headers: { Authorization: `Basic ${this.credentials}` } }
     );
     if (!response.ok) throw new Error("Failed to fetch all runners");
@@ -177,13 +199,18 @@ class ChatApi {
     return result.data;
   }
 
-  async getEventGroups(): Promise<EventGroup[]> {
-    const response = await fetch(`${this.baseUrl}/api/events/grouped`, {
+  async getEventGroups(
+    page: number = 1,
+    limit: number = 20,
+    sort: "asc" | "desc" = "asc"
+  ): Promise<{ data: EventGroup[]; total: number; totalPages: number }> {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit), sort });
+    const response = await fetch(`${this.baseUrl}/api/events/grouped?${params}`, {
       headers: { Authorization: `Basic ${this.credentials}` },
     });
     if (!response.ok) throw new Error("Failed to fetch event groups");
     const result = await response.json();
-    return result.data;
+    return { data: result.data, total: result.total, totalPages: result.totalPages };
   }
 
   async sendMessage(message: string): Promise<ChatResponse> {

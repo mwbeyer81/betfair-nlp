@@ -126,6 +126,28 @@ All play-function tests must pass before offering to commit.
 
 ---
 
+## Server health check after every code change
+
+After completing any backend code change (`src/`), verify the server is still running:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/stats
+```
+
+- If it returns `200`, the server is healthy — proceed.
+- If the request fails or returns an unexpected status, the server has likely crashed. Restart it:
+
+```bash
+pkill -f "ts-node" || true
+cd /Users/mwbeyer/betfair-nlp && npm run server &
+sleep 3
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/stats
+```
+
+Do not offer to commit until the server is confirmed running.
+
+---
+
 ## Committing changes after every prompt
 
 After completing code changes in response to a user prompt, **always end your response by offering to commit**. Show the user a one-line summary of what changed and ask:
