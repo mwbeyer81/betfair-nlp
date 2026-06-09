@@ -95,7 +95,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showNoBsp, setShowNoBsp] = useState(false);
   const [minRunners, setMinRunners] = useState(1);
   const [maxRunners, setMaxRunners] = useState(20);
   const [draftMin, setDraftMin] = useState("1");
@@ -198,10 +197,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const visibleRaces = races
     .map(race => ({
       ...race,
-      runners: race.runners.filter(r => {
-        if (r.bsp == null) return showNoBsp;
-        return r.bsp >= minBsp && r.bsp <= maxBsp;
-      }),
+      runners: race.runners.filter(r => r.bsp != null && r.bsp > 1 && r.bsp >= minBsp && r.bsp <= maxBsp),
     }))
     .filter(race => race.runners.length > 0);
 
@@ -238,15 +234,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             </Text>
           )}
         </View>
-        <TouchableOpacity
-          testID="all-runners-bsp-toggle"
-          style={[styles.toggleButton, showNoBsp && styles.toggleButtonActive]}
-          onPress={() => setShowNoBsp(v => !v)}
-        >
-          <Text style={styles.toggleButtonText}>
-            {showNoBsp ? "BSP only" : "Show all"}
-          </Text>
-        </TouchableOpacity>
         <TouchableOpacity
           testID="all-runners-screen-events-button"
           style={styles.eventsButton}
@@ -563,23 +550,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "rgba(255,255,255,0.8)",
     marginTop: 2,
-  },
-  toggleButton: {
-    backgroundColor: "rgba(255,255,255,0.2)",
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.4)",
-  },
-  toggleButtonActive: {
-    backgroundColor: "rgba(255,255,255,0.35)",
-  },
-  toggleButtonText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "600",
   },
   eventsButton: {
     backgroundColor: "#0056b3",

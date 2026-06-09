@@ -14,22 +14,8 @@ const MOCK_RACES: Array<{
   countryCode: string;
   eventId: string;
   eventName: string;
-  runners: Array<{ id: number; name: string; status: string; sortPriority: number; bsp?: number }>;
+  runners: Array<{ id: number; name: string; status: string; sortPriority: number; bsp: number }>;
 }> = [
-  {
-    marketId: "1.237066150",
-    marketTime: "2025-01-01T14:01:00.000Z",
-    marketType: "ANTEPOST_WIN",
-    marketName: "Cheltenham Chase",
-    eventId: "33858191",
-    eventName: "Cheltenham 1st Jan",
-    countryCode: "GB",
-    runners: [
-      { id: 26817268, name: "Gemirande", status: "LOSER", sortPriority: 1 },
-      { id: 39281327, name: "Springwell Bay", status: "WINNER", sortPriority: 2 },
-      { id: 43581487, name: "Madara", status: "LOSER", sortPriority: 3 },
-    ],
-  },
   {
     marketId: "1.238923739",
     marketTime: "2025-02-01T13:15:00.000Z",
@@ -63,7 +49,7 @@ const MOCK_PRICE_UPDATES = [
   { _id: "pu2", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 1.95, timestamp: "2025-02-01T13:05:00.000Z", changeId: "c2", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
 ];
 
-const TOTAL_RUNNERS_IN_DB = MOCK_RACES.reduce((s, r) => s + r.runners.length, 0); // 7
+const TOTAL_RUNNERS_IN_DB = MOCK_RACES.reduce((s, r) => s + r.runners.length, 0); // 4
 
 const filterBoundsHandler = http.get(`${BASE}/api/runners/filter-bounds`, () =>
   HttpResponse.json({ success: true, data: { maxRunnersPerRace: 29, maxBsp: 1000, minBsp: 1.1 } })
@@ -168,9 +154,8 @@ export const ScreenLoaded: Story = {
     await expect(canvas.getByTestId("all-runners-screen")).toBeInTheDocument();
     await expect(canvas.findByTestId("all-runners-list")).resolves.toBeInTheDocument();
 
-    // Default view: BSP only — 4 runners across 2 Leopardstown races
     await expect(canvas.findByText("All Runners")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("4/7 runners · 2/3 races")).resolves.toBeInTheDocument();
+    await expect(canvas.findByText("4/4 runners · 2/2 races")).resolves.toBeInTheDocument();
   },
 };
 
@@ -178,8 +163,6 @@ export const EventSections: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    // Cheltenham runners have no BSP so the section is hidden by default
-    await expect(canvas.queryByTestId("all-runners-event-33858191")).not.toBeInTheDocument();
     await expect(canvas.findByTestId("all-runners-event-33988522")).resolves.toBeInTheDocument();
     await expect(canvas.findByText("Leopardstown 1st Feb")).resolves.toBeInTheDocument();
   },
@@ -189,8 +172,6 @@ export const RaceAndRunnerRows: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    // Cheltenham race (no BSP runners) is hidden by default
-    await expect(canvas.queryByTestId("all-runners-race-1.237066150")).not.toBeInTheDocument();
     await expect(canvas.findByTestId("all-runners-race-1.238923739")).resolves.toBeInTheDocument();
     await expect(canvas.findByText("Galopin Des Champs")).resolves.toBeInTheDocument();
   },
@@ -251,39 +232,6 @@ export const PerRunnerPnl: Story = {
     // Brighterdaysahead: LOSER at SP 6.0, stake £0.20 → -£0.20
     await expect(canvas.getByTestId("all-runner-pnl-22002")).toHaveTextContent("-£0.20");
     await expect(canvas.getByTestId("all-runner-stake-22002")).toHaveTextContent("Bet £0.20");
-    // Cheltenham runner (no BSP) → no stake or P&L
-    await expect(canvas.queryByTestId("all-runner-pnl-26817268")).not.toBeInTheDocument();
-    await expect(canvas.queryByTestId("all-runner-stake-26817268")).not.toBeInTheDocument();
-  },
-};
-
-export const ShowAllToggle: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    // Default: Cheltenham hidden, button reads "Show all"
-    await expect(canvas.findByTestId("all-runners-list")).resolves.toBeInTheDocument();
-    await expect(canvas.queryByTestId("all-runners-event-33858191")).not.toBeInTheDocument();
-    const toggle = canvas.getByTestId("all-runners-bsp-toggle");
-    await expect(toggle).toHaveTextContent("Show all");
-
-    // After click: all runners visible, button reads "BSP only"
-    await userEvent.click(toggle);
-    await expect(canvas.findByTestId("all-runners-event-33858191")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("Cheltenham 1st Jan")).resolves.toBeInTheDocument();
-    await expect(toggle).toHaveTextContent("BSP only");
-  },
-};
-
-export const NoBspWhenAbsent: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    // Cheltenham ANTEPOST_WIN runners have no bsp
-    const cheltenhamRunners = MOCK_RACES.filter(r => r.eventId === "33858191").flatMap(r => r.runners);
-    for (const runner of cheltenhamRunners) {
-      await expect(canvas.queryByTestId(`all-runner-bsp-${runner.id}`)).not.toBeInTheDocument();
-    }
   },
 };
 

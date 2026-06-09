@@ -208,7 +208,7 @@ export class MarketDefinitionDAO {
           },
         },
         { $unwind: "$runners" },
-        { $match: { "runners.status": { $ne: "REMOVED" } } },
+        { $match: { "runners.status": { $ne: "REMOVED" }, "runners.bsp": { $exists: true, $gt: 1 } } },
         { $sort: { marketTime: 1, "runners.sortPriority": 1 } },
         {
           $group: {
@@ -274,7 +274,7 @@ export class MarketDefinitionDAO {
         },
       },
       { $unwind: "$runners" },
-      { $match: { "runners.status": { $ne: "REMOVED" } } },
+      { $match: { "runners.status": { $ne: "REMOVED" }, "runners.bsp": { $exists: true, $gt: 1 } } },
       { $sort: { marketTime: 1, "runners.sortPriority": 1 } },
       {
         $group: {
@@ -460,7 +460,7 @@ export class MarketDefinitionDAO {
         { $sort: { timestamp: -1 } },
         { $group: { _id: "$marketId", runners: { $first: "$runners" } } },
         { $unwind: "$runners" },
-        { $match: { "runners.status": { $ne: "REMOVED" } } },
+        { $match: { "runners.status": { $ne: "REMOVED" }, "runners.bsp": { $exists: true, $gt: 1 } } },
         {
           $facet: {
             runnerCounts: [
@@ -468,7 +468,6 @@ export class MarketDefinitionDAO {
               { $group: { _id: null, maxRunners: { $max: "$count" } } },
             ],
             bspBounds: [
-              { $match: { "runners.bsp": { $exists: true, $gt: 1 } } },
               {
                 $group: {
                   _id: null,
