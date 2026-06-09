@@ -9,7 +9,7 @@ import {
   StyleSheet,
   SafeAreaView,
 } from "react-native";
-import { chatApi, RaceWithEvent, Runner, PnlStats } from "../services/chatApi";
+import { chatApi, RaceWithEvent, Runner, PnlStats, RunnerFilterBounds } from "../services/chatApi";
 
 interface AllRunnersScreenProps {
   onNavigateToEvents: () => void;
@@ -43,17 +43,18 @@ function formatPct(pnl: number, staked: number): string {
 }
 
 function computeRangePnl(races: RaceWithEvent[]): PnlStats {
-  let staked = 0, returns = 0;
+  let staked = 0, returns = 0, count = 0;
   for (const race of races) {
     for (const runner of race.runners) {
       if (runner.bsp != null && runner.bsp > 1) {
+        count++;
         const stake = 1 / (runner.bsp - 1);
         staked += stake;
         if (runner.status === "WINNER") returns += stake + 1;
       }
     }
   }
-  return { staked, returns, pnl: returns - staked };
+  return { staked, returns, pnl: returns - staked, count };
 }
 
 function runnerPnl(runner: Runner): number | null {
@@ -115,18 +116,22 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
   const [pnlStats, setPnlStats] = useState<PnlStats>({ staked: 0, returns: 0, pnl: 0 });
+  const [filterBounds, setFilterBounds] = useState<RunnerFilterBounds | null>(null);
   const PAGE_SIZE = 20;
 
   function applyFilter() {
+    const maxRunnersLimit = filterBounds?.maxRunnersPerRace ?? 100;
+    const maxBspLimit = filterBounds?.maxBsp ?? 100000;
+
     const min = Math.max(1, parseInt(draftMin) || 1);
-    const max = Math.max(min, Math.min(30, parseInt(draftMax) || 30));
+    const max = Math.max(min, Math.min(maxRunnersLimit, parseInt(draftMax) || maxRunnersLimit));
     setDraftMin(String(min));
     setDraftMax(String(max));
     setMinRunners(min);
     setMaxRunners(max);
 
     const from = Math.max(1, parseInt(draftFrom) || 1);
-    const toRaw = Math.max(from, parseInt(draftTo) || totalRaces);
+    const toRaw = Math.min(totalRaces, Math.max(from, parseInt(draftTo) || totalRaces));
     const to = toRaw >= totalRaces ? null : toRaw;
     setDraftFrom(String(from));
     setDraftTo(String(to ?? totalRaces));
@@ -134,7 +139,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setToRow(to);
 
     const minB = Math.max(1, parseFloat(draftMinBsp) || 1);
-    const maxB = Math.max(minB, parseFloat(draftMaxBsp) || 1000);
+    const maxB = Math.min(maxBspLimit, Math.max(minB, parseFloat(draftMaxBsp) || maxBspLimit));
     setDraftMinBsp(String(minB));
     setDraftMaxBsp(String(maxB));
     setMinBsp(minB);
@@ -143,9 +148,10 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setFetchTrigger(t => t + 1);
   }
 
-  // Fetch all available countries once on mount
+  // Fetch static lookup data once on mount
   useEffect(() => {
     chatApi.getRunnerCountries().then(setAvailableCountries).catch(() => {});
+    chatApi.getRunnerFilterBounds().then(setFilterBounds).catch(() => {});
   }, []);
 
   // Reload races from page 1 on mount and whenever Apply is pressed (fetchTrigger changes)
@@ -155,7 +161,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       setError(null);
       setRaces([]);
       try {
-        const result = await chatApi.getAllRunners(1, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries]);
+        const result = await chatApi.getAllRunners(1, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp);
         setRaces(result.data);
         setPage(1);
         setTotalPages(result.totalPages);
@@ -177,7 +183,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setIsLoadingMore(true);
     try {
       const next = page + 1;
-      const result = await chatApi.getAllRunners(next, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries]);
+      const result = await chatApi.getAllRunners(next, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp);
       setRaces(prev => [...prev, ...result.data]);
       setPage(next);
       setTotalPages(result.totalPages);
@@ -207,7 +213,8 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const effectiveToRow = toRow ?? visibleRaces.length;
   const selectedRaces = visibleRaces.filter((_, i) => i + 1 >= fromRow && i + 1 <= effectiveToRow);
   const displayRaces = hasRowRange ? selectedRaces : visibleRaces;
-  const displayPnl = (hasRowRange || hasSpFilter || hasCountryFilter) ? computeRangePnl(selectedRaces) : pnlStats;
+  // Row range = client-side subset → compute locally; everything else → use server pnlStats (stable across Load More)
+  const displayPnl = hasRowRange ? computeRangePnl(selectedRaces) : pnlStats;
 
   const byEvent = displayRaces.reduce<Record<string, { eventName: string; races: RaceWithEvent[] }>>(
     (acc, race) => {
@@ -250,7 +257,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       </View>
 
       <View testID="all-runners-filter-bar" style={styles.filterBar}>
-        <Text style={styles.filterLabel}>Runners per race</Text>
+        <Text style={styles.filterLabel}>Runners</Text>
         <View style={styles.filterStepper}>
           <Text style={styles.filterStepperLabel}>Min</Text>
           <TouchableOpacity
@@ -281,7 +288,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           <TouchableOpacity
             testID="all-runners-max-dec"
             style={styles.stepBtn}
-            onPress={() => setDraftMax(v => String(Math.max(1, (parseInt(v) || 30) - 1)))}
+            onPress={() => setDraftMax(v => String(Math.max(1, (parseInt(v) || 20) - 1)))}
           >
             <Text style={styles.stepBtnText}>−</Text>
           </TouchableOpacity>
@@ -291,15 +298,19 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             value={draftMax}
             onChangeText={setDraftMax}
             keyboardType="numeric"
-            maxLength={2}
+            maxLength={3}
           />
           <TouchableOpacity
             testID="all-runners-max-inc"
-            style={styles.stepBtn}
-            onPress={() => setDraftMax(v => String(Math.min(30, (parseInt(v) || 30) + 1)))}
+            style={[styles.stepBtn, filterBounds != null && (parseInt(draftMax) || 0) >= filterBounds.maxRunnersPerRace && styles.stepBtnDisabled]}
+            disabled={filterBounds != null && (parseInt(draftMax) || 0) >= filterBounds.maxRunnersPerRace}
+            onPress={() => setDraftMax(v => String(Math.min(filterBounds?.maxRunnersPerRace ?? 100, (parseInt(v) || 20) + 1)))}
           >
             <Text style={styles.stepBtnText}>+</Text>
           </TouchableOpacity>
+          {filterBounds != null && (
+            <Text testID="all-runners-max-bound" style={styles.boundsHint}>of {filterBounds.maxRunnersPerRace}</Text>
+          )}
         </View>
         <View style={styles.filterDivider} />
         <View style={styles.filterStepper}>
@@ -321,6 +332,11 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             keyboardType="numeric"
             maxLength={7}
           />
+          {filterBounds != null && (
+            <Text testID="all-runners-sp-bound" style={styles.boundsHint}>
+              ({filterBounds.minBsp.toFixed(1)}–{Math.ceil(filterBounds.maxBsp)})
+            </Text>
+          )}
         </View>
         <View style={styles.filterDivider} />
         <View style={styles.filterStepper}>
@@ -331,17 +347,20 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             value={draftFrom}
             onChangeText={setDraftFrom}
             keyboardType="numeric"
-            maxLength={4}
+            maxLength={5}
           />
-          <Text style={styles.filterStepperLabel}>to</Text>
+          <Text style={styles.filterStepperLabel}>–</Text>
           <TextInput
             testID="all-runners-to-row"
             style={styles.stepInput}
             value={draftTo}
             onChangeText={setDraftTo}
             keyboardType="numeric"
-            maxLength={4}
+            maxLength={5}
           />
+          {totalRaces > 0 && (
+            <Text testID="all-runners-race-bound" style={styles.boundsHint}>/{totalRaces}</Text>
+          )}
         </View>
         <TouchableOpacity
           testID="all-runners-filter-apply"
@@ -388,13 +407,14 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       {!isLoading && displayPnl.staked > 0 && (
         <View testID="all-runners-pnl-bar" style={styles.pnlBar}>
           <Text style={styles.pnlLabel}>
-            {[
-              hasCountryFilter && [...selectedCountries].join("/"),
-              hasSpFilter && `SP ${minBsp}–${maxBsp}`,
-              hasRowRange && `races ${fromRow}–${effectiveToRow}`,
-            ].filter(Boolean).join(" · ") || "Stake to win £1 per runner"}
+            {hasRowRange ? `races ${fromRow}–${effectiveToRow}` : "Stake to win £1 per runner"}
           </Text>
           <View style={styles.pnlStats}>
+            {displayPnl.count != null && (
+              <Text testID="all-runners-pnl-count" style={styles.pnlStat}>
+                <Text style={styles.pnlStatLabel}>Horses </Text>{displayPnl.count}
+              </Text>
+            )}
             <Text style={styles.pnlStat}>
               <Text style={styles.pnlStatLabel}>Staked </Text>{formatGbp(displayPnl.staked)}
             </Text>
@@ -605,6 +625,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#007AFF",
     alignItems: "center",
     justifyContent: "center",
+  },
+  stepBtnDisabled: {
+    backgroundColor: "#b0c4de",
+    opacity: 0.6,
+  },
+  boundsHint: {
+    fontSize: 10,
+    color: "#8a9ab5",
+    marginLeft: 3,
+    fontWeight: "500",
   },
   stepBtnText: {
     color: "#fff",

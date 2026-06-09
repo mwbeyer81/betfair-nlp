@@ -269,6 +269,18 @@ app.get("/api/runners/pnl-stats", async (req, res) => {
   }
 });
 
+app.get("/api/runners/filter-bounds", async (req, res) => {
+  try {
+    if (!betfairService) {
+      return res.status(503).json({ success: false, error: "Service not initialized" });
+    }
+    const bounds = await betfairService.getRunnerFilterBounds();
+    res.status(200).json({ success: true, data: bounds });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch filter bounds" });
+  }
+});
+
 app.get("/api/runners/countries", async (req, res) => {
   try {
     if (!betfairService) {
@@ -293,8 +305,10 @@ app.get("/api/runners", async (req, res) => {
     const countries = req.query.countries
       ? (req.query.countries as string).split(",").map(c => c.trim()).filter(Boolean)
       : [];
+    const minBsp = Math.max(1, parseFloat(req.query.minBsp as string) || 1);
+    const maxBsp = Math.min(100000, parseFloat(req.query.maxBsp as string) || 1000);
     const { data, total, totalRunners, pnlStats } =
-      await betfairService.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries);
+      await betfairService.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp);
     const totalPages = Math.ceil(total / limit);
     res.status(200).json({
       success: true,

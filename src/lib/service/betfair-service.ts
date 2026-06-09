@@ -9,7 +9,7 @@ import {
   MarketAnalysis,
   EventSummary,
 } from "../../types/betfair";
-import { MarketDefinitionDAO, EventGroup, RaceWithRunners, RaceWithEvent, SummaryStats } from "../dao/market-definition-dao";
+import { MarketDefinitionDAO, EventGroup, RaceWithRunners, RaceWithEvent, SummaryStats, RunnerFilterBounds } from "../dao/market-definition-dao";
 import { PriceUpdateDAO } from "../dao/price-update-dao";
 import { DatabaseConnection } from "../../config/database";
 
@@ -70,9 +70,11 @@ export class BetfairService {
     limit = 20,
     minRunners = 1,
     maxRunners = 30,
-    countries: string[] = []
-  ): Promise<{ data: RaceWithEvent[]; total: number; totalRunners: number; pnlStats: { staked: number; returns: number; pnl: number } }> {
-    return this.marketDefinitionDAO.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries);
+    countries: string[] = [],
+    minBsp = 1,
+    maxBsp = 1000
+  ): Promise<{ data: RaceWithEvent[]; total: number; totalRunners: number; pnlStats: { staked: number; returns: number; pnl: number; count: number } }> {
+    return this.marketDefinitionDAO.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp);
   }
 
   public async getRunnersPnlStats(): Promise<{ staked: number; returns: number; pnl: number }> {
@@ -85,6 +87,10 @@ export class BetfairService {
 
   public async getDistinctCountryCodes(): Promise<string[]> {
     return this.marketDefinitionDAO.getDistinctCountryCodes();
+  }
+
+  public async getRunnerFilterBounds(): Promise<RunnerFilterBounds> {
+    return this.marketDefinitionDAO.getRunnerFilterBounds();
   }
 
   public async getPriceUpdatesByEvent(

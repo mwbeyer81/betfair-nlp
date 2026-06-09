@@ -18,6 +18,12 @@ export interface SummaryStats {
   totalRunners: number;
 }
 
+export interface RunnerFilterBounds {
+  maxRunnersPerRace: number;
+  maxBsp: number;
+  minBsp: number;
+}
+
 export interface RaceWithRunners {
   marketId: string;
   marketTime: string;
@@ -245,8 +251,10 @@ export class MarketDefinitionDAO {
     limit = 20,
     minRunners = 1,
     maxRunners = 30,
-    countries: string[] = []
-  ): Promise<{ data: RaceWithEvent[]; total: number; totalRunners: number; pnlStats: { staked: number; returns: number; pnl: number } }> {
+    countries: string[] = [],
+    minBsp = 1,
+    maxBsp = 1000
+  ): Promise<{ data: RaceWithEvent[]; total: number; totalRunners: number; pnlStats: { staked: number; returns: number; pnl: number; count: number } }> {
     const skip = (page - 1) * limit;
     const countryMatch = countries.length > 0 ? { countryCode: { $in: countries } } : {};
 
@@ -320,7 +328,7 @@ export class MarketDefinitionDAO {
         data: RaceWithEvent[];
         total: [{ count: number }];
         totalRunners: [{ count: number }];
-        pnlStats: [{ staked: number; returns: number }];
+        pnlStats: [{ staked: number; returns: number; count: number }];
       }>([
         ...basePipeline,
         {
@@ -330,7 +338,7 @@ export class MarketDefinitionDAO {
             totalRunners: [{ $group: { _id: null, count: { $sum: { $size: "$runners" } } } }],
             pnlStats: [
               { $unwind: "$runners" },
-              { $match: { "runners.bsp": { $exists: true, $gt: 1 } } },
+              { $match: { "runners.bsp": { $exists: true, $gt: 1, $gte: minBsp, $lte: maxBsp } } },
               {
                 $group: {
                   _id: null,
@@ -344,6 +352,7 @@ export class MarketDefinitionDAO {
                       ],
                     },
                   },
+                  count: { $sum: 1 },
                 },
               },
             ],
@@ -354,12 +363,13 @@ export class MarketDefinitionDAO {
 
     const staked = result?.pnlStats?.[0]?.staked ?? 0;
     const returns = result?.pnlStats?.[0]?.returns ?? 0;
+    const count = result?.pnlStats?.[0]?.count ?? 0;
 
     return {
       data: result?.data ?? [],
       total: result?.total?.[0]?.count ?? 0,
       totalRunners: result?.totalRunners?.[0]?.count ?? 0,
-      pnlStats: { staked, returns, pnl: returns - staked },
+      pnlStats: { staked, returns, pnl: returns - staked, count },
     };
   }
 
@@ -438,6 +448,45 @@ export class MarketDefinitionDAO {
       countryCode: { $exists: true, $ne: "" },
     });
     return (codes as string[]).filter(Boolean).sort();
+  }
+
+  public async getRunnerFilterBounds(): Promise<RunnerFilterBounds> {
+    const [result] = await this.collection
+      .aggregate<{
+        runnerCounts: [{ maxRunners: number }];
+        bspBounds: [{ maxBsp: number; minBsp: number }];
+      }>([
+        { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] } } },
+        { $sort: { timestamp: -1 } },
+        { $group: { _id: "$marketId", runners: { $first: "$runners" } } },
+        { $unwind: "$runners" },
+        { $match: { "runners.status": { $ne: "REMOVED" } } },
+        {
+          $facet: {
+            runnerCounts: [
+              { $group: { _id: "$_id", count: { $sum: 1 } } },
+              { $group: { _id: null, maxRunners: { $max: "$count" } } },
+            ],
+            bspBounds: [
+              { $match: { "runners.bsp": { $exists: true, $gt: 1 } } },
+              {
+                $group: {
+                  _id: null,
+                  maxBsp: { $max: "$runners.bsp" },
+                  minBsp: { $min: "$runners.bsp" },
+                },
+              },
+            ],
+          },
+        },
+      ])
+      .toArray();
+
+    return {
+      maxRunnersPerRace: result?.runnerCounts?.[0]?.maxRunners ?? 30,
+      maxBsp: result?.bspBounds?.[0]?.maxBsp ?? 1000,
+      minBsp: result?.bspBounds?.[0]?.minBsp ?? 1,
+    };
   }
 
   /**

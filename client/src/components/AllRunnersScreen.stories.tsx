@@ -65,6 +65,10 @@ const MOCK_PRICE_UPDATES = [
 
 const TOTAL_RUNNERS_IN_DB = MOCK_RACES.reduce((s, r) => s + r.runners.length, 0); // 7
 
+const filterBoundsHandler = http.get(`${BASE}/api/runners/filter-bounds`, () =>
+  HttpResponse.json({ success: true, data: { maxRunnersPerRace: 29, maxBsp: 1000, minBsp: 1.1 } })
+);
+
 const defaultHandlers = [
   http.get(`${BASE}/api/runners`, () =>
     HttpResponse.json({
@@ -76,7 +80,7 @@ const defaultHandlers = [
       limit: 20,
       totalPages: 1,
       totalRunners: TOTAL_RUNNERS_IN_DB,
-      pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58 },
+      pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 },
     })
   ),
   http.get(`${BASE}/api/stats`, () =>
@@ -85,6 +89,7 @@ const defaultHandlers = [
   http.get(`${BASE}/api/runners/countries`, () =>
     HttpResponse.json({ success: true, data: ["GB", "IE"] })
   ),
+  filterBoundsHandler,
   http.get(`${BASE}/api/runners/pnl-stats`, () =>
     HttpResponse.json({ success: true, data: { staked: 3.97, returns: 5.55, pnl: 1.58 } })
   ),
@@ -127,6 +132,7 @@ export const Loading: Story = {
           HttpResponse.json({ success: true, data: { totalRaces: 0, totalRunners: 0 } })
         ),
         countriesHandler,
+        filterBoundsHandler,
       ],
     },
   },
@@ -134,7 +140,7 @@ export const Loading: Story = {
 
 export const WithError: Story = {
   parameters: {
-    msw: { handlers: [http.get(`${BASE}/api/runners`, () => HttpResponse.error()), countriesHandler] },
+    msw: { handlers: [http.get(`${BASE}/api/runners`, () => HttpResponse.error()), countriesHandler, filterBoundsHandler] },
   },
 };
 
@@ -149,6 +155,7 @@ export const Empty: Story = {
           HttpResponse.json({ success: true, data: { totalRaces: 0, totalRunners: 0 } })
         ),
         countriesHandler,
+        filterBoundsHandler,
       ],
     },
   },

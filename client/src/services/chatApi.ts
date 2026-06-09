@@ -57,6 +57,13 @@ export interface PnlStats {
   staked: number;
   returns: number;
   pnl: number;
+  count?: number;
+}
+
+export interface RunnerFilterBounds {
+  maxRunnersPerRace: number;
+  maxBsp: number;
+  minBsp: number;
 }
 
 export interface RunnersPage {
@@ -156,6 +163,15 @@ class ChatApi {
     return result.data;
   }
 
+  async getRunnerFilterBounds(): Promise<RunnerFilterBounds> {
+    const response = await fetch(`${this.baseUrl}/api/runners/filter-bounds`, {
+      headers: { Authorization: `Basic ${this.credentials}` },
+    });
+    if (!response.ok) throw new Error("Failed to fetch filter bounds");
+    const result = await response.json();
+    return result.data;
+  }
+
   async getRunnerCountries(): Promise<string[]> {
     const response = await fetch(`${this.baseUrl}/api/runners/countries`, {
       headers: { Authorization: `Basic ${this.credentials}` },
@@ -165,12 +181,14 @@ class ChatApi {
     return result.data;
   }
 
-  async getAllRunners(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = []): Promise<RunnersPage> {
+  async getAllRunners(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minBsp = 1, maxBsp = 1000): Promise<RunnersPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
       minRunners: String(minRunners),
       maxRunners: String(maxRunners),
+      minBsp: String(minBsp),
+      maxBsp: String(maxBsp),
     });
     if (countries.length > 0) params.set("countries", countries.join(","));
     const response = await fetch(
