@@ -6,146 +6,152 @@ import { DatabaseConnection } from "../config/database";
 import { validateConfig, getAppEnvironment } from "../config";
 import { BetfairService } from "../lib/service/betfair-service";
 
+const CONCURRENCY = parseInt(process.env.WORKERS || "8", 10);
+
 async function processBasicFiles() {
   const inputPath = process.argv[2] || "BASIC/2025/Jan/1/33858191";
 
   try {
-    // Validate configuration before starting
     validateConfig();
     console.log(`Starting ${getAppEnvironment()} environment...`);
+    console.log(`Workers: ${CONCURRENCY}`);
 
     const dbConnection = DatabaseConnection.getInstance();
-
-    // Connect to MongoDB
     await dbConnection.connect();
     console.log("Connected to MongoDB");
 
-    // Initialize service AFTER database connection
     const service = new BetfairService();
-
-    // Create database indexes
     await service.initialize();
     console.log("Database indexes created");
 
-    // Check if input is a file or directory
+    const db = dbConnection.getDb();
+    const progressCol = db.collection("import_progress");
+    await progressCol.createIndex({ filePath: 1 }, { unique: true });
+
     const stats = await stat(inputPath);
     let files: string[] = [];
 
     if (stats.isFile()) {
-      // Single file - check if it's processable
-      if (
-        inputPath.endsWith(".bz2") ||
-        inputPath.split("/").pop()?.startsWith(".")
-      ) {
+      if (inputPath.endsWith(".bz2") || inputPath.split("/").pop()?.startsWith(".")) {
         console.log("❌ File is not processable (compressed or hidden)");
         return;
       }
       files = [inputPath];
       console.log(`📄 Processing single file: ${inputPath}`);
     } else if (stats.isDirectory()) {
-      // Directory - find all processable files
       console.log(`📁 Scanning directory: ${inputPath}`);
       files = await findProcessableFiles(inputPath);
-
       if (files.length === 0) {
         console.log("No processable files found in directory");
         return;
       }
-
-      console.log(
-        `Found ${files.length} files to process (excluding .bz2 files)`
-      );
+      console.log(`Found ${files.length} files to process`);
     } else {
       console.log("❌ Input path is neither a file nor a directory");
       return;
     }
 
-    // Process files
-    const startTime = Date.now();
-    let processedCount = 0;
-    let errorCount = 0;
+    // Resume: skip already-processed files
+    const alreadyDone = await progressCol.countDocuments();
+    if (alreadyDone > 0) {
+      console.log(`🔄 Resume mode: ${alreadyDone} files already processed, loading skip list...`);
+      const processedDocs = await progressCol
+        .find({}, { projection: { filePath: 1, _id: 0 } })
+        .toArray();
+      const processedSet = new Set(processedDocs.map((d: any) => d.filePath));
+      const before = files.length;
+      files = files.filter(f => !processedSet.has(f));
+      console.log(`⏩ Skipping ${before - files.length} files, ${files.length} remaining`);
+    }
 
-    for (const file of files) {
-      try {
-        console.log(
-          `\n📁 Processing file ${processedCount + 1}/${files.length}: ${file}`
-        );
-        await service.processDataFile(file);
-        processedCount++;
-        console.log(`✅ Successfully processed: ${file}`);
-      } catch (error) {
-        console.error(`❌ Failed to process ${file}:`, error);
-        errorCount++;
+    if (files.length === 0) {
+      console.log("✅ All files already processed");
+      return;
+    }
+
+    // Parallel worker pool
+    const startTime = Date.now();
+    let completedCount = 0;
+    let errorCount = 0;
+    const total = files.length;
+    let idx = 0;
+
+    async function worker(workerId: number) {
+      while (true) {
+        const fileIdx = idx++;
+        if (fileIdx >= files.length) break;
+        const file = files[fileIdx];
+        try {
+          await service.processDataFile(file);
+          try {
+            await progressCol.insertOne({ filePath: file, processedAt: new Date() });
+          } catch {
+            // duplicate key — already processed by another worker, safe to ignore
+          }
+          completedCount++;
+          if (completedCount % 500 === 0 || completedCount === total) {
+            const pct = ((completedCount / total) * 100).toFixed(1);
+            const elapsed = (Date.now() - startTime) / 1000;
+            const rate = completedCount / elapsed;
+            const remaining = Math.round((total - completedCount) / rate);
+            console.log(`✅ [${pct}%] ${completedCount}/${total} — ~${Math.round(remaining / 60)}min left`);
+          }
+        } catch (error) {
+          console.error(`❌ [W${workerId}] Failed: ${file}`, error);
+          errorCount++;
+        }
       }
     }
 
-    const endTime = Date.now();
-    const duration = (endTime - startTime) / 1000;
+    console.log(`\n🚀 Starting parallel import with ${CONCURRENCY} workers...`);
+    await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => worker(i + 1)));
 
+    const duration = (Date.now() - startTime) / 1000;
     console.log(`\n🎉 File processing completed!`);
-    console.log(`📊 Summary:`);
-    console.log(`   - Total files: ${files.length}`);
-    console.log(`   - Successfully processed: ${processedCount}`);
-    console.log(`   - Errors: ${errorCount}`);
-    console.log(`   - Duration: ${duration.toFixed(2)} seconds`);
-    if (processedCount > 0) {
-      console.log(
-        `   - Average: ${(duration / processedCount).toFixed(2)} seconds per file`
-      );
-    }
+    console.log(`   Total: ${total} | Done: ${completedCount} | Errors: ${errorCount} | Time: ${duration.toFixed(0)}s`);
   } catch (error) {
     console.error("❌ File processing failed:", error);
     process.exit(1);
   } finally {
     try {
       await DatabaseConnection.getInstance().disconnect();
-    } catch (error) {
-      console.error("Error during disconnect:", error);
-    }
+    } catch {}
   }
 }
 
-async function findProcessableFiles(directoryPath: string): Promise<string[]> {
+async function findProcessableFiles(rootPath: string): Promise<string[]> {
   const files: string[] = [];
+  const queue: string[] = [rootPath];
 
-  try {
-    const items = await readdir(directoryPath);
-
-    for (const item of items) {
-      const fullPath = join(directoryPath, item);
-      const stats = await stat(fullPath);
-
-      if (stats.isDirectory()) {
-        // Recursively search subdirectories
-        const subFiles = await findProcessableFiles(fullPath);
-        files.push(...subFiles);
-      } else if (stats.isFile()) {
-        // Include all files except .bz2 files
-        if (!item.endsWith(".bz2") && !item.startsWith(".")) {
+  while (queue.length > 0) {
+    const dirPath = queue.shift()!;
+    try {
+      const items = await readdir(dirPath);
+      for (const item of items) {
+        const fullPath = join(dirPath, item);
+        const stats = await stat(fullPath);
+        if (stats.isDirectory()) {
+          queue.push(fullPath);
+        } else if (stats.isFile() && !item.endsWith(".bz2") && !item.startsWith(".")) {
           files.push(fullPath);
         }
       }
+    } catch (error) {
+      console.error(`Error reading directory ${dirPath}:`, error);
     }
-  } catch (error) {
-    console.error(`Error reading directory ${directoryPath}:`, error);
   }
 
   return files;
 }
 
-// Handle graceful shutdown
 process.on("SIGINT", async () => {
-  console.log("\nShutting down gracefully...");
+  console.log("\n⚠️  Interrupted — progress saved, restart to resume from this point");
   try {
     await DatabaseConnection.getInstance().disconnect();
-    process.exit(0);
-  } catch (error) {
-    console.error("Error during shutdown:", error);
-    process.exit(1);
-  }
+  } catch {}
+  process.exit(0);
 });
 
-// Start processing
 processBasicFiles().catch(error => {
   console.error("Unhandled error:", error);
   process.exit(1);

@@ -1,0 +1,44 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e6]: All Runners
+    - generic [ref=e8] [cursor=pointer]: ← Events
+  - generic [ref=e9]:
+    - generic [ref=e10]: Runners
+    - generic [ref=e11]:
+      - generic [ref=e12]: Min
+      - generic [ref=e14] [cursor=pointer]: −
+      - textbox [ref=e15]: "1"
+      - generic [ref=e17] [cursor=pointer]: +
+    - generic [ref=e18]:
+      - generic [ref=e19]: Max
+      - generic [ref=e21] [cursor=pointer]: −
+      - textbox [ref=e22]: "20"
+      - generic [ref=e24] [cursor=pointer]: +
+    - generic [ref=e26]:
+      - generic [ref=e27]: SP
+      - textbox [ref=e28]: "1"
+      - generic [ref=e29]: –
+      - textbox [ref=e30]: "1000"
+    - generic [ref=e32]:
+      - generic [ref=e33]: "# in SP"
+      - generic [ref=e35] [cursor=pointer]: "-"
+      - textbox [ref=e36]: "1"
+      - generic [ref=e38] [cursor=pointer]: +
+      - generic [ref=e39]: to
+      - generic [ref=e41] [cursor=pointer]: "-"
+      - textbox [ref=e42]: "1"
+      - generic [ref=e44] [cursor=pointer]: +
+    - generic [ref=e46]:
+      - generic [ref=e47]: Race
+      - textbox [ref=e48]: "1"
+      - generic [ref=e49]: –
+      - textbox [ref=e50]: "0"
+    - generic [ref=e52] [cursor=pointer]: Apply
+  - generic [ref=e54]:
+    - progressbar [ref=e55]:
+      - img [ref=e57]
+    - generic [ref=e60]: Loading runners…
+```

@@ -104,12 +104,27 @@ async function setupApiMocks(page: Page) {
     })
   );
 
-  await page.route("**/api/runners", (route) =>
+  await page.route((url) => url.pathname === "/api/runners/filter-bounds", (route) =>
+    route.fulfill({ json: { success: true, data: { maxRunnersPerRace: 29, maxBsp: 1000, minBsp: 1.1 } } })
+  );
+
+  await page.route((url) => url.pathname === "/api/runners/countries", (route) =>
+    route.fulfill({ json: { success: true, data: ["GB", "IE"] } })
+  );
+
+  await page.route((url) => url.pathname === "/api/runners/pnl-stats", (route) =>
+    route.fulfill({ json: { success: true, data: { staked: 1.6, returns: 2.6, pnl: 1.0 } } })
+  );
+
+  await page.route((url) => url.pathname === "/api/runners", (route) =>
     route.fulfill({
       json: {
         success: true,
         count: 1,
+        total: 1,
+        totalPages: 1,
         totalRunners: 3,
+        pnlStats: { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 },
         data: [
           {
             marketId: "1.237066150",
@@ -142,3 +157,4 @@ export const test = base.extend({
 });
 
 export { expect };
+

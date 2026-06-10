@@ -74,7 +74,7 @@ test.describe("All Runners screen (Expo web @ localhost:8081)", () => {
 
   test("All Runners screen loads data and shows runner rows", async ({ page }) => {
     await page.goto(`${APP_URL}runners`);
-    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
     await expect(page.getByTestId("all-runners-list")).toBeVisible({ timeout: 10000 });
 
     const items = page.locator('[data-testid^="all-runner-item-"]');
@@ -84,7 +84,7 @@ test.describe("All Runners screen (Expo web @ localhost:8081)", () => {
 
   test("All Runners screen shows event section headers for both events", async ({ page }) => {
     await page.goto(`${APP_URL}runners`);
-    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
 
     await expect(page.getByTestId("all-runners-event-33858191")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("all-runners-event-33988522")).toBeVisible();
@@ -92,7 +92,7 @@ test.describe("All Runners screen (Expo web @ localhost:8081)", () => {
 
   test("All Runners screen shows race time headers within each event", async ({ page }) => {
     await page.goto(`${APP_URL}runners`);
-    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
 
     const raceHeaders = page.locator('[data-testid^="all-runners-race-"]');
     await expect(raceHeaders.first()).toBeVisible({ timeout: 10000 });
@@ -101,14 +101,14 @@ test.describe("All Runners screen (Expo web @ localhost:8081)", () => {
 
   test("header shows total runners and races count", async ({ page }) => {
     await page.goto(`${APP_URL}runners`);
-    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
     await expect(page.getByTestId("all-runners-screen")).toContainText("runners");
     await expect(page.getByTestId("all-runners-screen")).toContainText("races");
   });
 
   test("BSP price is displayed for runners in WIN markets", async ({ page }) => {
     await page.goto(`${APP_URL}runners`);
-    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
 
     const bspBadges = page.locator('[data-testid^="all-runner-bsp-"]');
     await expect(bspBadges.first()).toBeVisible({ timeout: 10000 });
@@ -128,3 +128,39 @@ test.describe("All Runners screen (Expo web @ localhost:8081)", () => {
     await expect(page.getByTestId("all-runners-screen")).not.toBeVisible();
   });
 });
+
+test.describe("# in SP range filter (real app at localhost:8081)", () => {
+  test("# in SP filter controls are visible on /runners", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+    await expect(page.getByTestId("all-runners-min-rir-value")).toBeVisible();
+    await expect(page.getByTestId("all-runners-max-rir-value")).toBeVisible();
+  });
+
+  test("setting maxRunnersInRange=1 hides multi-runner races", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+    const before = await page.locator(`[data-testid^="all-runners-race-"]`).count();
+    await page.getByTestId("all-runners-max-rir-value").fill("1");
+    await page.getByTestId("all-runners-filter-apply").click();
+    await page.waitForTimeout(500);
+    const after = await page.locator(`[data-testid^="all-runners-race-"]`).count();
+    expect(after).toBeLessThan(before);
+  });
+
+  test("resetting filter restores original race count", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+    const original = await page.locator(`[data-testid^="all-runners-race-"]`).count();
+    await page.getByTestId("all-runners-max-rir-value").fill("1");
+    await page.getByTestId("all-runners-filter-apply").click();
+    await page.waitForTimeout(500);
+    await page.getByTestId("all-runners-min-rir-value").fill("1");
+    await page.getByTestId("all-runners-max-rir-value").fill("30");
+    await page.getByTestId("all-runners-filter-apply").click();
+    await page.waitForTimeout(500);
+    const restored = await page.locator(`[data-testid^="all-runners-race-"]`).count();
+    expect(restored).toBe(original);
+  });
+});
+

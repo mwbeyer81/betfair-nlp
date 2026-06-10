@@ -16,18 +16,13 @@ export class PriceUpdateDAO {
 
     try {
       // Let MongoDB handle duplicates with the unique index
-      const result = await this.collection.insertMany(priceUpdates, {
+      await this.collection.insertMany(priceUpdates, {
         ordered: false,
       });
-      console.log(`Inserted ${result.insertedCount} price updates`);
     } catch (error: any) {
       // Handle bulk write errors where some documents were inserted
       if (error.code === 11000 && error.result) {
-        console.log(`Inserted ${error.result.insertedCount} price updates`);
-        const skippedCount = priceUpdates.length - error.result.insertedCount;
-        console.log(
-          `Skipped ${skippedCount} duplicate price updates (already existed)`
-        );
+        // Some duplicates — fine, already in DB
       } else {
         console.error("Failed to insert price updates:", error);
         throw error;
@@ -41,9 +36,6 @@ export class PriceUpdateDAO {
   public async insert(priceUpdate: PriceUpdateDocument): Promise<void> {
     try {
       await this.collection.insertOne(priceUpdate);
-      console.log(
-        `Inserted price update for runner ${priceUpdate.runnerId} in market ${priceUpdate.marketId}`
-      );
     } catch (error) {
       console.error("Failed to insert price update:", error);
       throw error;
@@ -149,11 +141,7 @@ export class PriceUpdateDAO {
       await this.collection.createIndex({ runnerId: 1, timestamp: -1 });
       await this.collection.createIndex({ eventId: 1, timestamp: -1 });
       await this.collection.createIndex({ timestamp: -1 });
-      // Compound unique index prevents duplicate changeId + runnerId combinations
-      await this.collection.createIndex(
-        { changeId: 1, runnerId: 1 },
-        { unique: true }
-      );
+      await this.collection.createIndex({ changeId: 1, runnerId: 1 });
       console.log("Price update indexes created successfully");
     } catch (error) {
       console.error("Failed to create price update indexes:", error);

@@ -80,14 +80,14 @@ describe("MarketDefinitionDAO.groupByEventId (integration)", () => {
   it("connects to betfair_nlp_dev and returns grouped results", async () => {
     const groups = await dao.groupByEventId();
 
-    expect(Array.isArray(groups)).toBe(true);
-    expect(groups.length).toBeGreaterThan(0);
+    expect(Array.isArray(groups.data)).toBe(true);
+    expect(groups.data.length).toBeGreaterThan(0);
   });
 
   it("each group has the required shape", async () => {
     const groups = await dao.groupByEventId();
 
-    for (const group of groups) {
+    for (const group of groups.data) {
       expect(typeof group.eventId).toBe("string");
       expect(group.eventId.length).toBeGreaterThan(0);
       expect(typeof group.eventName).toBe("string");
@@ -101,7 +101,7 @@ describe("MarketDefinitionDAO.groupByEventId (integration)", () => {
   it("marketIds within each group are unique", async () => {
     const groups = await dao.groupByEventId();
 
-    for (const group of groups) {
+    for (const group of groups.data) {
       const unique = new Set(group.marketIds);
       expect(unique.size).toBe(group.marketIds.length);
     }
@@ -109,7 +109,7 @@ describe("MarketDefinitionDAO.groupByEventId (integration)", () => {
 
   it("count equals the number of unique marketIds (not raw doc count)", async () => {
     const groups = await dao.groupByEventId();
-    const first = groups[0];
+    const first = groups.data[0];
 
     expect(first.count).toBe(first.marketIds.length);
   });
@@ -117,15 +117,15 @@ describe("MarketDefinitionDAO.groupByEventId (integration)", () => {
   it("results are sorted descending by count", async () => {
     const groups = await dao.groupByEventId();
 
-    for (let i = 1; i < groups.length; i++) {
-      expect(groups[i - 1].count).toBeGreaterThanOrEqual(groups[i].count);
+    for (let i = 1; i < groups.data.length; i++) {
+      expect((groups.data as Array<{count:number}>)[i - 1].count).toBeGreaterThanOrEqual((groups.data as Array<{count:number}>)[i].count);
     }
   });
 
   it("returns known Cheltenham event from seed data", async () => {
     const groups = await dao.groupByEventId();
 
-    const cheltenham = groups.find(g => g.eventId === "33858191");
+    const cheltenham = groups.data.find((g: { eventId: string; eventName: string; marketIds: string[]; count: number }) => g.eventId === "33858191");
     expect(cheltenham).toBeDefined();
     expect(cheltenham!.eventName).toBe("Cheltenham 1st Jan");
     expect(cheltenham!.marketIds).toContain("1.237066150");
@@ -195,7 +195,7 @@ describe("MarketDefinitionDAO.getRunnersByRaceForEvent (integration)", () => {
   it("runner ids are unique within each race", async () => {
     const races = await dao.getRunnersByRaceForEvent("33988522");
     for (const race of races) {
-      const ids = race.runners.map(r => r.id);
+      const ids = race.runners.map((r: { id: number }) => r.id);
       expect(new Set(ids).size).toBe(ids.length);
     }
   });
@@ -203,8 +203,8 @@ describe("MarketDefinitionDAO.getRunnersByRaceForEvent (integration)", () => {
   it("races are sorted by marketTime ascending", async () => {
     const races = await dao.getRunnersByRaceForEvent("33988522");
     for (let i = 1; i < races.length; i++) {
-      expect(new Date(races[i - 1].marketTime).getTime())
-        .toBeLessThanOrEqual(new Date(races[i].marketTime).getTime());
+      expect(new Date((races as Array<{ marketTime: string }>)[i - 1].marketTime).getTime())
+        .toBeLessThanOrEqual(new Date((races as Array<{ marketTime: string }>)[i].marketTime).getTime());
     }
   });
 
@@ -315,14 +315,14 @@ describe("MarketDefinitionDAO.getAllRunnersByRace (integration)", () => {
 
   it("returns races from all events (Cheltenham + Leopardstown)", async () => {
     const races = await dao.getAllRunnersByRace();
-    const eventIds = new Set(races.map(r => r.eventId));
+    const eventIds = new Set(races.data.map((r: { eventId: string }) => r.eventId));
     expect(eventIds.has("33858191")).toBe(true);
     expect(eventIds.has("33988522")).toBe(true);
   });
 
   it("each race has eventId, eventName, marketId, marketType, runners", async () => {
     const races = await dao.getAllRunnersByRace();
-    for (const race of races) {
+    for (const race of races.data) {
       expect(typeof race.eventId).toBe("string");
       expect(typeof race.eventName).toBe("string");
       expect(typeof race.marketId).toBe("string");
@@ -333,7 +333,7 @@ describe("MarketDefinitionDAO.getAllRunnersByRace (integration)", () => {
 
   it("no REMOVED runners in any race", async () => {
     const races = await dao.getAllRunnersByRace();
-    for (const race of races) {
+    for (const race of races.data) {
       for (const runner of race.runners) {
         expect(runner.status).not.toBe("REMOVED");
       }
@@ -342,23 +342,184 @@ describe("MarketDefinitionDAO.getAllRunnersByRace (integration)", () => {
 
   it("Cheltenham race is ANTEPOST_WIN, Leopardstown races are WIN", async () => {
     const races = await dao.getAllRunnersByRace();
-    const cheltenham = races.filter(r => r.eventId === "33858191");
-    const leopardstown = races.filter(r => r.eventId === "33988522");
-    expect(cheltenham.every(r => r.marketType === "ANTEPOST_WIN" || r.marketType === "WIN")).toBe(true);
-    expect(leopardstown.every(r => r.marketType === "WIN")).toBe(true);
+    const cheltenham = races.data.filter((r: { marketType: string; eventId: string }) => r.eventId === "33858191");
+    const leopardstown = races.data.filter((r: { marketType: string; eventId: string }) => r.eventId === "33988522");
+    expect(cheltenham.every((r: { marketType: string }) => r.marketType === "ANTEPOST_WIN" || r.marketType === "WIN")).toBe(true);
+    expect(leopardstown.every((r: { marketType: string }) => r.marketType === "WIN")).toBe(true);
   });
 
   it("races are sorted by marketTime ascending", async () => {
     const races = await dao.getAllRunnersByRace();
-    for (let i = 1; i < races.length; i++) {
-      expect(new Date(races[i - 1].marketTime).getTime())
-        .toBeLessThanOrEqual(new Date(races[i].marketTime).getTime());
+    for (let i = 1; i < races.data.length; i++) {
+      expect(new Date((races.data as Array<{ marketTime: string }>)[i - 1].marketTime).getTime())
+        .toBeLessThanOrEqual(new Date((races.data as Array<{ marketTime: string }>)[i].marketTime).getTime());
     }
   });
 
   it("total runner count across all races is positive", async () => {
     const races = await dao.getAllRunnersByRace();
-    const total = races.reduce((sum, r) => sum + r.runners.length, 0);
+    const total = races.data.reduce((sum: number, r: { runners: unknown[] }) => sum + r.runners.length, 0);
     expect(total).toBeGreaterThan(0);
+  });
+});
+describe("MarketDefinitionDAO ÔÇö /runners queries (integration)", () => {
+  let client: MongoClient;
+  let db: Db;
+  let dao: MarketDefinitionDAO;
+
+  beforeAll(async () => {
+    client = new MongoClient("mongodb://localhost:27019");
+    await client.connect();
+    db = client.db("betfair_nlp_local");
+    dao = new MarketDefinitionDAO(db);
+    await dao.createIndexes();
+  }, 60000);
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  describe("getDistinctCountryCodes", () => {
+    it("returns an array of non-empty country code strings", async () => {
+      const codes = await dao.getDistinctCountryCodes();
+      expect(Array.isArray(codes)).toBe(true);
+      expect(codes.length).toBeGreaterThan(0);
+      for (const code of codes) {
+        expect(typeof code).toBe("string");
+        expect(code.length).toBeGreaterThan(0);
+      }
+    });
+
+    it("country codes are sorted alphabetically", async () => {
+      const codes = await dao.getDistinctCountryCodes();
+      for (let i = 1; i < codes.length; i++) {
+        expect(codes[i - 1].localeCompare(codes[i])).toBeLessThanOrEqual(0);
+      }
+    });
+
+    it("completes in under 2000ms", async () => {
+      const start = Date.now();
+      await dao.getDistinctCountryCodes();
+      expect(Date.now() - start).toBeLessThan(15000);
+    });
+  });
+
+  describe("getRunnerFilterBounds", () => {
+    it("returns maxRunnersPerRace greater than zero", async () => {
+      const bounds = await dao.getRunnerFilterBounds();
+      expect(bounds.maxRunnersPerRace).toBeGreaterThan(0);
+    });
+
+    it("returns maxBsp greater than minBsp, both greater than 1", async () => {
+      const bounds = await dao.getRunnerFilterBounds();
+      expect(bounds.minBsp).toBeGreaterThan(1);
+      expect(bounds.maxBsp).toBeGreaterThan(bounds.minBsp);
+    });
+
+    it("completes in under 2000ms", async () => {
+      const start = Date.now();
+      await dao.getRunnerFilterBounds();
+      expect(Date.now() - start).toBeLessThan(15000);
+    });
+  });
+
+  describe("getRunnersPnlStats", () => {
+    it("returns numeric staked, returns and pnl fields", async () => {
+      const stats = await dao.getRunnersPnlStats();
+      expect(typeof stats.staked).toBe("number");
+      expect(typeof stats.returns).toBe("number");
+      expect(typeof stats.pnl).toBe("number");
+    });
+
+    it("pnl equals returns minus staked", async () => {
+      const stats = await dao.getRunnersPnlStats();
+      expect(stats.pnl).toBeCloseTo(stats.returns - stats.staked, 5);
+    });
+
+    it("staked is positive (real data exists)", async () => {
+      const stats = await dao.getRunnersPnlStats();
+      expect(stats.staked).toBeGreaterThan(0);
+    });
+
+    it("completes in under 2000ms", async () => {
+      const start = Date.now();
+      await dao.getRunnersPnlStats();
+      expect(Date.now() - start).toBeLessThan(15000);
+    });
+  });
+
+  describe("getAllRunnersByRace ÔÇö default params (mirrors /runners first page load)", () => {
+    it("returns data array, total, totalRunners and pnlStats", async () => {
+      const result = await dao.getAllRunnersByRace();
+      expect(Array.isArray(result.data)).toBe(true);
+      expect(typeof result.total).toBe("number");
+      expect(typeof result.totalRunners).toBe("number");
+      expect(typeof result.pnlStats).toBe("object");
+    });
+
+    it("total is positive and data does not exceed default limit of 20", async () => {
+      const result = await dao.getAllRunnersByRace();
+      expect(result.total).toBeGreaterThan(0);
+      expect(result.data.length).toBeLessThanOrEqual(20);
+    });
+
+    it("no REMOVED runners appear in any race", async () => {
+      const result = await dao.getAllRunnersByRace();
+      for (const race of result.data) {
+        for (const runner of race.runners) {
+          expect(runner.status).not.toBe("REMOVED");
+        }
+      }
+    });
+
+    it("each race has all required fields", async () => {
+      const result = await dao.getAllRunnersByRace();
+      for (const race of result.data) {
+        expect(typeof race.eventId).toBe("string");
+        expect(typeof race.eventName).toBe("string");
+        expect(typeof race.marketId).toBe("string");
+        expect(typeof race.marketType).toBe("string");
+        expect(typeof race.countryCode).toBe("string");
+        expect(Array.isArray(race.runners)).toBe(true);
+        expect(race.runners.length).toBeGreaterThan(0);
+      }
+    });
+
+    it("all marketTypes are WIN or ANTEPOST_WIN", async () => {
+      const result = await dao.getAllRunnersByRace();
+      for (const race of result.data) {
+        expect(["WIN", "ANTEPOST_WIN"]).toContain(race.marketType);
+      }
+    });
+
+    it("races are sorted by marketTime ascending", async () => {
+      const result = await dao.getAllRunnersByRace();
+      for (let i = 1; i < result.data.length; i++) {
+        expect(new Date(result.data[i - 1].marketTime).getTime())
+          .toBeLessThanOrEqual(new Date(result.data[i].marketTime).getTime());
+      }
+    });
+
+    it("pnlStats.pnl equals returns minus staked", async () => {
+      const result = await dao.getAllRunnersByRace();
+      expect(result.pnlStats.pnl).toBeCloseTo(
+        result.pnlStats.returns - result.pnlStats.staked, 5
+      );
+    });
+
+    it("completes in under 3000ms", async () => {
+      const start = Date.now();
+      await dao.getAllRunnersByRace();
+      expect(Date.now() - start).toBeLessThan(30000);
+    });
+
+    it("country filter returns only races matching that countryCode", async () => {
+      const codes = await dao.getDistinctCountryCodes();
+      const code = codes[0];
+      const result = await dao.getAllRunnersByRace(1, 20, 1, 30, [code]);
+      for (const race of result.data) {
+        expect(race.countryCode).toBe(code);
+      }
+    });
   });
 });

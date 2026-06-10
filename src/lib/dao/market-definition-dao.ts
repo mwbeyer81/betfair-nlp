@@ -65,12 +65,8 @@ export class MarketDefinitionDAO {
 
     try {
       await this.collection.insertOne(document);
-      console.log(`Inserted market definition for market ${marketId}`);
-    } catch (error) {
-      console.error(
-        `Failed to insert market definition for market ${marketId}:`,
-        error
-      );
+    } catch (error: any) {
+      if (error.code === 11000) return; // duplicate â€” already in DB
       throw error;
     }
   }
@@ -171,7 +167,7 @@ export class MarketDefinitionDAO {
 
   /**
    * Return the latest market definition snapshot per marketId for an event,
-   * sorted by race time. One row per market — no historical noise.
+   * sorted by race time. One row per market â€” no historical noise.
    */
   public async getLatestPerMarketByEventId(
     eventId: string,
@@ -180,7 +176,7 @@ export class MarketDefinitionDAO {
     return await this.collection
       .aggregate<MarketDefinitionDocument>([
         { $match: { eventId } },
-        { $sort: { timestamp: -1 } },
+        { $sort: { marketId: 1, timestamp: -1 } },
         { $group: { _id: "$marketId", doc: { $first: "$$ROOT" } } },
         { $replaceRoot: { newRoot: "$doc" } },
         { $sort: { marketTime: 1 } },
@@ -197,7 +193,7 @@ export class MarketDefinitionDAO {
     return await this.collection
       .aggregate<RaceWithRunners>([
         { $match: { eventId, marketType: { $in: ["WIN", "ANTEPOST_WIN"] } } },
-        { $sort: { timestamp: -1 } },
+        { $sort: { marketId: 1, timestamp: -1 } },
         {
           $group: {
             _id: "$marketId",
@@ -260,7 +256,7 @@ export class MarketDefinitionDAO {
 
     const basePipeline = [
       { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] }, ...countryMatch } },
-      { $sort: { timestamp: -1 } },
+      { $sort: { marketId: 1, timestamp: -1 } },
       {
         $group: {
           _id: "$marketId",
@@ -377,7 +373,7 @@ export class MarketDefinitionDAO {
     const [result] = await this.collection
       .aggregate<{ staked: number; returns: number }>([
         { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] } } },
-        { $sort: { timestamp: -1 } },
+        { $sort: { marketId: 1, timestamp: -1 } },
         {
           $group: {
             _id: "$marketId",
@@ -417,7 +413,7 @@ export class MarketDefinitionDAO {
     const result = await this.collection
       .aggregate<{ totalRaces: number; totalRunners: number }>([
         { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] } } },
-        { $sort: { timestamp: -1 } },
+        { $sort: { marketId: 1, timestamp: -1 } },
         { $group: { _id: "$marketId", runners: { $first: "$runners" } } },
         {
           $facet: {
@@ -457,7 +453,7 @@ export class MarketDefinitionDAO {
         bspBounds: [{ maxBsp: number; minBsp: number }];
       }>([
         { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] } } },
-        { $sort: { timestamp: -1 } },
+        { $sort: { marketId: 1, timestamp: -1 } },
         { $group: { _id: "$marketId", runners: { $first: "$runners" } } },
         { $unwind: "$runners" },
         { $match: { "runners.status": { $ne: "REMOVED" }, "runners.bsp": { $exists: true, $gt: 1 } } },
@@ -501,6 +497,9 @@ export class MarketDefinitionDAO {
         { changeId: 1, marketId: 1 },
         { unique: true }
       );
+      await this.collection.createIndex({ marketType: 1, marketId: 1, timestamp: -1 });
+      await this.collection.createIndex({ marketType: 1, countryCode: 1, marketId: 1, timestamp: -1 });
+      await this.collection.createIndex({ marketType: 1, countryCode: 1 });
       console.log("Market definition indexes created successfully");
     } catch (error) {
       console.error("Failed to create market definition indexes:", error);

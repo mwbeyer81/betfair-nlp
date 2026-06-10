@@ -107,6 +107,10 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const [maxBsp, setMaxBsp] = useState(1000);
   const [draftMinBsp, setDraftMinBsp] = useState("1");
   const [draftMaxBsp, setDraftMaxBsp] = useState("1000");
+  const [minRunnersInRange, setMinRunnersInRange] = useState(1);
+  const [maxRunnersInRange, setMaxRunnersInRange] = useState(30);
+  const [draftMinRIR, setDraftMinRIR] = useState("1");
+  const [draftMaxRIR, setDraftMaxRIR] = useState("30");
   const [selectedCountries, setSelectedCountries] = useState<Set<string>>(new Set());
   const [availableCountries, setAvailableCountries] = useState<string[]>([]);
   const [fetchTrigger, setFetchTrigger] = useState(0);
@@ -144,6 +148,12 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setMinBsp(minB);
     setMaxBsp(maxB);
 
+    const minRIR = Math.max(1, parseInt(draftMinRIR) || 1);
+    const maxRIR = Math.max(minRIR, parseInt(draftMaxRIR) || 30);
+    setDraftMinRIR(String(minRIR));
+    setDraftMaxRIR(String(maxRIR));
+    setMinRunnersInRange(minRIR);
+    setMaxRunnersInRange(maxRIR);
     setFetchTrigger(t => t + 1);
   }
 
@@ -199,7 +209,11 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       ...race,
       runners: race.runners.filter(r => r.bsp != null && r.bsp > 1 && r.bsp >= minBsp && r.bsp <= maxBsp),
     }))
-    .filter(race => race.runners.length > 0);
+    .filter(race =>
+      race.runners.length > 0 &&
+      race.runners.length >= minRunnersInRange &&
+      race.runners.length <= maxRunnersInRange
+    );
 
   const visibleRunners = visibleRaces.reduce((sum, r) => sum + r.runners.length, 0);
 
@@ -327,6 +341,55 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
         </View>
         <View style={styles.filterDivider} />
         <View style={styles.filterStepper}>
+          <Text style={styles.filterStepperLabel}># in SP</Text>
+          <TouchableOpacity
+            testID="all-runners-min-rir-dec"
+            style={styles.stepBtn}
+            onPress={() => setDraftMinRIR(v => String(Math.max(1, (parseInt(v) || 1) - 1)))}
+          >
+            <Text style={styles.stepBtnText}>-</Text>
+          </TouchableOpacity>
+          <TextInput
+            testID="all-runners-min-rir-value"
+            style={styles.stepInput}
+            value={draftMinRIR}
+            onChangeText={setDraftMinRIR}
+            keyboardType="numeric"
+            maxLength={2}
+          />
+          <TouchableOpacity
+            testID="all-runners-min-rir-inc"
+            style={styles.stepBtn}
+            onPress={() => setDraftMinRIR(v => String((parseInt(v) || 1) + 1))}
+          >
+            <Text style={styles.stepBtnText}>+</Text>
+          </TouchableOpacity>
+          <Text style={styles.filterStepperLabel}>to</Text>
+          <TouchableOpacity
+            testID="all-runners-max-rir-dec"
+            style={styles.stepBtn}
+            onPress={() => setDraftMaxRIR(v => String(Math.max(1, (parseInt(v) || 30) - 1)))}
+          >
+            <Text style={styles.stepBtnText}>-</Text>
+          </TouchableOpacity>
+          <TextInput
+            testID="all-runners-max-rir-value"
+            style={styles.stepInput}
+            value={draftMaxRIR}
+            onChangeText={setDraftMaxRIR}
+            keyboardType="numeric"
+            maxLength={2}
+          />
+          <TouchableOpacity
+            testID="all-runners-max-rir-inc"
+            style={styles.stepBtn}
+            onPress={() => setDraftMaxRIR(v => String((parseInt(v) || 30) + 1))}
+          >
+            <Text style={styles.stepBtnText}>+</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.filterDivider} />
+        <View style={styles.filterStepper}>
           <Text style={styles.filterStepperLabel}>Race</Text>
           <TextInput
             testID="all-runners-from-row"
@@ -379,7 +442,13 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
                     if (next.has(code)) next.delete(code); else next.add(code);
                     return next;
                   });
-                  setFetchTrigger(t => t + 1);
+                  const minRIR = Math.max(1, parseInt(draftMinRIR) || 1);
+    const maxRIR = Math.max(minRIR, parseInt(draftMaxRIR) || 30);
+    setDraftMinRIR(String(minRIR));
+    setDraftMaxRIR(String(maxRIR));
+    setMinRunnersInRange(minRIR);
+    setMaxRunnersInRange(maxRIR);
+    setFetchTrigger(t => t + 1);
                 }}
               >
                 <Text style={[styles.countryChipText, active && styles.countryChipTextActive]}>

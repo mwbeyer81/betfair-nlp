@@ -255,3 +255,41 @@ export const RunnerClick: Story = {
     );
   },
 };
+
+export const RunnersInRangeFilterVisible: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+    await expect(canvas.getByTestId("all-runners-min-rir-value")).toBeInTheDocument();
+    await expect(canvas.getByTestId("all-runners-max-rir-value")).toBeInTheDocument();
+    await expect(canvas.getByText("# in SP")).toBeInTheDocument();
+  },
+};
+
+export const RunnersInRangeFilterHides: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+    const maxInput = canvas.getByTestId("all-runners-max-rir-value");
+    await userEvent.clear(maxInput);
+    await userEvent.type(maxInput, "1");
+    await userEvent.click(canvas.getByTestId("all-runners-filter-apply"));
+    await expect(canvas.findByText("No runners found.")).resolves.toBeInTheDocument();
+  },
+};
+
+export const RunnersInRangeFilterShows: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+    const minInput = canvas.getByTestId("all-runners-min-rir-value");
+    await userEvent.clear(minInput);
+    await userEvent.type(minInput, "2");
+    const maxInput = canvas.getByTestId("all-runners-max-rir-value");
+    await userEvent.clear(maxInput);
+    await userEvent.type(maxInput, "2");
+    await userEvent.click(canvas.getByTestId("all-runners-filter-apply"));
+    await expect(canvas.findByTestId("all-runners-race-1.238923739")).resolves.toBeInTheDocument();
+    await expect(canvas.findByTestId("all-runners-race-1.238923745")).resolves.toBeInTheDocument();
+  },
+};

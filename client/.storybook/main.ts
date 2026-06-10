@@ -1,6 +1,5 @@
 import type { StorybookConfig } from "@storybook/react-webpack5";
 import webpack from "webpack";
-
 const config: StorybookConfig = {
   stories: [
     "../src/**/*.mdx",
@@ -30,7 +29,6 @@ const config: StorybookConfig = {
         "react-native$": "react-native-web",
         "react-native": "react-native-web",
       };
-
       // Add React Native polyfills
       config.resolve.fallback = {
         ...config.resolve.fallback,
@@ -43,7 +41,6 @@ const config: StorybookConfig = {
         os: false,
       };
     }
-
     const babelOptions = {
       presets: [
         [
@@ -69,7 +66,6 @@ const config: StorybookConfig = {
         "@babel/plugin-transform-runtime",
       ],
     };
-
     // Add babel-loader for TypeScript and JSX
     if (config.module && config.module.rules) {
       config.module.rules.push({
@@ -77,19 +73,14 @@ const config: StorybookConfig = {
         exclude: /node_modules/,
         use: { loader: "babel-loader", options: babelOptions },
       });
-
-      // Some node_modules ship raw TypeScript/JSX and need transpilation
+      // Some node_modules ship raw TypeScript/JSX ÔÇö use function include for cross-platform path matching
       config.module.rules.push({
         test: /\.(ts|tsx|js|jsx)$/,
-        include: [
-          /node_modules\/expo-modules-core/,
-          /node_modules\/expo-linking/,
-          /node_modules\/react-native-markdown-display/,
-        ],
+        include: (p: string) =>
+          /expo-modules-core|expo-linking|react-native-markdown-display/.test(p),
         use: { loader: "babel-loader", options: babelOptions },
       });
     }
-
     // Handle React Native specific extensions
     if (config.resolve && config.resolve.extensions) {
       config.resolve.extensions = [
@@ -106,15 +97,12 @@ const config: StorybookConfig = {
           : []),
       ];
     }
-
     // Define React Native globals missing in browser/webpack
     config.plugins = [
       ...(config.plugins || []),
       new webpack.DefinePlugin({ __DEV__: JSON.stringify(true) }),
     ];
-
     return config;
   },
 };
-
 export default config;

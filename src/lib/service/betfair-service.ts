@@ -117,16 +117,7 @@ export class BetfairService {
     try {
       // Check if this is a market file (contains a dot in the filename)
       const fileName = filePath.split("/").pop() || "";
-      if (!fileName.includes(".")) {
-        console.log(
-          `Skipping event-level file: ${fileName} (no dot in filename)`
-        );
-        return;
-      }
-
-      // Skip compressed .bz2 files
-      if (fileName.endsWith(".bz2")) {
-        console.log(`Skipping compressed file: ${fileName} (.bz2 file)`);
+      if (!fileName.includes(".") || fileName.endsWith(".bz2")) {
         return;
       }
 
@@ -134,23 +125,14 @@ export class BetfairService {
       const content = await fs.readFile(filePath, "utf-8");
       const lines = content.trim().split("\n");
 
-      let processedCount = 0;
-      let errorCount = 0;
-
       for (const line of lines) {
         try {
           const message: BetfairMessage = JSON.parse(line);
           await this.processBetfairMessage(message);
-          processedCount++;
-        } catch (error) {
-          console.error(`Failed to process line: ${line}`, error);
-          errorCount++;
+        } catch {
+          // malformed line — skip
         }
       }
-
-      console.log(
-        `File processing complete. Processed: ${processedCount}, Errors: ${errorCount}`
-      );
     } catch (error) {
       console.error(`Failed to process file ${filePath}:`, error);
       throw error;
