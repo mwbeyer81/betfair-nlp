@@ -5,7 +5,7 @@ function stakeToWin1(bsp: number): number {
   return 1 / (bsp - 1);
 }
 
-function buildRows(races: RaceWithEvent[], pnlStats: PnlStats): (string | number)[][] {
+function buildRows(races: RaceWithEvent[], pnlStats: PnlStats, minBsp: number, maxBsp: number): (string | number)[][] {
   const rows: (string | number)[][] = [];
 
   const sign = pnlStats.pnl >= 0 ? '+' : '-';
@@ -20,7 +20,8 @@ function buildRows(races: RaceWithEvent[], pnlStats: PnlStats): (string | number
   rows.push(['Event', 'Race', 'Time', 'Country', 'Runner', 'Draw', 'BSP', 'Status', 'Stake/£1', 'P&L', '# in SP']);
 
   for (const race of races) {
-    const inSpCount = race.runners.length;
+    // # in SP = runners whose BSP falls within the user's selected range
+    const inSpCount = race.runners.filter(r => (r.bsp ?? 0) >= minBsp && (r.bsp ?? 0) <= maxBsp).length;
     const raceTime = (() => {
       try {
         return new Date(race.marketTime).toLocaleString('en-GB', { timeZone: 'Europe/London' });
@@ -31,8 +32,12 @@ function buildRows(races: RaceWithEvent[], pnlStats: PnlStats): (string | number
 
     for (const runner of race.runners) {
       const bsp = runner.bsp ?? 0;
-      const stake = bsp > 1 ? stakeToWin1(bsp) : 0;
-      const pnl = runner.status === 'WINNER' ? 1 : bsp > 1 ? -stake : 0;
+      // Stake and P&L are non-zero only for runners within the selected BSP range.
+      // Runners outside the range appear in the export so the full race field is visible,
+      // but contribute 0 to the strategy's stake and P&L.
+      const inRange = bsp >= minBsp && bsp <= maxBsp;
+      const stake = inRange ? stakeToWin1(bsp) : 0;
+      const pnl = inRange ? (runner.status === 'WINNER' ? 1 : -stake) : 0;
       rows.push([
         race.eventName,
         race.marketName,
@@ -71,15 +76,15 @@ function csvCell(val: string | number): string {
   return s;
 }
 
-export function exportToCsv(races: RaceWithEvent[], pnlStats: PnlStats): void {
-  const rows = buildRows(races, pnlStats);
+export function exportToCsv(races: RaceWithEvent[], pnlStats: PnlStats, minBsp: number, maxBsp: number): void {
+  const rows = buildRows(races, pnlStats, minBsp, maxBsp);
   const csv = '﻿' + rows.map(row => row.map(csvCell).join(',')).join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   triggerDownload(blob, 'runners.csv');
 }
 
-export function exportToXlsx(races: RaceWithEvent[], pnlStats: PnlStats): void {
-  const rows = buildRows(races, pnlStats);
+export function exportToXlsx(races: RaceWithEvent[], pnlStats: PnlStats, minBsp: number, maxBsp: number): void {
+  const rows = buildRows(races, pnlStats, minBsp, maxBsp);
   const ws = XLSX.utils.aoa_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Runners');
@@ -87,3 +92,4 @@ export function exportToXlsx(races: RaceWithEvent[], pnlStats: PnlStats): void {
   const blob = new Blob([wbout], { type: 'application/octet-stream' });
   triggerDownload(blob, 'runners.xlsx');
 }
+ 

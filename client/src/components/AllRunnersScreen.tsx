@@ -215,15 +215,14 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       const allData = await chatApi.getAllRunners(
         1, Math.max(totalRaces, 1), minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp
       );
-      // Apply BSP filter to match what P&L counts.
-      // Do NOT apply minRunnersInRange/maxRunnersInRange — that is a display-only filter
-      // for finding races with a specific number of horses in the BSP range.
-      // The P&L (and therefore the export) covers every runner with BSP in range regardless
-      // of how many per race, so races hidden by # in SP must still appear in the file.
+      // Export ALL runners from matched races (BSP > 1), matching the server response.
+      // The BSP range selects which races to include (via minRunners/maxRunners counting)
+      // and determines which runners contribute stake/P&L, but does NOT strip runners
+      // from the export — the full field is visible in the file.
       const allVisible = allData.data
         .map(race => ({
           ...race,
-          runners: race.runners.filter(r => r.bsp != null && r.bsp > 1 && r.bsp >= minBsp && r.bsp <= maxBsp),
+          runners: race.runners.filter(r => r.bsp != null && r.bsp > 1),
         }))
         .filter(race => race.runners.length > 0);
       // Apply row range if active
@@ -231,8 +230,8 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       const exportRaces = hasRowRange
         ? allVisible.filter((_, i) => i + 1 >= fromRow && i + 1 <= effectiveTo)
         : allVisible;
-      if (format === 'csv') exportToCsv(exportRaces, displayPnl);
-      else exportToXlsx(exportRaces, displayPnl);
+      if (format === 'csv') exportToCsv(exportRaces, displayPnl, minBsp, maxBsp);
+      else exportToXlsx(exportRaces, displayPnl, minBsp, maxBsp);
     } catch {
       // silently fail
     } finally {
@@ -1097,3 +1096,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
+ 
