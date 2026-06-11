@@ -523,3 +523,46 @@ describe("MarketDefinitionDAO ÔÇö /runners queries (integration)", () => {
     });
   });
 });
+
+describe("getAllRunnersByRace — export field completeness (integration)", () => {
+  let client: MongoClient;
+  let db: Db;
+  let dao: MarketDefinitionDAO;
+
+  beforeAll(async () => {
+    client = new MongoClient("mongodb://localhost:27019");
+    await client.connect();
+    db = client.db("betfair_nlp_local");
+    dao = new MarketDefinitionDAO(db);
+  }, 30000);
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  it("every runner has all fields required for export", async () => {
+    const result = await dao.getAllRunnersByRace(1, 5);
+    expect(result.data.length).toBeGreaterThan(0);
+    for (const race of result.data) {
+      expect(typeof race.eventName).toBe("string");
+      expect(race.eventName.length).toBeGreaterThan(0);
+      expect(typeof race.marketName).toBe("string");
+      expect(typeof race.marketTime).toBe("string");
+      expect(typeof race.countryCode).toBe("string");
+      for (const runner of race.runners) {
+        expect(typeof runner.name).toBe("string");
+        expect(typeof runner.sortPriority).toBe("number");
+        expect(typeof runner.bsp).toBe("number");
+        expect(["WINNER", "LOSER", "ACTIVE", "HIDDEN", "PLACED"]).toContain(runner.status);
+      }
+    }
+  }, 30000);
+
+  it("pnlStats has staked, returns, pnl for the export header row", async () => {
+    const result = await dao.getAllRunnersByRace(1, 5);
+    expect(typeof result.pnlStats.staked).toBe("number");
+    expect(typeof result.pnlStats.returns).toBe("number");
+    expect(typeof result.pnlStats.pnl).toBe("number");
+    expect(result.pnlStats.staked).toBeGreaterThan(0);
+  }, 30000);
+});

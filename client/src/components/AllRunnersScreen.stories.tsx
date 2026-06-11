@@ -1,6 +1,6 @@
 import React from "react";
 import type { Meta, StoryObj } from "@storybook/react";
-import { within, userEvent, expect, fn } from "@storybook/test";
+import { within, screen, userEvent, expect, fn, waitFor } from "@storybook/test";
 import { http, HttpResponse } from "msw";
 import { AllRunnersScreen } from "./AllRunnersScreen";
 
@@ -291,5 +291,35 @@ export const RunnersInRangeFilterShows: Story = {
     await userEvent.click(canvas.getByTestId("all-runners-filter-apply"));
     await expect(canvas.findByTestId("all-runners-race-1.238923739")).resolves.toBeInTheDocument();
     await expect(canvas.findByTestId("all-runners-race-1.238923745")).resolves.toBeInTheDocument();
+  },
+};
+
+export const ExportModalVisible: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    const exportBtn = await canvas.findByTestId("all-runners-export-btn");
+    await expect(exportBtn).toBeInTheDocument();
+    await userEvent.click(exportBtn);
+
+    // Modal renders via RN portal outside canvasElement — use screen to query full document
+    await expect(await screen.findByTestId("all-runners-export-modal")).toBeInTheDocument();
+    await expect(screen.getByTestId("all-runners-export-csv")).toBeInTheDocument();
+    await expect(screen.getByTestId("all-runners-export-xlsx")).toBeInTheDocument();
+  },
+};
+
+export const ExportModalDismisses: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    await userEvent.click(await canvas.findByTestId("all-runners-export-btn"));
+    await screen.findByTestId("all-runners-export-modal");
+
+    await userEvent.click(screen.getByTestId("all-runners-export-cancel"));
+    // Wait for fade animation to complete before asserting modal is gone
+    await waitFor(() => expect(screen.queryByTestId("all-runners-export-modal")).not.toBeInTheDocument(), { timeout: 2000 });
   },
 };

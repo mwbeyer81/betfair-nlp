@@ -8,8 +8,10 @@ import {
   ActivityIndicator,
   StyleSheet,
   SafeAreaView,
+  Modal,
 } from "react-native";
 import { chatApi, RaceWithEvent, Runner, PnlStats, RunnerFilterBounds } from "../services/chatApi";
+import { exportToCsv, exportToXlsx } from "../utils/exportRunners";
 
 interface AllRunnersScreenProps {
   onNavigateToEvents: () => void;
@@ -120,6 +122,8 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const [totalRunners, setTotalRunners] = useState(0);
   const [pnlStats, setPnlStats] = useState<PnlStats>({ staked: 0, returns: 0, pnl: 0 });
   const [filterBounds, setFilterBounds] = useState<RunnerFilterBounds | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const PAGE_SIZE = 20;
 
   function applyFilter() {
@@ -203,6 +207,38 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     }
   }
 
+  async function handleExport(format: 'csv' | 'xlsx') {
+    setShowExportModal(false);
+    setIsExporting(true);
+    try {
+      // Fetch all races matching current filter, not just the current page
+      const allData = await chatApi.getAllRunners(
+        1, Math.max(totalRaces, 1), minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp
+      );
+      // Apply BSP filter to match what P&L counts.
+      // Do NOT apply minRunnersInRange/maxRunnersInRange — that is a display-only filter
+      // for finding races with a specific number of horses in the BSP range.
+      // The P&L (and therefore the export) covers every runner with BSP in range regardless
+      // of how many per race, so races hidden by # in SP must still appear in the file.
+      const allVisible = allData.data
+        .map(race => ({
+          ...race,
+          runners: race.runners.filter(r => r.bsp != null && r.bsp > 1 && r.bsp >= minBsp && r.bsp <= maxBsp),
+        }))
+        .filter(race => race.runners.length > 0);
+      // Apply row range if active
+      const effectiveTo = toRow ?? allVisible.length;
+      const exportRaces = hasRowRange
+        ? allVisible.filter((_, i) => i + 1 >= fromRow && i + 1 <= effectiveTo)
+        : allVisible;
+      if (format === 'csv') exportToCsv(exportRaces, displayPnl);
+      else exportToXlsx(exportRaces, displayPnl);
+    } catch {
+      // silently fail
+    } finally {
+      setIsExporting(false);
+    }
+  }
 
   const visibleRaces = races
     .map(race => ({
@@ -248,6 +284,16 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             </Text>
           )}
         </View>
+        {!isLoading && displayRaces.length > 0 && (
+          <TouchableOpacity
+            testID="all-runners-export-btn"
+            style={styles.exportBtn}
+            onPress={() => !isExporting && setShowExportModal(true)}
+            disabled={isExporting}
+          >
+            <Text style={styles.exportBtnText}>{isExporting ? 'Exporting…' : 'Export'}</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           testID="all-runners-screen-events-button"
           style={styles.eventsButton}
@@ -589,6 +635,43 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           </ScrollView>
         )}
       </View>
+
+      <Modal
+        transparent
+        animationType="fade"
+        visible={showExportModal}
+        onRequestClose={() => setShowExportModal(false)}
+      >
+        <View style={styles.exportOverlay}>
+          <View testID="all-runners-export-modal" style={styles.exportModal}>
+            <Text style={styles.exportTitle}>Export Runners</Text>
+            <Text style={styles.exportSub}>
+              All {totalRaces} races matching current filter
+            </Text>
+            <TouchableOpacity
+              testID="all-runners-export-csv"
+              style={styles.exportOption}
+              onPress={() => handleExport('csv')}
+            >
+              <Text style={styles.exportOptionText}>Download CSV</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="all-runners-export-xlsx"
+              style={[styles.exportOption, styles.exportOptionXlsx]}
+              onPress={() => handleExport('xlsx')}
+            >
+              <Text style={styles.exportOptionText}>Download Excel (.xlsx)</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="all-runners-export-cancel"
+              style={styles.exportCancel}
+              onPress={() => setShowExportModal(false)}
+            >
+              <Text style={styles.exportCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -953,5 +1036,64 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     marginRight: 6,
+  },
+  exportBtn: {
+    backgroundColor: "#28a745",
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginRight: 6,
+  },
+  exportBtnText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  exportOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  exportModal: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 24,
+    width: 300,
+    alignItems: "center",
+    gap: 12,
+  },
+  exportTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1a1a2e",
+  },
+  exportSub: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 4,
+  },
+  exportOption: {
+    width: "100%",
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: "#007AFF",
+    alignItems: "center",
+  },
+  exportOptionXlsx: {
+    backgroundColor: "#1d6f42",
+  },
+  exportOptionText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  exportCancel: {
+    paddingVertical: 8,
+    marginTop: 4,
+  },
+  exportCancelText: {
+    color: "#999",
+    fontSize: 14,
   },
 });

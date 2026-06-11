@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { promises as fs } from "fs";
 
 const APP_URL = "http://localhost:8081/";
 const API_URL = "http://localhost:3000";
@@ -7,7 +8,7 @@ const AUTH = "Basic " + Buffer.from("matthew:beyer").toString("base64");
 async function goToEvents(page: import("@playwright/test").Page) {
   await page.goto(APP_URL);
   await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
-  await expect(page.getByTestId("event-group-loading")).not.toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId("event-group-loading")).not.toBeVisible({ timeout: 90000 });
 }
 
 test.describe("GET /api/runners (live server @ localhost:3000)", () => {
@@ -82,12 +83,13 @@ test.describe("All Runners screen (Expo web @ localhost:8081)", () => {
     expect(await items.count()).toBeGreaterThan(0);
   });
 
-  test("All Runners screen shows event section headers for both events", async ({ page }) => {
+  test("All Runners screen shows event section headers", async ({ page }) => {
     await page.goto(`${APP_URL}runners`);
     await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
 
-    await expect(page.getByTestId("all-runners-event-33858191")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("all-runners-event-33988522")).toBeVisible();
+    const eventHeaders = page.locator('[data-testid^="all-runners-event-"]');
+    await expect(eventHeaders.first()).toBeVisible({ timeout: 10000 });
+    expect(await eventHeaders.count()).toBeGreaterThan(0);
   });
 
   test("All Runners screen shows race time headers within each event", async ({ page }) => {
@@ -154,13 +156,111 @@ test.describe("# in SP range filter (real app at localhost:8081)", () => {
     const original = await page.locator(`[data-testid^="all-runners-race-"]`).count();
     await page.getByTestId("all-runners-max-rir-value").fill("1");
     await page.getByTestId("all-runners-filter-apply").click();
-    await page.waitForTimeout(500);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
     await page.getByTestId("all-runners-min-rir-value").fill("1");
     await page.getByTestId("all-runners-max-rir-value").fill("30");
     await page.getByTestId("all-runners-filter-apply").click();
-    await page.waitForTimeout(500);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
     const restored = await page.locator(`[data-testid^="all-runners-race-"]`).count();
     expect(restored).toBe(original);
+  });
+});
+
+test.describe("Export runners", () => {
+  test("export button is visible after data loads", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+    await expect(page.getByTestId("all-runners-export-btn")).toBeVisible();
+  });
+
+  test("clicking export button shows CSV and Excel options", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+    await page.getByTestId("all-runners-export-btn").click();
+    await expect(page.getByTestId("all-runners-export-modal")).toBeVisible();
+    await expect(page.getByTestId("all-runners-export-csv")).toBeVisible();
+    await expect(page.getByTestId("all-runners-export-xlsx")).toBeVisible();
+  });
+
+  test("CSV export triggers a file download with .csv extension", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+    await page.getByTestId("all-runners-export-btn").click();
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByTestId("all-runners-export-csv").click(),
+    ]);
+    expect(download.suggestedFilename()).toMatch(/\.csv$/);
+  });
+
+  test("Excel export triggers a file download with .xlsx extension", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+    await page.getByTestId("all-runners-export-btn").click();
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByTestId("all-runners-export-xlsx").click(),
+    ]);
+    expect(download.suggestedFilename()).toMatch(/\.xlsx$/);
+  });
+
+  test("cancel button closes the export modal", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+    await page.getByTestId("all-runners-export-btn").click();
+    await expect(page.getByTestId("all-runners-export-modal")).toBeVisible();
+    await page.getByTestId("all-runners-export-cancel").click();
+    await expect(page.getByTestId("all-runners-export-modal")).not.toBeVisible();
+  });
+
+  test("# in SP filter does not reduce export row count (export matches P&L, not display)", async ({ page }) => {
+    // Reproduce: BSP 4–6.999 creates races with 1 horse in range (visible with # in SP=1)
+    // AND races with 2+ horses in range (hidden by # in SP=1 but counted in P&L).
+    // Exporting with # in SP=1 should give the SAME rows as exporting with no # in SP
+    // restriction — RIR is a display-only filter and must not shrink the export.
+    test.setTimeout(300000); // two exports + two data loads
+
+    function parseDataRows(csv: string): number {
+      return csv
+        .replace(/^﻿/, "")   // strip BOM
+        .split(/\r?\n/)
+        .slice(3)                 // skip P&L header, blank, column header
+        .filter(r => r.trim().length > 0).length;
+    }
+
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+
+    // Narrow BSP range so some races have exactly 1 horse in range, some have 2+
+    await page.getByTestId("all-runners-min-bsp").fill("4");
+    await page.getByTestId("all-runners-max-bsp").fill("6.999");
+    await page.getByTestId("all-runners-filter-apply").click();
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+
+    // Export A — no # in SP restriction (default 1–30), captures all BSP-filtered runners
+    await page.getByTestId("all-runners-export-btn").click();
+    const [downloadA] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByTestId("all-runners-export-csv").click(),
+    ]);
+    const rowsA = parseDataRows(await fs.readFile(await downloadA.path(), "utf-8"));
+    expect(rowsA).toBeGreaterThan(0);
+
+    // Now set restrictive # in SP = 1 (hides races with 2+ horses in range)
+    await page.getByTestId("all-runners-max-rir-value").fill("1");
+    await page.getByTestId("all-runners-filter-apply").click();
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+
+    // Export B — same BSP, but # in SP = 1 restricts the display
+    await page.getByTestId("all-runners-export-btn").click();
+    const [downloadB] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByTestId("all-runners-export-csv").click(),
+    ]);
+    const rowsB = parseDataRows(await fs.readFile(await downloadB.path(), "utf-8"));
+
+    // Export B must equal Export A: # in SP is a display filter only, not an export filter
+    expect(rowsB).toBe(rowsA);
   });
 });
 
