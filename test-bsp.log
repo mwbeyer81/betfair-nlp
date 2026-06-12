@@ -1,0 +1,12 @@
+
+Running 3 tests using 1 worker
+
+[1A[2K[1/3] [chromium] › tests\all-runners-e2e.spec.ts:44:7 › GET /api/runners (live server @ localhost:3000) › BSP market runners include bsp field
+[1A[2K[2/3] [chromium] › tests\all-runners-e2e.spec.ts:111:7 › All Runners screen (Expo web @ localhost:8081) › BSP price is displayed for runners in WIN markets
+[1A[2K[3/3] [chromium] › tests\all-runners-e2e.spec.ts:266:7 › Export runners › BSP range filter does not strip runners from export — export matches raw API runner count
+[1A[2K  3 passed (2.1m)
+
+To open last HTML report run:
+[36m[39m
+[36m  npx playwright show-report[39m
+[36m[39m

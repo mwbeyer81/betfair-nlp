@@ -1,0 +1,33 @@
+
+Running 22 tests using 1 worker
+
+[1A[2K[1/22] [chromium] › tests\all-runners-e2e.spec.ts:15:7 › GET /api/runners (live server @ localhost:3000) › returns races array with eventId on each race
+[1A[2K[2/22] [chromium] › tests\all-runners-e2e.spec.ts:27:7 › GET /api/runners (live server @ localhost:3000) › each race has eventId, eventName, marketId, runners
+[1A[2K[3/22] [chromium] › tests\all-runners-e2e.spec.ts:39:7 › GET /api/runners (live server @ localhost:3000) › returns 401 without Authorization header
+[1A[2K[4/22] [chromium] › tests\all-runners-e2e.spec.ts:44:7 › GET /api/runners (live server @ localhost:3000) › BSP market runners include bsp field
+[1A[2K[5/22] [chromium] › tests\all-runners-e2e.spec.ts:61:7 › All Runners screen (Expo web @ localhost:8081) › clicking runners stat navigates to /runners full-screen view
+[1A[2K[6/22] [chromium] › tests\all-runners-e2e.spec.ts:71:7 › All Runners screen (Expo web @ localhost:8081) › /runners URL shows All Runners screen directly
+[1A[2K[7/22] [chromium] › tests\all-runners-e2e.spec.ts:76:7 › All Runners screen (Expo web @ localhost:8081) › All Runners screen loads data and shows runner rows
+[1A[2K[8/22] [chromium] › tests\all-runners-e2e.spec.ts:86:7 › All Runners screen (Expo web @ localhost:8081) › All Runners screen shows event section headers
+[1A[2K[9/22] [chromium] › tests\all-runners-e2e.spec.ts:95:7 › All Runners screen (Expo web @ localhost:8081) › All Runners screen shows race time headers within each event
+[1A[2K[10/22] [chromium] › tests\all-runners-e2e.spec.ts:104:7 › All Runners screen (Expo web @ localhost:8081) › header shows total runners and races count
+[1A[2K[11/22] [chromium] › tests\all-runners-e2e.spec.ts:111:7 › All Runners screen (Expo web @ localhost:8081) › BSP price is displayed for runners in WIN markets
+[1A[2K[12/22] [chromium] › tests\all-runners-e2e.spec.ts:123:7 › All Runners screen (Expo web @ localhost:8081) › ← Events button navigates back to /events
+[1A[2K[13/22] [chromium] › tests\all-runners-e2e.spec.ts:135:7 › # in SP range filter (real app at localhost:8081) › # in SP filter controls are visible on /runners
+[1A[2K[14/22] [chromium] › tests\all-runners-e2e.spec.ts:142:7 › # in SP range filter (real app at localhost:8081) › setting maxRunnersInRange=1 hides multi-runner races
+[1A[2K[15/22] [chromium] › tests\all-runners-e2e.spec.ts:153:7 › # in SP range filter (real app at localhost:8081) › resetting filter restores original race count
+[1A[2K[16/22] [chromium] › tests\all-runners-e2e.spec.ts:170:7 › Export runners › export button is visible after data loads
+[1A[2K[17/22] [chromium] › tests\all-runners-e2e.spec.ts:176:7 › Export runners › clicking export button shows CSV and Excel options
+[1A[2K[18/22] [chromium] › tests\all-runners-e2e.spec.ts:185:7 › Export runners › CSV export triggers a file download with .csv extension
+[1A[2K[19/22] [chromium] › tests\all-runners-e2e.spec.ts:196:7 › Export runners › Excel export triggers a file download with .xlsx extension
+[1A[2K[20/22] [chromium] › tests\all-runners-e2e.spec.ts:207:7 › Export runners › cancel button closes the export modal
+[1A[2K[21/22] [chromium] › tests\all-runners-e2e.spec.ts:216:7 › Export runners › # in SP filter does not reduce export row count (export matches P&L, not display)
+[1A[2K[22/22] [chromium] › tests\all-runners-e2e.spec.ts:266:7 › Export runners › BSP range filter does not strip runners from export — export matches raw API runner count
+[1A[2K  Slow test file: [chromium] › tests\all-runners-e2e.spec.ts (18.6m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  22 passed (18.7m)
+
+To open last HTML report run:
+[36m[39m
+[36m  npx playwright show-report[39m
+[36m[39m

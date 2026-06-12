@@ -263,16 +263,11 @@ test.describe("Export runners", () => {
     expect(rowsB).toBe(rowsA);
   });
 
-  test("BSP range filter does not strip runners from export — export matches raw API runner count", async ({ page, request }) => {
-    // Reproduce: with minBsp=4, maxBsp=6.99 the old code applied a client-side BSP filter
-    // inside handleExport, keeping only runners whose BSP was in [4, 6.99]. The server returns
-    // ALL runners with BSP > 1 from matched races (minBsp/maxBsp only affect pnlStats, not data
-    // rows). This caused the CSV to have far fewer rows than the API delivers.
-    // Fix: export all runners from matched races; only stake/P&L columns are zeroed out for
-    // runners outside the BSP range.
-    //
-    // NOTE: the server caps responses at 100 races per request. The export fetches one page
-    // capped at 100, so we compare against what the API actually returns for that same page.
+  test("BSP range filter export row count matches pnlStats.count (all BSP-range runners across all races)", async ({ page, request }) => {
+    // Reproduce: old code applied BSP filter on 100-race-capped data → only ~112 rows.
+    // Fix: server limit raised to 10 000 so all matching races are fetched; export applies
+    // BSP filter client-side → row count equals pnlStats.count (runners in range across ALL
+    // matched races), matching the "horses" figure shown in the P&L bar.
     test.setTimeout(300000);
 
     function parseDataRows(csv: string): number {
@@ -283,26 +278,15 @@ test.describe("Export runners", () => {
         .filter((r) => r.trim().length > 0).length;
     }
 
-    // Ask the server for the same race page the export will fetch (limit effectively capped
-    // at 100 by the server). Count ALL runners with BSP > 1 — that is what the export
-    // should now include. Also count BSP-range runners to confirm the two differ.
+    // Cheap query (limit=1) — pnlStats aggregates across ALL matching races regardless of limit.
     const res = await request.get(
-      `${API_URL}/api/runners?page=1&limit=100&minRunners=3&maxRunners=5&minBsp=4&maxBsp=6.99`,
+      `${API_URL}/api/runners?page=1&limit=1&minRunners=3&maxRunners=5&minBsp=4&maxBsp=6.99`,
       { headers: { Authorization: AUTH } }
     );
     expect(res.status()).toBe(200);
     const body = await res.json();
-    const allRunnersCount: number = (body.data as any[]).reduce(
-      (sum, race) => sum + race.runners.length,
-      0
-    );
-    const bspRangeCount: number = (body.data as any[]).reduce(
-      (sum, race) =>
-        sum + (race.runners as any[]).filter((r) => r.bsp >= 4 && r.bsp <= 6.99).length,
-      0
-    );
-    // These must differ for this test to be meaningful
-    expect(allRunnersCount).toBeGreaterThan(bspRangeCount);
+    const expectedRows: number = body.pnlStats.count;
+    expect(expectedRows).toBeGreaterThan(0);
 
     // Apply the same filter in the UI
     await page.goto(`${APP_URL}runners`);
@@ -322,9 +306,9 @@ test.describe("Export runners", () => {
     ]);
     const csvRows = parseDataRows(await fs.readFile(await download.path(), "utf-8"));
 
-    // After the fix the export must match allRunnersCount (all BSP>1 runners from fetched
-    // races), NOT bspRangeCount (the BSP-filtered subset the old code produced).
-    expect(csvRows).toBe(allRunnersCount);
+    // Export row count must match pnlStats.count: every runner contributing to the P&L
+    // calculation appears as exactly one row in the CSV.
+    expect(csvRows).toBe(expectedRows);
   });
 });
 

@@ -215,14 +215,11 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       const allData = await chatApi.getAllRunners(
         1, Math.max(totalRaces, 1), minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp
       );
-      // Export ALL runners from matched races (BSP > 1), matching the server response.
-      // The BSP range selects which races to include (via minRunners/maxRunners counting)
-      // and determines which runners contribute stake/P&L, but does NOT strip runners
-      // from the export — the full field is visible in the file.
+      // Export only runners whose BSP falls within the selected range — matching pnlStats.count.
       const allVisible = allData.data
         .map(race => ({
           ...race,
-          runners: race.runners.filter(r => r.bsp != null && r.bsp > 1),
+          runners: race.runners.filter(r => r.bsp != null && r.bsp > 1 && r.bsp >= minBsp && r.bsp <= maxBsp),
         }))
         .filter(race => race.runners.length > 0);
       // Apply row range if active
@@ -230,8 +227,8 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       const exportRaces = hasRowRange
         ? allVisible.filter((_, i) => i + 1 >= fromRow && i + 1 <= effectiveTo)
         : allVisible;
-      if (format === 'csv') exportToCsv(exportRaces, displayPnl, minBsp, maxBsp);
-      else exportToXlsx(exportRaces, displayPnl, minBsp, maxBsp);
+      if (format === 'csv') exportToCsv(exportRaces, displayPnl);
+      else exportToXlsx(exportRaces, displayPnl);
     } catch {
       // silently fail
     } finally {

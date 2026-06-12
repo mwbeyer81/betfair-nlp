@@ -299,7 +299,7 @@ app.get("/api/runners", async (req, res) => {
       return res.status(503).json({ success: false, error: "Service not initialized" });
     }
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const limit = Math.min(10000, Math.max(1, parseInt(req.query.limit as string) || 20));
     const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
     const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
     const countries = req.query.countries
