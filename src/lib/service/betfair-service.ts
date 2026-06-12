@@ -16,11 +16,14 @@ import { DatabaseConnection } from "../../config/database";
 export class BetfairService {
   private marketDefinitionDAO: MarketDefinitionDAO;
   private priceUpdateDAO: PriceUpdateDAO;
+  private bspOnly: boolean;
 
   constructor(
     marketDefinitionDAO?: MarketDefinitionDAO,
-    priceUpdateDAO?: PriceUpdateDAO
+    priceUpdateDAO?: PriceUpdateDAO,
+    bspOnly = true
   ) {
+    this.bspOnly = bspOnly;
     if (marketDefinitionDAO && priceUpdateDAO) {
       this.marketDefinitionDAO = marketDefinitionDAO;
       this.priceUpdateDAO = priceUpdateDAO;
@@ -171,8 +174,8 @@ export class BetfairService {
       );
     }
 
-    // Process price updates
-    if (marketChange.rc && marketChange.rc.length > 0) {
+    // Process price updates (skipped in bspOnly mode — BSP is extracted from marketDefinition instead)
+    if (!this.bspOnly && marketChange.rc && marketChange.rc.length > 0) {
       await this.processPriceUpdates(
         marketChange.rc,
         marketId,
@@ -191,13 +194,43 @@ export class BetfairService {
     timestamp: Date,
     changeId: string
   ): Promise<void> {
-    // Insert market definition (contains all status information)
-    await this.marketDefinitionDAO.insert(
-      marketDef,
-      marketId,
-      timestamp,
-      changeId
-    );
+    await this.marketDefinitionDAO.insert(marketDef, marketId, timestamp, changeId);
+
+    if (this.bspOnly && marketDef.bspReconciled) {
+      await this.processBspPriceUpdates(marketDef, marketId, timestamp);
+    }
+  }
+
+  private async processBspPriceUpdates(
+    marketDef: MarketDefinition,
+    marketId: string,
+    timestamp: Date
+  ): Promise<void> {
+    const docs = this.createBspPriceUpdateDocuments(marketDef, marketId, timestamp);
+    if (docs.length > 0) {
+      await this.priceUpdateDAO.insertMany(docs);
+    }
+  }
+
+  private createBspPriceUpdateDocuments(
+    marketDef: MarketDefinition,
+    marketId: string,
+    timestamp: Date
+  ): PriceUpdateDocument[] {
+    const changeId = `bsp_${marketId}`;
+    return marketDef.runners
+      .filter(r => r.bsp !== undefined && r.bsp > 1)
+      .map(r => ({
+        marketId,
+        runnerId: r.id,
+        runnerName: r.name,
+        lastTradedPrice: r.bsp!,
+        timestamp,
+        changeId,
+        publishTime: timestamp,
+        eventId: marketDef.eventId,
+        eventName: marketDef.eventName,
+      }));
   }
 
   /**

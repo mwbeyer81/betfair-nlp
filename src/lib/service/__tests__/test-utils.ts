@@ -138,4 +138,18 @@ export class TestUtils {
       ...overrides,
     };
   }
+
+  static createMockMarketDefinitionWithBsp(
+    overrides: Partial<MarketDefinition> = {}
+  ): MarketDefinition {
+    return this.createMockMarketDefinition({
+      bspReconciled: true,
+      marketType: "WIN",
+      runners: [
+        { adjustmentFactor: 32.34, status: "WINNER", sortPriority: 1, id: 26600965, name: "Runner 1", bsp: 3.5 },
+        { adjustmentFactor: 13.52, status: "LOSER",  sortPriority: 2, id: 48945543, name: "Runner 2", bsp: 6.0 },
+      ],
+      ...overrides,
+    });
+  }
 }

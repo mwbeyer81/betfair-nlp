@@ -41,5 +41,5 @@ If your new endpoint uses `aggregate`, add its expected shape to the `aggregate.
 
 ### Running tests
 ```bash
-cd /Users/mwbeyer/betfair-nlp && npx jest src/server/__tests__/app.test.ts --no-coverage
+npx jest src/server/__tests__/app.test.ts --no-coverage
 ```

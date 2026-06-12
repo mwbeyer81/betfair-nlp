@@ -32,8 +32,9 @@ async function processFile() {
     const marketDefinitionDAO = new MarketDefinitionDAO(db);
     const priceUpdateDAO = new PriceUpdateDAO(db);
 
-    // Initialize service with DAOs
-    const service = new BetfairService(marketDefinitionDAO, priceUpdateDAO);
+    const bspOnly = process.env.BSP_ONLY !== "false";
+    console.log(`BSP-only mode: ${bspOnly}`);
+    const service = new BetfairService(marketDefinitionDAO, priceUpdateDAO, bspOnly);
 
     // Create database indexes
     await service.createIndexes();

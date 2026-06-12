@@ -13,13 +13,17 @@ import { TestUtils } from "./test-utils";
 // Mock the DAOs
 jest.mock("../../dao");
 
-// Mock the fs module
-jest.mock("fs", () => ({
-  readFileSync: jest.fn(),
+// Mock DatabaseConnection so the config package is never invoked at module load
+jest.mock("../../../config/database", () => ({
+  DatabaseConnection: { getInstance: jest.fn() },
 }));
 
-// Import fs after mocking
-import { readFileSync } from "fs";
+// Mock fs/promises (used by processDataFile)
+jest.mock("fs/promises", () => ({
+  readFile: jest.fn(),
+}));
+
+import { readFile } from "fs/promises";
 
 describe("BetfairService", () => {
   let service: BetfairService;
@@ -61,10 +65,7 @@ describe("BetfairService", () => {
 {"op":"mcm","clk":"124","pt":1733842450729,"mc":[{"id":"1.237066150","rc":[{"ltp":21.0,"id":26600965}]}]}`;
 
     beforeEach(() => {
-      // Mock fs.readFileSync for each test
-      (
-        readFileSync as jest.MockedFunction<typeof readFileSync>
-      ).mockReturnValue(mockFileContent);
+      (readFile as jest.MockedFunction<typeof readFile>).mockResolvedValue(mockFileContent as any);
     });
 
     it("should process a valid data file successfully", async () => {
@@ -96,9 +97,7 @@ describe("BetfairService", () => {
 
     it("should handle empty lines gracefully", async () => {
       const emptyFileContent = "\n\n\n";
-      (
-        readFileSync as jest.MockedFunction<typeof readFileSync>
-      ).mockReturnValue(emptyFileContent);
+      (readFile as jest.MockedFunction<typeof readFile>).mockResolvedValue(emptyFileContent as any);
 
       const processMessageSpy = jest.spyOn(
         service as any,
@@ -113,9 +112,7 @@ describe("BetfairService", () => {
 
     it("should handle JSON parsing errors gracefully", async () => {
       const invalidFileContent = '{"invalid": json}\n{"valid": "json"}';
-      (
-        readFileSync as jest.MockedFunction<typeof readFileSync>
-      ).mockReturnValue(invalidFileContent);
+      (readFile as jest.MockedFunction<typeof readFile>).mockResolvedValue(invalidFileContent as any);
 
       const processMessageSpy = jest.spyOn(
         service as any,
@@ -123,25 +120,16 @@ describe("BetfairService", () => {
       );
       processMessageSpy.mockResolvedValue(undefined);
 
-      const consoleSpy = jest.spyOn(console, "error").mockImplementation();
-
       await service.processDataFile(mockFilePath);
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'Failed to process line: {"invalid": json}...',
-        expect.any(Error)
-      );
+      // Malformed lines are silently skipped; only the valid line is processed
       expect(processMessageSpy).toHaveBeenCalledTimes(1);
     });
 
     it("should throw error when file cannot be read", async () => {
-      (
-        readFileSync as jest.MockedFunction<typeof readFileSync>
-      ).mockImplementation(() => {
-        throw new Error(
-          "ENOENT: no such file or directory, open 'test/path/file.txt'"
-        );
-      });
+      (readFile as jest.MockedFunction<typeof readFile>).mockRejectedValue(
+        new Error("ENOENT: no such file or directory, open 'test/path/file.txt'")
+      );
 
       await expect(service.processDataFile(mockFilePath)).rejects.toThrow(
         "ENOENT: no such file or directory, open 'test/path/file.txt'"
@@ -234,7 +222,7 @@ describe("BetfairService", () => {
       expect(processPriceUpdatesSpy).not.toHaveBeenCalled();
     });
 
-    it("should process price updates", async () => {
+    it("should skip rc price updates in default bspOnly mode", async () => {
       const mockMarketChange: MarketChange = TestUtils.createMockMarketChange({
         rc: [
           TestUtils.createMockRunnerChange({ ltp: 21.0, id: 26600965 }),
@@ -242,23 +230,31 @@ describe("BetfairService", () => {
         ],
       });
 
-      const processMarketDefinitionSpy = jest.spyOn(
-        service as any,
-        "processMarketDefinition"
-      );
-      const processPriceUpdatesSpy = jest.spyOn(
-        service as any,
-        "processPriceUpdates"
-      );
+      const processMarketDefinitionSpy = jest.spyOn(service as any, "processMarketDefinition");
+      const processPriceUpdatesSpy = jest.spyOn(service as any, "processPriceUpdates");
 
       processMarketDefinitionSpy.mockResolvedValue(undefined);
       processPriceUpdatesSpy.mockResolvedValue(undefined);
 
-      await (service as any).processMarketChange(
-        mockMarketChange,
-        new Date(),
-        "123"
-      );
+      await (service as any).processMarketChange(mockMarketChange, new Date(), "123");
+
+      expect(processPriceUpdatesSpy).not.toHaveBeenCalled();
+      expect(processMarketDefinitionSpy).not.toHaveBeenCalled();
+    });
+
+    it("should process rc price updates when bspOnly is false", async () => {
+      const legacyService = new BetfairService(mockMarketDefinitionDAO, mockPriceUpdateDAO, false);
+      const mockMarketChange: MarketChange = TestUtils.createMockMarketChange({
+        rc: [
+          TestUtils.createMockRunnerChange({ ltp: 21.0, id: 26600965 }),
+          TestUtils.createMockRunnerChange({ ltp: 15.5, id: 48945543 }),
+        ],
+      });
+
+      const processPriceUpdatesSpy = jest.spyOn(legacyService as any, "processPriceUpdates");
+      processPriceUpdatesSpy.mockResolvedValue(undefined);
+
+      await (legacyService as any).processMarketChange(mockMarketChange, new Date(), "123");
 
       expect(processPriceUpdatesSpy).toHaveBeenCalledWith(
         mockMarketChange.rc,
@@ -266,35 +262,24 @@ describe("BetfairService", () => {
         expect.any(Date),
         "123"
       );
-      expect(processMarketDefinitionSpy).not.toHaveBeenCalled();
     });
 
-    it("should process both market definition and price updates", async () => {
+    it("should not call processPriceUpdates even when both marketDefinition and rc present (bspOnly mode)", async () => {
       const mockMarketChange: MarketChange = TestUtils.createMockMarketChange({
         marketDefinition: TestUtils.createMockMarketDefinition(),
         rc: [TestUtils.createMockRunnerChange()],
       });
 
-      const processMarketDefinitionSpy = jest.spyOn(
-        service as any,
-        "processMarketDefinition"
-      );
-      const processPriceUpdatesSpy = jest.spyOn(
-        service as any,
-        "processPriceUpdates"
-      );
+      const processMarketDefinitionSpy = jest.spyOn(service as any, "processMarketDefinition");
+      const processPriceUpdatesSpy = jest.spyOn(service as any, "processPriceUpdates");
 
       processMarketDefinitionSpy.mockResolvedValue(undefined);
       processPriceUpdatesSpy.mockResolvedValue(undefined);
 
-      await (service as any).processMarketChange(
-        mockMarketChange,
-        new Date(),
-        "123"
-      );
+      await (service as any).processMarketChange(mockMarketChange, new Date(), "123");
 
       expect(processMarketDefinitionSpy).toHaveBeenCalled();
-      expect(processPriceUpdatesSpy).toHaveBeenCalled();
+      expect(processPriceUpdatesSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -317,6 +302,63 @@ describe("BetfairService", () => {
       );
       // Market status is now handled within market definition
       // No separate market status DAO calls expected
+    });
+  });
+
+  describe("processBspPriceUpdates", () => {
+    it("creates one document per runner with bsp > 1 when bspReconciled", async () => {
+      const marketDef = TestUtils.createMockMarketDefinitionWithBsp();
+
+      mockMarketDefinitionDAO.insert.mockResolvedValue(undefined as any);
+      mockPriceUpdateDAO.insertMany.mockResolvedValue(undefined as any);
+
+      await (service as any).processMarketDefinition(marketDef, "1.237066150", new Date(), "123");
+
+      expect(mockPriceUpdateDAO.insertMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            marketId: "1.237066150",
+            runnerId: 26600965,
+            runnerName: "Runner 1",
+            lastTradedPrice: 3.5,
+            changeId: "bsp_1.237066150",
+          }),
+          expect.objectContaining({
+            runnerId: 48945543,
+            lastTradedPrice: 6.0,
+            changeId: "bsp_1.237066150",
+          }),
+        ])
+      );
+    });
+
+    it("skips runners without bsp or with bsp <= 1", async () => {
+      const marketDef = TestUtils.createMockMarketDefinitionWithBsp({
+        runners: [
+          { adjustmentFactor: 0, status: "ACTIVE", sortPriority: 1, id: 1, name: "No BSP" },
+          { adjustmentFactor: 0, status: "ACTIVE", sortPriority: 2, id: 2, name: "BSP = 1", bsp: 1 },
+          { adjustmentFactor: 0, status: "ACTIVE", sortPriority: 3, id: 3, name: "Valid BSP", bsp: 4.0 },
+        ],
+      });
+
+      mockMarketDefinitionDAO.insert.mockResolvedValue(undefined as any);
+      mockPriceUpdateDAO.insertMany.mockResolvedValue(undefined as any);
+
+      await (service as any).processMarketDefinition(marketDef, "1.237066150", new Date(), "123");
+
+      const insertCall = mockPriceUpdateDAO.insertMany.mock.calls[0][0];
+      expect(insertCall).toHaveLength(1);
+      expect(insertCall[0].runnerId).toBe(3);
+    });
+
+    it("does not call insertMany when bspReconciled is false", async () => {
+      const marketDef = TestUtils.createMockMarketDefinition({ bspReconciled: false });
+
+      mockMarketDefinitionDAO.insert.mockResolvedValue(undefined as any);
+
+      await (service as any).processMarketDefinition(marketDef, "1.237066150", new Date(), "123");
+
+      expect(mockPriceUpdateDAO.insertMany).not.toHaveBeenCalled();
     });
   });
 
@@ -385,7 +427,7 @@ describe("BetfairService", () => {
         expect.objectContaining({
           marketId: "1.237066150",
           runnerId: 26600965,
-          runnerName: "Runner_26600965",
+          runnerName: "Runner 26600965",
           lastTradedPrice: 21.0,
           eventId: "",
           eventName: "",

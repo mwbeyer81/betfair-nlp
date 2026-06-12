@@ -47,7 +47,7 @@ describe("PriceUpdateDAO.getByEventIdAndRunnerId (integration)", () => {
 
 ### Running tests
 ```bash
-cd /Users/mwbeyer/betfair-nlp && npx jest --testPathPattern="integration" --no-coverage --runInBand
+npx jest --testPathPattern="integration" --no-coverage --runInBand
 ```
 
 Integration tests require MongoDB running at `localhost:27019` (the dev instance).

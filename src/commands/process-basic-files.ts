@@ -20,7 +20,9 @@ async function processBasicFiles() {
     await dbConnection.connect();
     console.log("Connected to MongoDB");
 
-    const service = new BetfairService();
+    const bspOnly = process.env.BSP_ONLY !== "false";
+    console.log(`BSP-only mode: ${bspOnly}`);
+    const service = new BetfairService(undefined, undefined, bspOnly);
     await service.initialize();
     console.log("Database indexes created");
 

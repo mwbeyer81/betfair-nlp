@@ -52,4 +52,16 @@ import { within, userEvent, expect, fn } from "@storybook/test";
 - `<thing>-panel-close` or `<thing>-close` — close button
 - `<thing>-item-{id}` — per-item views (or `<thing>-item-{index}`)
 
-Run `npx storybook dev` from `client/` to verify stories render and all play functions pass.
+### Running tests
+
+Storybook must be running at `localhost:6007` before executing the test runner:
+
+```bash
+# Terminal 1 — start Storybook
+cd client && yarn storybook
+
+# Terminal 2 — run all interaction tests
+cd client && yarn storybook:test-runner
+```
+
+All play-function tests must pass before committing (required by CLAUDE.md). Use the `/dev-workflow` skill if you need to start multiple services at once.
