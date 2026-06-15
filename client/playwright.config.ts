@@ -9,7 +9,7 @@ export default defineConfig({
   workers: 1,
   reporter: "html",
   use: {
-    baseURL: "http://localhost:6006",
+    baseURL: "http://localhost:80",
     trace: "on-first-retry",
   },
   projects: [
@@ -18,11 +18,10 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  // Comment out webServer to run Storybook manually
-  // webServer: {
-  //   command: 'yarn storybook:headful',
-  //   url: 'http://localhost:6006',
-  //   reuseExistingServer: !process.env.CI,
-  //   timeout: 120 * 1000,
-  // },
+  webServer: {
+    command: "npx serve -s dist -p 80",
+    url: "http://localhost:80",
+    reuseExistingServer: true,
+    timeout: 30_000,
+  },
 });

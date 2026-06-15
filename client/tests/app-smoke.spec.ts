@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-const APP_URL = "http://localhost:8081";
+const APP_URL = "http://localhost:80";
 
 test.describe("App smoke tests", () => {
   test("app loads and renders root element", async ({ page }) => {

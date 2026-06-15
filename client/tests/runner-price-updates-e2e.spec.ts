@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-const APP_URL = "http://localhost:8081/";
+const APP_URL = "http://localhost:80/";
 const API_URL = "http://localhost:3000";
 const AUTH = "Basic " + Buffer.from("matthew:beyer").toString("base64");
 
@@ -75,7 +75,7 @@ test.describe("Runner price updates API (live server @ localhost:3000)", () => {
   });
 });
 
-test.describe("Runner price updates feature (Expo web @ localhost:8081)", () => {
+test.describe("Runner price updates feature (Expo web @ localhost:80)", () => {
   test("runner items show a chevron indicating they are clickable", async ({ page }) => {
     await goToEvents(page);
     await page.getByTestId("event-runners-badge-33858191").click();

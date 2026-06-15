@@ -1,8 +1,8 @@
 import { test, expect } from "@playwright/test";
 
-const APP_URL = "http://localhost:8081/";
+const APP_URL = "http://localhost:80/";
 
-test.describe("Event Groups feature (Expo web @ localhost:8081)", () => {
+test.describe("Event Groups feature (Expo web @ localhost:80)", () => {
   test("app loads directly into the Events view", async ({ page }) => {
     await page.goto(APP_URL);
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { promises as fs } from "fs";
 
-const APP_URL = "http://localhost:8081/";
+const APP_URL = "http://localhost:80/";
 const API_URL = "http://localhost:3000";
 const AUTH = "Basic " + Buffer.from("matthew:beyer").toString("base64");
 
@@ -57,7 +57,7 @@ test.describe("GET /api/runners (live server @ localhost:3000)", () => {
   });
 });
 
-test.describe("All Runners screen (Expo web @ localhost:8081)", () => {
+test.describe("All Runners screen (Expo web @ localhost:80)", () => {
   test("clicking runners stat navigates to /runners full-screen view", async ({ page }) => {
     await goToEvents(page);
     await expect(page.getByTestId("events-stats-bar")).toBeVisible({ timeout: 10000 });
@@ -131,7 +131,7 @@ test.describe("All Runners screen (Expo web @ localhost:8081)", () => {
   });
 });
 
-test.describe("# in SP range filter (real app at localhost:8081)", () => {
+test.describe("# in SP range filter (real app at localhost:80)", () => {
   test("# in SP filter controls are visible on /runners", async ({ page }) => {
     await page.goto(`${APP_URL}runners`);
     await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });

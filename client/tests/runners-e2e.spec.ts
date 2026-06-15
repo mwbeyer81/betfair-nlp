@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-const APP_URL = "http://localhost:8081/";
+const APP_URL = "http://localhost:80/";
 const API_URL = "http://localhost:3000";
 const AUTH = "Basic " + Buffer.from("matthew:beyer").toString("base64");
 
@@ -12,7 +12,7 @@ async function goToEvents(page: import("@playwright/test").Page) {
 
 test.describe("Runners API (live server @ localhost:3000)", () => {
   test("GET /api/events/:eventId/runners returns races array", async ({ request }) => {
-    const res = await request.get(`${API_URL}/api/events/33858191/runners`, {
+    const res = await request.get(`${API_URL}/api/events/33152096/runners`, {
       headers: { Authorization: AUTH },
     });
     expect(res.status()).toBe(200);
@@ -23,7 +23,7 @@ test.describe("Runners API (live server @ localhost:3000)", () => {
   });
 
   test("each race has marketId, marketType, marketTime, runners array", async ({ request }) => {
-    const res = await request.get(`${API_URL}/api/events/33858191/runners`, {
+    const res = await request.get(`${API_URL}/api/events/33152096/runners`, {
       headers: { Authorization: AUTH },
     });
     const body = await res.json();
@@ -41,8 +41,8 @@ test.describe("Runners API (live server @ localhost:3000)", () => {
   });
 
   test("BSP market runners include bsp field", async ({ request }) => {
-    // Leopardstown WIN markets have bspReconciled=true
-    const res = await request.get(`${API_URL}/api/events/33988522/runners`, {
+    // Chepstow WIN markets have bspReconciled=true
+    const res = await request.get(`${API_URL}/api/events/33152096/runners`, {
       headers: { Authorization: AUTH },
     });
     const body = await res.json();
@@ -57,7 +57,7 @@ test.describe("Runners API (live server @ localhost:3000)", () => {
   });
 
   test("no REMOVED runners in any race", async ({ request }) => {
-    const res = await request.get(`${API_URL}/api/events/33858191/runners`, {
+    const res = await request.get(`${API_URL}/api/events/33152096/runners`, {
       headers: { Authorization: AUTH },
     });
     const body = await res.json();
@@ -69,7 +69,7 @@ test.describe("Runners API (live server @ localhost:3000)", () => {
   });
 
   test("returns 401 without Authorization header", async ({ request }) => {
-    const res = await request.get(`${API_URL}/api/events/33858191/runners`);
+    const res = await request.get(`${API_URL}/api/events/33152096/runners`);
     expect(res.status()).toBe(401);
   });
 
@@ -84,7 +84,7 @@ test.describe("Runners API (live server @ localhost:3000)", () => {
   });
 });
 
-test.describe("Runners feature (Expo web @ localhost:8081)", () => {
+test.describe("Runners feature (Expo web @ localhost:80)", () => {
   test("app launches directly into the Events view", async ({ page }) => {
     await page.goto(APP_URL);
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
@@ -93,20 +93,20 @@ test.describe("Runners feature (Expo web @ localhost:8081)", () => {
 
   test("Events view shows runners badge for known event", async ({ page }) => {
     await goToEvents(page);
-    await expect(page.getByTestId("event-docs-badge-33858191")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("event-runners-badge-33858191")).toBeVisible();
-    await expect(page.getByTestId("event-price-updates-badge-33858191")).toBeVisible();
+    await expect(page.getByTestId("event-docs-badge-33152096")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("event-runners-badge-33152096")).toBeVisible();
+    await expect(page.getByTestId("event-price-updates-badge-33152096")).toBeVisible();
   });
 
   test("clicking runners badge opens the runners panel", async ({ page }) => {
     await goToEvents(page);
-    await page.getByTestId("event-runners-badge-33858191").click();
+    await page.getByTestId("event-runners-badge-33152096").click();
     await expect(page.getByTestId("runners-panel")).toBeVisible({ timeout: 10000 });
   });
 
   test("runners panel loads runner list from the API", async ({ page }) => {
     await goToEvents(page);
-    await page.getByTestId("event-runners-badge-33858191").click();
+    await page.getByTestId("event-runners-badge-33152096").click();
     await expect(page.getByTestId("runners-loading")).not.toBeVisible({ timeout: 15000 });
 
     const items = page.locator('[data-testid^="runner-item-"]');
@@ -116,23 +116,23 @@ test.describe("Runners feature (Expo web @ localhost:8081)", () => {
 
   test("runners panel header shows event name", async ({ page }) => {
     await goToEvents(page);
-    await page.getByTestId("event-runners-badge-33858191").click();
+    await page.getByTestId("event-runners-badge-33152096").click();
     await expect(page.getByTestId("runners-loading")).not.toBeVisible({ timeout: 15000 });
-    await expect(page.getByTestId("runners-panel")).toContainText("Cheltenham 1st Jan");
+    await expect(page.getByTestId("runners-panel")).toContainText("Chepstow 1st Apr");
   });
 
   test("runners panel close button dismisses it", async ({ page }) => {
     await goToEvents(page);
-    await page.getByTestId("event-runners-badge-33858191").click();
+    await page.getByTestId("event-runners-badge-33152096").click();
     await expect(page.getByTestId("runners-panel")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("runners-panel-close").click();
     await expect(page.getByTestId("runners-panel")).not.toBeVisible();
   });
 
   test("BSP price is displayed for runners in a BSP market", async ({ page }) => {
-    // Leopardstown 33988522 has WIN markets with bspReconciled=true
+    // Chepstow 33152096 has WIN markets with bspReconciled=true
     await goToEvents(page);
-    await page.getByTestId("event-runners-badge-33988522").click();
+    await page.getByTestId("event-runners-badge-33152096").click();
     await expect(page.getByTestId("runners-loading")).not.toBeVisible({ timeout: 15000 });
 
     const bspBadges = page.locator('[data-testid^="runner-bsp-"]');

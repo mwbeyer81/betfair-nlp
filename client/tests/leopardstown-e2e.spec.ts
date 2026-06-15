@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-const APP_URL = "http://localhost:8081/";
+const APP_URL = "http://localhost:80/";
 const API_URL = "http://localhost:3000";
 const AUTH = "Basic " + Buffer.from("matthew:beyer").toString("base64");
 
@@ -72,7 +72,7 @@ test.describe(`${EVENT_NAME} — API (live server @ localhost:3000)`, () => {
   });
 });
 
-test.describe(`${EVENT_NAME} — UI (Expo web @ localhost:8081)`, () => {
+test.describe(`${EVENT_NAME} — UI (Expo web @ localhost:80)`, () => {
   test("Leopardstown event badge is visible in the Events view", async ({ page }) => {
     await goToEvents(page);
     await expect(page.getByTestId(`event-docs-badge-${EVENT_ID}`)).toBeVisible({ timeout: 10000 });
