@@ -1,36 +1,19 @@
-// Client-side configuration for React Native/Expo
-// This replaces the Node.js 'config' package which doesn't work in React Native
-
 interface Config {
   baseUrl: string;
 }
 
-// Environment detection
-const getEnvironment = (): string => {
-  // Check for environment variable (for build-time configuration)
-  if (typeof process !== 'undefined' && process.env.NODE_ENV) {
-    return process.env.NODE_ENV;
-  }
-  
-  // Default to development
-  return 'development';
-};
-
-// Configuration based on environment
+// Use hostname to detect environment — avoids build-time NODE_ENV which is
+// always "development" when using `expo export --dev`.
 const getConfig = (): Config => {
-  const env = getEnvironment();
-  
-  switch (env) {
-    case 'production':
-      return {
-        baseUrl: 'http://51.20.109.194/'
-      };
-    case 'development':
-    default:
-      return {
-        baseUrl: 'http://localhost:3000'
-      };
+  if (
+    typeof window !== 'undefined' &&
+    !['localhost', '127.0.0.1'].includes(window.location.hostname)
+  ) {
+    // Served from the production domain — use same-origin relative URLs so
+    // API calls go to the same Express server that served the page.
+    return { baseUrl: '' };
   }
+  return { baseUrl: 'http://localhost:3000' };
 };
 
 export const config = getConfig();

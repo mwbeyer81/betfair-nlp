@@ -9,12 +9,19 @@ export default defineConfig({
   workers: 2,
   reporter: "html",
   use: {
+    baseURL: "https://backbet.co.uk",
     trace: "on-first-retry",
   },
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        launchOptions: {
+          executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+          args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        },
+      },
     },
   ],
 });

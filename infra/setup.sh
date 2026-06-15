@@ -58,6 +58,32 @@ echo "==> Reloading Apache with new certificate"
 systemctl reload apache2
 
 # ── Smoke test ────────────────────────────────────────────────────────────────
+# ── Node.js + app dependencies ────────────────────────────────────────────────
+echo "==> Checking for Node.js"
+if ! command -v node &>/dev/null; then
+    echo "==> Installing Node.js 20.x"
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt-get install -y nodejs
+fi
+node --version
+
+APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+echo "==> Installing backend dependencies in $APP_DIR"
+cd "$APP_DIR"
+npm install
+
+echo "==> Installing client dependencies"
+cd "$APP_DIR/client"
+npm install
+
+echo "==> Building Expo web client (production)"
+# Use expo export without --dev so __DEV__ is false in the bundle
+npx expo export --platform web --output-dir dist
+
+echo "==> Client build complete"
+cd "$APP_DIR"
+
+# ── Smoke tests ───────────────────────────────────────────────────────────────
 echo "==> Smoke-testing https://$DOMAIN/hello-world"
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$DOMAIN/hello-world")
 if [ "$HTTP_CODE" = "200" ]; then
@@ -66,8 +92,17 @@ else
     echo "    WARNING — got $HTTP_CODE (Node.js app may not be running yet)"
 fi
 
+echo "==> Smoke-testing https://$DOMAIN/ (client app)"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$DOMAIN/")
+if [ "$HTTP_CODE" = "200" ]; then
+    echo "    OK — got 200"
+else
+    echo "    WARNING — got $HTTP_CODE"
+fi
+
 echo ""
 echo "Done. Next steps:"
 echo "  1. Make sure the Node.js app is running on port 3000 (npm run server)"
-echo "  2. Visit https://$DOMAIN/hello-world"
-echo "  3. Cert auto-renews via: systemctl status certbot.timer"
+echo "  2. Visit https://$DOMAIN/ for the client app"
+echo "  3. Visit https://$DOMAIN/hello-world for the hello-world page"
+echo "  4. Cert auto-renews via: systemctl status certbot.timer"

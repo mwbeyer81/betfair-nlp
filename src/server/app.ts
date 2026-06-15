@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import path from "path";
 import { NaturalLanguageService } from "../lib/service/natural-language-service";
 import { BetfairService } from "../lib/service/betfair-service";
 import { DatabaseConnection } from "../config/database";
@@ -49,6 +50,26 @@ app.use(helmet({ crossOriginOpenerPolicy: false, crossOriginResourcePolicy: fals
 app.use(morgan("combined"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
+
+// Serve the built Expo web client (public — no auth needed for static assets)
+const clientDist = path.join(process.cwd(), "client", "dist");
+app.use(express.static(clientDist));
+
+// SPA fallback — for client-side routes that don't match a static file or API
+// route, serve index.html so Expo Router can handle them in the browser.
+app.use((req, res, next) => {
+  if (req.method !== "GET") return next();
+  if (
+    req.path.startsWith("/api/") ||
+    req.path === "/health" ||
+    req.path === "/hello-world"
+  ) {
+    return next();
+  }
+  res.sendFile(path.join(clientDist, "index.html"), (err) => {
+    if (err) next();
+  });
+});
 
 // Public routes (before auth)
 app.get("/hello-world", (req, res) => {
