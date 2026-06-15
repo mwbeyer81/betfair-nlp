@@ -57,7 +57,6 @@ certbot --apache \
 echo "==> Reloading Apache with new certificate"
 systemctl reload apache2
 
-# ── Smoke test ────────────────────────────────────────────────────────────────
 # ── Node.js + app dependencies ────────────────────────────────────────────────
 echo "==> Checking for Node.js"
 if ! command -v node &>/dev/null; then
@@ -100,9 +99,38 @@ else
     echo "    WARNING — got $HTTP_CODE"
 fi
 
+echo "==> Building TypeScript"
+cd "$APP_DIR"
+npm run build
+cp -r src/lib/service/prompts dist/lib/service/
+
+echo "==> Starting Node.js server"
+pkill -f 'node dist/server/index.js' || true
+sleep 1
+# disown required: without it, SSH session close sends SIGHUP and kills the process
+nohup node dist/server/index.js >> "$APP_DIR/server.log" 2>&1 & disown
+sleep 3
+
+echo "==> Smoke-testing https://$DOMAIN/hello-world"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$DOMAIN/hello-world")
+if [ "$HTTP_CODE" = "200" ]; then
+    echo "    OK — got 200"
+else
+    echo "    WARNING — got $HTTP_CODE"
+fi
+
+echo "==> Smoke-testing https://$DOMAIN/ (client app)"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$DOMAIN/")
+if [ "$HTTP_CODE" = "200" ]; then
+    echo "    OK — got 200"
+else
+    echo "    WARNING — got $HTTP_CODE"
+fi
+
 echo ""
-echo "Done. Next steps:"
-echo "  1. Make sure the Node.js app is running on port 3000 (npm run server)"
-echo "  2. Visit https://$DOMAIN/ for the client app"
-echo "  3. Visit https://$DOMAIN/hello-world for the hello-world page"
-echo "  4. Cert auto-renews via: systemctl status certbot.timer"
+echo "Done."
+echo "  - App:        https://$DOMAIN/"
+echo "  - Hello:      https://$DOMAIN/hello-world"
+echo "  - Server log: $APP_DIR/server.log"
+echo "  - To redeploy: bash infra/deploy.sh (or bash infra/deploy.sh --client)"
+echo "  - Cert auto-renews via: systemctl status certbot.timer"
