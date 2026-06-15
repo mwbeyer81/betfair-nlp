@@ -52,7 +52,22 @@ app.use(express.urlencoded({ extended: true }));
 
 // Public routes (before auth)
 app.get("/hello-world", (req, res) => {
-  res.status(200).json({ message: "Hello, World!" });
+  res.setHeader("Content-Type", "text/html");
+  res.status(200).send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hello World</title>
+  <style>
+    body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f0f4f8; }
+    h1 { font-size: 3rem; color: #2d3748; }
+  </style>
+</head>
+<body>
+  <h1>Hello, World!</h1>
+</body>
+</html>`);
 });
 
 // Apply basic auth to all routes
