@@ -66,9 +66,29 @@ export class MarketDefinitionDAO {
     try {
       await this.collection.insertOne(document);
     } catch (error: any) {
-      if (error.code === 11000) return; // duplicate â€” already in DB
+      if (error.code === 11000) return; // duplicate — already in DB
       throw error;
     }
+  }
+
+  /**
+   * Upsert (replace) the single market definition for a marketId.
+   * Used in BSP_ONLY mode so only the final settled snapshot is kept per market.
+   */
+  public async upsertByMarketId(
+    marketDef: MarketDefinition,
+    marketId: string,
+    timestamp: Date,
+    changeId: string
+  ): Promise<void> {
+    const document: MarketDefinitionDocument = {
+      ...marketDef,
+      marketId,
+      timestamp,
+      changeId,
+      publishTime: timestamp,
+    };
+    await this.collection.replaceOne({ marketId }, document, { upsert: true });
   }
 
   /**

@@ -17,6 +17,8 @@ export class BetfairService {
   private marketDefinitionDAO: MarketDefinitionDAO;
   private priceUpdateDAO: PriceUpdateDAO;
   private bspOnly: boolean;
+  private countryFilter: string[];
+  private marketTypeFilter: string[];
 
   constructor(
     marketDefinitionDAO?: MarketDefinitionDAO,
@@ -24,6 +26,12 @@ export class BetfairService {
     bspOnly = true
   ) {
     this.bspOnly = bspOnly;
+    this.countryFilter = process.env.COUNTRY_FILTER
+      ? process.env.COUNTRY_FILTER.split(',').map(s => s.trim().toUpperCase())
+      : [];
+    this.marketTypeFilter = process.env.MARKET_TYPE_FILTER
+      ? process.env.MARKET_TYPE_FILTER.split(',').map(s => s.trim().toUpperCase())
+      : [];
     if (marketDefinitionDAO && priceUpdateDAO) {
       this.marketDefinitionDAO = marketDefinitionDAO;
       this.priceUpdateDAO = priceUpdateDAO;
@@ -194,10 +202,21 @@ export class BetfairService {
     timestamp: Date,
     changeId: string
   ): Promise<void> {
-    await this.marketDefinitionDAO.insert(marketDef, marketId, timestamp, changeId);
+    if (this.countryFilter.length > 0 && !this.countryFilter.includes(marketDef.countryCode ?? '')) {
+      return;
+    }
+    if (this.marketTypeFilter.length > 0 && !this.marketTypeFilter.includes(marketDef.marketType ?? '')) {
+      return;
+    }
 
-    if (this.bspOnly && marketDef.bspReconciled) {
-      await this.processBspPriceUpdates(marketDef, marketId, timestamp);
+    if (this.bspOnly) {
+      if (marketDef.bspReconciled) {
+        // Replace so only the final settled snapshot is kept per market (one doc per marketId)
+        await this.marketDefinitionDAO.upsertByMarketId(marketDef, marketId, timestamp, changeId);
+        await this.processBspPriceUpdates(marketDef, marketId, timestamp);
+      }
+    } else {
+      await this.marketDefinitionDAO.insert(marketDef, marketId, timestamp, changeId);
     }
   }
 

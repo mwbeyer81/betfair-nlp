@@ -91,13 +91,6 @@ async function processBasicFiles() {
             // duplicate key — already processed by another worker, safe to ignore
           }
           completedCount++;
-          if (completedCount % 500 === 0 || completedCount === total) {
-            const pct = ((completedCount / total) * 100).toFixed(1);
-            const elapsed = (Date.now() - startTime) / 1000;
-            const rate = completedCount / elapsed;
-            const remaining = Math.round((total - completedCount) / rate);
-            console.log(`✅ [${pct}%] ${completedCount}/${total} — ~${Math.round(remaining / 60)}min left`);
-          }
         } catch (error) {
           console.error(`❌ [W${workerId}] Failed: ${file}`, error);
           errorCount++;
@@ -106,7 +99,19 @@ async function processBasicFiles() {
     }
 
     console.log(`\n🚀 Starting parallel import with ${CONCURRENCY} workers...`);
+    const progressInterval = setInterval(() => {
+      if (completedCount === 0) return;
+      const pct = ((completedCount / total) * 100).toFixed(1);
+      const elapsed = (Date.now() - startTime) / 1000;
+      const rate = completedCount / elapsed;
+      const remainingSec = Math.round((total - completedCount) / rate);
+      const eta = new Date(Date.now() + remainingSec * 1000).toLocaleTimeString();
+      console.log(
+        `⏱  [${pct}%] ${completedCount}/${total} — ${rate.toFixed(0)} files/s — ~${Math.round(remainingSec / 60)}min left (ETA ${eta})`
+      );
+    }, 60_000);
     await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => worker(i + 1)));
+    clearInterval(progressInterval);
 
     const duration = (Date.now() - startTime) / 1000;
     console.log(`\n🎉 File processing completed!`);
