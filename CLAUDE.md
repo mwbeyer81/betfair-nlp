@@ -20,7 +20,7 @@ Expose the DAO method via `BetfairService` (`src/lib/service/betfair-service.ts`
 - Thin wrapper: `return this.<dao>.get<Thing>ByEventId(eventId)`.
 
 ### 3. Backend — API endpoint
-Add a GET route in `src/server/app.ts`:
+Add a GET route in `src/server/router.ts` (shared between Express and Lambda):
 ```
 GET /api/events/:eventId/<thing>
 ```

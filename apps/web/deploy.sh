@@ -1,16 +1,12 @@
 #!/bin/bash
 # Build the Expo web client and sync it to S3, then invalidate CloudFront.
-# Usage: CF_DIST_ID=<id> bash apps/web/deploy.sh
+# Serves at https://app.backbet.co.uk (CloudFront E1MADGEADM9CJZ → s3://betfair-nlp-web)
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 LAMBDA_URL="https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com"
 BUCKET="betfair-nlp-web"
-CF_DIST_ID="${CF_DIST_ID:-}"
-
-if [ -z "$CF_DIST_ID" ]; then
-  echo "Warning: CF_DIST_ID not set — skipping CloudFront invalidation"
-fi
+CF_DIST_ID="${CF_DIST_ID:-E1MADGEADM9CJZ}"
 
 echo "Building Expo web client (pointing at Lambda API)..."
 cd "$REPO_ROOT/client"

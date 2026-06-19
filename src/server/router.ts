@@ -52,7 +52,7 @@ export const initializeServices = async () => {
 // Public routes (before auth)
 router.get("/", (_req, res) => res.redirect("/hello-world"));
 
-const APP_URL = "https://d3jepqko9i1lgu.cloudfront.net";
+const APP_URL = "https://app.backbet.co.uk";
 
 router.get("/hello-world", (_req, res) => {
   res.setHeader("Content-Type", "text/html");
