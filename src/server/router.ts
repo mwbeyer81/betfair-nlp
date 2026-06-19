@@ -50,6 +50,8 @@ export const initializeServices = async () => {
 };
 
 // Public routes (before auth)
+router.get("/", (_req, res) => res.redirect("/hello-world"));
+
 router.get("/hello-world", (_req, res) => {
   res.setHeader("Content-Type", "text/html");
   res.status(200).send(`<!DOCTYPE html>
