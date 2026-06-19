@@ -134,7 +134,7 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
                   </Text>
                   <Text style={styles.price}>{u.lastTradedPrice.toFixed(2)}</Text>
                   <Text testID={`runner-screen-prob-${i}`} style={styles.impliedProb}>{impliedProb}%</Text>
-                  <Text style={styles.timestamp}>{ts}</Text>
+                  <Text style={styles.timestamp} numberOfLines={1}>{ts}</Text>
                 </View>
                 {/* Row 2: order book + volume (shown when available) */}
                 {(u.bestBackSize != null || u.bestLaySize != null || volDelta != null) && (
@@ -296,6 +296,7 @@ const styles = StyleSheet.create({
   timestamp: {
     fontSize: 12,
     color: "#aaa",
+    flexShrink: 1,
   },
   backChip: {
     fontSize: 12,

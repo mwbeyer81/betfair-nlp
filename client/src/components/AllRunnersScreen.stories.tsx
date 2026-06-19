@@ -405,3 +405,71 @@ export const SortToggleSendsDescParam: Story = {
     await waitFor(() => expect(capturedSortParam).toBe("desc"), { timeout: 3000 });
   },
 };
+
+// ── Responsive stories ──────────────────────────────────────────────────────
+
+export const MobileHeaderButtonsVisible: Story = {
+  parameters: { viewport: { defaultViewport: "mobile1" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    const sortBtn = canvas.getByTestId("all-runners-sort-toggle");
+    const eventsBtn = canvas.getByTestId("all-runners-screen-events-button");
+
+    await expect(sortBtn).toBeInTheDocument();
+    await expect(eventsBtn).toBeInTheDocument();
+
+    const sortRect = sortBtn.getBoundingClientRect();
+    const eventsRect = eventsBtn.getBoundingClientRect();
+    await expect(sortRect.right).toBeLessThanOrEqual(window.innerWidth + 1);
+    await expect(eventsRect.right).toBeLessThanOrEqual(window.innerWidth + 1);
+  },
+};
+
+export const MobileFilterBarScrollable: Story = {
+  parameters: { viewport: { defaultViewport: "mobile1" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    // Filter bar and apply button must be in the DOM (scrollable, not clipped away)
+    await expect(canvas.getByTestId("all-runners-filter-bar")).toBeInTheDocument();
+    await expect(canvas.getByTestId("all-runners-filter-apply")).toBeInTheDocument();
+  },
+};
+
+export const MobileExportModalFitsViewport: Story = {
+  parameters: { viewport: { defaultViewport: "mobile1" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    await userEvent.click(await canvas.findByTestId("all-runners-export-btn"));
+    const modal = await screen.findByTestId("all-runners-export-modal");
+    await expect(modal).toBeInTheDocument();
+
+    const rect = modal.getBoundingClientRect();
+    await expect(rect.left).toBeGreaterThanOrEqual(0);
+    await expect(rect.right).toBeLessThanOrEqual(window.innerWidth + 1);
+  },
+};
+
+export const MobilePnlBarWraps: Story = {
+  parameters: { viewport: { defaultViewport: "mobile1" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-pnl-bar");
+
+    const bar = canvas.getByTestId("all-runners-pnl-bar");
+    const pnl = canvas.getByTestId("all-runners-pnl");
+
+    await expect(bar).toBeInTheDocument();
+    await expect(pnl).toBeInTheDocument();
+
+    // PnL value must not overflow the bar horizontally
+    const barRect = bar.getBoundingClientRect();
+    const pnlRect = pnl.getBoundingClientRect();
+    await expect(pnlRect.right).toBeLessThanOrEqual(barRect.right + 2);
+  },
+};

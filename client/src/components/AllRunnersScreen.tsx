@@ -309,6 +309,11 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
         </TouchableOpacity>
       </View>
 
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterBarScroll}
+      >
       <View testID="all-runners-filter-bar" style={styles.filterBar}>
         <Text style={styles.filterLabel}>Runners</Text>
         <View style={styles.filterStepper}>
@@ -472,6 +477,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           <Text style={styles.applyBtnText}>Apply</Text>
         </TouchableOpacity>
       </View>
+      </ScrollView>
 
       {!isLoading && availableCountries.length > 0 && (
         <ScrollView
@@ -689,11 +695,12 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: "#007AFF",
-    paddingVertical: 14,
-    paddingHorizontal: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 6,
   },
   headerText: {
     flex: 1,
@@ -711,26 +718,30 @@ const styles = StyleSheet.create({
   },
   sortToggleBtn: {
     backgroundColor: "#5856d6",
-    paddingVertical: 7,
-    paddingHorizontal: 12,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
     borderRadius: 8,
-    marginRight: 6,
   },
   sortToggleBtnText: {
     color: "#fff",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
   },
   eventsButton: {
     backgroundColor: "#0056b3",
-    paddingVertical: 7,
-    paddingHorizontal: 12,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
     borderRadius: 8,
   },
   eventsButtonText: {
     color: "#fff",
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "600",
+  },
+  filterBarScroll: {
+    backgroundColor: "#f0f4ff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#dde3f0",
   },
   filterBar: {
     flexDirection: "row",
@@ -738,9 +749,6 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: "#f0f4ff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#dde3f0",
   },
   filterLabel: {
     fontSize: 12,
@@ -873,16 +881,19 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 4,
   },
   pnlLabel: {
     fontSize: 11,
     color: "rgba(255,255,255,0.5)",
+    marginRight: 8,
   },
   pnlStats: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    flexWrap: "wrap",
+    gap: 10,
   },
   pnlStat: {
     fontSize: 12,
@@ -1057,8 +1068,8 @@ const styles = StyleSheet.create({
   },
   exportBtn: {
     backgroundColor: "#28a745",
-    paddingVertical: 7,
-    paddingHorizontal: 12,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
     borderRadius: 8,
     marginRight: 6,
   },
@@ -1077,7 +1088,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 12,
     padding: 24,
-    width: 300,
+    width: "90%",
+    maxWidth: 340,
     alignItems: "center",
     gap: 12,
   },

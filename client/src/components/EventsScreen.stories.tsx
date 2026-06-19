@@ -133,3 +133,41 @@ export const EventBadgesVisible: Story = {
     await expect(canvas.getByTestId("event-price-updates-badge-33858191")).toBeInTheDocument();
   },
 };
+
+export const MobileHeaderButtonsVisible: Story = {
+  parameters: {
+    viewport: { defaultViewport: "mobile1" },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("event-group-item-33858191");
+
+    const sortBtn = canvas.getByTestId("events-sort-toggle");
+    const chatBtn = canvas.getByTestId("events-screen-chat-button");
+    const logoutBtn = canvas.getByTestId("events-screen-logout-button");
+
+    await expect(sortBtn).toBeInTheDocument();
+    await expect(chatBtn).toBeInTheDocument();
+    await expect(logoutBtn).toBeInTheDocument();
+
+    // All buttons must be visible — none clipped off-screen
+    const sortRect = sortBtn.getBoundingClientRect();
+    const chatRect = chatBtn.getBoundingClientRect();
+    const logoutRect = logoutBtn.getBoundingClientRect();
+    await expect(sortRect.right).toBeLessThanOrEqual(window.innerWidth + 1);
+    await expect(chatRect.right).toBeLessThanOrEqual(window.innerWidth + 1);
+    await expect(logoutRect.right).toBeLessThanOrEqual(window.innerWidth + 1);
+  },
+};
+
+export const MobileEventListScrollable: Story = {
+  parameters: {
+    viewport: { defaultViewport: "mobile1" },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("event-group-list")).resolves.toBeInTheDocument();
+    await expect(canvas.findByText("Cheltenham 1st Jan")).resolves.toBeInTheDocument();
+    await expect(canvas.findByText("Leopardstown 1st Feb")).resolves.toBeInTheDocument();
+  },
+};
