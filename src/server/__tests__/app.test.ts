@@ -452,6 +452,35 @@ describe("API Endpoints", () => {
 
       expect(response.body.data.length).toBeLessThanOrEqual(3);
     });
+
+    it("accepts sort=asc and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/runners?sort=asc")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("accepts sort=desc and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/runners?sort=desc")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("invalid sort value defaults gracefully and returns 200", async () => {
+      const response = await request(app)
+        .get("/api/runners?sort=invalid")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
   });
 
   describe("GET /api/stats", () => {

@@ -225,7 +225,8 @@ router.get("/api/runners", async (req, res) => {
     const countries = req.query.countries ? (req.query.countries as string).split(",").map(c => c.trim()).filter(Boolean) : [];
     const minBsp = Math.max(1, parseFloat(req.query.minBsp as string) || 1);
     const maxBsp = Math.min(100000, parseFloat(req.query.maxBsp as string) || 1000);
-    const { data, total, totalRunners, pnlStats } = await betfairService.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp);
+    const sortOrder = req.query.sort === "desc" ? "desc" : "asc";
+    const { data, total, totalRunners, pnlStats } = await betfairService.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp, sortOrder);
     res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
   } catch (error) {
     console.error("getAllRunnersByRace error:", error);

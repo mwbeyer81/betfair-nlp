@@ -566,3 +566,68 @@ describe("getAllRunnersByRace — export field completeness (integration)", () =
     expect(result.pnlStats.staked).toBeGreaterThan(0);
   }, 30000);
 });
+
+describe("getAllRunnersByRace — sortOrder (integration)", () => {
+  const INTEGRATION_COLLECTION = "market_definitions_integration";
+  let client: MongoClient;
+  let db: Db;
+  let dao: MarketDefinitionDAO;
+
+  beforeAll(async () => {
+    client = new MongoClient("mongodb://localhost:27019");
+    await client.connect();
+    db = client.db("betfair_nlp_local");
+
+    // Seed the integration collection from the real collection so tests don't touch production data
+    const source = db.collection("market_definitions");
+    const dest = db.collection(INTEGRATION_COLLECTION);
+    await dest.drop().catch(() => {});
+    const docs = await source.find({}).limit(200).toArray();
+    if (docs.length > 0) await dest.insertMany(docs);
+
+    dao = new MarketDefinitionDAO(db, INTEGRATION_COLLECTION);
+  }, 60000);
+
+  afterAll(async () => {
+    await db.collection(INTEGRATION_COLLECTION).drop().catch(() => {});
+    await client.close();
+  });
+
+  it("sortOrder asc returns races in ascending marketTime order", async () => {
+    const result = await dao.getAllRunnersByRace(1, 50, 1, 30, [], 1, 1000, "asc");
+    expect(result.data.length).toBeGreaterThan(1);
+    for (let i = 1; i < result.data.length; i++) {
+      expect(new Date(result.data[i - 1].marketTime).getTime())
+        .toBeLessThanOrEqual(new Date(result.data[i].marketTime).getTime());
+    }
+  }, 30000);
+
+  it("sortOrder desc returns races in descending marketTime order", async () => {
+    const result = await dao.getAllRunnersByRace(1, 50, 1, 30, [], 1, 1000, "desc");
+    expect(result.data.length).toBeGreaterThan(1);
+    for (let i = 1; i < result.data.length; i++) {
+      expect(new Date(result.data[i - 1].marketTime).getTime())
+        .toBeGreaterThanOrEqual(new Date(result.data[i].marketTime).getTime());
+    }
+  }, 30000);
+
+  it("asc and desc return the same total race count", async () => {
+    const asc = await dao.getAllRunnersByRace(1, 5, 1, 30, [], 1, 1000, "asc");
+    const desc = await dao.getAllRunnersByRace(1, 5, 1, 30, [], 1, 1000, "desc");
+    expect(asc.total).toBe(desc.total);
+  }, 30000);
+
+  it("first race in asc is the last race in desc (for full result set)", async () => {
+    const total = (await dao.getAllRunnersByRace(1, 1, 1, 30, [], 1, 1000, "asc")).total;
+    if (total < 2) return;
+    const asc = await dao.getAllRunnersByRace(1, total, 1, 30, [], 1, 1000, "asc");
+    const desc = await dao.getAllRunnersByRace(1, total, 1, 30, [], 1, 1000, "desc");
+    expect(asc.data[0].marketId).toBe(desc.data[desc.data.length - 1].marketId);
+  }, 60000);
+
+  it("default sortOrder is asc", async () => {
+    const defaultResult = await dao.getAllRunnersByRace(1, 50);
+    const ascResult = await dao.getAllRunnersByRace(1, 50, 1, 30, [], 1, 1000, "asc");
+    expect(defaultResult.data.map(r => r.marketId)).toEqual(ascResult.data.map(r => r.marketId));
+  }, 30000);
+});

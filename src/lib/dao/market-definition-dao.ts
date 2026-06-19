@@ -41,9 +41,9 @@ export interface RaceWithEvent extends RaceWithRunners {
 export class MarketDefinitionDAO {
   private collection: Collection<MarketDefinitionDocument>;
 
-  constructor(db: Db) {
+  constructor(db: Db, collectionName = "market_definitions") {
     this.collection =
-      db.collection<MarketDefinitionDocument>("market_definitions");
+      db.collection<MarketDefinitionDocument>(collectionName);
   }
 
   /**
@@ -269,10 +269,12 @@ export class MarketDefinitionDAO {
     maxRunners = 30,
     countries: string[] = [],
     minBsp = 1,
-    maxBsp = 1000
+    maxBsp = 1000,
+    sortOrder: "asc" | "desc" = "asc"
   ): Promise<{ data: RaceWithEvent[]; total: number; totalRunners: number; pnlStats: { staked: number; returns: number; pnl: number; count: number } }> {
     const skip = (page - 1) * limit;
     const countryMatch = countries.length > 0 ? { countryCode: { $in: countries } } : {};
+    const marketTimeSortDir = sortOrder === "desc" ? -1 : 1;
 
     const basePipeline = [
       { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] }, ...countryMatch } },
@@ -325,7 +327,7 @@ export class MarketDefinitionDAO {
           },
         },
       },
-      { $sort: { marketTime: 1 } },
+      { $sort: { marketTime: marketTimeSortDir } },
     ];
 
     const projectStage = {
