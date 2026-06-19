@@ -36,13 +36,11 @@ test.describe("Live /runners — iPhone 375px", () => {
     expect(box!.x + box!.width).toBeLessThanOrEqual(MOBILE.width + 1);
   });
 
-  test("filter-apply reachable by scrolling filter bar", async ({ page }) => {
-    const applyBtn = page.getByTestId("all-runners-filter-apply");
-    await expect(applyBtn).toBeAttached();
-    await page.getByTestId("all-runners-filter-bar").evaluate(el => {
-      el.parentElement?.scrollBy({ left: 9999, behavior: "instant" });
-    });
-    await expect(applyBtn).toBeVisible();
+  test("filter bar fits within 375px — Apply visible without scrolling", async ({ page }) => {
+    const bar = page.getByTestId("all-runners-filter-bar");
+    const box = await bar.boundingBox();
+    expect(box!.width).toBeLessThanOrEqual(MOBILE.width);
+    await expect(page.getByTestId("all-runners-filter-apply")).toBeVisible();
   });
 
   test("runner rows do not overflow 375px", async ({ page }) => {
@@ -69,10 +67,7 @@ test.describe("Live /runners — iPhone 375px", () => {
     expect(box!.x + box!.width).toBeLessThanOrEqual(MOBILE.width + 1);
   });
 
-  test("filter still works after scrolling to Apply on mobile", async ({ page }) => {
-    await page.getByTestId("all-runners-filter-bar").evaluate(el => {
-      el.parentElement?.scrollBy({ left: 9999, behavior: "instant" });
-    });
+  test("filter Apply button works on mobile", async ({ page }) => {
     await page.getByTestId("all-runners-filter-apply").click();
     await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 30000 });
     await expect(page.getByTestId("all-runners-list")).toBeVisible();

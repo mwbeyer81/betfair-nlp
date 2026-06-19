@@ -30,15 +30,11 @@ test.describe("Responsive /runners — mobile 375px (real app)", () => {
     expect(box!.x + box!.width).toBeLessThanOrEqual(MOBILE.width + 1);
   });
 
-  test("filter-apply button reachable by scrolling filter bar", async ({ page }) => {
-    const applyBtn = page.getByTestId("all-runners-filter-apply");
-    await expect(applyBtn).toBeAttached();
-
-    await page.getByTestId("all-runners-filter-bar").evaluate(el => {
-      el.parentElement?.scrollBy({ left: 999, behavior: "instant" });
-    });
-
-    await expect(applyBtn).toBeVisible();
+  test("filter bar fits within 375px — Apply visible without scrolling", async ({ page }) => {
+    const bar = page.getByTestId("all-runners-filter-bar");
+    const box = await bar.boundingBox();
+    expect(box!.width).toBeLessThanOrEqual(MOBILE.width);
+    await expect(page.getByTestId("all-runners-filter-apply")).toBeVisible();
   });
 
   test("runner rows do not overflow 375px", async ({ page }) => {

@@ -309,11 +309,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterBarScroll}
-      >
       <View testID="all-runners-filter-bar" style={styles.filterBar}>
         <Text style={styles.filterLabel}>Runners</Text>
         <View style={styles.filterStepper}>
@@ -477,7 +472,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           <Text style={styles.applyBtnText}>Apply</Text>
         </TouchableOpacity>
       </View>
-      </ScrollView>
 
       {!isLoading && availableCountries.length > 0 && (
         <ScrollView
@@ -738,17 +732,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-  filterBarScroll: {
-    backgroundColor: "#f0f4ff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#dde3f0",
-  },
   filterBar: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 8,
+    backgroundColor: "#f0f4ff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#dde3f0",
   },
   filterLabel: {
     fontSize: 12,

@@ -31,16 +31,15 @@ test.describe("Responsive layout — /runners (MSW mocked, 375px)", () => {
     expect(eventsBox!.x + eventsBox!.width).toBeLessThanOrEqual(MOBILE_VIEWPORT.width + 1);
   });
 
-  test("filter-apply button is reachable by scrolling the filter bar", async ({ page }) => {
-    const applyBtn = page.getByTestId("all-runners-filter-apply");
-    await expect(applyBtn).toBeAttached();
+  test("filter bar fits within 375px — no horizontal scroll needed", async ({ page }) => {
+    const bar = page.getByTestId("all-runners-filter-bar");
+    await expect(bar).toBeVisible();
 
-    // Scroll the filter bar to the right to reveal Apply
-    await page.getByTestId("all-runners-filter-bar").evaluate(el => {
-      el.parentElement?.scrollBy({ left: 999, behavior: "instant" });
-    });
+    const box = await bar.boundingBox();
+    expect(box!.width).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
 
-    await expect(applyBtn).toBeVisible();
+    // Apply button must be visible without any manual scrolling
+    await expect(page.getByTestId("all-runners-filter-apply")).toBeVisible();
   });
 
   test("runner rows do not overflow viewport width", async ({ page }) => {
