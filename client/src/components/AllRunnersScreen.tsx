@@ -98,9 +98,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [minRunners, setMinRunners] = useState(1);
-  const [maxRunners, setMaxRunners] = useState(20);
-  const [draftMin, setDraftMin] = useState("1");
-  const [draftMax, setDraftMax] = useState("20");
+  const [maxRunners, setMaxRunners] = useState(30);
   const [fromRow, setFromRow] = useState(1);
   const [toRow, setToRow] = useState<number | null>(null);
   const [draftFrom, setDraftFrom] = useState("1");
@@ -131,13 +129,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     const maxRunnersLimit = filterBounds?.maxRunnersPerRace ?? 100;
     const maxBspLimit = filterBounds?.maxBsp ?? 100000;
 
-    const min = Math.max(1, parseInt(draftMin) || 1);
-    const max = Math.max(min, Math.min(maxRunnersLimit, parseInt(draftMax) || maxRunnersLimit));
-    setDraftMin(String(min));
-    setDraftMax(String(max));
-    setMinRunners(min);
-    setMaxRunners(max);
-
     const from = Math.max(1, parseInt(draftFrom) || 1);
     const toRaw = Math.min(totalRaces, Math.max(from, parseInt(draftTo) || totalRaces));
     const to = toRaw >= totalRaces ? null : toRaw;
@@ -154,11 +145,13 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setMaxBsp(maxB);
 
     const minRIR = Math.max(1, parseInt(draftMinRIR) || 1);
-    const maxRIR = Math.max(minRIR, parseInt(draftMaxRIR) || 30);
+    const maxRIR = Math.max(minRIR, Math.min(maxRunnersLimit, parseInt(draftMaxRIR) || maxRunnersLimit));
     setDraftMinRIR(String(minRIR));
     setDraftMaxRIR(String(maxRIR));
     setMinRunnersInRange(minRIR);
     setMaxRunnersInRange(maxRIR);
+    setMinRunners(minRIR);
+    setMaxRunners(maxRIR);
     setFetchTrigger(t => t + 1);
   }
 
@@ -251,8 +244,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const visibleRunners = visibleRaces.reduce((sum, r) => sum + r.runners.length, 0);
 
   const hasRowRange = fromRow > 1 || toRow != null;
-  const hasSpFilter = minBsp > 1 || maxBsp < 1000;
-  const hasCountryFilter = selectedCountries.size > 0;
   const effectiveToRow = toRow ?? visibleRaces.length;
   const selectedRaces = visibleRaces.filter((_, i) => i + 1 >= fromRow && i + 1 <= effectiveToRow);
   const displayRaces = hasRowRange ? selectedRaces : visibleRaces;
@@ -310,62 +301,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       </View>
 
       <View testID="all-runners-filter-bar" style={styles.filterBar}>
-        <Text style={styles.filterLabel}>Runners</Text>
-        <View style={styles.filterStepper}>
-          <Text style={styles.filterStepperLabel}>Min</Text>
-          <TouchableOpacity
-            testID="all-runners-min-dec"
-            style={styles.stepBtn}
-            onPress={() => setDraftMin(v => String(Math.max(1, (parseInt(v) || 1) - 1)))}
-          >
-            <Text style={styles.stepBtnText}>−</Text>
-          </TouchableOpacity>
-          <TextInput
-            testID="all-runners-min-value"
-            style={styles.stepInput}
-            value={draftMin}
-            onChangeText={setDraftMin}
-            keyboardType="numeric"
-            maxLength={2}
-          />
-          <TouchableOpacity
-            testID="all-runners-min-inc"
-            style={styles.stepBtn}
-            onPress={() => setDraftMin(v => String((parseInt(v) || 1) + 1))}
-          >
-            <Text style={styles.stepBtnText}>+</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.filterStepper}>
-          <Text style={styles.filterStepperLabel}>Max</Text>
-          <TouchableOpacity
-            testID="all-runners-max-dec"
-            style={styles.stepBtn}
-            onPress={() => setDraftMax(v => String(Math.max(1, (parseInt(v) || 20) - 1)))}
-          >
-            <Text style={styles.stepBtnText}>−</Text>
-          </TouchableOpacity>
-          <TextInput
-            testID="all-runners-max-value"
-            style={styles.stepInput}
-            value={draftMax}
-            onChangeText={setDraftMax}
-            keyboardType="numeric"
-            maxLength={3}
-          />
-          <TouchableOpacity
-            testID="all-runners-max-inc"
-            style={[styles.stepBtn, filterBounds != null && (parseInt(draftMax) || 0) >= filterBounds.maxRunnersPerRace && styles.stepBtnDisabled]}
-            disabled={filterBounds != null && (parseInt(draftMax) || 0) >= filterBounds.maxRunnersPerRace}
-            onPress={() => setDraftMax(v => String(Math.min(filterBounds?.maxRunnersPerRace ?? 100, (parseInt(v) || 20) + 1)))}
-          >
-            <Text style={styles.stepBtnText}>+</Text>
-          </TouchableOpacity>
-          {filterBounds != null && (
-            <Text testID="all-runners-max-bound" style={styles.boundsHint}>of {filterBounds.maxRunnersPerRace}</Text>
-          )}
-        </View>
-        <View style={styles.filterDivider} />
         <View style={styles.filterStepper}>
           <Text style={styles.filterStepperLabel}>SP</Text>
           <TextInput
@@ -434,11 +369,15 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           />
           <TouchableOpacity
             testID="all-runners-max-rir-inc"
-            style={styles.stepBtn}
-            onPress={() => setDraftMaxRIR(v => String((parseInt(v) || 30) + 1))}
+            style={[styles.stepBtn, filterBounds != null && (parseInt(draftMaxRIR) || 0) >= filterBounds.maxRunnersPerRace && styles.stepBtnDisabled]}
+            disabled={filterBounds != null && (parseInt(draftMaxRIR) || 0) >= filterBounds.maxRunnersPerRace}
+            onPress={() => setDraftMaxRIR(v => String(Math.min(filterBounds?.maxRunnersPerRace ?? 100, (parseInt(v) || 30) + 1)))}
           >
             <Text style={styles.stepBtnText}>+</Text>
           </TouchableOpacity>
+          {filterBounds != null && (
+            <Text testID="all-runners-max-rir-bound" style={styles.boundsHint}>of {filterBounds.maxRunnersPerRace}</Text>
+          )}
         </View>
         <View style={styles.filterDivider} />
         <View style={styles.filterStepper}>
@@ -495,12 +434,14 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
                     return next;
                   });
                   const minRIR = Math.max(1, parseInt(draftMinRIR) || 1);
-    const maxRIR = Math.max(minRIR, parseInt(draftMaxRIR) || 30);
-    setDraftMinRIR(String(minRIR));
-    setDraftMaxRIR(String(maxRIR));
-    setMinRunnersInRange(minRIR);
-    setMaxRunnersInRange(maxRIR);
-    setFetchTrigger(t => t + 1);
+                  const maxRIR = Math.max(minRIR, Math.min(filterBounds?.maxRunnersPerRace ?? 100, parseInt(draftMaxRIR) || 100));
+                  setDraftMinRIR(String(minRIR));
+                  setDraftMaxRIR(String(maxRIR));
+                  setMinRunnersInRange(minRIR);
+                  setMaxRunnersInRange(maxRIR);
+                  setMinRunners(minRIR);
+                  setMaxRunners(maxRIR);
+                  setFetchTrigger(t => t + 1);
                 }}
               >
                 <Text style={[styles.countryChipText, active && styles.countryChipTextActive]}>

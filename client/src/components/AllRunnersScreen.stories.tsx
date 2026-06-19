@@ -295,6 +295,72 @@ export const RunnersInRangeFilterShows: Story = {
   },
 };
 
+let capturedRirParams: { minRunners: string | null; maxRunners: string | null } = { minRunners: null, maxRunners: null };
+
+export const InSpFilterSendsServerParams: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/runners`, ({ request }) => {
+          const url = new URL(request.url);
+          capturedRirParams = {
+            minRunners: url.searchParams.get("minRunners"),
+            maxRunners: url.searchParams.get("maxRunners"),
+          };
+          return HttpResponse.json({
+            success: true,
+            data: MOCK_RACES,
+            count: MOCK_RACES.length,
+            total: MOCK_RACES.length,
+            page: 1,
+            limit: 20,
+            totalPages: 1,
+            totalRunners: TOTAL_RUNNERS_IN_DB,
+            pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 },
+          });
+        }),
+        http.get(`${BASE}/api/runners/countries`, () =>
+          HttpResponse.json({ success: true, data: ["GB", "IE"] })
+        ),
+        filterBoundsHandler,
+        http.get(`${BASE}/api/runners/pnl-stats`, () =>
+          HttpResponse.json({ success: true, data: { staked: 3.97, returns: 5.55, pnl: 1.58 } })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    const minInput = canvas.getByTestId("all-runners-min-rir-value");
+    const maxInput = canvas.getByTestId("all-runners-max-rir-value");
+    await userEvent.clear(minInput);
+    await userEvent.type(minInput, "3");
+    await userEvent.clear(maxInput);
+    await userEvent.type(maxInput, "5");
+
+    capturedRirParams = { minRunners: null, maxRunners: null };
+    await userEvent.click(canvas.getByTestId("all-runners-filter-apply"));
+
+    await waitFor(() => {
+      expect(capturedRirParams.minRunners).toBe("3");
+      expect(capturedRirParams.maxRunners).toBe("5");
+    }, { timeout: 3000 });
+  },
+};
+
+export const InSpBoundDisplayed: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+    // filterBoundsHandler returns maxRunnersPerRace: 29
+    const bound = await canvas.findByTestId("all-runners-max-rir-bound");
+    await expect(bound).toBeInTheDocument();
+    await expect(bound).toHaveTextContent("of 29");
+  },
+};
+
 let capturedBspParams: { minBsp: string | null; maxBsp: string | null } = { minBsp: null, maxBsp: null };
 
 export const BspFilterParamsPassedToApi: Story = {
