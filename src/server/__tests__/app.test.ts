@@ -481,6 +481,38 @@ describe("API Endpoints", () => {
 
       expect(response.body.success).toBe(true);
     });
+
+    it("accepts minBsp and maxBsp params and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/runners?minBsp=5&maxBsp=50")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("accepts minRunners and maxRunners params and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/runners?minRunners=2&maxRunners=10")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("response includes pnlStats with staked, returns, pnl", async () => {
+      const response = await request(app)
+        .get("/api/runners")
+        .auth("matthew", "beyer")
+        .expect(200);
+
+      expect(response.body).toHaveProperty("pnlStats");
+      expect(typeof response.body.pnlStats.staked).toBe("number");
+      expect(typeof response.body.pnlStats.returns).toBe("number");
+      expect(typeof response.body.pnlStats.pnl).toBe("number");
+    });
   });
 
   describe("GET /api/stats", () => {

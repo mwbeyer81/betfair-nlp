@@ -262,7 +262,8 @@ export const RunnersInRangeFilterVisible: Story = {
     await canvas.findByTestId("all-runners-list");
     await expect(canvas.getByTestId("all-runners-min-rir-value")).toBeInTheDocument();
     await expect(canvas.getByTestId("all-runners-max-rir-value")).toBeInTheDocument();
-    await expect(canvas.getByText("# in SP")).toBeInTheDocument();
+    await expect(canvas.getByTestId("all-runners-in-sp-label")).toBeInTheDocument();
+    await expect(canvas.getByTestId("all-runners-in-sp-label")).toHaveTextContent("# in SP");
   },
 };
 
@@ -291,6 +292,107 @@ export const RunnersInRangeFilterShows: Story = {
     await userEvent.click(canvas.getByTestId("all-runners-filter-apply"));
     await expect(canvas.findByTestId("all-runners-race-1.238923739")).resolves.toBeInTheDocument();
     await expect(canvas.findByTestId("all-runners-race-1.238923745")).resolves.toBeInTheDocument();
+  },
+};
+
+let capturedBspParams: { minBsp: string | null; maxBsp: string | null } = { minBsp: null, maxBsp: null };
+
+export const BspFilterParamsPassedToApi: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/runners`, ({ request }) => {
+          const url = new URL(request.url);
+          capturedBspParams = {
+            minBsp: url.searchParams.get("minBsp"),
+            maxBsp: url.searchParams.get("maxBsp"),
+          };
+          return HttpResponse.json({
+            success: true,
+            data: MOCK_RACES,
+            count: MOCK_RACES.length,
+            total: MOCK_RACES.length,
+            page: 1,
+            limit: 20,
+            totalPages: 1,
+            totalRunners: TOTAL_RUNNERS_IN_DB,
+            pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 },
+          });
+        }),
+        http.get(`${BASE}/api/runners/countries`, () =>
+          HttpResponse.json({ success: true, data: ["GB", "IE"] })
+        ),
+        filterBoundsHandler,
+        http.get(`${BASE}/api/runners/pnl-stats`, () =>
+          HttpResponse.json({ success: true, data: { staked: 3.97, returns: 5.55, pnl: 1.58 } })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    const minBspInput = canvas.getByTestId("all-runners-min-bsp");
+    const maxBspInput = canvas.getByTestId("all-runners-max-bsp");
+    await userEvent.clear(minBspInput);
+    await userEvent.type(minBspInput, "5");
+    await userEvent.clear(maxBspInput);
+    await userEvent.type(maxBspInput, "20");
+
+    capturedBspParams = { minBsp: null, maxBsp: null };
+    await userEvent.click(canvas.getByTestId("all-runners-filter-apply"));
+
+    await waitFor(() => {
+      expect(capturedBspParams.minBsp).toBe("5");
+      expect(capturedBspParams.maxBsp).toBe("20");
+    }, { timeout: 3000 });
+  },
+};
+
+export const BspFilterEmptyFromServer: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/runners`, ({ request }) => {
+          const url = new URL(request.url);
+          const minBsp = url.searchParams.get("minBsp");
+          // Return empty data when a narrow BSP filter is applied — simulates server-side BSP filtering
+          const isEmpty = minBsp !== null && parseFloat(minBsp) > 1;
+          return HttpResponse.json({
+            success: true,
+            data: isEmpty ? [] : MOCK_RACES,
+            count: isEmpty ? 0 : MOCK_RACES.length,
+            total: isEmpty ? 0 : MOCK_RACES.length,
+            page: 1,
+            limit: 20,
+            totalPages: isEmpty ? 1 : 1,
+            totalRunners: isEmpty ? 0 : TOTAL_RUNNERS_IN_DB,
+            pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
+          });
+        }),
+        http.get(`${BASE}/api/runners/countries`, () =>
+          HttpResponse.json({ success: true, data: ["GB", "IE"] })
+        ),
+        filterBoundsHandler,
+        http.get(`${BASE}/api/runners/pnl-stats`, () =>
+          HttpResponse.json({ success: true, data: { staked: 0, returns: 0, pnl: 0 } })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    const minBspInput = canvas.getByTestId("all-runners-min-bsp");
+    await userEvent.clear(minBspInput);
+    await userEvent.type(minBspInput, "500");
+    await userEvent.click(canvas.getByTestId("all-runners-filter-apply"));
+
+    // Server returns 0 results — "No runners found" should show but NO "Load more" button
+    await expect(canvas.findByText("No runners found.")).resolves.toBeInTheDocument();
+    await expect(canvas.queryByTestId("all-runners-load-more")).not.toBeInTheDocument();
   },
 };
 

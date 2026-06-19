@@ -393,7 +393,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
         </View>
         <View style={styles.filterDivider} />
         <View style={styles.filterStepper}>
-          <Text style={styles.filterStepperLabel}># in SP</Text>
+          <Text testID="all-runners-in-sp-label" style={styles.filterStepperLabel}># in SP</Text>
           <TouchableOpacity
             testID="all-runners-min-rir-dec"
             style={styles.stepBtn}

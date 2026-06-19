@@ -308,6 +308,8 @@ export class MarketDefinitionDAO {
                       { $ne: ["$$r.status", "REMOVED"] },
                       { $ifNull: ["$$r.bsp", false] },
                       { $gt: ["$$r.bsp", 1] },
+                      { $gte: ["$$r.bsp", minBsp] },
+                      { $lte: ["$$r.bsp", maxBsp] },
                     ],
                   },
                 },
@@ -359,7 +361,7 @@ export class MarketDefinitionDAO {
             totalRunners: [{ $group: { _id: null, count: { $sum: { $size: "$runners" } } } }],
             pnlStats: [
               { $unwind: "$runners" },
-              { $match: { "runners.bsp": { $exists: true, $gt: 1, $gte: minBsp, $lte: maxBsp } } },
+              { $match: { "runners.bsp": { $exists: true, $gt: 1 } } },
               {
                 $group: {
                   _id: null,
