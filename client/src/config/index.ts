@@ -5,6 +5,11 @@ interface Config {
 // Use hostname to detect environment — avoids build-time NODE_ENV which is
 // always "development" when using `expo export --dev`.
 const getConfig = (): Config => {
+  // EXPO_PUBLIC_API_URL is baked in at build time by `expo export`.
+  // Set it when deploying to S3/CloudFront (cross-origin from the Lambda API).
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return { baseUrl: process.env.EXPO_PUBLIC_API_URL };
+  }
   if (
     typeof window !== 'undefined' &&
     !['localhost', '127.0.0.1'].includes(window.location.hostname)
