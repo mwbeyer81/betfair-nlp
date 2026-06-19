@@ -124,6 +124,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const [filterBounds, setFilterBounds] = useState<RunnerFilterBounds | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const PAGE_SIZE = 20;
 
   function applyFilter() {
@@ -174,7 +175,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       setError(null);
       setRaces([]);
       try {
-        const result = await chatApi.getAllRunners(1, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp);
+        const result = await chatApi.getAllRunners(1, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp, sortOrder);
         setRaces(result.data);
         setPage(1);
         setTotalPages(result.totalPages);
@@ -189,14 +190,14 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
         setIsLoading(false);
       }
     })();
-  }, [fetchTrigger]);
+  }, [fetchTrigger, sortOrder]);
 
   async function loadMore() {
     if (isLoadingMore || page >= totalPages) return;
     setIsLoadingMore(true);
     try {
       const next = page + 1;
-      const result = await chatApi.getAllRunners(next, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp);
+      const result = await chatApi.getAllRunners(next, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp, sortOrder);
       setRaces(prev => [...prev, ...result.data]);
       setPage(next);
       setTotalPages(result.totalPages);
@@ -213,7 +214,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     try {
       // Fetch all races matching current filter, not just the current page
       const allData = await chatApi.getAllRunners(
-        1, Math.max(totalRaces, 1), minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp
+        1, Math.max(totalRaces, 1), minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp, sortOrder
       );
       // Export only runners whose BSP falls within the selected range — matching pnlStats.count.
       const allVisible = allData.data
@@ -280,6 +281,15 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             </Text>
           )}
         </View>
+        <TouchableOpacity
+          testID="all-runners-sort-toggle"
+          style={styles.sortToggleBtn}
+          onPress={() => setSortOrder(o => o === "asc" ? "desc" : "asc")}
+        >
+          <Text style={styles.sortToggleBtnText}>
+            {sortOrder === "asc" ? "First → Last" : "Last → First"}
+          </Text>
+        </TouchableOpacity>
         {!isLoading && displayRaces.length > 0 && (
           <TouchableOpacity
             testID="all-runners-export-btn"
@@ -698,6 +708,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "rgba(255,255,255,0.8)",
     marginTop: 2,
+  },
+  sortToggleBtn: {
+    backgroundColor: "#5856d6",
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginRight: 6,
+  },
+  sortToggleBtnText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
   },
   eventsButton: {
     backgroundColor: "#0056b3",

@@ -323,3 +323,85 @@ export const ExportModalDismisses: Story = {
     await waitFor(() => expect(screen.queryByTestId("all-runners-export-modal")).not.toBeInTheDocument(), { timeout: 2000 });
   },
 };
+
+export const SortToggleVisible: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    const btn = canvas.getByTestId("all-runners-sort-toggle");
+    await expect(btn).toBeInTheDocument();
+    await expect(btn).toHaveTextContent("First → Last");
+  },
+};
+
+export const SortToggleSwitchesToDesc: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    const btn = canvas.getByTestId("all-runners-sort-toggle");
+    await expect(btn).toHaveTextContent("First → Last");
+    await userEvent.click(btn);
+    await expect(btn).toHaveTextContent("Last → First");
+  },
+};
+
+export const SortToggleSwitchesBackToAsc: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    const btn = canvas.getByTestId("all-runners-sort-toggle");
+    await userEvent.click(btn);
+    await expect(btn).toHaveTextContent("Last → First");
+    await userEvent.click(btn);
+    await expect(btn).toHaveTextContent("First → Last");
+  },
+};
+
+let capturedSortParam: string | null = null;
+
+export const SortToggleSendsDescParam: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/runners`, ({ request }) => {
+          const url = new URL(request.url);
+          capturedSortParam = url.searchParams.get("sort");
+          return HttpResponse.json({
+            success: true,
+            data: MOCK_RACES,
+            count: MOCK_RACES.length,
+            total: MOCK_RACES.length,
+            page: 1,
+            limit: 20,
+            totalPages: 1,
+            totalRunners: TOTAL_RUNNERS_IN_DB,
+            pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 },
+          });
+        }),
+        http.get(`${BASE}/api/stats`, () =>
+          HttpResponse.json({ success: true, data: { totalRaces: MOCK_RACES.length, totalRunners: TOTAL_RUNNERS_IN_DB } })
+        ),
+        http.get(`${BASE}/api/runners/countries`, () =>
+          HttpResponse.json({ success: true, data: ["GB", "IE"] })
+        ),
+        filterBoundsHandler,
+        http.get(`${BASE}/api/runners/pnl-stats`, () =>
+          HttpResponse.json({ success: true, data: { staked: 3.97, returns: 5.55, pnl: 1.58 } })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    capturedSortParam = null;
+    const btn = canvas.getByTestId("all-runners-sort-toggle");
+    await userEvent.click(btn);
+
+    await waitFor(() => expect(capturedSortParam).toBe("desc"), { timeout: 3000 });
+  },
+};

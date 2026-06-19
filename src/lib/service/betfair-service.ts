@@ -83,9 +83,10 @@ export class BetfairService {
     maxRunners = 30,
     countries: string[] = [],
     minBsp = 1,
-    maxBsp = 1000
+    maxBsp = 1000,
+    sortOrder: "asc" | "desc" = "asc"
   ): Promise<{ data: RaceWithEvent[]; total: number; totalRunners: number; pnlStats: { staked: number; returns: number; pnl: number; count: number } }> {
-    return this.marketDefinitionDAO.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp);
+    return this.marketDefinitionDAO.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp, sortOrder);
   }
 
   public async getRunnersPnlStats(): Promise<{ staked: number; returns: number; pnl: number }> {

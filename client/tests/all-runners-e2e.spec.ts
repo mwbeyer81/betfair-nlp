@@ -312,3 +312,70 @@ test.describe("Export runners", () => {
   });
 });
 
+test.describe("Sort order toggle (real app at localhost:80)", () => {
+  test("sort toggle button is visible on /runners", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+    await expect(page.getByTestId("all-runners-sort-toggle")).toBeVisible();
+  });
+
+  test("sort toggle starts showing 'First → Last'", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+    await expect(page.getByTestId("all-runners-sort-toggle")).toHaveText("First → Last");
+  });
+
+  test("clicking toggle switches to 'Last → First' and reloads data", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await page.getByTestId("all-runners-sort-toggle").click();
+    await expect(page.getByTestId("all-runners-sort-toggle")).toHaveText("Last → First");
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId("all-runners-list")).toBeVisible();
+  });
+
+  test("clicking toggle twice returns to 'First → Last'", async ({ page }) => {
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await page.getByTestId("all-runners-sort-toggle").click();
+    await expect(page.getByTestId("all-runners-sort-toggle")).toHaveText("Last → First");
+    await page.getByTestId("all-runners-sort-toggle").click();
+    await expect(page.getByTestId("all-runners-sort-toggle")).toHaveText("First → Last");
+  });
+
+  test("desc sort sends sort=desc to the API", async ({ page }) => {
+    let sortParam: string | null = null;
+    await page.route(`${API_URL}/api/runners**`, (route) => {
+      const url = new URL(route.request().url());
+      sortParam = url.searchParams.get("sort");
+      route.continue();
+    });
+
+    await page.goto(`${APP_URL}runners`);
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 90000 });
+    await page.getByTestId("all-runners-sort-toggle").click();
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 30000 });
+
+    expect(sortParam).toBe("desc");
+  });
+
+  test("desc order returns races with most recent first", async ({ page, request }) => {
+    const ascRes = await request.get(`${API_URL}/api/runners?sort=asc&limit=50`, {
+      headers: { Authorization: AUTH },
+    });
+    const descRes = await request.get(`${API_URL}/api/runners?sort=desc&limit=50`, {
+      headers: { Authorization: AUTH },
+    });
+    const ascBody = await ascRes.json();
+    const descBody = await descRes.json();
+    expect(ascBody.data.length).toBeGreaterThan(1);
+    expect(descBody.data.length).toBeGreaterThan(1);
+
+    const firstAscTime = new Date(ascBody.data[0].marketTime).getTime();
+    const firstDescTime = new Date(descBody.data[0].marketTime).getTime();
+    expect(firstDescTime).toBeGreaterThanOrEqual(firstAscTime);
+  });
+});
+
