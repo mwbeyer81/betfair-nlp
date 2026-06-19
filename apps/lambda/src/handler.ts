@@ -1,25 +1,31 @@
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
-import { connectDb, getSummaryStats } from '@backbet/shared';
+import serverlessExpress from "@vendia/serverless-express";
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import { router, initializeServices } from "../../../src/server/router";
+import type { APIGatewayProxyEventV2, Context } from "aws-lambda";
 
-let connected = false;
+// API-only Express app — no static file serving, no SPA fallback
+const app = express();
 
-const json = (statusCode: number, body: object): APIGatewayProxyResultV2 => ({
-  statusCode,
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(body),
-});
+app.use(cors({
+  origin: true,
+  methods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+}));
+app.use(helmet({ crossOriginOpenerPolicy: false, crossOriginResourcePolicy: false }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+app.use(router);
 
-export const handler = async (_event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
-  try {
-    if (!connected) {
-      await connectDb();
-      connected = true;
-    }
-    const data = await getSummaryStats();
-    return json(200, { success: true, data, source: 'lambda' });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('Handler error:', message);
-    return json(503, { success: false, error: message });
-  }
+const proxy = serverlessExpress({ app });
+
+// Start initialization immediately on cold start; subsequent requests await
+// the same promise so they block until MongoDB is connected.
+const initPromise = initializeServices();
+
+export const handler = async (event: APIGatewayProxyEventV2, context: Context) => {
+  await initPromise;
+  return proxy(event, context);
 };

@@ -276,7 +276,9 @@ export class MarketDefinitionDAO {
 
     const basePipeline = [
       { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] }, ...countryMatch } },
-      { $sort: { marketId: 1, timestamp: -1 } },
+      // Sort with marketType leading to match the compound index {marketType,marketId,timestamp}
+      // and avoid an in-memory sort (Atlas M0 enforces 32MB sort memory limit)
+      { $sort: { marketType: 1, marketId: 1, timestamp: -1 } },
       {
         $group: {
           _id: "$marketId",
@@ -289,25 +291,26 @@ export class MarketDefinitionDAO {
           runners: { $first: "$runners" },
         },
       },
-      { $unwind: "$runners" },
-      { $match: { "runners.status": { $ne: "REMOVED" }, "runners.bsp": { $exists: true, $gt: 1 } } },
-      { $sort: { marketTime: 1, "runners.sortPriority": 1 } },
+      // Filter and sort runners in-place using $sortArray — avoids $unwind of ~88K docs
+      // which would exceed the Atlas M0 32MB in-memory sort limit
       {
-        $group: {
-          _id: "$_id",
-          eventId: { $first: "$eventId" },
-          eventName: { $first: "$eventName" },
-          marketTime: { $first: "$marketTime" },
-          marketType: { $first: "$marketType" },
-          marketName: { $first: "$marketName" },
-          countryCode: { $first: "$countryCode" },
+        $addFields: {
           runners: {
-            $push: {
-              id: "$runners.id",
-              name: "$runners.name",
-              status: "$runners.status",
-              sortPriority: "$runners.sortPriority",
-              bsp: "$runners.bsp",
+            $sortArray: {
+              input: {
+                $filter: {
+                  input: "$runners",
+                  as: "r",
+                  cond: {
+                    $and: [
+                      { $ne: ["$$r.status", "REMOVED"] },
+                      { $ifNull: ["$$r.bsp", false] },
+                      { $gt: ["$$r.bsp", 1] },
+                    ],
+                  },
+                },
+              },
+              sortBy: { sortPriority: 1 },
             },
           },
         },
@@ -374,7 +377,7 @@ export class MarketDefinitionDAO {
             ],
           },
         },
-      ])
+      ], { hint: { marketType: 1, marketId: 1, timestamp: -1 } })
       .toArray();
 
     const staked = result?.pnlStats?.[0]?.staked ?? 0;

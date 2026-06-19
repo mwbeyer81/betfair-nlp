@@ -6,10 +6,18 @@
     "build": "bash build.sh"
   },
   "dependencies": {
-    "@backbet/shared": "1.0.0"
+    "@vendia/serverless-express": "^4.10.4",
+    "config": "^4.1.1",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "helmet": "^8.1.0",
+    "mongodb": "^6.3.0",
+    "openai": "^5.16.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.0",
     "@types/node": "^25.9.2",
     "esbuild": "^0.25.0",
     "typescript": "^6.0.3"
