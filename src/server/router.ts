@@ -52,6 +52,8 @@ export const initializeServices = async () => {
 // Public routes (before auth)
 router.get("/", (_req, res) => res.redirect("/hello-world"));
 
+const APP_URL = "https://d3jepqko9i1lgu.cloudfront.net";
+
 router.get("/hello-world", (_req, res) => {
   res.setHeader("Content-Type", "text/html");
   res.status(200).send(`<!DOCTYPE html>
@@ -59,14 +61,19 @@ router.get("/hello-world", (_req, res) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hello World</title>
+  <title>Hello World — Betfair NLP API</title>
   <style>
-    body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f0f4f8; }
-    h1 { font-size: 3rem; color: #2d3748; }
+    body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f0f4f8; flex-direction: column; gap: 1rem; }
+    h1 { font-size: 3rem; color: #2d3748; margin: 0; }
+    p { color: #4a5568; margin: 0; }
+    a { color: #3182ce; font-weight: 600; text-decoration: none; }
+    a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <h1>Hello, World!</h1>
+  <p>This is the Betfair NLP API server.</p>
+  <p>Looking for the app? <a href="${APP_URL}">Open the Betfair NLP app</a></p>
 </body>
 </html>`);
 });
