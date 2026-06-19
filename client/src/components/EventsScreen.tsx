@@ -387,11 +387,13 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: "#007AFF",
-    paddingVertical: 14,
-    paddingHorizontal: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 6,
   },
   title: {
     fontSize: 20,
@@ -400,11 +402,12 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: "row",
-    gap: 8,
+    flexWrap: "wrap",
+    gap: 6,
   },
   sortButton: {
     backgroundColor: "rgba(255,255,255,0.2)",
-    paddingVertical: 7,
+    paddingVertical: 5,
     paddingHorizontal: 12,
     borderRadius: 8,
     borderWidth: 1,
@@ -417,24 +420,24 @@ const styles = StyleSheet.create({
   },
   chatButton: {
     backgroundColor: "#0056b3",
-    paddingVertical: 7,
-    paddingHorizontal: 12,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
     borderRadius: 8,
   },
   chatButtonText: {
     color: "#fff",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
   },
   logoutButton: {
     backgroundColor: "red",
-    paddingVertical: 7,
+    paddingVertical: 5,
     paddingHorizontal: 12,
     borderRadius: 8,
   },
   logoutButtonText: {
     color: "#fff",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
   },
   body: {
