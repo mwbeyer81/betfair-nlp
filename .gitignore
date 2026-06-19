@@ -25,3 +25,18 @@ horse-racing-results-ukireland-2015-2025.zip
 # Playwright MCP cache
 .playwright-mcp/
 data.tar
+
+# Logs
+*.log
+
+# Debug screenshots and generated images
+*-debug.png
+*-screenshot.png
+*-result.png
+
+# Vim backup/undo files
+*~
+*.un~
+
+# Claude Code local settings
+.claude/

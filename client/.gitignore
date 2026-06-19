@@ -35,3 +35,14 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# Logs
+*.log
+
+# Playwright output
+playwright-report/
+test-results/
+
+# Debug screenshots
+*-debug.png
+*-screenshot.png
