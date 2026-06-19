@@ -40,3 +40,13 @@ data.tar
 
 # Claude Code local settings
 .claude/
+
+# Lambda build artifacts
+apps/lambda/function.zip
+apps/lambda/dist/
+
+# Shared package build output
+packages/shared/dist/
+
+# Playwright test-results inside packages
+**/test-results/
