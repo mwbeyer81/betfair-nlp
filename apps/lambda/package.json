@@ -1,0 +1,17 @@
+{
+  "name": "@backbet/lambda-app",
+  "version": "1.0.0",
+  "license": "MIT",
+  "scripts": {
+    "build": "bash build.sh"
+  },
+  "dependencies": {
+    "@backbet/shared": "1.0.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.0",
+    "@types/node": "^25.9.2",
+    "esbuild": "^0.25.0",
+    "typescript": "^6.0.3"
+  }
+}
