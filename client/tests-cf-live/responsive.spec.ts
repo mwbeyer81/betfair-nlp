@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-const AUTH = "?u=matthew&p=beyer";
+const AUTH = "?auth=bWF0dGhldzpiZXllcg==";
 
 const MOBILE  = { width: 375,  height: 667  };
 const TABLET  = { width: 768,  height: 1024 };

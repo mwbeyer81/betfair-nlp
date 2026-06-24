@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-const AUTH = "?u=matthew&p=beyer";
+const AUTH = "?auth=bWF0dGhldzpiZXllcg==";
 
 test.describe("CF /runners — functional", () => {
   test.use({ viewport: { width: 1280, height: 800 } });

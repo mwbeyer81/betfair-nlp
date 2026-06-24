@@ -4,7 +4,7 @@
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-LAMBDA_URL="https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com"
+source "$(dirname "$0")/../common.sh"
 
 if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
   echo "Error: CLOUDFLARE_API_TOKEN env var is required" >&2

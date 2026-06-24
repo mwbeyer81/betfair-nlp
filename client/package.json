@@ -20,6 +20,7 @@
     "test:cf-live": "playwright test --config playwright.cf-live.config.ts",
     "test:cf-live:runners": "playwright test --config playwright.cf-live.config.ts --grep \"runners\"",
     "test:live:runners": "playwright test --config playwright.live.config.ts --grep \"runners-live\"",
+    "test:live:api": "playwright test --config playwright.live.config.ts --grep \"API middleware\"",
     "test:hello-world-cf": "playwright test --config playwright.hello-world-cf.config.ts",
     "test:hello-world-cf-live": "playwright test --config playwright.hello-world-cf-live.config.ts",
     "test:msw": "playwright test --config playwright.msw.config.ts",

@@ -4,7 +4,7 @@
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-LAMBDA_URL="https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com"
+source "$(dirname "$0")/../common.sh"
 BUCKET="betfair-nlp-web"
 CF_DIST_ID="${CF_DIST_ID:-E1MADGEADM9CJZ}"
 

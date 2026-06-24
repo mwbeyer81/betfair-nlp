@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 const BASE = "https://app.backbet.co.uk";
-const AUTH_PARAMS = "?u=matthew&p=beyer";
+const AUTH_PARAMS = "?auth=bWF0dGhldzpiZXllcg==";
 
 test.describe("runners-live", () => {
   test.use({ viewport: { width: 1280, height: 800 } });

@@ -1,11 +1,11 @@
 /**
  * Responsive smoke tests against the live production site at app.backbet.co.uk.
- * Tests use URL-based auth (?u=matthew&p=beyer) to bypass the login screen.
+ * Tests use URL-based auth (?auth=bWF0dGhldzpiZXllcg==) to bypass the login screen.
  */
 import { test, expect } from "@playwright/test";
 
 const BASE = "https://app.backbet.co.uk";
-const AUTH_PARAMS = "?u=matthew&p=beyer";
+const AUTH_PARAMS = "?auth=bWF0dGhldzpiZXllcg==";
 
 const MOBILE  = { width: 375,  height: 667  };
 const TABLET  = { width: 768,  height: 1024 };
