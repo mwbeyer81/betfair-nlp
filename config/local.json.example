@@ -9,5 +9,12 @@
   "logging": {
     "level": "debug",
     "enableConsole": true
+  },
+  "jwt": {
+    "secret": "your-jwt-secret-here"
+  },
+  "auth": {
+    "username": "matthew",
+    "password": "your-password-here"
   }
 }

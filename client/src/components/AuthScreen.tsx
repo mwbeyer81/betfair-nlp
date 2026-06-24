@@ -68,14 +68,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               setPassword(urlPassword);
               setCredentialsFromUrl(true);
 
-              // Auto-login after a brief delay to ensure state is set
-              setTimeout(() => {
-                if (!autoLoginAttempted) {
-                  console.log("🚀 Attempting auto-login");
-                  setAutoLoginAttempted(true);
-                  handleLogin();
-                }
-              }, 100);
+              if (!autoLoginAttempted) {
+                setAutoLoginAttempted(true);
+                setIsLoading(true);
+                chatApi.login(urlUsername, urlPassword).then((token) => {
+                  if (typeof window !== "undefined") {
+                    localStorage.setItem("auth_token", token);
+                  }
+                  chatApi.setToken(token);
+                  onAuthenticated();
+                }).catch(() => {
+                  setIsLoading(false);
+                  Alert.alert("Authentication Failed", "Invalid credentials in URL.", [{ text: "OK" }]);
+                });
+              }
             } else {
               console.log("❌ Invalid credentials format in URL");
             }
@@ -92,19 +98,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const handleLogin = async () => {
     setIsLoading(true);
     try {
-      const valid = await chatApi.validateCredentials(username, password);
-      if (valid) {
-        chatApi.setCredentials(username, password);
-        onAuthenticated();
-      } else {
-        Alert.alert(
-          "Authentication Failed",
-          "Invalid username or password. Please try again.",
-          [{ text: "OK" }]
-        );
+      const token = await chatApi.login(username, password);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("auth_token", token);
       }
+      chatApi.setToken(token);
+      onAuthenticated();
     } catch {
-      Alert.alert("Connection Error", "Unable to reach the server. Please try again.", [{ text: "OK" }]);
+      Alert.alert(
+        "Authentication Failed",
+        "Invalid username or password. Please try again.",
+        [{ text: "OK" }]
+      );
     } finally {
       setIsLoading(false);
     }

@@ -1,6 +1,15 @@
 import request from "supertest";
 import app from "../app";
 
+let authToken: string;
+
+beforeAll(async () => {
+  const res = await request(app)
+    .post("/api/auth/login")
+    .send({ username: "matthew", password: "beyer" });
+  authToken = res.body.token;
+});
+
 // Mock the OpenAI client to avoid real API calls in tests
 jest.mock("../../lib/service/openai-client", () => ({
   OpenAIClient: jest.fn().mockImplementation(() => ({
@@ -93,7 +102,7 @@ jest.mock("../../config/database", () => ({
 describe("API Endpoints", () => {
   describe("GET /health", () => {
     it("should return health status with database connection info", async () => {
-      const response = await request(app).get("/health").auth("matthew", "beyer").expect(200);
+      const response = await request(app).get("/health").set("Authorization", `Bearer ${authToken}`).expect(200);
 
       expect(response.body).toHaveProperty("status", "OK");
       expect(response.body).toHaveProperty("timestamp");
@@ -108,7 +117,7 @@ describe("API Endpoints", () => {
 
       const response = await request(app)
         .post("/api/query")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .send({ query })
         .expect(200);
 
@@ -119,7 +128,7 @@ describe("API Endpoints", () => {
     it("should return 400 when query is missing", async () => {
       const response = await request(app)
         .post("/api/query")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .send({})
         .expect(400);
 
@@ -130,7 +139,7 @@ describe("API Endpoints", () => {
     it("should return 400 when query is not a string", async () => {
       const response = await request(app)
         .post("/api/query")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .send({ query: 123 })
         .expect(400);
 
@@ -141,7 +150,7 @@ describe("API Endpoints", () => {
     it("should return 400 when query is empty string", async () => {
       const response = await request(app)
         .post("/api/query")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .send({ query: "" })
         .expect(400);
 
@@ -152,7 +161,7 @@ describe("API Endpoints", () => {
 
   describe.skip("GET /api/horses/top (not yet implemented)", () => {
     it("should return top horses with default limit", async () => {
-      const response = await request(app).get("/api/horses/top").auth("matthew", "beyer").expect(200);
+      const response = await request(app).get("/api/horses/top").set("Authorization", `Bearer ${authToken}`).expect(200);
 
       expect(response.body).toHaveProperty("success", true);
       expect(response.body.data).toHaveProperty("horses");
@@ -167,7 +176,7 @@ describe("API Endpoints", () => {
       const limit = 3;
       const response = await request(app)
         .get(`/api/horses/top?limit=${limit}`)
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.data).toHaveProperty("limit", limit);
@@ -177,7 +186,7 @@ describe("API Endpoints", () => {
     it("should handle invalid limit parameter", async () => {
       const response = await request(app)
         .get("/api/horses/top?limit=invalid")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       // Should default to 5 when invalid limit is provided
@@ -190,7 +199,7 @@ describe("API Endpoints", () => {
       const maxOdds = 5.0;
       const response = await request(app)
         .get(`/api/horses/odds?maxOdds=${maxOdds}`)
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body).toHaveProperty("success", true);
@@ -205,7 +214,7 @@ describe("API Endpoints", () => {
     });
 
     it("should return 400 when maxOdds is missing", async () => {
-      const response = await request(app).get("/api/horses/odds").auth("matthew", "beyer").expect(400);
+      const response = await request(app).get("/api/horses/odds").set("Authorization", `Bearer ${authToken}`).expect(400);
 
       expect(response.body).toHaveProperty("error");
       expect(response.body.error).toContain("maxOdds is required");
@@ -214,7 +223,7 @@ describe("API Endpoints", () => {
     it("should return 400 when maxOdds is not a number", async () => {
       const response = await request(app)
         .get("/api/horses/odds?maxOdds=invalid")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(400);
 
       expect(response.body).toHaveProperty("error");
@@ -224,7 +233,7 @@ describe("API Endpoints", () => {
     it("should return 400 when maxOdds is negative", async () => {
       const response = await request(app)
         .get("/api/horses/odds?maxOdds=-1")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(400);
 
       expect(response.body).toHaveProperty("error");
@@ -236,7 +245,7 @@ describe("API Endpoints", () => {
     it("should return documents for a known eventId", async () => {
       const response = await request(app)
         .get("/api/events/33858191/definitions")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body).toHaveProperty("success", true);
@@ -247,7 +256,7 @@ describe("API Endpoints", () => {
     it("each document has required fields", async () => {
       const response = await request(app)
         .get("/api/events/33858191/definitions")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       const doc = response.body.data[0];
@@ -263,7 +272,7 @@ describe("API Endpoints", () => {
     it("returns count matching data length", async () => {
       const response = await request(app)
         .get("/api/events/33858191/definitions")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.count).toBe(response.body.data.length);
@@ -274,7 +283,7 @@ describe("API Endpoints", () => {
     it("should return grouped events with correct shape", async () => {
       const response = await request(app)
         .get("/api/events/grouped")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body).toHaveProperty("success", true);
@@ -295,7 +304,7 @@ describe("API Endpoints", () => {
     it("should return known Cheltenham event from mock", async () => {
       const response = await request(app)
         .get("/api/events/grouped")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       const cheltenham = response.body.data.find(
@@ -312,7 +321,7 @@ describe("API Endpoints", () => {
     it("should return races for a known eventId", async () => {
       const response = await request(app)
         .get("/api/events/33858191/runners")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body).toHaveProperty("success", true);
@@ -323,7 +332,7 @@ describe("API Endpoints", () => {
     it("each race has marketId, marketTime, marketType, runners array", async () => {
       const response = await request(app)
         .get("/api/events/33858191/runners")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       const race = response.body.data[0];
@@ -345,7 +354,7 @@ describe("API Endpoints", () => {
     it("count equals number of races", async () => {
       const response = await request(app)
         .get("/api/events/33858191/runners")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.count).toBe(response.body.data.length);
@@ -356,7 +365,7 @@ describe("API Endpoints", () => {
     it("should return price updates for a known eventId", async () => {
       const response = await request(app)
         .get("/api/events/33858191/price-updates")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body).toHaveProperty("success", true);
@@ -367,7 +376,7 @@ describe("API Endpoints", () => {
     it("each document has required fields", async () => {
       const response = await request(app)
         .get("/api/events/33858191/price-updates")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       const doc = response.body.data[0];
@@ -382,7 +391,7 @@ describe("API Endpoints", () => {
     it("returns count matching data length", async () => {
       const response = await request(app)
         .get("/api/events/33858191/price-updates")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.count).toBe(response.body.data.length);
@@ -393,7 +402,7 @@ describe("API Endpoints", () => {
     it("returns paginated races with pagination metadata", async () => {
       const response = await request(app)
         .get("/api/runners")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body).toHaveProperty("success", true);
@@ -409,7 +418,7 @@ describe("API Endpoints", () => {
     it("each race has eventId, eventName, marketId, marketType, runners", async () => {
       const response = await request(app)
         .get("/api/runners")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       const race = response.body.data[0];
@@ -427,7 +436,7 @@ describe("API Endpoints", () => {
     it("count equals data.length", async () => {
       const response = await request(app)
         .get("/api/runners")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.count).toBe(response.body.data.length);
@@ -436,7 +445,7 @@ describe("API Endpoints", () => {
     it("respects page and limit query params", async () => {
       const response = await request(app)
         .get("/api/runners?page=1&limit=5")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.page).toBe(1);
@@ -447,7 +456,7 @@ describe("API Endpoints", () => {
     it("data.length does not exceed limit", async () => {
       const response = await request(app)
         .get("/api/runners?limit=3")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.data.length).toBeLessThanOrEqual(3);
@@ -456,7 +465,7 @@ describe("API Endpoints", () => {
     it("accepts sort=asc and returns 200 with success", async () => {
       const response = await request(app)
         .get("/api/runners?sort=asc")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.success).toBe(true);
@@ -466,7 +475,7 @@ describe("API Endpoints", () => {
     it("accepts sort=desc and returns 200 with success", async () => {
       const response = await request(app)
         .get("/api/runners?sort=desc")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.success).toBe(true);
@@ -476,7 +485,7 @@ describe("API Endpoints", () => {
     it("invalid sort value defaults gracefully and returns 200", async () => {
       const response = await request(app)
         .get("/api/runners?sort=invalid")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.success).toBe(true);
@@ -485,7 +494,7 @@ describe("API Endpoints", () => {
     it("accepts minBsp and maxBsp params and returns 200 with success", async () => {
       const response = await request(app)
         .get("/api/runners?minBsp=5&maxBsp=50")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.success).toBe(true);
@@ -495,7 +504,7 @@ describe("API Endpoints", () => {
     it("accepts minRunners and maxRunners params and returns 200 with success", async () => {
       const response = await request(app)
         .get("/api/runners?minRunners=2&maxRunners=10")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.success).toBe(true);
@@ -505,7 +514,7 @@ describe("API Endpoints", () => {
     it("response includes pnlStats with staked, returns, pnl", async () => {
       const response = await request(app)
         .get("/api/runners")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body).toHaveProperty("pnlStats");
@@ -519,7 +528,7 @@ describe("API Endpoints", () => {
     it("returns success with totalRaces and totalRunners", async () => {
       const response = await request(app)
         .get("/api/stats")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body).toHaveProperty("success", true);
@@ -538,7 +547,7 @@ describe("API Endpoints", () => {
     it("should return price updates for a known eventId and runnerId", async () => {
       const response = await request(app)
         .get("/api/events/33858191/runners/12345/price-updates")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body).toHaveProperty("success", true);
@@ -549,7 +558,7 @@ describe("API Endpoints", () => {
     it("each document has required fields", async () => {
       const response = await request(app)
         .get("/api/events/33858191/runners/12345/price-updates")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       const doc = response.body.data[0];
@@ -562,7 +571,7 @@ describe("API Endpoints", () => {
     it("returns 400 for non-numeric runnerId", async () => {
       const response = await request(app)
         .get("/api/events/33858191/runners/not-a-number/price-updates")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(400);
 
       expect(response.body).toHaveProperty("success", false);
@@ -577,7 +586,7 @@ describe("API Endpoints", () => {
     it("returns count matching data length", async () => {
       const response = await request(app)
         .get("/api/events/33858191/runners/12345/price-updates")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body.count).toBe(response.body.data.length);
@@ -588,7 +597,7 @@ describe("API Endpoints", () => {
     it("should return 404 for non-existent routes", async () => {
       const response = await request(app)
         .get("/non-existent-route")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .expect(404);
 
       expect(response.body).toHaveProperty("error", "Not found");
@@ -600,7 +609,7 @@ describe("API Endpoints", () => {
     it("should allow CORS requests", async () => {
       const response = await request(app)
         .get("/health")
-        .auth("matthew", "beyer")
+        .set("Authorization", `Bearer ${authToken}`)
         .set("Origin", "http://localhost:3000")
         .expect(200);
 
@@ -610,7 +619,7 @@ describe("API Endpoints", () => {
 
   describe("Security Headers", () => {
     it("should include security headers", async () => {
-      const response = await request(app).get("/health").auth("matthew", "beyer").expect(200);
+      const response = await request(app).get("/health").set("Authorization", `Bearer ${authToken}`).expect(200);
 
       // Check for helmet security headers
       expect(response.headers).toHaveProperty("x-content-type-options");

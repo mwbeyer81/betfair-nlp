@@ -101,28 +101,35 @@ interface ChatResponse {
 
 class ChatApi {
   private baseUrl = config.baseUrl;
-  private credentials = btoa("matthew:beyer");
+  private token: string | null = null;
 
-  setCredentials(username: string, password: string) {
-    this.credentials = btoa(`${username}:${password}`);
+  setToken(token: string) {
+    this.token = token;
   }
 
-  async validateCredentials(username: string, password: string): Promise<boolean> {
-    const creds = btoa(`${username}:${password}`);
-    try {
-      const response = await fetch(`${this.baseUrl}/health`, {
-        headers: { Authorization: `Basic ${creds}` },
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
+  getToken(): string | null {
+    return this.token;
+  }
+
+  private authHeader(): { Authorization: string } {
+    return { Authorization: `Bearer ${this.token}` };
+  }
+
+  async login(username: string, password: string): Promise<string> {
+    const response = await fetch(`${this.baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!response.ok) throw new Error("Invalid credentials");
+    const result = await response.json();
+    return result.token as string;
   }
 
   async getEventDefinitions(eventId: string): Promise<MarketDefinitionDoc[]> {
     const response = await fetch(
       `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/definitions`,
-      { headers: { Authorization: `Basic ${this.credentials}` } }
+      { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch event definitions");
     const result = await response.json();
@@ -132,7 +139,7 @@ class ChatApi {
   async getEventRunners(eventId: string): Promise<Race[]> {
     const response = await fetch(
       `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/runners`,
-      { headers: { Authorization: `Basic ${this.credentials}` } }
+      { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch runners");
     const result = await response.json();
@@ -142,7 +149,7 @@ class ChatApi {
   async getPriceUpdates(eventId: string): Promise<PriceUpdate[]> {
     const response = await fetch(
       `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/price-updates`,
-      { headers: { Authorization: `Basic ${this.credentials}` } }
+      { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch price updates");
     const result = await response.json();
@@ -156,7 +163,7 @@ class ChatApi {
   ): Promise<PriceUpdate[]> {
     const response = await fetch(
       `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/runners/${runnerId}/price-updates?sort=${sort}`,
-      { headers: { Authorization: `Basic ${this.credentials}` } }
+      { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch runner price updates");
     const result = await response.json();
@@ -165,7 +172,7 @@ class ChatApi {
 
   async getRunnerFilterBounds(): Promise<RunnerFilterBounds> {
     const response = await fetch(`${this.baseUrl}/api/runners/filter-bounds`, {
-      headers: { Authorization: `Basic ${this.credentials}` },
+      headers: this.authHeader(),
     });
     if (!response.ok) throw new Error("Failed to fetch filter bounds");
     const result = await response.json();
@@ -174,7 +181,7 @@ class ChatApi {
 
   async getRunnerCountries(): Promise<string[]> {
     const response = await fetch(`${this.baseUrl}/api/runners/countries`, {
-      headers: { Authorization: `Basic ${this.credentials}` },
+      headers: this.authHeader(),
     });
     if (!response.ok) throw new Error("Failed to fetch countries");
     const result = await response.json();
@@ -198,7 +205,7 @@ class ChatApi {
     if (toRow != null) params.set("toRow", String(toRow));
     const response = await fetch(
       `${this.baseUrl}/api/runners?${params}`,
-      { headers: { Authorization: `Basic ${this.credentials}` } }
+      { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch all runners");
     return response.json();
@@ -206,7 +213,7 @@ class ChatApi {
 
   async getRunnersPnlStats(): Promise<PnlStats> {
     const response = await fetch(`${this.baseUrl}/api/runners/pnl-stats`, {
-      headers: { Authorization: `Basic ${this.credentials}` },
+      headers: this.authHeader(),
     });
     if (!response.ok) throw new Error("Failed to fetch runners P&L stats");
     const result = await response.json();
@@ -215,7 +222,7 @@ class ChatApi {
 
   async getStats(): Promise<Stats> {
     const response = await fetch(`${this.baseUrl}/api/stats`, {
-      headers: { Authorization: `Basic ${this.credentials}` },
+      headers: this.authHeader(),
     });
     if (!response.ok) throw new Error("Failed to fetch stats");
     const result = await response.json();
@@ -229,7 +236,7 @@ class ChatApi {
   ): Promise<{ data: EventGroup[]; total: number; totalPages: number }> {
     const params = new URLSearchParams({ page: String(page), limit: String(limit), sort });
     const response = await fetch(`${this.baseUrl}/api/events/grouped?${params}`, {
-      headers: { Authorization: `Basic ${this.credentials}` },
+      headers: this.authHeader(),
     });
     if (!response.ok) throw new Error("Failed to fetch event groups");
     const result = await response.json();
@@ -242,7 +249,7 @@ class ChatApi {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Basic ${this.credentials}`,
+          ...this.authHeader(),
         },
         body: JSON.stringify({ query: message }),
       });

@@ -1,34 +1,18 @@
 import express from "express";
+import jwt from "jsonwebtoken";
+import config from "config";
 import { NaturalLanguageService } from "../lib/service/natural-language-service";
 import { BetfairService } from "../lib/service/betfair-service";
 import { DatabaseConnection } from "../config/database";
+import { jwtAuth } from "./middleware";
+
+export { jwtAuth };
 
 const router = express.Router();
 
 let dbConnection: DatabaseConnection | null = null;
 let naturalLanguageService: NaturalLanguageService | null = null;
 let betfairService: BetfairService | null = null;
-
-export const basicAuth = (
-  req: express.Request,
-  res: express.Response,
-  next: express.NextFunction
-) => {
-  if (req.method === "OPTIONS") return next();
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    res.setHeader("WWW-Authenticate", 'Basic realm="Authentication Required"');
-    return res.status(401).json({ error: "Authentication required" });
-  }
-  const auth = Buffer.from(authHeader.split(" ")[1], "base64").toString();
-  const [username, password] = auth.split(":");
-  if (username === "matthew" && password === "beyer") {
-    next();
-  } else {
-    res.setHeader("WWW-Authenticate", 'Basic realm="Authentication Required"');
-    return res.status(401).json({ error: "Invalid credentials" });
-  }
-};
 
 export const initializeServices = async () => {
   try {
@@ -78,8 +62,20 @@ router.get("/hello-world", (_req, res) => {
 </html>`);
 });
 
+router.post("/api/auth/login", (req, res) => {
+  const { username, password } = req.body || {};
+  const validUsername = config.get<string>("auth.username");
+  const validPassword = config.get<string>("auth.password");
+  if (username !== validUsername || password !== validPassword) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+  const secret = config.get<string>("jwt.secret");
+  const token = jwt.sign({ sub: username }, secret, { expiresIn: "7d" });
+  return res.status(200).json({ token });
+});
+
 // All routes below require auth
-router.use(basicAuth);
+router.use(jwtAuth);
 
 router.get("/health", (_req, res) => {
   res.status(200).json({

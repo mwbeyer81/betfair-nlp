@@ -8,23 +8,47 @@ import { RunnerScreen } from "./src/components/RunnerScreen";
 import { useRouter, parseRunnerRoute } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
 
+const TOKEN_KEY = "auth_token";
+
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return Date.now() >= payload.exp * 1000;
+  } catch {
+    return true;
+  }
+}
+
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const { route, navigate } = useRouter();
 
-  // Support ?u=<username>&p=<password> in the URL so the app can be bookmarked
-  // with credentials pre-filled (e.g. https://app.example.com/?u=matthew&p=beyer).
+  // Restore token from localStorage on mount, then check for ?u=&p= URL params.
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    const stored = localStorage.getItem(TOKEN_KEY);
+    if (stored && !isTokenExpired(stored)) {
+      chatApi.setToken(stored);
+      setIsAuthenticated(true);
+    } else if (stored) {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+
+    // Support ?u=<username>&p=<password> in the URL for bookmarked access.
     const params = new URLSearchParams(window.location.search);
     const u = params.get("u");
     const p = params.get("p");
     if (u && p) {
-      chatApi.setCredentials(u, p);
-      setIsAuthenticated(true);
-      // Remove credentials from the URL bar without reloading
       const clean = window.location.pathname;
       window.history.replaceState({}, "", clean);
+      chatApi.login(u, p).then((token) => {
+        localStorage.setItem(TOKEN_KEY, token);
+        chatApi.setToken(token);
+        setIsAuthenticated(true);
+      }).catch(() => {
+        // Invalid URL credentials — fall through to login screen
+      });
     }
   }, []);
 
@@ -36,7 +60,7 @@ export default function App() {
     return (
       <>
         <ChatScreen
-          onLogout={() => setIsAuthenticated(false)}
+          onLogout={() => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); }}
           onNavigateToEvents={() => navigate("/events")}
         />
         <StatusBar style="light" />
@@ -78,7 +102,7 @@ export default function App() {
       <EventsScreen
         onNavigateToChat={() => navigate("/chat")}
         onNavigateToAllRunners={() => navigate("/runners")}
-        onLogout={() => setIsAuthenticated(false)}
+        onLogout={() => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); }}
       />
       <StatusBar style="light" />
     </>

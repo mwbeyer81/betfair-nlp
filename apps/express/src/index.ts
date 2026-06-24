@@ -1,20 +1,14 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import { connectDb, getSummaryStats } from '@backbet/shared';
+import { jwtAuth, corsMiddleware, helmetMiddleware } from '../../src/server/middleware';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
-function basicAuth(req: Request, res: Response, next: NextFunction): void {
-  const header = req.headers.authorization ?? '';
-  const [scheme, encoded] = header.split(' ');
-  if (scheme === 'Basic' && encoded) {
-    const [user, pass] = Buffer.from(encoded, 'base64').toString().split(':');
-    if (user === 'matthew' && pass === 'beyer') { next(); return; }
-  }
-  res.set('WWW-Authenticate', 'Basic realm="backbet"').status(401).json({ success: false, error: 'Unauthorized' });
-}
+app.use(corsMiddleware);
+app.use(helmetMiddleware);
 
-app.get('/api/stats', basicAuth, async (_req: Request, res: Response) => {
+app.get('/api/stats', jwtAuth, async (_req: Request, res: Response) => {
   const data = await getSummaryStats();
   res.json({ success: true, data });
 });

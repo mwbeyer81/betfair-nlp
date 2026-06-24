@@ -18,5 +18,12 @@
   },
   "openai": {
     "apiKey": "your-openai-api-key-here"
+  },
+  "jwt": {
+    "secret": ""
+  },
+  "auth": {
+    "username": "matthew",
+    "password": "beyer"
   }
 }

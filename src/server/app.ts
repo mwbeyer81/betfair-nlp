@@ -1,19 +1,13 @@
 import express from "express";
-import cors from "cors";
-import helmet from "helmet";
 import morgan from "morgan";
 import path from "path";
 import { router, initializeServices } from "./router";
+import { corsMiddleware, helmetMiddleware } from "./middleware";
 
 const app = express();
 
-app.use(cors({
-  origin: true,
-  methods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,
-}));
-app.use(helmet({ crossOriginOpenerPolicy: false, crossOriginResourcePolicy: false }));
+app.use(corsMiddleware);
+app.use(helmetMiddleware);
 app.use(morgan("combined"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
