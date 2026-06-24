@@ -98,7 +98,9 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [minRunners, setMinRunners] = useState(1);
-  const [maxRunners, setMaxRunners] = useState(30);
+  const [maxRunners, setMaxRunners] = useState(20);
+  const [draftMin, setDraftMin] = useState("1");
+  const [draftMax, setDraftMax] = useState("20");
   const [fromRow, setFromRow] = useState(1);
   const [toRow, setToRow] = useState<number | null>(null);
   const [draftFrom, setDraftFrom] = useState("1");
@@ -129,6 +131,15 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     const maxRunnersLimit = filterBounds?.maxRunnersPerRace ?? 100;
     const maxBspLimit = filterBounds?.maxBsp ?? 100000;
 
+    // Runners: total count of runners with bsp > 1 per race
+    const min = Math.max(1, parseInt(draftMin) || 1);
+    const max = Math.max(min, Math.min(maxRunnersLimit, parseInt(draftMax) || maxRunnersLimit));
+    setDraftMin(String(min));
+    setDraftMax(String(max));
+    setMinRunners(min);
+    setMaxRunners(max);
+
+    // Race row range
     const from = Math.max(1, parseInt(draftFrom) || 1);
     const toRaw = Math.min(totalRaces, Math.max(from, parseInt(draftTo) || totalRaces));
     const to = toRaw >= totalRaces ? null : toRaw;
@@ -137,6 +148,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setFromRow(from);
     setToRow(to);
 
+    // BSP price range
     const minB = Math.max(1, parseFloat(draftMinBsp) || 1);
     const maxB = Math.min(maxBspLimit, Math.max(minB, parseFloat(draftMaxBsp) || maxBspLimit));
     setDraftMinBsp(String(minB));
@@ -144,14 +156,14 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setMinBsp(minB);
     setMaxBsp(maxB);
 
+    // # in SP: count of runners within the BSP price range per race
     const minRIR = Math.max(1, parseInt(draftMinRIR) || 1);
     const maxRIR = Math.max(minRIR, Math.min(maxRunnersLimit, parseInt(draftMaxRIR) || maxRunnersLimit));
     setDraftMinRIR(String(minRIR));
     setDraftMaxRIR(String(maxRIR));
     setMinRunnersInRange(minRIR);
     setMaxRunnersInRange(maxRIR);
-    setMinRunners(minRIR);
-    setMaxRunners(maxRIR);
+
     setFetchTrigger(t => t + 1);
   }
 
@@ -168,7 +180,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       setError(null);
       setRaces([]);
       try {
-        const result = await chatApi.getAllRunners(1, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp, sortOrder);
+        const result = await chatApi.getAllRunners(1, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined);
         setRaces(result.data);
         setPage(1);
         setTotalPages(result.totalPages);
@@ -190,7 +202,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setIsLoadingMore(true);
     try {
       const next = page + 1;
-      const result = await chatApi.getAllRunners(next, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp, sortOrder);
+      const result = await chatApi.getAllRunners(next, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined);
       setRaces(prev => [...prev, ...result.data]);
       setPage(next);
       setTotalPages(result.totalPages);
@@ -205,24 +217,13 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setShowExportModal(false);
     setIsExporting(true);
     try {
-      // Fetch all races matching current filter, not just the current page
+      // Fetch all races matching current filter (server applies row range and BSP filter)
       const allData = await chatApi.getAllRunners(
-        1, Math.max(totalRaces, 1), minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp, sortOrder
+        1, Math.max(totalRaces, 1), minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined
       );
-      // Export only runners whose BSP falls within the selected range — matching pnlStats.count.
-      const allVisible = allData.data
-        .map(race => ({
-          ...race,
-          runners: race.runners.filter(r => r.bsp != null && r.bsp > 1 && r.bsp >= minBsp && r.bsp <= maxBsp),
-        }))
-        .filter(race => race.runners.length > 0);
-      // Apply row range if active
-      const effectiveTo = toRow ?? allVisible.length;
-      const exportRaces = hasRowRange
-        ? allVisible.filter((_, i) => i + 1 >= fromRow && i + 1 <= effectiveTo)
-        : allVisible;
-      if (format === 'csv') exportToCsv(exportRaces, displayPnl);
-      else exportToXlsx(exportRaces, displayPnl);
+      const exportRaces = allData.data.filter(race => race.runners.length > 0);
+      if (format === 'csv') exportToCsv(exportRaces, pnlStats);
+      else exportToXlsx(exportRaces, pnlStats);
     } catch {
       // silently fail
     } finally {
@@ -230,25 +231,14 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     }
   }
 
-  const visibleRaces = races
-    .map(race => ({
-      ...race,
-      runners: race.runners.filter(r => r.bsp != null && r.bsp > 1 && r.bsp >= minBsp && r.bsp <= maxBsp),
-    }))
-    .filter(race =>
-      race.runners.length > 0 &&
-      race.runners.length >= minRunnersInRange &&
-      race.runners.length <= maxRunnersInRange
-    );
-
+  // Server already filters by BSP range, runner count, # in SP, and row range
+  const visibleRaces = races.filter(race => race.runners.length > 0);
   const visibleRunners = visibleRaces.reduce((sum, r) => sum + r.runners.length, 0);
 
   const hasRowRange = fromRow > 1 || toRow != null;
-  const effectiveToRow = toRow ?? visibleRaces.length;
-  const selectedRaces = visibleRaces.filter((_, i) => i + 1 >= fromRow && i + 1 <= effectiveToRow);
-  const displayRaces = hasRowRange ? selectedRaces : visibleRaces;
-  // Row range = client-side subset → compute locally; everything else → use server pnlStats (stable across Load More)
-  const displayPnl = hasRowRange ? computeRangePnl(selectedRaces) : pnlStats;
+  const effectiveToRow = toRow ?? totalRaces;
+  const displayRaces = visibleRaces;
+  const displayPnl = pnlStats;
 
   const byEvent = displayRaces.reduce<Record<string, { eventName: string; races: RaceWithEvent[] }>>(
     (acc, race) => {
@@ -324,6 +314,63 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             <Text testID="all-runners-sp-bound" style={styles.boundsHint}>
               ({filterBounds.minBsp.toFixed(1)}–{Math.ceil(filterBounds.maxBsp)})
             </Text>
+          )}
+        </View>
+        <View style={styles.filterDivider} />
+        <Text style={styles.filterLabel}>Runners</Text>
+        <View style={styles.filterStepper}>
+          <Text style={styles.filterStepperLabel}>Min</Text>
+          <TouchableOpacity
+            testID="all-runners-min-dec"
+            style={[styles.stepBtn, (parseInt(draftMin) || 1) <= 1 && styles.stepBtnDisabled]}
+            disabled={(parseInt(draftMin) || 1) <= 1}
+            onPress={() => setDraftMin(v => String(Math.max(1, (parseInt(v) || 1) - 1)))}
+          >
+            <Text style={styles.stepBtnText}>-</Text>
+          </TouchableOpacity>
+          <TextInput
+            testID="all-runners-min-value"
+            style={styles.stepInput}
+            value={draftMin}
+            onChangeText={setDraftMin}
+            keyboardType="numeric"
+            maxLength={3}
+          />
+          <TouchableOpacity
+            testID="all-runners-min-inc"
+            style={styles.stepBtn}
+            onPress={() => setDraftMin(v => String((parseInt(v) || 1) + 1))}
+          >
+            <Text style={styles.stepBtnText}>+</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.filterStepper}>
+          <Text style={styles.filterStepperLabel}>Max</Text>
+          <TouchableOpacity
+            testID="all-runners-max-dec"
+            style={styles.stepBtn}
+            onPress={() => setDraftMax(v => String(Math.max(1, (parseInt(v) || 20) - 1)))}
+          >
+            <Text style={styles.stepBtnText}>-</Text>
+          </TouchableOpacity>
+          <TextInput
+            testID="all-runners-max-value"
+            style={styles.stepInput}
+            value={draftMax}
+            onChangeText={setDraftMax}
+            keyboardType="numeric"
+            maxLength={3}
+          />
+          <TouchableOpacity
+            testID="all-runners-max-inc"
+            style={[styles.stepBtn, filterBounds != null && (parseInt(draftMax) || 0) >= filterBounds.maxRunnersPerRace && styles.stepBtnDisabled]}
+            disabled={filterBounds != null && (parseInt(draftMax) || 0) >= filterBounds.maxRunnersPerRace}
+            onPress={() => setDraftMax(v => String(Math.min(filterBounds?.maxRunnersPerRace ?? 100, (parseInt(v) || 20) + 1)))}
+          >
+            <Text style={styles.stepBtnText}>+</Text>
+          </TouchableOpacity>
+          {filterBounds != null && (
+            <Text testID="all-runners-max-bound" style={styles.boundsHint}>of {filterBounds.maxRunnersPerRace}</Text>
           )}
         </View>
         <View style={styles.filterDivider} />
@@ -439,8 +486,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
                   setDraftMaxRIR(String(maxRIR));
                   setMinRunnersInRange(minRIR);
                   setMaxRunnersInRange(maxRIR);
-                  setMinRunners(minRIR);
-                  setMaxRunners(maxRIR);
                   setFetchTrigger(t => t + 1);
                 }}
               >

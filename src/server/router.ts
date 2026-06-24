@@ -226,7 +226,12 @@ router.get("/api/runners", async (req, res) => {
     const minBsp = Math.max(1, parseFloat(req.query.minBsp as string) || 1);
     const maxBsp = Math.min(100000, parseFloat(req.query.maxBsp as string) || 1000);
     const sortOrder = req.query.sort === "desc" ? "desc" : "asc";
-    const { data, total, totalRunners, pnlStats } = await betfairService.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp, sortOrder);
+    const minInSp = Math.max(1, parseInt(req.query.minInSp as string) || 1);
+    const maxInSp = Math.min(10000, Math.max(1, parseInt(req.query.maxInSp as string) || 10000));
+    const fromRow = Math.max(1, parseInt(req.query.fromRow as string) || 1);
+    const toRowRaw = parseInt(req.query.toRow as string);
+    const toRow: number | null = isNaN(toRowRaw) ? null : Math.max(fromRow, toRowRaw);
+    const { data, total, totalRunners, pnlStats } = await betfairService.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp, sortOrder, minInSp, maxInSp, fromRow, toRow);
     res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
   } catch (error) {
     console.error("getAllRunnersByRace error:", error);

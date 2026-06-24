@@ -181,7 +181,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getAllRunners(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minBsp = 1, maxBsp = 1000, sortOrder: "asc" | "desc" = "asc"): Promise<RunnersPage> {
+  async getAllRunners(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minBsp = 1, maxBsp = 1000, sortOrder: "asc" | "desc" = "asc", minInSp = 1, maxInSp = 10000, fromRow = 1, toRow?: number): Promise<RunnersPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -190,8 +190,12 @@ class ChatApi {
       minBsp: String(minBsp),
       maxBsp: String(maxBsp),
       sort: sortOrder,
+      minInSp: String(minInSp),
+      maxInSp: String(maxInSp),
+      fromRow: String(fromRow),
     });
     if (countries.length > 0) params.set("countries", countries.join(","));
+    if (toRow != null) params.set("toRow", String(toRow));
     const response = await fetch(
       `${this.baseUrl}/api/runners?${params}`,
       { headers: { Authorization: `Basic ${this.credentials}` } }

@@ -295,7 +295,7 @@ export const RunnersInRangeFilterShows: Story = {
   },
 };
 
-let capturedRirParams: { minRunners: string | null; maxRunners: string | null } = { minRunners: null, maxRunners: null };
+let capturedRirParams: { minInSp: string | null; maxInSp: string | null } = { minInSp: null, maxInSp: null };
 
 export const InSpFilterSendsServerParams: Story = {
   parameters: {
@@ -304,8 +304,8 @@ export const InSpFilterSendsServerParams: Story = {
         http.get(`${BASE}/api/runners`, ({ request }) => {
           const url = new URL(request.url);
           capturedRirParams = {
-            minRunners: url.searchParams.get("minRunners"),
-            maxRunners: url.searchParams.get("maxRunners"),
+            minInSp: url.searchParams.get("minInSp"),
+            maxInSp: url.searchParams.get("maxInSp"),
           };
           return HttpResponse.json({
             success: true,
@@ -340,12 +340,12 @@ export const InSpFilterSendsServerParams: Story = {
     await userEvent.clear(maxInput);
     await userEvent.type(maxInput, "5");
 
-    capturedRirParams = { minRunners: null, maxRunners: null };
+    capturedRirParams = { minInSp: null, maxInSp: null };
     await userEvent.click(canvas.getByTestId("all-runners-filter-apply"));
 
     await waitFor(() => {
-      expect(capturedRirParams.minRunners).toBe("3");
-      expect(capturedRirParams.maxRunners).toBe("5");
+      expect(capturedRirParams.minInSp).toBe("3");
+      expect(capturedRirParams.maxInSp).toBe("5");
     }, { timeout: 3000 });
   },
 };

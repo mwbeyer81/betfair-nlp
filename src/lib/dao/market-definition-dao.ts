@@ -270,11 +270,26 @@ export class MarketDefinitionDAO {
     countries: string[] = [],
     minBsp = 1,
     maxBsp = 1000,
-    sortOrder: "asc" | "desc" = "asc"
+    sortOrder: "asc" | "desc" = "asc",
+    minInSp = 1,
+    maxInSp = 1000,
+    fromRow = 1,
+    toRow: number | null = null
   ): Promise<{ data: RaceWithEvent[]; total: number; totalRunners: number; pnlStats: { staked: number; returns: number; pnl: number; count: number } }> {
-    const skip = (page - 1) * limit;
     const countryMatch = countries.length > 0 ? { countryCode: { $in: countries } } : {};
     const marketTimeSortDir = sortOrder === "desc" ? -1 : 1;
+
+    // Row-range offsets applied uniformly across all facets
+    const rowSkip = fromRow - 1;
+    const rowLimit = toRow !== null ? toRow - fromRow + 1 : null;
+    const rowRangeStages: Record<string, unknown>[] = [];
+    if (rowSkip > 0) rowRangeStages.push({ $skip: rowSkip });
+    if (rowLimit !== null) rowRangeStages.push({ $limit: rowLimit });
+
+    const effectiveDataSkip = rowSkip + (page - 1) * limit;
+    const effectiveDataLimit = rowLimit !== null
+      ? Math.min(limit, Math.max(1, rowLimit - (page - 1) * limit))
+      : limit;
 
     const basePipeline = [
       { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] }, ...countryMatch } },
@@ -293,10 +308,25 @@ export class MarketDefinitionDAO {
           runners: { $first: "$runners" },
         },
       },
-      // Filter and sort runners in-place using $sortArray — avoids $unwind of ~88K docs
-      // which would exceed the Atlas M0 32MB in-memory sort limit
+      // Compute allRunnersCount (all runners with bsp > 1) and runners (BSP-range subset, sorted).
+      // Both use the original runners array from $group — $addFields evaluates from pre-stage state.
       {
         $addFields: {
+          allRunnersCount: {
+            $size: {
+              $filter: {
+                input: "$runners",
+                as: "r",
+                cond: {
+                  $and: [
+                    { $ne: ["$$r.status", "REMOVED"] },
+                    { $ifNull: ["$$r.bsp", false] },
+                    { $gt: ["$$r.bsp", 1] },
+                  ],
+                },
+              },
+            },
+          },
           runners: {
             $sortArray: {
               input: {
@@ -323,8 +353,10 @@ export class MarketDefinitionDAO {
         $match: {
           $expr: {
             $and: [
-              { $gte: [{ $size: "$runners" }, minRunners] },
-              { $lte: [{ $size: "$runners" }, maxRunners] },
+              { $gte: ["$allRunnersCount", minRunners] },
+              { $lte: ["$allRunnersCount", maxRunners] },
+              { $gte: [{ $size: "$runners" }, minInSp] },
+              { $lte: [{ $size: "$runners" }, maxInSp] },
             ],
           },
         },
@@ -356,10 +388,11 @@ export class MarketDefinitionDAO {
         ...basePipeline,
         {
           $facet: {
-            data: [{ $skip: skip }, { $limit: limit }, projectStage],
-            total: [{ $count: "count" }],
-            totalRunners: [{ $group: { _id: null, count: { $sum: { $size: "$runners" } } } }],
+            data: [{ $skip: effectiveDataSkip }, { $limit: effectiveDataLimit }, projectStage],
+            total: [...rowRangeStages, { $count: "count" }],
+            totalRunners: [...rowRangeStages, { $group: { _id: null, count: { $sum: { $size: "$runners" } } } }],
             pnlStats: [
+              ...rowRangeStages,
               { $unwind: "$runners" },
               { $match: { "runners.bsp": { $exists: true, $gt: 1 } } },
               {
