@@ -10,6 +10,7 @@
     "config": "^4.1.1",
     "cors": "^2.8.5",
     "express": "^4.21.0",
+    "express-rate-limit": "^7.0.0",
     "helmet": "^8.1.0",
     "mongodb": "^6.3.0",
     "openai": "^5.16.0"

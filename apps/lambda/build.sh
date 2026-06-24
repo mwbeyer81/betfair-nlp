@@ -41,6 +41,14 @@ aws lambda update-function-configuration \
   --region eu-north-1 \
   --output text --query FunctionName
 
+echo "Configuring API Gateway throttling..."
+aws apigatewayv2 update-stage \
+  --api-id fd0xrhcmj0 \
+  --stage-name '$default' \
+  --region eu-north-1 \
+  --default-route-settings '{"ThrottlingBurstLimit":50,"ThrottlingRateLimit":10}' \
+  --output text --query StageName
+
 # Update secrets only when config/local.json is present (not committed, lives on dev machines)
 LOCAL_CONFIG="$REPO_ROOT/config/local.json"
 if [ -f "$LOCAL_CONFIG" ]; then
@@ -48,9 +56,12 @@ if [ -f "$LOCAL_CONFIG" ]; then
   MONGODB_URI=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.mongodb.uri)")
   MONGODB_DB_NAME=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.mongodb.dbName)")
   OPENAI_API_KEY=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.openai.apiKey)")
+  JWT_SECRET=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.jwt.secret)")
+  AUTH_USERNAME=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.auth.username)")
+  AUTH_PASSWORD=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.auth.password)")
   aws lambda update-function-configuration \
     --function-name hello-api \
-    --environment "Variables={MONGODB_URI=$MONGODB_URI,MONGODB_DB_NAME=$MONGODB_DB_NAME,OPENAI_API_KEY=$OPENAI_API_KEY}" \
+    --environment "Variables={MONGODB_URI=$MONGODB_URI,MONGODB_DB_NAME=$MONGODB_DB_NAME,OPENAI_API_KEY=$OPENAI_API_KEY,JWT_SECRET=$JWT_SECRET,AUTH_USERNAME=$AUTH_USERNAME,AUTH_PASSWORD=$AUTH_PASSWORD}" \
     --region eu-north-1 \
     --output text --query FunctionName
 else
