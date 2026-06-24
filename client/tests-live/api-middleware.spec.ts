@@ -10,7 +10,8 @@ async function getToken(request: any): Promise<string> {
   return body.token as string;
 }
 
-test.describe("API middleware (live Lambda)", () => {
+// EC2 instance (app.backbet.co.uk) has been terminated — these tests are deprecated
+test.describe.skip("API middleware (live Lambda)", () => {
   test("GET /api/stats with JWT auth returns 200 and success:true", async ({ request }) => {
     const token = await getToken(request);
     const res = await request.get(`${API}/api/stats`, {

@@ -3,7 +3,8 @@ import { test, expect } from "@playwright/test";
 const BASE = "https://app.backbet.co.uk";
 const AUTH_PARAMS = "?auth=bWF0dGhldzpiZXllcg==";
 
-test.describe("runners-live", () => {
+// EC2 instance (app.backbet.co.uk) has been terminated — these tests are deprecated
+test.describe.skip("runners-live", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test.beforeEach(async ({ page }) => {

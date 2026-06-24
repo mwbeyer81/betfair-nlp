@@ -13,7 +13,8 @@ const DESKTOP = { width: 1280, height: 800  };
 
 // ─── /runners at 375px ───────────────────────────────────────────────────────
 
-test.describe("Live /runners — iPhone 375px", () => {
+// EC2 instance (app.backbet.co.uk) has been terminated — these tests are deprecated
+test.describe.skip("Live /runners — iPhone 375px", () => {
   test.use({ viewport: MOBILE });
 
   test.beforeEach(async ({ page }) => {
@@ -76,7 +77,7 @@ test.describe("Live /runners — iPhone 375px", () => {
 
 // ─── /runners at 768px ───────────────────────────────────────────────────────
 
-test.describe("Live /runners — tablet 768px", () => {
+test.describe.skip("Live /runners — tablet 768px", () => {
   test.use({ viewport: TABLET });
 
   test.beforeEach(async ({ page }) => {
@@ -93,7 +94,7 @@ test.describe("Live /runners — tablet 768px", () => {
 
 // ─── /runners at 1280px ──────────────────────────────────────────────────────
 
-test.describe("Live /runners — desktop 1280px", () => {
+test.describe.skip("Live /runners — desktop 1280px", () => {
   test.use({ viewport: DESKTOP });
 
   test.beforeEach(async ({ page }) => {
@@ -111,7 +112,7 @@ test.describe("Live /runners — desktop 1280px", () => {
 
 // ─── /events at 375px ────────────────────────────────────────────────────────
 
-test.describe("Live /events — iPhone 375px", () => {
+test.describe.skip("Live /events — iPhone 375px", () => {
   test.use({ viewport: MOBILE });
 
   test.beforeEach(async ({ page }) => {
