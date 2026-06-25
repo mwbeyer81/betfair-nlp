@@ -293,9 +293,6 @@ export class MarketDefinitionDAO {
 
     const basePipeline = [
       { $match: { marketType: { $in: ["WIN", "ANTEPOST_WIN"] }, ...countryMatch } },
-      // Sort with marketType leading to match the compound index {marketType,marketId,timestamp}
-      // and avoid an in-memory sort (Atlas M0 enforces 32MB sort memory limit)
-      { $sort: { marketType: 1, marketId: 1, timestamp: -1 } },
       {
         $group: {
           _id: "$marketId",
@@ -361,22 +358,7 @@ export class MarketDefinitionDAO {
           },
         },
       },
-      { $sort: { marketTime: marketTimeSortDir } },
     ];
-
-    const projectStage = {
-      $project: {
-        _id: 0,
-        marketId: "$_id",
-        eventId: 1,
-        eventName: 1,
-        marketTime: 1,
-        marketType: 1,
-        marketName: 1,
-        countryCode: 1,
-        runners: 1,
-      },
-    };
 
     const [result] = await this.collection
       .aggregate<{
@@ -388,7 +370,54 @@ export class MarketDefinitionDAO {
         ...basePipeline,
         {
           $facet: {
-            data: [{ $skip: effectiveDataSkip }, { $limit: effectiveDataLimit }, projectStage],
+            // Strip runners before sorting so each doc is ~200 bytes — avoids Atlas M0's
+            // 32 MB in-memory sort limit. $facet feeds the same input to all branches,
+            // so pnlStats / totalRunners still see the full runners array.
+            data: [
+              { $project: { eventId: 1, eventName: 1, marketTime: 1, marketType: 1, marketName: 1, countryCode: 1 } },
+              { $sort: { marketTime: marketTimeSortDir } },
+              { $skip: effectiveDataSkip },
+              { $limit: effectiveDataLimit },
+              // Re-fetch runners for just these N docs (uses the marketId index).
+              { $lookup: { from: "market_definitions", localField: "_id", foreignField: "marketId", as: "_docs" } },
+              {
+                $addFields: {
+                  runners: {
+                    $sortArray: {
+                      input: {
+                        $filter: {
+                          input: { $ifNull: [{ $arrayElemAt: ["$_docs.runners", 0] }, []] },
+                          as: "r",
+                          cond: {
+                            $and: [
+                              { $ne: ["$$r.status", "REMOVED"] },
+                              { $ifNull: ["$$r.bsp", false] },
+                              { $gt: ["$$r.bsp", 1] },
+                              { $gte: ["$$r.bsp", minBsp] },
+                              { $lte: ["$$r.bsp", maxBsp] },
+                            ],
+                          },
+                        },
+                      },
+                      sortBy: { sortPriority: 1 },
+                    },
+                  },
+                },
+              },
+              {
+                $project: {
+                  _id: 0,
+                  marketId: "$_id",
+                  eventId: 1,
+                  eventName: 1,
+                  marketTime: 1,
+                  marketType: 1,
+                  marketName: 1,
+                  countryCode: 1,
+                  runners: 1,
+                },
+              },
+            ],
             total: [...rowRangeStages, { $count: "count" }],
             totalRunners: [...rowRangeStages, { $group: { _id: null, count: { $sum: { $size: "$runners" } } } }],
             pnlStats: [
@@ -414,7 +443,7 @@ export class MarketDefinitionDAO {
             ],
           },
         },
-      ], { hint: { marketType: 1, marketId: 1, timestamp: -1 } })
+      ])
       .toArray();
 
     const staked = result?.pnlStats?.[0]?.staked ?? 0;
