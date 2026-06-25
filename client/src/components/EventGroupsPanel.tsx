@@ -16,7 +16,6 @@ interface EventGroupsPanelProps {
   onClose: () => void;
   onViewDocs: (eventId: string, eventName: string) => void;
   onViewRunners: (eventId: string, eventName: string) => void;
-  onViewPriceUpdates: (eventId: string, eventName: string) => void;
   totalRaces?: number;
   totalRunners?: number;
   onViewAllRunners?: () => void;
@@ -29,7 +28,6 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
   onClose,
   onViewDocs,
   onViewRunners,
-  onViewPriceUpdates,
   totalRaces,
   totalRunners,
   onViewAllRunners,
@@ -108,13 +106,6 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
                   onPress={() => onViewRunners(group.eventId, group.eventName)}
                 >
                   <Text style={styles.badgeText}>Runners</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  testID={`event-price-updates-badge-${group.eventId}`}
-                  style={[styles.badge, styles.priceUpdatesBadge]}
-                  onPress={() => onViewPriceUpdates(group.eventId, group.eventName)}
-                >
-                  <Text style={styles.badgeText}>Price updates</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -206,9 +197,6 @@ const styles = StyleSheet.create({
   },
   runnersBadge: {
     backgroundColor: "#28a745",
-  },
-  priceUpdatesBadge: {
-    backgroundColor: "#6f42c1",
   },
   badgeText: {
     color: "#fff",

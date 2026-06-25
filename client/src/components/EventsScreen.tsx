@@ -9,13 +9,11 @@ import {
   SafeAreaView,
 } from "react-native";
 import { EventDocsPanel } from "./EventDocsPanel";
-import { PriceUpdatesPanel } from "./PriceUpdatesPanel";
 import { RunnersPanel } from "./RunnersPanel";
 import {
   chatApi,
   EventGroup,
   MarketDefinitionDoc,
-  PriceUpdate,
   Race,
   Stats,
 } from "../services/chatApi";
@@ -54,21 +52,6 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
   const [races, setRaces] = useState<Race[]>([]);
   const [runnersLoading, setRunnersLoading] = useState(false);
   const [runnersError, setRunnersError] = useState<string | null>(null);
-
-  const [showPriceUpdatesPanel, setShowPriceUpdatesPanel] = useState(false);
-  const [priceUpdatesEventId, setPriceUpdatesEventId] = useState("");
-  const [priceUpdatesEventName, setPriceUpdatesEventName] = useState("");
-  const [priceUpdates, setPriceUpdates] = useState<PriceUpdate[]>([]);
-  const [priceUpdatesLoading, setPriceUpdatesLoading] = useState(false);
-  const [priceUpdatesError, setPriceUpdatesError] = useState<string | null>(null);
-
-  const [showRunnerPriceUpdatesPanel, setShowRunnerPriceUpdatesPanel] = useState(false);
-  const [runnerPriceUpdatesRunnerId, setRunnerPriceUpdatesRunnerId] = useState(0);
-  const [runnerPriceUpdatesRunnerName, setRunnerPriceUpdatesRunnerName] = useState("");
-  const [runnerPriceUpdates, setRunnerPriceUpdates] = useState<PriceUpdate[]>([]);
-  const [runnerPriceUpdatesLoading, setRunnerPriceUpdatesLoading] = useState(false);
-  const [runnerPriceUpdatesError, setRunnerPriceUpdatesError] = useState<string | null>(null);
-  const [runnerPriceUpdatesSort, setRunnerPriceUpdatesSort] = useState<"asc" | "desc">("desc");
 
   useEffect(() => {
     (async () => {
@@ -135,43 +118,6 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
       setRunnersError("Failed to load runners");
     } finally {
       setRunnersLoading(false);
-    }
-  };
-
-  const loadPriceUpdates = async (eventId: string, eventName: string) => {
-    setPriceUpdatesEventId(eventId);
-    setPriceUpdatesEventName(eventName);
-    setShowPriceUpdatesPanel(true);
-    setPriceUpdatesLoading(true);
-    setPriceUpdatesError(null);
-    try {
-      setPriceUpdates(await chatApi.getPriceUpdates(eventId));
-    } catch {
-      setPriceUpdatesError("Failed to load price updates");
-    } finally {
-      setPriceUpdatesLoading(false);
-    }
-  };
-
-  const loadRunnerPriceUpdates = async (
-    runnerId: number,
-    runnerName: string,
-    sort: "asc" | "desc" = "desc"
-  ) => {
-    setRunnerPriceUpdatesRunnerId(runnerId);
-    setRunnerPriceUpdatesRunnerName(runnerName);
-    setRunnerPriceUpdatesSort(sort);
-    setShowRunnerPriceUpdatesPanel(true);
-    setRunnerPriceUpdatesLoading(true);
-    setRunnerPriceUpdatesError(null);
-    try {
-      setRunnerPriceUpdates(
-        await chatApi.getRunnerPriceUpdates(runnersEventId, runnerId, sort)
-      );
-    } catch {
-      setRunnerPriceUpdatesError("Failed to load price updates");
-    } finally {
-      setRunnerPriceUpdatesLoading(false);
     }
   };
 
@@ -276,13 +222,6 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
                   >
                     <Text style={styles.badgeText}>Runners</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    testID={`event-price-updates-badge-${group.eventId}`}
-                    style={[styles.badge, styles.priceUpdatesBadge]}
-                    onPress={() => loadPriceUpdates(group.eventId, group.eventName)}
-                  >
-                    <Text style={styles.badgeText}>Price updates</Text>
-                  </TouchableOpacity>
                 </View>
               </View>
             ))}
@@ -312,31 +251,6 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
           isLoading={runnersLoading}
           error={runnersError}
           onClose={() => setShowRunnersPanel(false)}
-          onRunnerSelect={loadRunnerPriceUpdates}
-        />
-      )}
-
-      {showRunnerPriceUpdatesPanel && (
-        <PriceUpdatesPanel
-          eventId={runnersEventId}
-          eventName={runnerPriceUpdatesRunnerName}
-          updates={runnerPriceUpdates}
-          isLoading={runnerPriceUpdatesLoading}
-          error={runnerPriceUpdatesError}
-          onClose={() => setShowRunnerPriceUpdatesPanel(false)}
-          sort={runnerPriceUpdatesSort}
-          onSortChange={(sort) => loadRunnerPriceUpdates(runnerPriceUpdatesRunnerId, runnerPriceUpdatesRunnerName, sort)}
-        />
-      )}
-
-      {showPriceUpdatesPanel && (
-        <PriceUpdatesPanel
-          eventId={priceUpdatesEventId}
-          eventName={priceUpdatesEventName}
-          updates={priceUpdates}
-          isLoading={priceUpdatesLoading}
-          error={priceUpdatesError}
-          onClose={() => setShowPriceUpdatesPanel(false)}
         />
       )}
 
@@ -500,9 +414,6 @@ const styles = StyleSheet.create({
   },
   runnersBadge: {
     backgroundColor: "#28a745",
-  },
-  priceUpdatesBadge: {
-    backgroundColor: "#6f42c1",
   },
   badgeText: {
     color: "#fff",

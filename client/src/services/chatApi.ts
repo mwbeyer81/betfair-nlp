@@ -8,24 +8,6 @@ export interface EventGroup {
   earliestMarketTime: string;
 }
 
-export interface PriceUpdate {
-  _id?: string;
-  marketId: string;
-  runnerId: number;
-  runnerName: string;
-  lastTradedPrice: number;
-  tradedVolume?: number;    // Total matched on runner (cumulative £)
-  bestBackPrice?: number;   // Best available back price
-  bestBackSize?: number;    // £ available to back at best price
-  bestLayPrice?: number;    // Best available lay price
-  bestLaySize?: number;     // £ available to lay at best price
-  timestamp: string;
-  changeId: string;
-  publishTime?: string;
-  eventId: string;
-  eventName: string;
-}
-
 export interface Runner {
   id: number;
   name: string;
@@ -142,30 +124,6 @@ class ChatApi {
       { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch runners");
-    const result = await response.json();
-    return result.data;
-  }
-
-  async getPriceUpdates(eventId: string): Promise<PriceUpdate[]> {
-    const response = await fetch(
-      `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/price-updates`,
-      { headers: this.authHeader() }
-    );
-    if (!response.ok) throw new Error("Failed to fetch price updates");
-    const result = await response.json();
-    return result.data;
-  }
-
-  async getRunnerPriceUpdates(
-    eventId: string,
-    runnerId: number,
-    sort: "asc" | "desc" = "desc"
-  ): Promise<PriceUpdate[]> {
-    const response = await fetch(
-      `${this.baseUrl}/api/events/${encodeURIComponent(eventId)}/runners/${runnerId}/price-updates?sort=${sort}`,
-      { headers: this.authHeader() }
-    );
-    if (!response.ok) throw new Error("Failed to fetch runner price updates");
     const result = await response.json();
     return result.data;
   }

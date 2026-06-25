@@ -26,10 +26,9 @@ test.describe("Events view — MSW mocked network", () => {
     await expect(page.getByTestId("events-total-races")).toContainText("8 races");
   });
 
-  test("all three badges visible per event", async ({ page }) => {
+  test("docs and runners badges visible per event", async ({ page }) => {
     await expect(page.getByTestId("event-docs-badge-33858191")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("event-runners-badge-33858191")).toBeVisible();
-    await expect(page.getByTestId("event-price-updates-badge-33858191")).toBeVisible();
   });
 
   test("clicking Runners badge opens runners panel with mocked data", async ({ page }) => {
@@ -43,15 +42,6 @@ test.describe("Events view — MSW mocked network", () => {
     await expect(page.getByText("Gaelic Warrior")).toBeVisible();
   });
 
-  test("clicking Price Updates badge opens price updates panel with mocked data", async ({ page }) => {
-    await page.getByTestId("event-price-updates-badge-33858191").click();
-
-    await expect(page.getByTestId("price-updates-panel")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("price-updates-loading")).not.toBeVisible({ timeout: 10000 });
-
-    await expect(page.getByTestId("price-update-item-0")).toBeVisible({ timeout: 10000 });
-  });
-
   test("runners panel close button dismisses it", async ({ page }) => {
     await page.getByTestId("event-runners-badge-33858191").click();
     await expect(page.getByTestId("runners-panel")).toBeVisible({ timeout: 10000 });
@@ -60,14 +50,4 @@ test.describe("Events view — MSW mocked network", () => {
     await expect(page.getByTestId("runners-panel")).not.toBeVisible();
   });
 
-  test("clicking a runner opens its price updates panel", async ({ page }) => {
-    await page.getByTestId("event-runners-badge-33858191").click();
-    await expect(page.getByTestId("runners-loading")).not.toBeVisible({ timeout: 10000 });
-
-    const firstRunner = page.locator('[data-testid^="runner-item-"]').first();
-    await expect(firstRunner).toBeVisible({ timeout: 10000 });
-    await firstRunner.click();
-
-    await expect(page.getByTestId("price-updates-panel")).toBeVisible({ timeout: 10000 });
-  });
 });

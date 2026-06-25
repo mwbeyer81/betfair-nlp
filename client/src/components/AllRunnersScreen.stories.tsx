@@ -44,11 +44,6 @@ const MOCK_RACES: Array<{
   },
 ];
 
-const MOCK_PRICE_UPDATES = [
-  { _id: "pu1", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 1.9, timestamp: "2025-02-01T13:10:00.000Z", changeId: "c1", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
-  { _id: "pu2", marketId: "1.238923739", runnerId: 21001, runnerName: "Galopin Des Champs", lastTradedPrice: 1.95, timestamp: "2025-02-01T13:05:00.000Z", changeId: "c2", eventId: "33988522", eventName: "Leopardstown 1st Feb" },
-];
-
 const TOTAL_RUNNERS_IN_DB = MOCK_RACES.reduce((s, r) => s + r.runners.length, 0); // 4
 
 const filterBoundsHandler = http.get(`${BASE}/api/runners/filter-bounds`, () =>
@@ -79,9 +74,6 @@ const defaultHandlers = [
   http.get(`${BASE}/api/runners/pnl-stats`, () =>
     HttpResponse.json({ success: true, data: { staked: 3.97, returns: 5.55, pnl: 1.58 } })
   ),
-  http.get(`${BASE}/api/events/:eventId/runners/:runnerId/price-updates`, () =>
-    HttpResponse.json({ success: true, data: MOCK_PRICE_UPDATES, count: MOCK_PRICE_UPDATES.length })
-  ),
 ];
 
 const meta: Meta<typeof AllRunnersScreen> = {
@@ -93,7 +85,6 @@ const meta: Meta<typeof AllRunnersScreen> = {
   },
   args: {
     onNavigateToEvents: fn(),
-    onNavigateToRunner: fn(),
   },
 };
 
@@ -232,27 +223,6 @@ export const PerRunnerPnl: Story = {
     // Brighterdaysahead: LOSER at SP 6.0, stake £0.20 → -£0.20
     await expect(canvas.getByTestId("all-runner-pnl-22002")).toHaveTextContent("-£0.20");
     await expect(canvas.getByTestId("all-runner-stake-22002")).toHaveTextContent("Bet £0.20");
-  },
-};
-
-export const RunnerClick: Story = {
-  play: async ({ canvasElement, args }) => {
-    const canvas = within(canvasElement);
-
-    // Wait for runners to load
-    await canvas.findByTestId("all-runner-item-21001");
-
-    // Row has a chevron indicating it's tappable
-    const row = canvas.getByTestId("all-runner-item-21001");
-    await expect(row).toHaveTextContent("›");
-
-    // Click Galopin Des Champs → fires onNavigateToRunner
-    await userEvent.click(row);
-    await expect(args.onNavigateToRunner).toHaveBeenCalledWith(
-      "33988522",
-      21001,
-      "Galopin Des Champs"
-    );
   },
 };
 

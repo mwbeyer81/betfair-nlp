@@ -146,31 +146,6 @@ router.get("/api/events/:eventId/runners", async (req, res) => {
   }
 });
 
-router.get("/api/events/:eventId/runners/:runnerId/price-updates", async (req, res) => {
-  try {
-    if (!betfairService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const runnerIdNum = parseInt(req.params.runnerId, 10);
-    if (isNaN(runnerIdNum)) return res.status(400).json({ success: false, error: "runnerId must be a number" });
-    const limit = Math.min(parseInt(String(req.query.limit ?? "100"), 10) || 100, 500);
-    const sort = String(req.query.sort ?? "desc") === "asc" ? "asc" : "desc";
-    const docs = await betfairService.getPriceUpdatesByEventAndRunner(req.params.eventId, runnerIdNum, limit, sort);
-    res.status(200).json({ success: true, data: docs, count: docs.length });
-  } catch (error) {
-    res.status(500).json({ success: false, error: "Failed to fetch runner price updates" });
-  }
-});
-
-router.get("/api/events/:eventId/price-updates", async (req, res) => {
-  try {
-    if (!betfairService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const limit = Math.min(parseInt(String(req.query.limit ?? "100"), 10) || 100, 500);
-    const docs = await betfairService.getPriceUpdatesByEvent(req.params.eventId, limit);
-    res.status(200).json({ success: true, data: docs, count: docs.length });
-  } catch (error) {
-    res.status(500).json({ success: false, error: "Failed to fetch price updates" });
-  }
-});
-
 router.get("/api/stats", async (_req, res) => {
   try {
     if (!betfairService) return res.status(503).json({ success: false, error: "Service not initialized" });

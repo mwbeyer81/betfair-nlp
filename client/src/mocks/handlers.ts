@@ -47,46 +47,6 @@ export const handlers = [
     })
   ),
 
-  http.get(`${BASE}/api/events/:eventId/price-updates`, () =>
-    HttpResponse.json({
-      success: true,
-      data: [
-        {
-          _id: "pu1",
-          marketId: "1.237066150",
-          runnerId: 12345,
-          runnerName: "Springwell Bay",
-          lastTradedPrice: 4.5,
-          timestamp: "2025-01-01T14:10:00.000Z",
-          changeId: "abc1",
-          eventId: "33858191",
-          eventName: "Cheltenham 1st Jan",
-        },
-      ],
-      count: 1,
-    })
-  ),
-
-  http.get(`${BASE}/api/events/:eventId/runners/:runnerId/price-updates`, () =>
-    HttpResponse.json({
-      success: true,
-      data: [
-        {
-          _id: "pu1",
-          marketId: "1.237066150",
-          runnerId: 12345,
-          runnerName: "Springwell Bay",
-          lastTradedPrice: 4.5,
-          timestamp: "2025-01-01T14:10:00.000Z",
-          changeId: "abc1",
-          eventId: "33858191",
-          eventName: "Cheltenham 1st Jan",
-        },
-      ],
-      count: 1,
-    })
-  ),
-
   http.get(`${BASE}/api/events/:eventId/definitions`, () =>
     HttpResponse.json({
       success: true,

@@ -36,7 +36,6 @@ const meta: Meta<typeof EventGroupsPanel> = {
     onClose: fn(),
     onViewDocs: fn(),
     onViewRunners: fn(),
-    onViewPriceUpdates: fn(),
     onViewAllRunners: fn(),
     totalRaces: 8,
     totalRunners: 110,
@@ -170,23 +169,6 @@ export const RunnersBadgeClick: Story = {
 
     await userEvent.click(badge);
     await expect(args.onViewRunners).toHaveBeenCalledWith("33858191", "Cheltenham 1st Jan");
-  },
-};
-
-export const PriceUpdatesBadgeClick: Story = {
-  args: {
-    groups: MOCK_GROUPS,
-    isLoading: false,
-    error: null,
-  },
-  play: async ({ canvasElement, args }) => {
-    const canvas = within(canvasElement);
-
-    const badge = canvas.getByTestId("event-price-updates-badge-33858191");
-    await expect(badge).toBeInTheDocument();
-
-    await userEvent.click(badge);
-    await expect(args.onViewPriceUpdates).toHaveBeenCalledWith("33858191", "Cheltenham 1st Jan");
   },
 };
 

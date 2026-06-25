@@ -15,7 +15,6 @@ import { exportToCsv, exportToXlsx } from "../utils/exportRunners";
 
 interface AllRunnersScreenProps {
   onNavigateToEvents: () => void;
-  onNavigateToRunner: (eventId: string, runnerId: number, runnerName: string) => void;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -91,7 +90,6 @@ function formatRaceDate(isoTime: string): string {
 
 export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   onNavigateToEvents,
-  onNavigateToRunner,
 }) => {
   const [races, setRaces] = useState<RaceWithEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -567,12 +565,10 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
                       })()}
                     </View>
                     {race.runners.map((runner: Runner) => (
-                      <TouchableOpacity
+                      <View
                         key={runner.id}
                         testID={`all-runner-item-${runner.id}`}
                         style={styles.runnerRow}
-                        onPress={() => onNavigateToRunner(eventId, runner.id, runner.name)}
-                        activeOpacity={0.6}
                       >
                         <Text style={styles.priority}>{runner.sortPriority}.</Text>
                         <Text style={styles.runnerName} numberOfLines={1}>
@@ -604,8 +600,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
                         >
                           <Text style={styles.statusText}>{runner.status}</Text>
                         </View>
-                        <Text style={styles.chevron}>›</Text>
-                      </TouchableOpacity>
+                      </View>
                     ))}
                   </View>
                 ))}

@@ -109,22 +109,6 @@ export class BetfairService {
     return this.marketDefinitionDAO.getRunnerFilterBounds();
   }
 
-  public async getPriceUpdatesByEvent(
-    eventId: string,
-    limit: number = 100
-  ): Promise<PriceUpdateDocument[]> {
-    return this.priceUpdateDAO.getByEventId(eventId, limit);
-  }
-
-  public async getPriceUpdatesByEventAndRunner(
-    eventId: string,
-    runnerId: number,
-    limit: number = 100,
-    sort: "asc" | "desc" = "desc"
-  ): Promise<PriceUpdateDocument[]> {
-    return this.priceUpdateDAO.getByEventIdAndRunnerId(eventId, runnerId, limit, sort);
-  }
-
   /**
    * Process a data file containing Betfair messages
    * Only processes uncompressed market files (files with dots in the filename, excluding .bz2)
