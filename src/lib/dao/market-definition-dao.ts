@@ -548,22 +548,25 @@ export class MarketDefinitionDAO {
    * Create indexes for better query performance
    */
   public async createIndexes(): Promise<void> {
-    try {
-      await this.collection.createIndex({ marketId: 1, timestamp: -1 });
-      await this.collection.createIndex({ eventId: 1, timestamp: -1 });
-      await this.collection.createIndex({ status: 1 });
-      // Compound unique index prevents duplicate changeId + marketId combinations
-      await this.collection.createIndex(
-        { changeId: 1, marketId: 1 },
-        { unique: true }
-      );
-      await this.collection.createIndex({ marketType: 1, marketId: 1, timestamp: -1 });
-      await this.collection.createIndex({ marketType: 1, countryCode: 1, marketId: 1, timestamp: -1 });
-      await this.collection.createIndex({ marketType: 1, countryCode: 1 });
-      console.log("Market definition indexes created successfully");
-    } catch (error) {
-      console.error("Failed to create market definition indexes:", error);
-      throw error;
+    const specs: [Record<string, unknown>, Record<string, unknown>?][] = [
+      // Query-covering indexes first — required for the hint in getAllRunnersByRace.
+      // Each is attempted independently so a failure on one (e.g. the unique
+      // constraint) does not prevent the others from being created.
+      [{ marketType: 1, marketId: 1, timestamp: -1 }],
+      [{ marketType: 1, countryCode: 1, marketId: 1, timestamp: -1 }],
+      [{ marketType: 1, countryCode: 1 }],
+      [{ marketId: 1, timestamp: -1 }],
+      [{ eventId: 1, timestamp: -1 }],
+      [{ status: 1 }],
+      [{ changeId: 1, marketId: 1 }, { unique: true }],
+    ];
+    for (const [keys, opts] of specs) {
+      try {
+        await this.collection.createIndex(keys as any, opts as any);
+      } catch (err) {
+        console.warn(`createIndex failed for ${JSON.stringify(keys)} (non-fatal):`, err);
+      }
     }
+    console.log("Market definition indexes ensured");
   }
 }
