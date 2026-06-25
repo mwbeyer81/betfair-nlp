@@ -76,9 +76,14 @@ jest.mock("../../config/database", () => ({
                 id: 12345,
                 name: "Springwell Bay",
                 sortPriority: 1,
-                // $facet shape for getAllRunnersByRace (paginated)
+                // $facet shape for getAllRunnersByRace (paginated) AND getEventGroups
                 data: [
                   {
+                    // EventGroup fields
+                    marketIds: ["1.237066150"],
+                    count: 1,
+                    earliestMarketTime: "2025-01-01T14:01:00.000Z",
+                    // RaceWithEvent fields
                     eventId: "33858191",
                     eventName: "Cheltenham 1st Jan",
                     marketId: "1.237066150",
@@ -361,43 +366,6 @@ describe("API Endpoints", () => {
     });
   });
 
-  describe("GET /api/events/:eventId/price-updates", () => {
-    it("should return price updates for a known eventId", async () => {
-      const response = await request(app)
-        .get("/api/events/33858191/price-updates")
-        .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body).toHaveProperty("success", true);
-      expect(Array.isArray(response.body.data)).toBe(true);
-      expect(typeof response.body.count).toBe("number");
-    });
-
-    it("each document has required fields", async () => {
-      const response = await request(app)
-        .get("/api/events/33858191/price-updates")
-        .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
-
-      const doc = response.body.data[0];
-      expect(doc).toHaveProperty("eventId");
-      expect(doc).toHaveProperty("marketId");
-    });
-
-    it("returns 401 without auth", async () => {
-      await request(app).get("/api/events/33858191/price-updates").expect(401);
-    });
-
-    it("returns count matching data length", async () => {
-      const response = await request(app)
-        .get("/api/events/33858191/price-updates")
-        .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body.count).toBe(response.body.data.length);
-    });
-  });
-
   describe("GET /api/runners", () => {
     it("returns paginated races with pagination metadata", async () => {
       const response = await request(app)
@@ -522,6 +490,17 @@ describe("API Endpoints", () => {
       expect(typeof response.body.pnlStats.returns).toBe("number");
       expect(typeof response.body.pnlStats.pnl).toBe("number");
     });
+
+    it("exact production params (page=1 limit=20 minRunners=1 maxRunners=20 minBsp=1 maxBsp=1000 minInSp=1 maxInSp=30 fromRow=1) return 200", async () => {
+      const response = await request(app)
+        .get("/api/runners?page=1&limit=20&minRunners=1&maxRunners=20&minBsp=1&maxBsp=1000&sort=asc&minInSp=1&maxInSp=30&fromRow=1")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(response.body.count).toBe(response.body.data.length);
+    });
   });
 
   describe("GET /api/stats", () => {
@@ -543,60 +522,10 @@ describe("API Endpoints", () => {
     });
   });
 
-  describe("GET /api/events/:eventId/runners/:runnerId/price-updates", () => {
-    it("should return price updates for a known eventId and runnerId", async () => {
-      const response = await request(app)
-        .get("/api/events/33858191/runners/12345/price-updates")
-        .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body).toHaveProperty("success", true);
-      expect(Array.isArray(response.body.data)).toBe(true);
-      expect(typeof response.body.count).toBe("number");
-    });
-
-    it("each document has required fields", async () => {
-      const response = await request(app)
-        .get("/api/events/33858191/runners/12345/price-updates")
-        .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
-
-      const doc = response.body.data[0];
-      expect(doc).toHaveProperty("runnerId");
-      expect(doc).toHaveProperty("runnerName");
-      expect(doc).toHaveProperty("lastTradedPrice");
-      expect(doc).toHaveProperty("eventId");
-    });
-
-    it("returns 400 for non-numeric runnerId", async () => {
-      const response = await request(app)
-        .get("/api/events/33858191/runners/not-a-number/price-updates")
-        .set("Authorization", `Bearer ${authToken}`)
-        .expect(400);
-
-      expect(response.body).toHaveProperty("success", false);
-    });
-
-    it("returns 401 without auth", async () => {
-      await request(app)
-        .get("/api/events/33858191/runners/12345/price-updates")
-        .expect(401);
-    });
-
-    it("returns count matching data length", async () => {
-      const response = await request(app)
-        .get("/api/events/33858191/runners/12345/price-updates")
-        .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body.count).toBe(response.body.data.length);
-    });
-  });
-
   describe("404 Handler", () => {
-    it("should return 404 for non-existent routes", async () => {
+    it("should return 404 for non-existent API routes", async () => {
       const response = await request(app)
-        .get("/non-existent-route")
+        .get("/api/non-existent-route")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(404);
 

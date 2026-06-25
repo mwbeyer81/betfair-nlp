@@ -22,6 +22,9 @@ test.describe("Live site smoke tests — cf.backbet.co.uk", () => {
     // Loading spinner should disappear
     await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 20000 });
 
+    // Error state must not be visible ("Failed to load runners" would appear here)
+    await expect(page.getByTestId("all-runners-error")).not.toBeVisible();
+
     // At least one runner item must be present (confirms Atlas is serving data)
     const firstRunner = page.locator('[data-testid^="all-runner-item-"]').first();
     await expect(firstRunner).toBeVisible({ timeout: 15000 });

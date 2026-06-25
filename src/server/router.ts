@@ -20,6 +20,13 @@ export const initializeServices = async () => {
     await dbConnection.connect();
     // Initialize betfairService first so API routes work even if NLS fails
     betfairService = new BetfairService(undefined, undefined);
+    // Ensure indexes exist — required for the hint in getAllRunnersByRace;
+    // without this the compound index may be absent on a fresh Atlas cluster.
+    try {
+      await betfairService.createIndexes();
+    } catch (indexError) {
+      console.warn("createIndexes failed (non-fatal, queries may be slower):", indexError);
+    }
     try {
       naturalLanguageService = new NaturalLanguageService(null as any, dbConnection.getDb());
     } catch (nlsError) {
