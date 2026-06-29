@@ -1,11 +1,6 @@
 import React, { useState } from "react";
-import {
-  View,
-  TextInput,
-  TouchableOpacity,
-  Text,
-  StyleSheet,
-} from "react-native";
+import { View, StyleSheet } from "react-native";
+import { TextInput, IconButton } from "react-native-paper";
 
 export interface ChatInputProps {
   onSendMessage: (message: string) => void;
@@ -28,7 +23,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleSend = () => {
     if (!inputText.trim() || isLoading) return;
-
     onSendMessage(inputText.trim());
     setInputText("");
   };
@@ -36,115 +30,88 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const handleKeyPress = (event: any) => {
     const key = event.nativeEvent.key;
 
-    // Handle Enter key
     if (key === "Enter" && !event.nativeEvent.shiftKey) {
       event.preventDefault();
       handleSend();
     }
 
-    // Handle Arrow keys for history navigation
     if (key === "ArrowUp") {
-      console.log(
-        "🔼 ArrowUp pressed, current historyIndex:",
-        historyIndex,
-        "queryHistory length:",
-        queryHistory.length
-      );
       event.preventDefault();
       if (queryHistory.length > 0 && historyIndex < queryHistory.length - 1) {
         const newIndex = historyIndex + 1;
-        console.log("✅ Going back in history to index:", newIndex);
         onHistoryChange?.(newIndex);
         setInputText(queryHistory[queryHistory.length - 1 - newIndex]);
-      } else {
-        console.log("❌ Cannot go further back in history");
       }
     } else if (key === "ArrowDown") {
-      console.log("🔽 ArrowDown pressed, current historyIndex:", historyIndex);
       event.preventDefault();
       if (historyIndex > 0) {
         const newIndex = historyIndex - 1;
-        console.log("✅ Going forward in history to index:", newIndex);
         onHistoryChange?.(newIndex);
         setInputText(queryHistory[queryHistory.length - 1 - newIndex]);
       } else if (historyIndex === 0) {
-        console.log("✅ Back to current input");
         onHistoryChange?.(-1);
         setInputText("");
-      } else {
-        console.log("❌ Already at current input");
       }
     }
   };
 
+  const canSend = !!inputText.trim() && !isLoading;
+
   return (
-    <View style={styles.inputContainer} testID="chat-input">
+    <View testID="chat-input" style={styles.container}>
       <TextInput
-        style={styles.textInput}
+        testID="message-input"
+        mode="outlined"
         value={inputText}
         onChangeText={setInputText}
         placeholder={placeholder}
-        placeholderTextColor="#999"
         multiline
         maxLength={1000}
         editable={!isLoading}
-        testID="message-input"
         onSubmitEditing={handleSend}
         onKeyPress={handleKeyPress}
         blurOnSubmit={false}
+        style={styles.textInput}
+        outlineStyle={styles.inputOutline}
+        dense
       />
-      <TouchableOpacity
-        style={[
-          styles.sendButton,
-          (!inputText.trim() || isLoading) && styles.sendButtonDisabled,
-        ]}
+      <IconButton
+        testID="send-button"
+        icon="send"
+        mode="contained"
         onPress={handleSend}
-        disabled={!inputText.trim() || isLoading}
-        accessible={true}
-        accessibilityRole="button"
+        disabled={!canSend}
         accessibilityLabel="Send message"
         accessibilityHint="Sends the current message"
-        testID="send-button"
-      >
-        <Text style={styles.sendButtonText}>Send</Text>
-      </TouchableOpacity>
+        style={styles.sendButton}
+        size={22}
+      />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  inputContainer: {
+  container: {
     flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     backgroundColor: "white",
     borderTopWidth: 1,
     borderTopColor: "#e0e0e0",
+    gap: 4,
   },
   textInput: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
     maxHeight: 100,
+    backgroundColor: "white",
+    fontSize: 16,
+  },
+  inputOutline: {
+    borderRadius: 20,
   },
   sendButton: {
-    marginLeft: 8,
-    backgroundColor: "#007AFF",
     borderRadius: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    justifyContent: "center",
-  },
-  sendButtonDisabled: {
-    backgroundColor: "#ccc",
-  },
-  sendButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "600",
+    margin: 0,
   },
 });

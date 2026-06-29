@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from "react";
 import {
   View,
-  Text,
   ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
   StyleSheet,
 } from "react-native";
+import {
+  Text,
+  IconButton,
+  Button,
+  ActivityIndicator,
+  Surface,
+  Divider,
+} from "react-native-paper";
 import { chatApi, RaceWithEvent, Runner, PnlStats } from "../services/chatApi";
 
 interface AllRunnersPanelProps {
@@ -90,31 +95,36 @@ export const AllRunnersPanel: React.FC<AllRunnersPanelProps> = ({
   );
 
   return (
-    <View testID="all-runners-panel" style={styles.panel}>
+    <Surface testID="all-runners-panel" style={styles.panel} elevation={3}>
       <View style={styles.header}>
         <View style={styles.headerText}>
-          <Text style={styles.title}>All Runners</Text>
-          <Text style={styles.subtitle}>
+          <Text variant="bodyMedium" style={styles.title}>
+            All Runners
+          </Text>
+          <Text variant="bodySmall" style={styles.subtitle}>
             {isLoading ? "Loading…" : `${totalRunners} runners · ${visibleRaces.length} races`}
           </Text>
         </View>
-        <TouchableOpacity
+        <Button
           testID="all-runners-bsp-toggle"
+          mode="outlined"
+          compact
           onPress={() => setShowNoBsp(v => !v)}
           style={styles.toggleButton}
+          labelStyle={styles.toggleButtonLabel}
         >
-          <Text style={styles.toggleText}>
-            {showNoBsp ? "BSP only" : "Show all"}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
+          {showNoBsp ? "BSP only" : "Show all"}
+        </Button>
+        <IconButton
           testID="all-runners-panel-close"
+          icon="close"
+          size={20}
           onPress={onClose}
           style={styles.closeButton}
-        >
-          <Text style={styles.closeText}>✕</Text>
-        </TouchableOpacity>
+        />
       </View>
+
+      <Divider />
 
       {!isLoading && staked > 0 && (
         <View testID="all-runners-pnl-bar" style={styles.pnlBar}>
@@ -135,8 +145,10 @@ export const AllRunnersPanel: React.FC<AllRunnersPanelProps> = ({
 
       {isLoading && (
         <View testID="all-runners-loading" style={styles.centered}>
-          <ActivityIndicator size="small" color="#007AFF" />
-          <Text style={styles.loadingText}>Loading runners…</Text>
+          <ActivityIndicator size="small" animating />
+          <Text variant="bodySmall" style={styles.loadingText}>
+            Loading runners…
+          </Text>
         </View>
       )}
 
@@ -210,7 +222,7 @@ export const AllRunnersPanel: React.FC<AllRunnersPanelProps> = ({
           ))}
         </ScrollView>
       )}
-    </View>
+    </Surface>
   );
 };
 
@@ -225,10 +237,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
+    paddingLeft: 16,
+    paddingRight: 4,
+    paddingVertical: 6,
     backgroundColor: "#f0f4ff",
   },
   headerText: {
@@ -236,33 +247,22 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   title: {
-    fontSize: 15,
     fontWeight: "700",
     color: "#222",
   },
   subtitle: {
-    fontSize: 12,
     color: "#888",
     marginTop: 1,
   },
   toggleButton: {
-    backgroundColor: "#e8f0fe",
-    paddingVertical: 4,
-    paddingHorizontal: 8,
     borderRadius: 6,
-    marginRight: 8,
+    marginRight: 4,
   },
-  toggleText: {
+  toggleButtonLabel: {
     fontSize: 11,
-    fontWeight: "600",
-    color: "#0056b3",
   },
   closeButton: {
-    padding: 4,
-  },
-  closeText: {
-    fontSize: 16,
-    color: "#666",
+    margin: 0,
   },
   pnlBar: {
     backgroundColor: "#1a1a2e",
@@ -301,14 +301,13 @@ const styles = StyleSheet.create({
   centered: {
     alignItems: "center",
     padding: 16,
+    gap: 8,
   },
   loadingText: {
-    marginTop: 8,
     color: "#666",
-    fontSize: 14,
   },
   errorText: {
-    color: "#d9534f",
+    color: "#dc3545",
     fontSize: 14,
   },
   list: {

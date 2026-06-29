@@ -1,14 +1,13 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
   View,
-  Text,
   FlatList,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
-  TouchableOpacity,
 } from "react-native";
+import { Appbar, Text, Button } from "react-native-paper";
 import { Message } from "./Message";
 import { ChatInput } from "./ChatInput";
 import { chatApi } from "../services/chatApi";
@@ -92,28 +91,36 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   return (
     <SafeAreaView testID="chat-screen" style={styles.container}>
+      <Appbar.Header style={styles.appbar}>
+        <Appbar.Content title="Chat Assistant" titleStyle={styles.appbarTitle} />
+        <Button
+          testID="events-button"
+          mode="contained-tonal"
+          onPress={onNavigateToEvents}
+          compact
+          style={styles.headerButton}
+          labelStyle={styles.headerButtonLabel}
+        >
+          ← Events
+        </Button>
+        {onLogout && (
+          <Button
+            mode="contained"
+            onPress={onLogout}
+            compact
+            buttonColor="#dc3545"
+            style={styles.headerButton}
+            labelStyle={styles.headerButtonLabel}
+          >
+            Logout
+          </Button>
+        )}
+      </Appbar.Header>
+
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Chat Assistant</Text>
-          <View style={styles.headerActions}>
-            <TouchableOpacity
-              testID="events-button"
-              style={styles.eventsButton}
-              onPress={onNavigateToEvents}
-            >
-              <Text style={styles.eventsButtonText}>← Events</Text>
-            </TouchableOpacity>
-            {onLogout && (
-              <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
-                <Text style={styles.logoutButtonText}>Logout</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -134,7 +141,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
         {isLoading && (
           <View style={styles.loadingContainer} testID="loading-indicator">
-            <Text style={styles.loadingText}>Assistant is typing...</Text>
+            <Text variant="bodySmall" style={styles.loadingText}>
+              Assistant is typing…
+            </Text>
           </View>
         )}
 
@@ -155,48 +164,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f5f5f5",
   },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
-  header: {
+  appbar: {
     backgroundColor: "#007AFF",
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
+    elevation: 4,
   },
-  headerTitle: {
+  appbarTitle: {
+    color: "white",
     fontSize: 18,
     fontWeight: "600",
-    color: "white",
   },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  eventsButton: {
-    backgroundColor: "#0056b3",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  headerButton: {
+    marginHorizontal: 4,
     borderRadius: 8,
   },
-  eventsButtonText: {
-    color: "white",
-    fontSize: 14,
+  headerButtonLabel: {
+    fontSize: 13,
     fontWeight: "600",
   },
-  logoutButton: {
-    backgroundColor: "red",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  logoutButtonText: {
-    color: "white",
-    fontSize: 14,
-    fontWeight: "600",
+  keyboardAvoidingView: {
+    flex: 1,
   },
   messagesList: {
     flex: 1,
@@ -207,10 +193,9 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   loadingText: {
-    fontSize: 14,
     color: "#666",
     fontStyle: "italic",
   },

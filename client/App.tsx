@@ -1,11 +1,13 @@
 import { StatusBar } from "expo-status-bar";
 import { useState, useEffect } from "react";
+import { Provider as PaperProvider } from "react-native-paper";
 import { ChatScreen } from "./src/components/ChatScreen";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { EventsScreen } from "./src/components/EventsScreen";
 import { AllRunnersScreen } from "./src/components/AllRunnersScreen";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
+import { theme } from "./src/theme";
 
 const TOKEN_KEY = "auth_token";
 
@@ -51,41 +53,34 @@ export default function App() {
     }
   }, []);
 
-  if (!isAuthenticated) {
-    return <AuthScreen onAuthenticated={() => setIsAuthenticated(true)} />;
-  }
-
-  if (route === "/chat") {
-    return (
-      <>
+  const content = (() => {
+    if (!isAuthenticated) {
+      return <AuthScreen onAuthenticated={() => setIsAuthenticated(true)} />;
+    }
+    if (route === "/chat") {
+      return (
         <ChatScreen
           onLogout={() => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); }}
           onNavigateToEvents={() => navigate("/events")}
         />
-        <StatusBar style="light" />
-      </>
-    );
-  }
-
-  if (route === "/runners") {
+      );
+    }
+    if (route === "/runners") {
+      return <AllRunnersScreen onNavigateToEvents={() => navigate("/events")} />;
+    }
     return (
-      <>
-        <AllRunnersScreen
-          onNavigateToEvents={() => navigate("/events")}
-        />
-        <StatusBar style="light" />
-      </>
-    );
-  }
-
-  return (
-    <>
       <EventsScreen
         onNavigateToChat={() => navigate("/chat")}
         onNavigateToAllRunners={() => navigate("/runners")}
         onLogout={() => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); }}
       />
+    );
+  })();
+
+  return (
+    <PaperProvider theme={theme}>
+      {content}
       <StatusBar style="light" />
-    </>
+    </PaperProvider>
   );
 }

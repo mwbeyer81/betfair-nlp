@@ -1,5 +1,7 @@
 import React from "react";
+import { Provider as PaperProvider } from "react-native-paper";
 import { initialize, mswLoader } from "msw-storybook-addon";
+import { theme } from "../src/theme";
 
 // Initialize MSW
 initialize({ onUnhandledRequest: "bypass" });
@@ -59,7 +61,11 @@ const preview = {
       ) {
         process.env.STORYBOOK_HEADLESS = "true";
       }
-      return <Story />;
+      return (
+        <PaperProvider theme={theme}>
+          <Story />
+        </PaperProvider>
+      );
     },
   ],
 };

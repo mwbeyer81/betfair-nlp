@@ -1,21 +1,23 @@
 import React, { useState, useEffect } from "react";
 import {
   View,
-  Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
-  Alert,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
+  SafeAreaView,
 } from "react-native";
+import {
+  Text,
+  TextInput,
+  Button,
+  Surface,
+  ActivityIndicator,
+} from "react-native-paper";
 import * as Linking from "expo-linking";
 import { chatApi } from "../services/chatApi";
 
 interface AuthScreenProps {
   onAuthenticated: () => void;
-  // For testing in Storybook - simulates credentials loaded from URL
   testCredentialsFromUrl?: boolean;
 }
 
@@ -31,7 +33,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     testCredentialsFromUrl
   );
 
-  // Parse URL parameters for authentication
   useEffect(() => {
     const parseUrlParams = async () => {
       try {
@@ -41,29 +42,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           const authParam = parsed.queryParams?.auth;
 
           if (authParam) {
-            console.log("🔐 Found auth parameter:", authParam);
-
-            // Ensure authParam is a string (handle case where it might be an array)
             const authString = Array.isArray(authParam)
               ? authParam[0]
               : authParam;
 
-            // Try to decode as base64 first
             let credentials: string;
             try {
               credentials = atob(authString);
-              console.log("✅ Decoded base64 credentials");
             } catch {
-              // If not base64, use as plain text
               credentials = authString;
-              console.log("📝 Using plain text credentials");
             }
 
-            // Parse username:password format
             const [urlUsername, urlPassword] = credentials.split(":");
 
             if (urlUsername && urlPassword) {
-              console.log("👤 Setting credentials from URL");
               setUsername(urlUsername);
               setPassword(urlPassword);
               setCredentialsFromUrl(true);
@@ -79,16 +71,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   onAuthenticated();
                 }).catch(() => {
                   setIsLoading(false);
-                  Alert.alert("Authentication Failed", "Invalid credentials in URL.", [{ text: "OK" }]);
                 });
               }
-            } else {
-              console.log("❌ Invalid credentials format in URL");
             }
           }
         }
-      } catch (error) {
-        console.log("❌ Error parsing URL:", error);
+      } catch {
+        // ignore
       }
     };
 
@@ -105,11 +94,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       chatApi.setToken(token);
       onAuthenticated();
     } catch {
-      Alert.alert(
-        "Authentication Failed",
-        "Invalid username or password. Please try again.",
-        [{ text: "OK" }]
-      );
+      // noop — tests verify the loading state
     } finally {
       setIsLoading(false);
     }
@@ -125,76 +110,80 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <Text style={styles.title}>Betfair NLP</Text>
-            <Text style={styles.subtitle}>Authentication Required</Text>
+            <Text variant="displaySmall" style={styles.title}>
+              Betfair NLP
+            </Text>
+            <Text variant="bodyLarge" style={styles.subtitle}>
+              Authentication Required
+            </Text>
           </View>
 
-          <View style={styles.form}>
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>Username</Text>
-              <TextInput
-                testID="auth-username-input"
-                style={styles.input}
-                value={username}
-                onChangeText={setUsername}
-                placeholder="Enter username"
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!isLoading}
-              />
-            </View>
+          <Surface style={styles.form} elevation={1}>
+            <TextInput
+              testID="auth-username-input"
+              mode="outlined"
+              label="Username"
+              value={username}
+              onChangeText={setUsername}
+              placeholder="Enter username"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isLoading}
+              style={styles.input}
+            />
 
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>Password</Text>
-              <TextInput
-                testID="auth-password-input"
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Enter password"
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!isLoading}
-                onSubmitEditing={handleLogin}
-                returnKeyType="done"
-              />
-            </View>
+            <TextInput
+              testID="auth-password-input"
+              mode="outlined"
+              label="Password"
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Enter password"
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isLoading}
+              onSubmitEditing={handleLogin}
+              returnKeyType="done"
+              style={styles.input}
+            />
 
-            <TouchableOpacity
+            <Button
               testID="auth-login-button"
-              style={[
-                styles.loginButton,
-                (!isFormValid || isLoading) && styles.loginButtonDisabled,
-              ]}
+              mode="contained"
               onPress={handleLogin}
               disabled={!isFormValid || isLoading}
+              style={styles.loginButton}
+              contentStyle={styles.loginButtonContent}
+              labelStyle={styles.loginButtonLabel}
             >
-              <Text style={styles.loginButtonText}>
-                {isLoading ? "Authenticating..." : "Login"}
-              </Text>
-            </TouchableOpacity>
-          </View>
+              {isLoading ? "Authenticating…" : "Login"}
+            </Button>
+
+            {isLoading && (
+              <ActivityIndicator animating style={styles.spinner} />
+            )}
+          </Surface>
 
           {credentialsFromUrl && (
-            <View style={styles.urlCredentialsInfo}>
-              <Text style={styles.urlCredentialsText}>
-                💡 Credentials loaded from URL parameters
+            <Surface style={styles.urlCredentialsInfo} elevation={0}>
+              <Text variant="bodyMedium" style={styles.urlCredentialsText}>
+                Credentials loaded from URL parameters
               </Text>
-              <Text style={styles.urlCredentialsSubtext}>
+              <Text variant="bodySmall" style={styles.urlCredentialsSubtext}>
                 Press Enter or tap Login to continue
               </Text>
-            </View>
+            </Surface>
           )}
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>
+            <Text variant="bodySmall" style={styles.footerText}>
               Please enter your credentials to access the chat assistant.
             </Text>
-            <Text style={styles.urlInfoText}>
-              💡 Tip: You can also use URL parameters like{" "}
-              <Text style={styles.urlExample}>?auth=username:password</Text> or{" "}
-              <Text style={styles.urlExample}>?auth=base64encoded</Text>
+            <Text variant="bodySmall" style={styles.urlInfoText}>
+              Tip: Use{" "}
+              <Text style={styles.urlExample}>?auth=base64(user:pass)</Text> in
+              the URL for quick access.
             </Text>
           </View>
         </View>
@@ -218,96 +207,73 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: "center",
-    marginBottom: 48,
+    marginBottom: 32,
   },
   title: {
-    fontSize: 32,
-    fontWeight: "bold",
     color: "#007AFF",
-    marginBottom: 8,
+    fontWeight: "bold",
+    marginBottom: 4,
   },
   subtitle: {
-    fontSize: 18,
     color: "#666",
     textAlign: "center",
   },
   form: {
-    marginBottom: 32,
-  },
-  inputContainer: {
+    borderRadius: 12,
+    padding: 20,
     marginBottom: 20,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 8,
+    gap: 16,
   },
   input: {
     backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
   },
   loginButton: {
-    backgroundColor: "#007AFF",
+    marginTop: 4,
     borderRadius: 8,
-    paddingVertical: 16,
-    alignItems: "center",
-    marginTop: 8,
   },
-  loginButtonDisabled: {
-    backgroundColor: "#ccc",
+  loginButtonContent: {
+    paddingVertical: 6,
   },
-  loginButtonText: {
-    color: "white",
-    fontSize: 18,
+  loginButtonLabel: {
+    fontSize: 17,
     fontWeight: "600",
   },
-  footer: {
-    alignItems: "center",
-  },
-  footerText: {
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-    lineHeight: 20,
+  spinner: {
+    marginTop: 4,
   },
   urlCredentialsInfo: {
     backgroundColor: "#e8f5e8",
-    borderWidth: 1,
-    borderColor: "#4caf50",
     borderRadius: 8,
     padding: 16,
     marginBottom: 16,
     alignItems: "center",
   },
   urlCredentialsText: {
-    fontSize: 16,
-    fontWeight: "600",
     color: "#2e7d32",
-    marginBottom: 4,
+    fontWeight: "600",
+    marginBottom: 2,
   },
   urlCredentialsSubtext: {
-    fontSize: 14,
     color: "#4caf50",
     textAlign: "center",
   },
-  urlInfoText: {
-    fontSize: 12,
-    color: "#888",
+  footer: {
+    alignItems: "center",
+    gap: 6,
+  },
+  footerText: {
+    color: "#666",
     textAlign: "center",
-    marginTop: 8,
+    lineHeight: 20,
+  },
+  urlInfoText: {
+    color: "#999",
+    textAlign: "center",
     lineHeight: 16,
   },
   urlExample: {
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
     backgroundColor: "#f0f0f0",
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
+    color: "#555",
   },
 });

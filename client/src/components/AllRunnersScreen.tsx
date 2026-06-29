@@ -1,15 +1,22 @@
 import React, { useState, useEffect } from "react";
 import {
   View,
-  Text,
   ScrollView,
+  TextInput as RNTextInput,
   TouchableOpacity,
-  TextInput,
-  ActivityIndicator,
   StyleSheet,
   SafeAreaView,
-  Modal,
 } from "react-native";
+import {
+  Text,
+  Appbar,
+  Button,
+  Chip,
+  ActivityIndicator,
+  Portal,
+  Dialog,
+  Surface,
+} from "react-native-paper";
 import { chatApi, RaceWithEvent, Runner, PnlStats, RunnerFilterBounds } from "../services/chatApi";
 import { exportToCsv, exportToXlsx } from "../utils/exportRunners";
 
@@ -129,7 +136,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     const maxRunnersLimit = filterBounds?.maxRunnersPerRace ?? 100;
     const maxBspLimit = filterBounds?.maxBsp ?? 100000;
 
-    // Runners: total count of runners with bsp > 1 per race
     const min = Math.max(1, parseInt(draftMin) || 1);
     const max = Math.max(min, Math.min(maxRunnersLimit, parseInt(draftMax) || maxRunnersLimit));
     setDraftMin(String(min));
@@ -137,7 +143,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setMinRunners(min);
     setMaxRunners(max);
 
-    // Race row range
     const from = Math.max(1, parseInt(draftFrom) || 1);
     const toRaw = Math.min(totalRaces, Math.max(from, parseInt(draftTo) || totalRaces));
     const to = toRaw >= totalRaces ? null : toRaw;
@@ -146,7 +151,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setFromRow(from);
     setToRow(to);
 
-    // BSP price range
     const minB = Math.max(1, parseFloat(draftMinBsp) || 1);
     const maxB = Math.min(maxBspLimit, Math.max(minB, parseFloat(draftMaxBsp) || maxBspLimit));
     setDraftMinBsp(String(minB));
@@ -154,7 +158,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setMinBsp(minB);
     setMaxBsp(maxB);
 
-    // # in SP: count of runners within the BSP price range per race
     const minRIR = Math.max(1, parseInt(draftMinRIR) || 1);
     const maxRIR = Math.max(minRIR, Math.min(maxRunnersLimit, parseInt(draftMaxRIR) || maxRunnersLimit));
     setDraftMinRIR(String(minRIR));
@@ -165,13 +168,11 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setFetchTrigger(t => t + 1);
   }
 
-  // Fetch static lookup data once on mount
   useEffect(() => {
     chatApi.getRunnerCountries().then(setAvailableCountries).catch(() => {});
     chatApi.getRunnerFilterBounds().then(setFilterBounds).catch(() => {});
   }, []);
 
-  // Reload races from page 1 on mount and whenever Apply is pressed (fetchTrigger changes)
   useEffect(() => {
     (async () => {
       setIsLoading(true);
@@ -185,7 +186,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
         setTotalRaces(result.total);
         setTotalRunners(result.totalRunners);
         setPnlStats(result.pnlStats);
-        // Only seed the "to row" input when no explicit row range is active
         if (toRow == null) setDraftTo(String(result.total));
       } catch {
         setError("Failed to load runners");
@@ -205,7 +205,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       setPage(next);
       setTotalPages(result.totalPages);
     } catch {
-      // silently ignore load-more errors
+      // silently ignore
     } finally {
       setIsLoadingMore(false);
     }
@@ -215,7 +215,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     setShowExportModal(false);
     setIsExporting(true);
     try {
-      // Fetch all races matching current filter (server applies row range and BSP filter)
       const allData = await chatApi.getAllRunners(
         1, Math.max(totalRaces, 1), minRunners, maxRunners, [...selectedCountries], minBsp, maxBsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined
       );
@@ -229,7 +228,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
     }
   }
 
-  // Server already filters by BSP range, runner count, # in SP, and row range
   const visibleRaces = races.filter(race => race.runners.length > 0);
   const visibleRunners = visibleRaces.reduce((sum, r) => sum + r.runners.length, 0);
 
@@ -251,47 +249,56 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
 
   return (
     <SafeAreaView testID="all-runners-screen" style={styles.screen}>
-      <View style={styles.header}>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>All Runners</Text>
-          {!isLoading && (
-            <Text style={styles.subtitle}>
-              {visibleRunners}/{totalRunners} runners · {displayRaces.length}/{totalRaces} races
-            </Text>
-          )}
-        </View>
-        <TouchableOpacity
+      <Appbar.Header style={styles.appbar}>
+        <Appbar.Content
+          title="All Runners"
+          subtitle={!isLoading ? `${visibleRunners}/${totalRunners} runners · ${displayRaces.length}/${totalRaces} races` : undefined}
+          titleStyle={styles.appbarTitle}
+          subtitleStyle={styles.appbarSubtitle}
+        />
+        <Button
           testID="all-runners-sort-toggle"
-          style={styles.sortToggleBtn}
+          mode="contained-tonal"
+          compact
           onPress={() => setSortOrder(o => o === "asc" ? "desc" : "asc")}
+          style={styles.headerButton}
+          labelStyle={styles.headerButtonLabel}
         >
-          <Text style={styles.sortToggleBtnText}>
-            {sortOrder === "asc" ? "First → Last" : "Last → First"}
-          </Text>
-        </TouchableOpacity>
+          {sortOrder === "asc" ? "First → Last" : "Last → First"}
+        </Button>
         {!isLoading && displayRaces.length > 0 && (
-          <TouchableOpacity
+          <Button
             testID="all-runners-export-btn"
-            style={styles.exportBtn}
+            mode="contained"
+            compact
+            buttonColor="#28a745"
             onPress={() => !isExporting && setShowExportModal(true)}
             disabled={isExporting}
+            style={styles.headerButton}
+            labelStyle={styles.headerButtonLabel}
+            loading={isExporting}
           >
-            <Text style={styles.exportBtnText}>{isExporting ? 'Exporting…' : 'Export'}</Text>
-          </TouchableOpacity>
+            Export
+          </Button>
         )}
-        <TouchableOpacity
+        <Button
           testID="all-runners-screen-events-button"
-          style={styles.eventsButton}
+          mode="contained"
+          compact
+          buttonColor="#0056b3"
           onPress={onNavigateToEvents}
+          style={styles.headerButton}
+          labelStyle={styles.headerButtonLabel}
         >
-          <Text style={styles.eventsButtonText}>← Events</Text>
-        </TouchableOpacity>
-      </View>
+          ← Events
+        </Button>
+      </Appbar.Header>
 
+      {/* Filter bar — kept as custom for density */}
       <View testID="all-runners-filter-bar" style={styles.filterBar}>
         <View style={styles.filterStepper}>
           <Text style={styles.filterStepperLabel}>SP</Text>
-          <TextInput
+          <RNTextInput
             testID="all-runners-min-bsp"
             style={styles.priceInput}
             value={draftMinBsp}
@@ -300,7 +307,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             maxLength={7}
           />
           <Text style={styles.filterStepperLabel}>–</Text>
-          <TextInput
+          <RNTextInput
             testID="all-runners-max-bsp"
             style={styles.priceInput}
             value={draftMaxBsp}
@@ -326,7 +333,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           >
             <Text style={styles.stepBtnText}>-</Text>
           </TouchableOpacity>
-          <TextInput
+          <RNTextInput
             testID="all-runners-min-value"
             style={styles.stepInput}
             value={draftMin}
@@ -351,7 +358,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           >
             <Text style={styles.stepBtnText}>-</Text>
           </TouchableOpacity>
-          <TextInput
+          <RNTextInput
             testID="all-runners-max-value"
             style={styles.stepInput}
             value={draftMax}
@@ -381,7 +388,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           >
             <Text style={styles.stepBtnText}>-</Text>
           </TouchableOpacity>
-          <TextInput
+          <RNTextInput
             testID="all-runners-min-rir-value"
             style={styles.stepInput}
             value={draftMinRIR}
@@ -404,7 +411,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           >
             <Text style={styles.stepBtnText}>-</Text>
           </TouchableOpacity>
-          <TextInput
+          <RNTextInput
             testID="all-runners-max-rir-value"
             style={styles.stepInput}
             value={draftMaxRIR}
@@ -427,7 +434,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
         <View style={styles.filterDivider} />
         <View style={styles.filterStepper}>
           <Text style={styles.filterStepperLabel}>Race</Text>
-          <TextInput
+          <RNTextInput
             testID="all-runners-from-row"
             style={styles.stepInput}
             value={draftFrom}
@@ -436,7 +443,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             maxLength={5}
           />
           <Text style={styles.filterStepperLabel}>–</Text>
-          <TextInput
+          <RNTextInput
             testID="all-runners-to-row"
             style={styles.stepInput}
             value={draftTo}
@@ -448,13 +455,16 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             <Text testID="all-runners-race-bound" style={styles.boundsHint}>/{totalRaces}</Text>
           )}
         </View>
-        <TouchableOpacity
+        <Button
           testID="all-runners-filter-apply"
-          style={styles.applyBtn}
+          mode="contained"
+          compact
           onPress={applyFilter}
+          style={styles.applyBtn}
+          labelStyle={styles.applyBtnLabel}
         >
-          <Text style={styles.applyBtnText}>Apply</Text>
-        </TouchableOpacity>
+          Apply
+        </Button>
       </View>
 
       {!isLoading && availableCountries.length > 0 && (
@@ -468,10 +478,12 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           {availableCountries.map(code => {
             const active = selectedCountries.has(code);
             return (
-              <TouchableOpacity
+              <Chip
                 key={code}
                 testID={`all-runners-country-${code}`}
-                style={[styles.countryChip, active && styles.countryChipActive]}
+                compact
+                mode={active ? "flat" : "outlined"}
+                selected={active}
                 onPress={() => {
                   setSelectedCountries(prev => {
                     const next = new Set(prev);
@@ -486,11 +498,11 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
                   setMaxRunnersInRange(maxRIR);
                   setFetchTrigger(t => t + 1);
                 }}
+                style={active ? styles.countryChipActive : styles.countryChip}
+                textStyle={active ? styles.countryChipTextActive : styles.countryChipText}
               >
-                <Text style={[styles.countryChipText, active && styles.countryChipTextActive]}>
-                  {code}
-                </Text>
-              </TouchableOpacity>
+                {code}
+              </Chip>
             );
           })}
         </ScrollView>
@@ -523,8 +535,10 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       <View style={styles.body}>
         {isLoading && (
           <View testID="all-runners-loading" style={styles.centered}>
-            <ActivityIndicator size="large" color="#007AFF" />
-            <Text style={styles.loadingText}>Loading runners…</Text>
+            <ActivityIndicator size="large" animating />
+            <Text variant="bodyMedium" style={styles.loadingText}>
+              Loading runners…
+            </Text>
           </View>
         )}
 
@@ -607,58 +621,60 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
               </View>
             ))}
             {page < totalPages && (
-              <TouchableOpacity
+              <Button
                 testID="all-runners-load-more"
-                style={styles.loadMoreButton}
+                mode="contained-tonal"
                 onPress={loadMore}
                 disabled={isLoadingMore}
+                loading={isLoadingMore}
+                style={styles.loadMoreButton}
               >
-                {isLoadingMore
-                  ? <ActivityIndicator size="small" color="#007AFF" />
-                  : <Text style={styles.loadMoreText}>Load more ({totalRaces - races.length} remaining)</Text>
-                }
-              </TouchableOpacity>
+                Load more ({totalRaces - races.length} remaining)
+              </Button>
             )}
           </ScrollView>
         )}
       </View>
 
-      <Modal
-        transparent
-        animationType="fade"
-        visible={showExportModal}
-        onRequestClose={() => setShowExportModal(false)}
-      >
-        <View style={styles.exportOverlay}>
-          <View testID="all-runners-export-modal" style={styles.exportModal}>
-            <Text style={styles.exportTitle}>Export Runners</Text>
-            <Text style={styles.exportSub}>
+      <Portal>
+        <Dialog
+          visible={showExportModal}
+          onDismiss={() => setShowExportModal(false)}
+        >
+          <Dialog.Title>Export Runners</Dialog.Title>
+          <Dialog.Content>
+            <Text testID="all-runners-export-modal" variant="bodyMedium">
               All {totalRaces} races matching current filter
             </Text>
-            <TouchableOpacity
+          </Dialog.Content>
+          <Dialog.Actions style={styles.exportActions}>
+            <Button
               testID="all-runners-export-csv"
-              style={styles.exportOption}
+              mode="contained"
               onPress={() => handleExport('csv')}
+              style={styles.exportDialogButton}
             >
-              <Text style={styles.exportOptionText}>Download CSV</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+              Download CSV
+            </Button>
+            <Button
               testID="all-runners-export-xlsx"
-              style={[styles.exportOption, styles.exportOptionXlsx]}
+              mode="contained"
+              buttonColor="#1d6f42"
               onPress={() => handleExport('xlsx')}
+              style={styles.exportDialogButton}
             >
-              <Text style={styles.exportOptionText}>Download Excel (.xlsx)</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+              Download Excel (.xlsx)
+            </Button>
+            <Button
               testID="all-runners-export-cancel"
-              style={styles.exportCancel}
+              mode="text"
               onPress={() => setShowExportModal(false)}
             >
-              <Text style={styles.exportCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+              Cancel
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </SafeAreaView>
   );
 };
@@ -668,49 +684,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8f9fa",
   },
-  header: {
+  appbar: {
     backgroundColor: "#007AFF",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 6,
+    elevation: 4,
   },
-  headerText: {
-    flex: 1,
-    marginRight: 8,
-  },
-  title: {
-    fontSize: 20,
+  appbarTitle: {
+    color: "white",
+    fontSize: 18,
     fontWeight: "700",
-    color: "#fff",
   },
-  subtitle: {
-    fontSize: 12,
+  appbarSubtitle: {
     color: "rgba(255,255,255,0.8)",
-    marginTop: 2,
+    fontSize: 11,
   },
-  sortToggleBtn: {
-    backgroundColor: "#5856d6",
-    paddingVertical: 5,
-    paddingHorizontal: 8,
+  headerButton: {
+    marginHorizontal: 3,
     borderRadius: 8,
   },
-  sortToggleBtnText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  eventsButton: {
-    backgroundColor: "#0056b3",
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-  },
-  eventsButtonText: {
-    color: "#fff",
-    fontSize: 12,
+  headerButtonLabel: {
+    fontSize: 11,
     fontWeight: "600",
   },
   filterBar: {
@@ -774,13 +766,6 @@ const styles = StyleSheet.create({
     borderBottomColor: "#aaa",
     paddingVertical: 2,
   },
-  applyBtn: {
-    backgroundColor: "#007AFF",
-    paddingVertical: 5,
-    paddingHorizontal: 14,
-    borderRadius: 6,
-    marginLeft: 6,
-  },
   priceInput: {
     fontSize: 14,
     fontWeight: "700",
@@ -791,11 +776,19 @@ const styles = StyleSheet.create({
     borderBottomColor: "#aaa",
     paddingVertical: 2,
   },
+  applyBtn: {
+    borderRadius: 6,
+    marginLeft: 6,
+  },
+  applyBtnLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
   countryBar: {
     backgroundColor: "#f8f9fa",
     borderBottomWidth: 1,
     borderBottomColor: "#e9ecef",
-    maxHeight: 40,
+    maxHeight: 44,
   },
   countryBarContent: {
     flexDirection: "row",
@@ -805,10 +798,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   countryChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
-    borderWidth: 1,
     borderColor: "#ced4da",
     backgroundColor: "#fff",
   },
@@ -829,25 +818,6 @@ const styles = StyleSheet.create({
     height: 20,
     backgroundColor: "#c8d0e0",
     marginHorizontal: 6,
-  },
-  raceIncludedWrap: {
-    borderLeftWidth: 3,
-    borderLeftColor: "#007AFF",
-  },
-  includedBadge: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#007AFF",
-    backgroundColor: "#e8f0fe",
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
-    marginRight: 4,
-  },
-  applyBtnText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
   },
   pnlBar: {
     backgroundColor: "#1a1a2e",
@@ -899,14 +869,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 32,
+    gap: 12,
   },
   loadingText: {
-    marginTop: 12,
-    fontSize: 16,
     color: "#666",
   },
   errorText: {
-    color: "#d9534f",
+    color: "#dc3545",
     fontSize: 16,
   },
   list: {
@@ -1001,15 +970,7 @@ const styles = StyleSheet.create({
   },
   loadMoreButton: {
     margin: 16,
-    paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: "#e8f0fe",
-    alignItems: "center",
-  },
-  loadMoreText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#0056b3",
   },
   bspBadge: {
     fontSize: 11,
@@ -1030,75 +991,18 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginRight: 6,
   },
-  chevron: {
-    fontSize: 16,
-    color: "#bbb",
-    marginLeft: 4,
-  },
   runnerPnl: {
     fontSize: 12,
     fontWeight: "700",
     marginRight: 6,
   },
-  exportBtn: {
-    backgroundColor: "#28a745",
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    marginRight: 6,
+  exportActions: {
+    flexDirection: "column",
+    gap: 8,
+    paddingBottom: 8,
   },
-  exportBtnText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  exportOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  exportModal: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 24,
-    width: "90%",
-    maxWidth: 340,
-    alignItems: "center",
-    gap: 12,
-  },
-  exportTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1a1a2e",
-  },
-  exportSub: {
-    fontSize: 13,
-    color: "#666",
-    marginBottom: 4,
-  },
-  exportOption: {
+  exportDialogButton: {
     width: "100%",
-    paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: "#007AFF",
-    alignItems: "center",
-  },
-  exportOptionXlsx: {
-    backgroundColor: "#1d6f42",
-  },
-  exportOptionText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  exportCancel: {
-    paddingVertical: 8,
-    marginTop: 4,
-  },
-  exportCancelText: {
-    color: "#999",
-    fontSize: 14,
   },
 });
- 

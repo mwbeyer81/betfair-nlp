@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Modal } from "react-native";
+import { View, StyleSheet, ScrollView } from "react-native";
+import { Text, Button, Portal, Dialog, IconButton } from "react-native-paper";
 import Markdown from "react-native-markdown-display";
 
 export interface MessageProps {
@@ -20,88 +21,83 @@ export const Message: React.FC<MessageProps> = ({
   const [showMongoScript, setShowMongoScript] = useState(false);
 
   return (
-    <View
-      style={[
-        styles.messageContainer,
-        isUser ? styles.userMessage : styles.botMessage,
-      ]}
-    >
+    <>
       <View
         style={[
-          styles.messageBubble,
-          isUser ? styles.userBubble : styles.botBubble,
+          styles.messageContainer,
+          isUser ? styles.userMessage : styles.botMessage,
         ]}
       >
-        {isUser ? (
-          <Text style={[styles.messageText, styles.userText]}>{text}</Text>
-        ) : (
-          <Markdown
-            style={{
-              body: StyleSheet.flatten([styles.messageText, styles.botText]),
-            }}
-          >
-            {text}
-          </Markdown>
-        )}
+        <View
+          style={[
+            styles.messageBubble,
+            isUser ? styles.userBubble : styles.botBubble,
+          ]}
+        >
+          {isUser ? (
+            <Text style={[styles.messageText, styles.userText]}>{text}</Text>
+          ) : (
+            <Markdown
+              style={{
+                body: StyleSheet.flatten([styles.messageText, styles.botText]),
+              }}
+            >
+              {text}
+            </Markdown>
+          )}
 
-        {/* Show MongoDB Script button for bot messages with scripts */}
-        {!isUser && mongoScript && (
-          <TouchableOpacity
-            style={styles.mongoScriptButton}
-            onPress={() => setShowMongoScript(true)}
-          >
-            <Text style={styles.mongoScriptButtonText}>
+          {!isUser && mongoScript && (
+            <Button
+              mode="contained-tonal"
+              compact
+              onPress={() => setShowMongoScript(true)}
+              style={styles.mongoScriptButton}
+              labelStyle={styles.mongoScriptButtonLabel}
+            >
               View MongoDB Script
-            </Text>
-          </TouchableOpacity>
-        )}
+            </Button>
+          )}
 
-        <Text style={styles.timestamp}>
-          {timestamp.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </Text>
+          <Text style={styles.timestamp}>
+            {timestamp.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </Text>
+        </View>
       </View>
 
-      {/* MongoDB Script Modal */}
-      <Modal
-        visible={showMongoScript}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowMongoScript(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>MongoDB JavaScript Script</Text>
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => setShowMongoScript(false)}
-              >
-                <Text style={styles.closeButtonText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.scriptContainer}>
-              <Text style={styles.scriptLabel}>Generated Script:</Text>
+      <Portal>
+        <Dialog
+          visible={showMongoScript}
+          onDismiss={() => setShowMongoScript(false)}
+          style={styles.dialog}
+        >
+          <Dialog.Title>MongoDB JavaScript Script</Dialog.Title>
+          <Dialog.ScrollArea style={styles.dialogScrollArea}>
+            <ScrollView>
+              <Text variant="labelMedium" style={styles.scriptLabel}>
+                Generated Script:
+              </Text>
               <Text style={styles.scriptText}>{mongoScript}</Text>
-            </View>
-
-            {aiAnalysis?.naturalLanguageInterpretation && (
-              <View style={styles.interpretationContainer}>
-                <Text style={styles.interpretationLabel}>
-                  AI Interpretation:
-                </Text>
-                <Text style={styles.interpretationText}>
-                  {aiAnalysis.naturalLanguageInterpretation}
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-      </Modal>
-    </View>
+              {aiAnalysis?.naturalLanguageInterpretation && (
+                <>
+                  <Text variant="labelMedium" style={styles.interpretationLabel}>
+                    AI Interpretation:
+                  </Text>
+                  <Text variant="bodySmall" style={styles.interpretationText}>
+                    {aiAnalysis.naturalLanguageInterpretation}
+                  </Text>
+                </>
+              )}
+            </ScrollView>
+          </Dialog.ScrollArea>
+          <Dialog.Actions>
+            <Button onPress={() => setShowMongoScript(false)}>Close</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+    </>
   );
 };
 
@@ -146,62 +142,24 @@ const styles = StyleSheet.create({
     alignSelf: "flex-end",
   },
   mongoScriptButton: {
-    backgroundColor: "#007AFF",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
     marginTop: 8,
     alignSelf: "flex-start",
+    borderRadius: 8,
   },
-  mongoScriptButtonText: {
-    color: "white",
+  mongoScriptButtonLabel: {
     fontSize: 12,
-    fontWeight: "600",
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalContent: {
-    backgroundColor: "white",
-    borderRadius: 12,
-    padding: 20,
-    margin: 20,
-    maxWidth: "90%",
+  dialog: {
     maxHeight: "80%",
   },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
-    paddingBottom: 12,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#333",
-  },
-  closeButton: {
-    padding: 8,
-  },
-  closeButtonText: {
-    fontSize: 18,
-    color: "#666",
-    fontWeight: "600",
-  },
-  scriptContainer: {
-    marginBottom: 16,
+  dialogScrollArea: {
+    paddingHorizontal: 20,
+    maxHeight: 400,
   },
   scriptLabel: {
-    fontSize: 14,
-    fontWeight: "600",
     color: "#333",
-    marginBottom: 8,
+    marginBottom: 6,
+    marginTop: 4,
   },
   scriptText: {
     fontSize: 12,
@@ -212,18 +170,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e0e0e0",
     color: "#333",
-  },
-  interpretationContainer: {
     marginBottom: 16,
   },
   interpretationLabel: {
-    fontSize: 14,
-    fontWeight: "600",
     color: "#333",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   interpretationText: {
-    fontSize: 14,
     color: "#666",
     lineHeight: 20,
   },

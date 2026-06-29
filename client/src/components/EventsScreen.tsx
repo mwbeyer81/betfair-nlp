@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from "react";
 import {
   View,
-  Text,
   ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
   StyleSheet,
   SafeAreaView,
 } from "react-native";
+import {
+  Text,
+  Appbar,
+  Button,
+  Chip,
+  ActivityIndicator,
+} from "react-native-paper";
 import { EventDocsPanel } from "./EventDocsPanel";
 import { RunnersPanel } from "./RunnersPanel";
 import {
@@ -85,7 +89,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
       setPage(nextPage);
       setTotalPages(result.totalPages);
     } catch {
-      // silently fail — user can retry
+      // silently fail
     } finally {
       setIsLoadingMore(false);
     }
@@ -124,57 +128,64 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
   return (
     <SafeAreaView testID="events-screen" style={styles.screen}>
       <View testID="events-stats-bar" style={styles.statsBar}>
-        <TouchableOpacity
+        <Text
           testID="events-total-runners"
+          style={[styles.statText, styles.statLinkText]}
           onPress={onNavigateToAllRunners}
-          style={styles.statLink}
         >
-          <Text style={[styles.statText, styles.statLinkText]}>
-            {stats != null ? stats.totalRunners : "—"} runners
-          </Text>
-        </TouchableOpacity>
+          {stats != null ? stats.totalRunners : "—"} runners
+        </Text>
         <Text style={styles.statDot}>·</Text>
         <Text testID="events-total-races" style={styles.statText}>
           {stats != null ? stats.totalRaces : "—"} races
         </Text>
       </View>
 
-      <View style={styles.header}>
-        <Text style={styles.title}>Events</Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity
-            testID="events-sort-toggle"
-            style={styles.sortButton}
-            onPress={() => setSort(s => s === "asc" ? "desc" : "asc")}
+      <Appbar.Header style={styles.appbar}>
+        <Appbar.Content title="Events" titleStyle={styles.appbarTitle} />
+        <Button
+          testID="events-sort-toggle"
+          mode="contained-tonal"
+          compact
+          onPress={() => setSort(s => (s === "asc" ? "desc" : "asc"))}
+          style={styles.headerButton}
+          labelStyle={styles.headerButtonLabel}
+        >
+          {sort === "asc" ? "Oldest first" : "Newest first"}
+        </Button>
+        <Button
+          testID="events-screen-chat-button"
+          mode="contained"
+          compact
+          buttonColor="#0056b3"
+          onPress={onNavigateToChat}
+          style={styles.headerButton}
+          labelStyle={styles.headerButtonLabel}
+        >
+          Chat →
+        </Button>
+        {onLogout && (
+          <Button
+            testID="events-screen-logout-button"
+            mode="contained"
+            compact
+            buttonColor="#dc3545"
+            onPress={onLogout}
+            style={styles.headerButton}
+            labelStyle={styles.headerButtonLabel}
           >
-            <Text style={styles.sortButtonText}>
-              {sort === "asc" ? "Oldest first" : "Newest first"}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            testID="events-screen-chat-button"
-            style={styles.chatButton}
-            onPress={onNavigateToChat}
-          >
-            <Text style={styles.chatButtonText}>Chat →</Text>
-          </TouchableOpacity>
-          {onLogout && (
-            <TouchableOpacity
-              testID="events-screen-logout-button"
-              style={styles.logoutButton}
-              onPress={onLogout}
-            >
-              <Text style={styles.logoutButtonText}>Logout</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
+            Logout
+          </Button>
+        )}
+      </Appbar.Header>
 
       <View style={styles.body}>
         {isLoading && (
           <View testID="event-group-loading" style={styles.centered}>
-            <ActivityIndicator size="large" color="#007AFF" />
-            <Text style={styles.loadingText}>Loading events...</Text>
+            <ActivityIndicator size="large" animating />
+            <Text variant="bodyMedium" style={styles.loadingText}>
+              Loading events…
+            </Text>
           </View>
         )}
 
@@ -195,49 +206,59 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
                 testID={`event-group-item-${group.eventId}`}
                 style={styles.item}
               >
-                <Text style={styles.eventName}>{group.eventName}</Text>
-                <Text style={styles.meta}>ID: {group.eventId}</Text>
+                <Text variant="bodyLarge" style={styles.eventName}>
+                  {group.eventName}
+                </Text>
+                <Text variant="bodySmall" style={styles.meta}>
+                  ID: {group.eventId}
+                </Text>
                 {group.earliestMarketTime && (
-                  <Text style={styles.meta}>
-                    Date: {new Date(group.earliestMarketTime).toLocaleDateString("en-GB", {
-                      day: "2-digit", month: "short", year: "numeric",
-                    })}
+                  <Text variant="bodySmall" style={styles.meta}>
+                    Date:{" "}
+                    {new Date(group.earliestMarketTime).toLocaleDateString(
+                      "en-GB",
+                      { day: "2-digit", month: "short", year: "numeric" }
+                    )}
                   </Text>
                 )}
-                <Text style={styles.meta}>
+                <Text variant="bodySmall" style={styles.meta}>
                   Markets: {group.marketIds.join(", ")}
                 </Text>
                 <View style={styles.badgeRow}>
-                  <TouchableOpacity
+                  <Chip
                     testID={`event-docs-badge-${group.eventId}`}
-                    style={styles.badge}
+                    compact
+                    mode="flat"
                     onPress={() => loadDocs(group.eventId, group.eventName)}
+                    style={styles.docsChip}
+                    textStyle={styles.chipText}
                   >
-                    <Text style={styles.badgeText}>{group.count} docs</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
+                    {group.count} docs
+                  </Chip>
+                  <Chip
                     testID={`event-runners-badge-${group.eventId}`}
-                    style={[styles.badge, styles.runnersBadge]}
+                    compact
+                    mode="flat"
                     onPress={() => loadRunners(group.eventId, group.eventName)}
+                    style={styles.runnersChip}
+                    textStyle={styles.chipText}
                   >
-                    <Text style={styles.badgeText}>Runners</Text>
-                  </TouchableOpacity>
+                    Runners
+                  </Chip>
                 </View>
               </View>
             ))}
             {page < totalPages && (
-              <TouchableOpacity
+              <Button
                 testID="events-load-more"
-                style={styles.loadMoreButton}
+                mode="outlined"
                 onPress={loadMore}
                 disabled={isLoadingMore}
+                style={styles.loadMoreButton}
+                loading={isLoadingMore}
               >
-                {isLoadingMore ? (
-                  <ActivityIndicator size="small" color="#007AFF" />
-                ) : (
-                  <Text style={styles.loadMoreText}>Load more</Text>
-                )}
-              </TouchableOpacity>
+                Load more
+              </Button>
             )}
           </ScrollView>
         )}
@@ -288,9 +309,6 @@ const styles = StyleSheet.create({
     color: "#4a5568",
     fontWeight: "600",
   },
-  statLink: {
-    paddingVertical: 2,
-  },
   statLinkText: {
     color: "#007AFF",
     textDecorationLine: "underline",
@@ -299,59 +317,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#a0aec0",
   },
-  header: {
+  appbar: {
     backgroundColor: "#007AFF",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    gap: 6,
+    elevation: 4,
   },
-  title: {
+  appbarTitle: {
+    color: "white",
     fontSize: 20,
     fontWeight: "700",
-    color: "#fff",
   },
-  headerActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  sortButton: {
-    backgroundColor: "rgba(255,255,255,0.2)",
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.4)",
-  },
-  sortButtonText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  chatButton: {
-    backgroundColor: "#0056b3",
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+  headerButton: {
+    marginHorizontal: 3,
     borderRadius: 8,
   },
-  chatButtonText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  logoutButton: {
-    backgroundColor: "red",
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  logoutButtonText: {
-    color: "#fff",
-    fontSize: 13,
+  headerButtonLabel: {
+    fontSize: 12,
     fontWeight: "600",
   },
   body: {
@@ -362,14 +342,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 32,
+    gap: 12,
   },
   loadingText: {
-    marginTop: 12,
-    fontSize: 16,
     color: "#666",
   },
   errorText: {
-    color: "#d9534f",
+    color: "#dc3545",
     fontSize: 16,
   },
   list: {
@@ -389,13 +368,11 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f0f0f0",
   },
   eventName: {
-    fontSize: 16,
     fontWeight: "600",
     color: "#222",
     marginBottom: 4,
   },
   meta: {
-    fontSize: 12,
     color: "#666",
     marginBottom: 2,
   },
@@ -403,35 +380,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 6,
-    marginTop: 6,
+    marginTop: 8,
   },
-  badge: {
-    alignSelf: "flex-start",
+  docsChip: {
     backgroundColor: "#007AFF",
     borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
   },
-  runnersBadge: {
+  runnersChip: {
     backgroundColor: "#28a745",
+    borderRadius: 10,
   },
-  badgeText: {
+  chipText: {
     color: "#fff",
     fontSize: 12,
     fontWeight: "600",
   },
   loadMoreButton: {
     margin: 16,
-    paddingVertical: 12,
-    alignItems: "center",
-    backgroundColor: "#fff",
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#007AFF",
-  },
-  loadMoreText: {
-    color: "#007AFF",
-    fontSize: 14,
-    fontWeight: "600",
   },
 });

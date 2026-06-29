@@ -1,12 +1,17 @@
 import React from "react";
 import {
   View,
-  Text,
   ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
   StyleSheet,
 } from "react-native";
+import {
+  Text,
+  Chip,
+  IconButton,
+  ActivityIndicator,
+  Surface,
+  Divider,
+} from "react-native-paper";
 import { EventGroup } from "../services/chatApi";
 
 interface EventGroupsPanelProps {
@@ -33,40 +38,50 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
   onViewAllRunners,
 }) => {
   return (
-    <View testID="events-panel" style={styles.panel}>
+    <Surface testID="events-panel" style={styles.panel} elevation={3}>
       {(totalRaces !== undefined || totalRunners !== undefined) && (
         <View testID="events-stats-bar" style={styles.statsBar}>
-          <TouchableOpacity
-            testID="events-total-runners"
-            onPress={onViewAllRunners}
-            disabled={!onViewAllRunners}
-            style={styles.statLink}
-          >
-            <Text style={[styles.statText, onViewAllRunners && styles.statLinkText]}>
+          {onViewAllRunners ? (
+            <Text
+              testID="events-total-runners"
+              style={[styles.statText, styles.statLinkText]}
+              onPress={onViewAllRunners}
+            >
               {totalRunners ?? "—"} runners
             </Text>
-          </TouchableOpacity>
+          ) : (
+            <Text testID="events-total-runners" style={styles.statText}>
+              {totalRunners ?? "—"} runners
+            </Text>
+          )}
           <Text style={styles.statDot}>·</Text>
           <Text testID="events-total-races" style={styles.statText}>
             {totalRaces ?? "—"} races
           </Text>
         </View>
       )}
+
       <View style={styles.header}>
-        <Text style={styles.title}>Events</Text>
-        <TouchableOpacity
+        <Text variant="titleMedium" style={styles.title}>
+          Events
+        </Text>
+        <IconButton
           testID="events-panel-close"
+          icon="close"
+          size={20}
           onPress={onClose}
           style={styles.closeButton}
-        >
-          <Text style={styles.closeText}>✕</Text>
-        </TouchableOpacity>
+        />
       </View>
+
+      <Divider />
 
       {isLoading && (
         <View testID="event-group-loading" style={styles.centered}>
-          <ActivityIndicator size="small" color="#007AFF" />
-          <Text style={styles.loadingText}>Loading events...</Text>
+          <ActivityIndicator size="small" animating />
+          <Text variant="bodySmall" style={styles.loadingText}>
+            Loading events…
+          </Text>
         </View>
       )}
 
@@ -87,32 +102,42 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
               testID={`event-group-item-${group.eventId}`}
               style={styles.item}
             >
-              <Text style={styles.eventName}>{group.eventName}</Text>
-              <Text style={styles.meta}>ID: {group.eventId}</Text>
-              <Text style={styles.meta}>
+              <Text variant="bodyMedium" style={styles.eventName}>
+                {group.eventName}
+              </Text>
+              <Text variant="bodySmall" style={styles.meta}>
+                ID: {group.eventId}
+              </Text>
+              <Text variant="bodySmall" style={styles.meta}>
                 Markets: {group.marketIds.join(", ")}
               </Text>
               <View style={styles.badgeRow}>
-                <TouchableOpacity
+                <Chip
                   testID={`event-docs-badge-${group.eventId}`}
-                  style={styles.badge}
+                  compact
+                  mode="flat"
                   onPress={() => onViewDocs(group.eventId, group.eventName)}
+                  style={styles.docsChip}
+                  textStyle={styles.chipText}
                 >
-                  <Text style={styles.badgeText}>{group.count} docs</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                  {group.count} docs
+                </Chip>
+                <Chip
                   testID={`event-runners-badge-${group.eventId}`}
-                  style={[styles.badge, styles.runnersBadge]}
+                  compact
+                  mode="flat"
                   onPress={() => onViewRunners(group.eventId, group.eventName)}
+                  style={styles.runnersChip}
+                  textStyle={styles.chipText}
                 >
-                  <Text style={styles.badgeText}>Runners</Text>
-                </TouchableOpacity>
+                  Runners
+                </Chip>
               </View>
             </View>
           ))}
         </ScrollView>
       )}
-    </View>
+    </Surface>
   );
 };
 
@@ -127,34 +152,27 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
+    paddingLeft: 16,
+    paddingRight: 4,
+    paddingVertical: 4,
   },
   title: {
-    fontSize: 16,
-    fontWeight: "600",
     color: "#333",
+    fontWeight: "600",
   },
   closeButton: {
-    padding: 4,
-  },
-  closeText: {
-    fontSize: 16,
-    color: "#666",
+    margin: 0,
   },
   centered: {
     alignItems: "center",
     padding: 16,
+    gap: 8,
   },
   loadingText: {
-    marginTop: 8,
     color: "#666",
-    fontSize: 14,
   },
   errorText: {
-    color: "#d9534f",
+    color: "#dc3545",
     fontSize: 14,
   },
   list: {
@@ -172,13 +190,11 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f0f0f0",
   },
   eventName: {
-    fontSize: 15,
     fontWeight: "600",
     color: "#222",
     marginBottom: 4,
   },
   meta: {
-    fontSize: 12,
     color: "#666",
     marginBottom: 2,
   },
@@ -186,19 +202,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 6,
-    marginTop: 4,
+    marginTop: 6,
   },
-  badge: {
-    alignSelf: "flex-start",
+  docsChip: {
     backgroundColor: "#007AFF",
     borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
   },
-  runnersBadge: {
+  runnersChip: {
     backgroundColor: "#28a745",
+    borderRadius: 10,
   },
-  badgeText: {
+  chipText: {
     color: "#fff",
     fontSize: 11,
     fontWeight: "600",
@@ -217,9 +231,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#4a5568",
     fontWeight: "600",
-  },
-  statLink: {
-    paddingVertical: 2,
   },
   statLinkText: {
     color: "#007AFF",

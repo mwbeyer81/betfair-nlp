@@ -1,13 +1,17 @@
 import React, { useState, useMemo } from "react";
 import {
   View,
-  Text,
   ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
   StyleSheet,
 } from "react-native";
-
+import {
+  Text,
+  IconButton,
+  Button,
+  ActivityIndicator,
+  Surface,
+  Divider,
+} from "react-native-paper";
 import { MarketDefinitionDoc } from "../services/chatApi";
 
 function formatIfTimestamp(value: string): string {
@@ -54,36 +58,43 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
   );
 
   return (
-    <View testID="event-docs-panel" style={styles.panel}>
+    <Surface testID="event-docs-panel" style={styles.panel} elevation={3}>
       <View style={styles.header}>
         <View style={styles.headerText}>
-          <Text style={styles.title} numberOfLines={1}>
+          <Text variant="bodyMedium" style={styles.title} numberOfLines={1}>
             {eventName}
           </Text>
-          <Text style={styles.subtitle}>{docs.length} documents</Text>
+          <Text variant="bodySmall" style={styles.subtitle}>
+            {docs.length} documents
+          </Text>
         </View>
-        <TouchableOpacity
+        <Button
           testID="event-docs-sort-toggle"
+          mode="outlined"
+          compact
           onPress={() => setSortDir(d => (d === "desc" ? "asc" : "desc"))}
           style={styles.sortButton}
+          labelStyle={styles.sortButtonLabel}
         >
-          <Text style={styles.sortText}>
-            Change {sortDir === "desc" ? "↓" : "↑"}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
+          Change {sortDir === "desc" ? "↓" : "↑"}
+        </Button>
+        <IconButton
           testID="event-docs-close"
+          icon="close"
+          size={20}
           onPress={onClose}
           style={styles.closeButton}
-        >
-          <Text style={styles.closeText}>✕</Text>
-        </TouchableOpacity>
+        />
       </View>
+
+      <Divider />
 
       {isLoading && (
         <View testID="event-docs-loading" style={styles.centered}>
-          <ActivityIndicator size="small" color="#007AFF" />
-          <Text style={styles.loadingText}>Loading documents...</Text>
+          <ActivityIndicator size="small" animating />
+          <Text variant="bodySmall" style={styles.loadingText}>
+            Loading documents…
+          </Text>
         </View>
       )}
 
@@ -113,7 +124,7 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
                 style={styles.item}
               >
                 <View style={styles.itemHeader}>
-                  <Text style={styles.changeId} numberOfLines={1}>
+                  <Text variant="bodySmall" style={styles.changeId} numberOfLines={1}>
                     Change: {formatIfTimestamp(doc.changeId)}
                   </Text>
                   <View
@@ -123,13 +134,17 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
                     <Text style={styles.statusText}>{doc.status}</Text>
                   </View>
                 </View>
-                <Text style={styles.meta}>Type: {doc.marketType}</Text>
-                <Text style={styles.meta}>Market time: {marketDate}</Text>
-                <Text style={styles.meta}>
+                <Text variant="bodySmall" style={styles.meta}>
+                  Type: {doc.marketType}
+                </Text>
+                <Text variant="bodySmall" style={styles.meta}>
+                  Market time: {marketDate}
+                </Text>
+                <Text variant="bodySmall" style={styles.meta}>
                   Active runners: {doc.numberOfActiveRunners}
                 </Text>
                 {doc.runners && doc.runners.length > 0 && (
-                  <Text style={styles.runners} numberOfLines={2}>
+                  <Text variant="bodySmall" style={styles.runners} numberOfLines={2}>
                     Runners:{" "}
                     {doc.runners
                       .sort((a, b) => a.sortPriority - b.sortPriority)
@@ -144,7 +159,7 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
           })}
         </ScrollView>
       )}
-    </View>
+    </Surface>
   );
 };
 
@@ -157,12 +172,10 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
+    paddingLeft: 16,
+    paddingRight: 4,
+    paddingVertical: 6,
     backgroundColor: "#f8f9fa",
   },
   headerText: {
@@ -170,45 +183,33 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   title: {
-    fontSize: 15,
     fontWeight: "600",
     color: "#222",
   },
   subtitle: {
-    fontSize: 12,
     color: "#888",
     marginTop: 1,
   },
   sortButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 8,
-    backgroundColor: "#f0f0f0",
     borderRadius: 6,
+    marginRight: 4,
   },
-  sortText: {
+  sortButtonLabel: {
     fontSize: 12,
-    color: "#555",
-    fontWeight: "600",
   },
   closeButton: {
-    padding: 4,
-  },
-  closeText: {
-    fontSize: 16,
-    color: "#666",
+    margin: 0,
   },
   centered: {
     alignItems: "center",
     padding: 16,
+    gap: 8,
   },
   loadingText: {
-    marginTop: 8,
     color: "#666",
-    fontSize: 14,
   },
   errorText: {
-    color: "#d9534f",
+    color: "#dc3545",
     fontSize: 14,
   },
   list: {
@@ -232,7 +233,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   changeId: {
-    fontSize: 12,
     color: "#555",
     fontFamily: "monospace",
     flex: 1,
@@ -249,12 +249,10 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   meta: {
-    fontSize: 12,
     color: "#666",
     marginBottom: 2,
   },
   runners: {
-    fontSize: 11,
     color: "#888",
     fontStyle: "italic",
     marginTop: 2,

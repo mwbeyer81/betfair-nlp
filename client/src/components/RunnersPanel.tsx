@@ -1,12 +1,17 @@
 import React from "react";
 import {
   View,
-  Text,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   StyleSheet,
 } from "react-native";
+import {
+  Text,
+  IconButton,
+  ActivityIndicator,
+  Surface,
+  Divider,
+} from "react-native-paper";
 import { Race, Runner } from "../services/chatApi";
 
 interface RunnersPanelProps {
@@ -55,27 +60,33 @@ export const RunnersPanel: React.FC<RunnersPanelProps> = ({
       : `${races.length} races · ${totalRunners} runners`;
 
   return (
-    <View testID="runners-panel" style={styles.panel}>
+    <Surface testID="runners-panel" style={styles.panel} elevation={3}>
       <View style={styles.header}>
         <View style={styles.headerText}>
-          <Text style={styles.title} numberOfLines={1}>
+          <Text variant="bodyMedium" style={styles.title} numberOfLines={1}>
             {eventName}
           </Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
+          <Text variant="bodySmall" style={styles.subtitle}>
+            {subtitle}
+          </Text>
         </View>
-        <TouchableOpacity
+        <IconButton
           testID="runners-panel-close"
+          icon="close"
+          size={20}
           onPress={onClose}
           style={styles.closeButton}
-        >
-          <Text style={styles.closeText}>✕</Text>
-        </TouchableOpacity>
+        />
       </View>
+
+      <Divider />
 
       {isLoading && (
         <View testID="runners-loading" style={styles.centered}>
-          <ActivityIndicator size="small" color="#28a745" />
-          <Text style={styles.loadingText}>Loading runners...</Text>
+          <ActivityIndicator size="small" animating color="#28a745" />
+          <Text variant="bodySmall" style={styles.loadingText}>
+            Loading runners…
+          </Text>
         </View>
       )}
 
@@ -134,7 +145,7 @@ export const RunnersPanel: React.FC<RunnersPanelProps> = ({
           ))}
         </ScrollView>
       )}
-    </View>
+    </Surface>
   );
 };
 
@@ -149,10 +160,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
+    paddingLeft: 16,
+    paddingRight: 4,
+    paddingVertical: 6,
     backgroundColor: "#f0fff4",
   },
   headerText: {
@@ -160,33 +170,26 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   title: {
-    fontSize: 15,
     fontWeight: "600",
     color: "#222",
   },
   subtitle: {
-    fontSize: 12,
     color: "#888",
     marginTop: 1,
   },
   closeButton: {
-    padding: 4,
-  },
-  closeText: {
-    fontSize: 16,
-    color: "#666",
+    margin: 0,
   },
   centered: {
     alignItems: "center",
     padding: 16,
+    gap: 8,
   },
   loadingText: {
-    marginTop: 8,
     color: "#666",
-    fontSize: 14,
   },
   errorText: {
-    color: "#d9534f",
+    color: "#dc3545",
     fontSize: 14,
   },
   list: {
