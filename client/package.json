@@ -23,6 +23,7 @@
     "test:live:api": "playwright test --config playwright.live.config.ts --grep \"API middleware\"",
     "test:hello-world-cf": "playwright test --config playwright.hello-world-cf.config.ts",
     "test:hello-world-cf-live": "playwright test --config playwright.hello-world-cf-live.config.ts",
+    "test:storybook": "playwright test --config playwright.storybook.config.ts",
     "test:msw": "playwright test --config playwright.msw.config.ts",
     "test:production": "playwright test --config playwright.production.config.ts",
     "test:playwright": "playwright test",

@@ -7,8 +7,11 @@ interface Config {
 const getConfig = (): Config => {
   // EXPO_PUBLIC_API_URL is baked in at build time by `expo export`.
   // Set it when deploying to S3/CloudFront (cross-origin from the Lambda API).
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return { baseUrl: process.env.EXPO_PUBLIC_API_URL };
+  // Guard against browser environments where `process` is not defined (e.g. Storybook).
+  const expoApiUrl =
+    typeof process !== "undefined" ? process.env?.EXPO_PUBLIC_API_URL : undefined;
+  if (expoApiUrl) {
+    return { baseUrl: expoApiUrl };
   }
   if (
     typeof window !== 'undefined' &&
