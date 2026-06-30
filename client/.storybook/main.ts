@@ -73,11 +73,11 @@ const config: StorybookConfig = {
         exclude: /node_modules/,
         use: { loader: "babel-loader", options: babelOptions },
       });
-      // Some node_modules ship raw TypeScript/JSX ÔÇö use function include for cross-platform path matching
+      // Some node_modules ship raw TypeScript/JSX ï¿½ï¿½ï¿½ use function include for cross-platform path matching
       config.module.rules.push({
         test: /\.(ts|tsx|js|jsx)$/,
         include: (p: string) =>
-          /expo-modules-core|expo-linking|react-native-markdown-display/.test(p),
+          /expo-modules-core|expo-linking|react-native-markdown-display|react-native-paper|react-native-safe-area-context/.test(p),
         use: { loader: "babel-loader", options: babelOptions },
       });
     }
@@ -101,6 +101,10 @@ const config: StorybookConfig = {
     config.plugins = [
       ...(config.plugins || []),
       new webpack.DefinePlugin({ __DEV__: JSON.stringify(true) }),
+      new webpack.NormalModuleReplacementPlugin(
+        /react-native-vector-icons|@react-native-vector-icons|@expo\/vector-icons/,
+        require.resolve("./mocks/react-native-vector-icons.js")
+      ),
     ];
     return config;
   },
