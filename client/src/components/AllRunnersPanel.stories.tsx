@@ -59,11 +59,11 @@ const pnlHandler = http.get(`${BASE}/api/runners/pnl-stats`, () =>
 const meta: Meta<typeof AllRunnersPanel> = {
   title: "Components/AllRunnersPanel",
   component: AllRunnersPanel,
-  parameters: { layout: "centered", msw: { handlers: [pnlHandler] } },
+  parameters: { layout: "fullscreen", msw: { handlers: [pnlHandler] } },
   tags: ["autodocs"],
   decorators: [
     Story => (
-      <div style={{ width: "420px" }}>
+      <div style={{ width: "100%", maxWidth: "420px" }}>
         <Story />
       </div>
     ),

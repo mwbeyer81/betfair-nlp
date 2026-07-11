@@ -232,6 +232,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#e0e0e0",
     maxHeight: 480,
+    width: "100%",
   },
   header: {
     flexDirection: "row",
@@ -376,6 +377,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#222",
     flex: 1,
+    minWidth: 0,
     marginRight: 8,
   },
   statusBadge: {

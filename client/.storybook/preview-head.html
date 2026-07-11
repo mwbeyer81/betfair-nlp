@@ -1,0 +1,22 @@
+<script>
+  // Set before any app code runs so client/src/config/index.ts can force
+  // baseUrl to http://localhost:3000, matching the absolute URLs used by
+  // MSW handlers in *.stories.tsx. Without this, stories deployed to a
+  // non-localhost host (e.g. Cloudflare Pages) fall through to a same-origin
+  // relative baseUrl that MSW never intercepts, so API calls hit the real
+  // static host and fail.
+  window.__STORYBOOK__ = true;
+</script>
+<style>
+  /* #storybook-root defaults to width:auto, which shrink-wraps to the
+     widest descendant's max-content width instead of filling the preview
+     viewport. That silently defeats every RN-Web flex/percentage-based
+     responsive style in a story, since there's nothing to shrink against. */
+  html, body, #storybook-root {
+    width: 100%;
+    height: 100%;
+  }
+  body {
+    margin: 0;
+  }
+</style>
