@@ -1,16 +1,34 @@
 #!/bin/bash
-# Build the Expo web client and sync it to S3, then invalidate CloudFront.
+# Build the Expo web client from the `develop` branch and sync it to S3, then
+# invalidate CloudFront.
 # Serves at https://app.backbet.co.uk (CloudFront E1MADGEADM9CJZ → s3://betfair-nlp-web)
+#
+# Always builds from origin/develop via a pinned worktree, regardless of what
+# branch is checked out locally. Use apps/web-cf/deploy.sh to deploy `main`
+# to backbet.co.uk instead.
 set -e
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+BRANCH="develop"
+WORKTREE_DIR="$HOME/betfair-nlp-deploy-develop"
+
 source "$(dirname "$0")/../common.sh"
 BUCKET="betfair-nlp-web"
 CF_DIST_ID="${CF_DIST_ID:-E1MADGEADM9CJZ}"
 
+echo "Syncing worktree to origin/$BRANCH..."
+COMMIT_SHA=$(sync_worktree "$BRANCH" "$WORKTREE_DIR")
+echo "  -> $COMMIT_SHA"
+
 echo "Building Expo web client (pointing at Lambda API)..."
-cd "$REPO_ROOT/client"
+cd "$WORKTREE_DIR/client"
+yarn install --frozen-lockfile
 EXPO_PUBLIC_API_URL="$LAMBDA_URL" yarn build:web:production
+
+echo "Stamping build metadata into index.html..."
+sed -i "s#<meta charset=\"utf-8\" />#<meta charset=\"utf-8\" /><meta name=\"build-branch\" content=\"$BRANCH\" /><meta name=\"build-commit\" content=\"$COMMIT_SHA\" />#" dist/index.html
+
+echo "Removing node_modules (not needed post-build, keeps the worktree lean on disk)..."
+rm -rf node_modules
 
 echo "Syncing static assets to S3 (long cache)..."
 aws s3 sync dist/ "s3://$BUCKET/" \
@@ -31,4 +49,4 @@ if [ -n "$CF_DIST_ID" ]; then
     --output text --query Invalidation.Id
 fi
 
-echo "Done. App deployed to S3 bucket: $BUCKET"
+echo "Done. develop@$COMMIT_SHA deployed to app.backbet.co.uk"
