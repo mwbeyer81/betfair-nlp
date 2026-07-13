@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, StyleSheet } from "react-native";
 import { TextInput, IconButton } from "react-native-paper";
+import { colors, radii } from "../theme";
 
 export interface ChatInputProps {
   onSendMessage: (message: string) => void;
@@ -96,22 +97,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: "white",
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
+    borderTopColor: colors.border,
     gap: 4,
   },
   textInput: {
     flex: 1,
     maxHeight: 100,
-    backgroundColor: "white",
+    backgroundColor: colors.surface,
     fontSize: 16,
   },
   inputOutline: {
-    borderRadius: 20,
+    borderRadius: radii.pill,
   },
   sendButton: {
-    borderRadius: 20,
+    borderRadius: radii.pill,
     margin: 0,
   },
 });

@@ -54,7 +54,7 @@ const meta: Meta<typeof RunnersPanel> = {
   tags: ["autodocs"],
   decorators: [
     Story => (
-      <div style={{ width: "400px" }}>
+      <div style={{ width: "100%", maxWidth: "400px" }}>
         <Story />
       </div>
     ),
@@ -271,5 +271,20 @@ export const RunnerClick: Story = {
     await expect(item).toBeInTheDocument();
     await userEvent.click(item);
     await expect(args.onRunnerSelect).toHaveBeenCalledWith(firstRunner.id, firstRunner.name);
+  },
+};
+
+export const RendersAtIphone12: Story = {
+  args: {
+    races: CHELTENHAM_RACES,
+    isLoading: false,
+    error: null,
+  },
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("runners-panel")).toBeInTheDocument();
+    await expect(canvas.getByTestId("runners-panel-close")).toBeInTheDocument();
+    await expect(canvas.getByTestId("runners-list")).toBeInTheDocument();
   },
 };

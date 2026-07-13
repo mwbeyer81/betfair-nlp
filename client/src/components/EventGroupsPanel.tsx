@@ -13,6 +13,7 @@ import {
   Divider,
 } from "react-native-paper";
 import { EventGroup } from "../services/chatApi";
+import { colors, radii, spacing } from "../theme";
 
 interface EventGroupsPanelProps {
   groups: EventGroup[];
@@ -78,7 +79,7 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
 
       {isLoading && (
         <View testID="event-group-loading" style={styles.centered}>
-          <ActivityIndicator size="small" animating />
+          <ActivityIndicator size="small" animating color={colors.primary} />
           <Text variant="bodySmall" style={styles.loadingText}>
             Loading events…
           </Text>
@@ -118,7 +119,7 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
                   mode="flat"
                   onPress={() => onViewDocs(group.eventId, group.eventName)}
                   style={styles.docsChip}
-                  textStyle={styles.chipText}
+                  textStyle={styles.docsChipText}
                 >
                   {group.count} docs
                 </Chip>
@@ -128,7 +129,7 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
                   mode="flat"
                   onPress={() => onViewRunners(group.eventId, group.eventName)}
                   style={styles.runnersChip}
-                  textStyle={styles.chipText}
+                  textStyle={styles.runnersChipText}
                 >
                   Runners
                 </Chip>
@@ -143,21 +144,21 @@ export const EventGroupsPanel: React.FC<EventGroupsPanelProps> = ({
 
 const styles = StyleSheet.create({
   panel: {
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
+    borderTopColor: colors.border,
     maxHeight: 300,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingLeft: 16,
-    paddingRight: 4,
-    paddingVertical: 4,
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.xs,
+    paddingVertical: spacing.xs,
   },
   title: {
-    color: "#333",
+    color: colors.text,
     fontWeight: "600",
   },
   closeButton: {
@@ -165,55 +166,60 @@ const styles = StyleSheet.create({
   },
   centered: {
     alignItems: "center",
-    padding: 16,
-    gap: 8,
+    padding: spacing.lg,
+    gap: spacing.sm,
   },
   loadingText: {
-    color: "#666",
+    color: colors.textSecondary,
   },
   errorText: {
-    color: "#dc3545",
+    color: colors.danger,
     fontSize: 14,
   },
   list: {
     flex: 1,
   },
   emptyText: {
-    padding: 16,
-    color: "#999",
+    padding: spacing.lg,
+    color: colors.textTertiary,
     fontSize: 14,
   },
   item: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: colors.border,
   },
   eventName: {
     fontWeight: "600",
-    color: "#222",
+    color: colors.text,
     marginBottom: 4,
   },
   meta: {
-    color: "#666",
+    color: colors.textSecondary,
     marginBottom: 2,
   },
   badgeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 6,
-    marginTop: 6,
+    marginTop: spacing.xs,
   },
   docsChip: {
-    backgroundColor: "#007AFF",
-    borderRadius: 10,
+    backgroundColor: "#EEF2FF",
+    borderRadius: radii.pill,
   },
   runnersChip: {
-    backgroundColor: "#28a745",
-    borderRadius: 10,
+    backgroundColor: "#CFFAFE",
+    borderRadius: radii.pill,
   },
-  chipText: {
-    color: "#fff",
+  docsChipText: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  runnersChipText: {
+    color: colors.info,
     fontSize: 11,
     fontWeight: "600",
   },
@@ -223,21 +229,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
     paddingVertical: 5,
-    backgroundColor: "#f0f4ff",
+    backgroundColor: colors.background,
     borderBottomWidth: 1,
-    borderBottomColor: "#dde3f0",
+    borderBottomColor: colors.border,
   },
   statText: {
     fontSize: 12,
-    color: "#4a5568",
+    color: colors.textSecondary,
     fontWeight: "600",
   },
   statLinkText: {
-    color: "#007AFF",
+    color: colors.primary,
     textDecorationLine: "underline",
   },
   statDot: {
     fontSize: 12,
-    color: "#a0aec0",
+    color: colors.textTertiary,
   },
 });

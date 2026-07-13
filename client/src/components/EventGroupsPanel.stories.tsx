@@ -27,7 +27,7 @@ const meta: Meta<typeof EventGroupsPanel> = {
   tags: ["autodocs"],
   decorators: [
     Story => (
-      <div style={{ width: "400px" }}>
+      <div style={{ width: "100%", maxWidth: "400px" }}>
         <Story />
       </div>
     ),
@@ -243,5 +243,19 @@ export const LoadingState: Story = {
 
     await expect(canvas.getByTestId("event-group-loading")).toBeInTheDocument();
     await expect(canvas.queryByTestId("event-group-list")).not.toBeInTheDocument();
+  },
+};
+
+export const RendersAtIphone12: Story = {
+  args: {
+    groups: MOCK_GROUPS,
+    isLoading: false,
+    error: null,
+  },
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("events-panel")).toBeInTheDocument();
+    await expect(canvas.getByTestId("events-panel-close")).toBeInTheDocument();
   },
 };

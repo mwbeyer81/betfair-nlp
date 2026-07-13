@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { within, expect } from "@storybook/test";
 import { AuthScreen } from "./AuthScreen";
 import { useState } from "react";
 
@@ -20,6 +21,17 @@ type Story = StoryObj<typeof meta>;
 // Basic story
 export const Default: Story = {
   args: {},
+};
+
+export const RendersAtIphone12: Story = {
+  args: {},
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("auth-username-input")).toBeInTheDocument();
+    await expect(canvas.getByTestId("auth-password-input")).toBeInTheDocument();
+    await expect(canvas.getByTestId("auth-login-button")).toBeInTheDocument();
+  },
 };
 
 // Story with URL parameters simulation

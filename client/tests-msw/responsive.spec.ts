@@ -1,3 +1,4 @@
+import { devices } from "@playwright/test";
 import { test, expect } from "./fixtures";
 
 // Tests run against a static build with all API calls mocked via page.route().
@@ -71,6 +72,51 @@ test.describe("Responsive layout — /runners (MSW mocked, 375px)", () => {
     const box = await bar.boundingBox();
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(MOBILE_VIEWPORT.width + 1);
+  });
+});
+
+test.describe("Responsive layout — /runners (MSW mocked, iPhone 12)", () => {
+  test.use({ ...devices["iPhone 12"] });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/runners");
+    await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
+  });
+
+  test("filter bar and numeric inputs fit within the iPhone 12 viewport", async ({ page }) => {
+    const bar = page.getByTestId("all-runners-filter-bar");
+    await expect(bar).toBeVisible();
+
+    const viewportWidth = 390;
+    const box = await bar.boundingBox();
+    expect(box!.width).toBeLessThanOrEqual(viewportWidth);
+    await expect(page.getByTestId("all-runners-filter-apply")).toBeVisible();
+  });
+
+  test("BSP and Race numeric inputs render entered values without clipping", async ({ page }) => {
+    const minBsp = page.getByTestId("all-runners-min-bsp");
+    await minBsp.fill("1234.5");
+    const minBspClip = await minBsp.evaluate(
+      (el: HTMLInputElement) => el.scrollWidth <= el.clientWidth
+    );
+    expect(minBspClip).toBe(true);
+
+    const toRow = page.getByTestId("all-runners-to-row");
+    await toRow.fill("12345");
+    const toRowClip = await toRow.evaluate(
+      (el: HTMLInputElement) => el.scrollWidth <= el.clientWidth
+    );
+    expect(toRowClip).toBe(true);
+  });
+
+  test("runner rows do not overflow the iPhone 12 viewport width", async ({ page }) => {
+    const firstRow = page.locator('[data-testid^="all-runner-item-"]').first();
+    await expect(firstRow).toBeVisible();
+
+    const box = await firstRow.boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(390 + 1);
   });
 });
 

@@ -43,6 +43,9 @@ yarn-error.*
 playwright-report/
 test-results/
 
+# Storybook build output
+storybook-static/
+
 # Debug screenshots
 *-debug.png
 *-screenshot.png

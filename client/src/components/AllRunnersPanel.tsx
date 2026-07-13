@@ -13,6 +13,7 @@ import {
   Divider,
 } from "react-native-paper";
 import { chatApi, RaceWithEvent, Runner, PnlStats } from "../services/chatApi";
+import { colors, statusPill, radii, spacing } from "../theme";
 
 interface AllRunnersPanelProps {
   races: RaceWithEvent[];
@@ -20,14 +21,6 @@ interface AllRunnersPanelProps {
   error: string | null;
   onClose: () => void;
 }
-
-const STATUS_COLOR: Record<string, string> = {
-  ACTIVE: "#28a745",
-  WINNER: "#ffc107",
-  LOSER: "#dc3545",
-  HIDDEN: "#6c757d",
-  PLACED: "#17a2b8",
-};
 
 function stakeToWin1(bsp: number): number {
   return 1 / (bsp - 1);
@@ -145,7 +138,7 @@ export const AllRunnersPanel: React.FC<AllRunnersPanelProps> = ({
 
       {isLoading && (
         <View testID="all-runners-loading" style={styles.centered}>
-          <ActivityIndicator size="small" animating />
+          <ActivityIndicator size="small" animating color={colors.primary} />
           <Text variant="bodySmall" style={styles.loadingText}>
             Loading runners…
           </Text>
@@ -209,10 +202,20 @@ export const AllRunnersPanel: React.FC<AllRunnersPanelProps> = ({
                       <View
                         style={[
                           styles.statusBadge,
-                          { backgroundColor: STATUS_COLOR[runner.status] ?? "#6c757d" },
+                          {
+                            backgroundColor:
+                              (statusPill[runner.status] ?? statusPill.HIDDEN).bg,
+                          },
                         ]}
                       >
-                        <Text style={styles.statusText}>{runner.status}</Text>
+                        <Text
+                          style={[
+                            styles.statusText,
+                            { color: (statusPill[runner.status] ?? statusPill.HIDDEN).fg },
+                          ]}
+                        >
+                          {runner.status}
+                        </Text>
                       </View>
                     </View>
                   ))}
@@ -228,9 +231,9 @@ export const AllRunnersPanel: React.FC<AllRunnersPanelProps> = ({
 
 const styles = StyleSheet.create({
   panel: {
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
+    borderTopColor: colors.border,
     maxHeight: 480,
     width: "100%",
   },
@@ -238,26 +241,27 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingLeft: 16,
-    paddingRight: 4,
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.xs,
     paddingVertical: 6,
-    backgroundColor: "#f0f4ff",
+    backgroundColor: "#EEF2FF",
   },
   headerText: {
     flex: 1,
-    marginRight: 8,
+    minWidth: 0,
+    marginRight: spacing.sm,
   },
   title: {
     fontWeight: "700",
-    color: "#222",
+    color: colors.text,
   },
   subtitle: {
-    color: "#888",
+    color: colors.textSecondary,
     marginTop: 1,
   },
   toggleButton: {
-    borderRadius: 6,
-    marginRight: 4,
+    borderRadius: radii.sm,
+    marginRight: spacing.xs,
   },
   toggleButtonLabel: {
     fontSize: 11,
@@ -266,8 +270,8 @@ const styles = StyleSheet.create({
     margin: 0,
   },
   pnlBar: {
-    backgroundColor: "#1a1a2e",
-    paddingHorizontal: 12,
+    backgroundColor: colors.text,
+    paddingHorizontal: spacing.md,
     paddingVertical: 6,
     flexDirection: "row",
     alignItems: "center",
@@ -294,124 +298,123 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   pnlPos: {
-    color: "#4caf50",
+    color: "#4ADE80",
   },
   pnlNeg: {
-    color: "#ef5350",
+    color: "#F87171",
   },
   centered: {
     alignItems: "center",
-    padding: 16,
-    gap: 8,
+    padding: spacing.lg,
+    gap: spacing.sm,
   },
   loadingText: {
-    color: "#666",
+    color: colors.textSecondary,
   },
   errorText: {
-    color: "#dc3545",
+    color: colors.danger,
     fontSize: 14,
   },
   list: {
     flex: 1,
   },
   emptyText: {
-    padding: 16,
-    color: "#999",
+    padding: spacing.lg,
+    color: colors.textTertiary,
     fontSize: 14,
   },
   eventHeader: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: "#e8f0fe",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: "#EEF2FF",
     borderBottomWidth: 1,
-    borderBottomColor: "#c5d4f5",
+    borderBottomColor: colors.border,
   },
   eventName: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#1a3a6e",
+    color: colors.primaryDark,
   },
   raceHeader: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
     paddingVertical: 5,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: colors.background,
     borderBottomWidth: 1,
-    borderBottomColor: "#e9ecef",
-    gap: 8,
+    borderBottomColor: colors.border,
+    gap: spacing.sm,
   },
   raceTime: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#333",
+    color: colors.text,
   },
   raceType: {
     fontSize: 11,
-    color: "#666",
-    backgroundColor: "#e9ecef",
+    color: colors.textSecondary,
+    backgroundColor: colors.surface,
     paddingHorizontal: 5,
     paddingVertical: 1,
-    borderRadius: 4,
+    borderRadius: radii.sm,
   },
   raceCount: {
     fontSize: 11,
-    color: "#999",
+    color: colors.textTertiary,
     marginLeft: "auto",
   },
   runnerRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: "#f5f5f5",
+    borderBottomColor: colors.border,
   },
   priority: {
     fontSize: 11,
-    color: "#aaa",
+    color: colors.textTertiary,
     width: 22,
   },
   runnerName: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#222",
+    color: colors.text,
     flex: 1,
     minWidth: 0,
-    marginRight: 8,
+    marginRight: spacing.sm,
   },
   statusBadge: {
-    borderRadius: 8,
-    paddingHorizontal: 6,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
     paddingVertical: 1,
   },
   statusText: {
-    color: "#fff",
     fontSize: 10,
     fontWeight: "600",
   },
   bspBadge: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#0056b3",
-    backgroundColor: "#e8f0fe",
+    color: colors.primaryDark,
+    backgroundColor: "#EEF2FF",
     paddingHorizontal: 5,
     paddingVertical: 1,
-    borderRadius: 4,
-    marginRight: 6,
+    borderRadius: radii.sm,
+    marginRight: spacing.sm,
   },
   stakeBadge: {
     fontSize: 10,
-    color: "#555",
-    backgroundColor: "#f0f0f0",
+    color: colors.textSecondary,
+    backgroundColor: colors.background,
     paddingHorizontal: 4,
     paddingVertical: 1,
-    borderRadius: 4,
+    borderRadius: radii.sm,
     marginRight: 5,
   },
   runnerPnl: {
     fontSize: 11,
     fontWeight: "700",
-    marginRight: 6,
+    marginRight: spacing.sm,
   },
 });

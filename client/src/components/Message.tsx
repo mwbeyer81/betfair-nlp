@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { View, StyleSheet, ScrollView } from "react-native";
-import { Text, Button, Portal, Dialog, IconButton } from "react-native-paper";
+import { Text, Button, Portal, Dialog } from "react-native-paper";
 import Markdown from "react-native-markdown-display";
+import { colors, radii, spacing } from "../theme";
 
 export interface MessageProps {
   text: string;
@@ -23,6 +24,7 @@ export const Message: React.FC<MessageProps> = ({
   return (
     <>
       <View
+        testID="message-bubble"
         style={[
           styles.messageContainer,
           isUser ? styles.userMessage : styles.botMessage,
@@ -48,6 +50,7 @@ export const Message: React.FC<MessageProps> = ({
 
           {!isUser && mongoScript && (
             <Button
+              testID="message-mongo-script-button"
               mode="contained-tonal"
               compact
               onPress={() => setShowMongoScript(true)}
@@ -76,7 +79,11 @@ export const Message: React.FC<MessageProps> = ({
           <Dialog.Title>MongoDB JavaScript Script</Dialog.Title>
           <Dialog.ScrollArea style={styles.dialogScrollArea}>
             <ScrollView>
-              <Text variant="labelMedium" style={styles.scriptLabel}>
+              <Text
+                testID="message-mongo-dialog"
+                variant="labelMedium"
+                style={styles.scriptLabel}
+              >
                 Generated Script:
               </Text>
               <Text style={styles.scriptText}>{mongoScript}</Text>
@@ -93,7 +100,9 @@ export const Message: React.FC<MessageProps> = ({
             </ScrollView>
           </Dialog.ScrollArea>
           <Dialog.Actions>
-            <Button onPress={() => setShowMongoScript(false)}>Close</Button>
+            <Button testID="message-mongo-dialog-close" onPress={() => setShowMongoScript(false)}>
+              Close
+            </Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
@@ -113,17 +122,17 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     maxWidth: "80%",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 20,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radii.lg,
   },
   userBubble: {
-    backgroundColor: "#007AFF",
+    backgroundColor: colors.primary,
   },
   botBubble: {
-    backgroundColor: "white",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: colors.border,
   },
   messageText: {
     fontSize: 16,
@@ -133,51 +142,52 @@ const styles = StyleSheet.create({
     color: "white",
   },
   botText: {
-    color: "#333",
+    color: colors.text,
   },
   timestamp: {
     fontSize: 12,
-    color: "#999",
+    color: colors.textTertiary,
     marginTop: 4,
     alignSelf: "flex-end",
   },
   mongoScriptButton: {
-    marginTop: 8,
+    marginTop: spacing.sm,
     alignSelf: "flex-start",
-    borderRadius: 8,
+    borderRadius: radii.md,
   },
   mongoScriptButtonLabel: {
     fontSize: 12,
   },
   dialog: {
     maxHeight: "80%",
+    borderRadius: radii.lg,
   },
   dialogScrollArea: {
-    paddingHorizontal: 20,
+    paddingHorizontal: spacing.xl,
     maxHeight: 400,
   },
   scriptLabel: {
-    color: "#333",
+    color: colors.text,
     marginBottom: 6,
     marginTop: 4,
   },
   scriptText: {
     fontSize: 12,
     fontFamily: "monospace",
-    backgroundColor: "#f5f5f5",
-    padding: 12,
-    borderRadius: 8,
+    backgroundColor: colors.background,
+    padding: spacing.md,
+    borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
-    color: "#333",
-    marginBottom: 16,
+    borderColor: colors.border,
+    color: colors.text,
+    marginBottom: spacing.lg,
   },
   interpretationLabel: {
-    color: "#333",
+    color: colors.text,
     marginBottom: 6,
   },
   interpretationText: {
-    color: "#666",
+    color: colors.textSecondary,
     lineHeight: 20,
   },
 });

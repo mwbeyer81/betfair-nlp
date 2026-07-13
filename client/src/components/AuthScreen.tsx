@@ -15,6 +15,7 @@ import {
 } from "react-native-paper";
 import * as Linking from "expo-linking";
 import { chatApi } from "../services/chatApi";
+import { colors, radii, spacing } from "../theme";
 
 interface AuthScreenProps {
   onAuthenticated: () => void;
@@ -195,41 +196,46 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: colors.background,
   },
   keyboardAvoidingView: {
     flex: 1,
   },
   content: {
     flex: 1,
+    width: "100%",
+    maxWidth: 420,
+    alignSelf: "center",
     justifyContent: "center",
-    paddingHorizontal: 24,
+    paddingHorizontal: spacing.xl,
   },
   header: {
     alignItems: "center",
-    marginBottom: 32,
+    marginBottom: spacing.xxl,
   },
   title: {
-    color: "#007AFF",
+    color: colors.primary,
     fontWeight: "bold",
     marginBottom: 4,
   },
   subtitle: {
-    color: "#666",
+    color: colors.textSecondary,
     textAlign: "center",
   },
   form: {
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 20,
-    gap: 16,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.xl,
+    marginBottom: spacing.xl,
+    gap: spacing.lg,
   },
   input: {
-    backgroundColor: "white",
+    backgroundColor: colors.surface,
   },
   loginButton: {
     marginTop: 4,
-    borderRadius: 8,
+    borderRadius: radii.md,
   },
   loginButtonContent: {
     paddingVertical: 6,
@@ -242,19 +248,19 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   urlCredentialsInfo: {
-    backgroundColor: "#e8f5e8",
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
+    backgroundColor: "#DCFCE7",
+    borderRadius: radii.md,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
     alignItems: "center",
   },
   urlCredentialsText: {
-    color: "#2e7d32",
+    color: colors.success,
     fontWeight: "600",
     marginBottom: 2,
   },
   urlCredentialsSubtext: {
-    color: "#4caf50",
+    color: colors.success,
     textAlign: "center",
   },
   footer: {
@@ -262,18 +268,18 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   footerText: {
-    color: "#666",
+    color: colors.textSecondary,
     textAlign: "center",
     lineHeight: 20,
   },
   urlInfoText: {
-    color: "#999",
+    color: colors.textTertiary,
     textAlign: "center",
     lineHeight: 16,
   },
   urlExample: {
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-    backgroundColor: "#f0f0f0",
-    color: "#555",
+    backgroundColor: colors.background,
+    color: colors.textSecondary,
   },
 });

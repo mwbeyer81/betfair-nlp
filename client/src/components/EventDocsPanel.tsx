@@ -13,6 +13,7 @@ import {
   Divider,
 } from "react-native-paper";
 import { MarketDefinitionDoc } from "../services/chatApi";
+import { colors, radii, spacing } from "../theme";
 
 function formatIfTimestamp(value: string): string {
   const n = Number(value);
@@ -22,10 +23,10 @@ function formatIfTimestamp(value: string): string {
   return n.toLocaleString();
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  OPEN: "#28a745",
-  SUSPENDED: "#ffc107",
-  CLOSED: "#6c757d",
+const STATUS_PILL: Record<string, { bg: string; fg: string }> = {
+  OPEN: { bg: "#DCFCE7", fg: colors.success },
+  SUSPENDED: { bg: "#FEF3C7", fg: colors.warning },
+  CLOSED: { bg: "#F1F5F9", fg: colors.textSecondary },
 };
 
 interface EventDocsPanelProps {
@@ -91,7 +92,7 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
 
       {isLoading && (
         <View testID="event-docs-loading" style={styles.centered}>
-          <ActivityIndicator size="small" animating />
+          <ActivityIndicator size="small" animating color={colors.primary} />
           <Text variant="bodySmall" style={styles.loadingText}>
             Loading documents…
           </Text>
@@ -110,7 +111,11 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
             <Text style={styles.emptyText}>No documents found.</Text>
           )}
           {sortedDocs.map((doc, index) => {
-            const statusColor = STATUS_COLORS[doc.status] ?? "#999";
+            const statusPillColors =
+              STATUS_PILL[doc.status] ?? {
+                bg: colors.background,
+                fg: colors.textTertiary,
+              };
             const marketDate = doc.marketTime
               ? new Date(doc.marketTime).toLocaleString("en-GB", {
                   dateStyle: "short",
@@ -129,9 +134,14 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
                   </Text>
                   <View
                     testID={`event-doc-status-${index}`}
-                    style={[styles.statusBadge, { backgroundColor: statusColor }]}
+                    style={[
+                      styles.statusBadge,
+                      { backgroundColor: statusPillColors.bg },
+                    ]}
                   >
-                    <Text style={styles.statusText}>{doc.status}</Text>
+                    <Text style={[styles.statusText, { color: statusPillColors.fg }]}>
+                      {doc.status}
+                    </Text>
                   </View>
                 </View>
                 <Text variant="bodySmall" style={styles.meta}>
@@ -165,34 +175,35 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
 
 const styles = StyleSheet.create({
   panel: {
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
+    borderTopColor: colors.border,
     maxHeight: 350,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingLeft: 16,
-    paddingRight: 4,
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.xs,
     paddingVertical: 6,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: colors.background,
   },
   headerText: {
     flex: 1,
-    marginRight: 8,
+    minWidth: 0,
+    marginRight: spacing.sm,
   },
   title: {
     fontWeight: "600",
-    color: "#222",
+    color: colors.text,
   },
   subtitle: {
-    color: "#888",
+    color: colors.textSecondary,
     marginTop: 1,
   },
   sortButton: {
-    borderRadius: 6,
-    marginRight: 4,
+    borderRadius: radii.sm,
+    marginRight: spacing.xs,
   },
   sortButtonLabel: {
     fontSize: 12,
@@ -202,29 +213,29 @@ const styles = StyleSheet.create({
   },
   centered: {
     alignItems: "center",
-    padding: 16,
-    gap: 8,
+    padding: spacing.lg,
+    gap: spacing.sm,
   },
   loadingText: {
-    color: "#666",
+    color: colors.textSecondary,
   },
   errorText: {
-    color: "#dc3545",
+    color: colors.danger,
     fontSize: 14,
   },
   list: {
     flex: 1,
   },
   emptyText: {
-    padding: 16,
-    color: "#999",
+    padding: spacing.lg,
+    color: colors.textTertiary,
     fontSize: 14,
   },
   item: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: colors.border,
   },
   itemHeader: {
     flexDirection: "row",
@@ -233,27 +244,27 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   changeId: {
-    color: "#555",
+    color: colors.textSecondary,
     fontFamily: "monospace",
     flex: 1,
-    marginRight: 8,
+    minWidth: 0,
+    marginRight: spacing.sm,
   },
   statusBadge: {
-    borderRadius: 8,
-    paddingHorizontal: 7,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
     paddingVertical: 2,
   },
   statusText: {
-    color: "#fff",
     fontSize: 10,
     fontWeight: "600",
   },
   meta: {
-    color: "#666",
+    color: colors.textSecondary,
     marginBottom: 2,
   },
   runners: {
-    color: "#888",
+    color: colors.textTertiary,
     fontStyle: "italic",
     marginTop: 2,
   },

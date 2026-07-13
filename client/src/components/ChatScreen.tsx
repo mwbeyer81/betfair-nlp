@@ -11,6 +11,7 @@ import { Appbar, Text, Button } from "react-native-paper";
 import { Message } from "./Message";
 import { ChatInput } from "./ChatInput";
 import { chatApi } from "../services/chatApi";
+import { colors, radii, spacing } from "../theme";
 
 interface MessageData {
   id: string;
@@ -108,7 +109,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             mode="contained"
             onPress={onLogout}
             compact
-            buttonColor="#dc3545"
+            buttonColor={colors.danger}
             style={styles.headerButton}
             labelStyle={styles.headerButtonLabel}
           >
@@ -162,10 +163,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: colors.background,
   },
   appbar: {
-    backgroundColor: "#007AFF",
+    backgroundColor: colors.primary,
     elevation: 4,
   },
   appbarTitle: {
@@ -175,7 +176,7 @@ const styles = StyleSheet.create({
   },
   headerButton: {
     marginHorizontal: 4,
-    borderRadius: 8,
+    borderRadius: radii.md,
   },
   headerButtonLabel: {
     fontSize: 13,
@@ -188,15 +189,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   messagesContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
   },
   loadingContainer: {
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
     paddingVertical: 6,
   },
   loadingText: {
-    color: "#666",
+    color: colors.textSecondary,
     fontStyle: "italic",
   },
 });

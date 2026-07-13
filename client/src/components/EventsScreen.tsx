@@ -21,6 +21,7 @@ import {
   Race,
   Stats,
 } from "../services/chatApi";
+import { colors, radii, spacing } from "../theme";
 
 interface EventsScreenProps {
   onNavigateToChat: () => void;
@@ -157,7 +158,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
           testID="events-screen-chat-button"
           mode="contained"
           compact
-          buttonColor="#0056b3"
+          buttonColor={colors.primaryDark}
           onPress={onNavigateToChat}
           style={styles.headerButton}
           labelStyle={styles.headerButtonLabel}
@@ -169,7 +170,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
             testID="events-screen-logout-button"
             mode="contained"
             compact
-            buttonColor="#dc3545"
+            buttonColor={colors.danger}
             onPress={onLogout}
             style={styles.headerButton}
             labelStyle={styles.headerButtonLabel}
@@ -182,7 +183,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
       <View style={styles.body}>
         {isLoading && (
           <View testID="event-group-loading" style={styles.centered}>
-            <ActivityIndicator size="large" animating />
+            <ActivityIndicator size="large" animating color={colors.primary} />
             <Text variant="bodyMedium" style={styles.loadingText}>
               Loading events…
             </Text>
@@ -231,7 +232,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
                     mode="flat"
                     onPress={() => loadDocs(group.eventId, group.eventName)}
                     style={styles.docsChip}
-                    textStyle={styles.chipText}
+                    textStyle={styles.docsChipText}
                   >
                     {group.count} docs
                   </Chip>
@@ -241,7 +242,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
                     mode="flat"
                     onPress={() => loadRunners(group.eventId, group.eventName)}
                     style={styles.runnersChip}
-                    textStyle={styles.chipText}
+                    textStyle={styles.runnersChipText}
                   >
                     Runners
                   </Chip>
@@ -292,7 +293,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: colors.background,
   },
   statsBar: {
     flexDirection: "row",
@@ -300,25 +301,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
     paddingVertical: 5,
-    backgroundColor: "#f0f4ff",
+    backgroundColor: "#EEF2FF",
     borderBottomWidth: 1,
-    borderBottomColor: "#dde3f0",
+    borderBottomColor: colors.border,
   },
   statText: {
     fontSize: 12,
-    color: "#4a5568",
+    color: colors.textSecondary,
     fontWeight: "600",
   },
   statLinkText: {
-    color: "#007AFF",
+    color: colors.primary,
     textDecorationLine: "underline",
   },
   statDot: {
     fontSize: 12,
-    color: "#a0aec0",
+    color: colors.textTertiary,
   },
   appbar: {
-    backgroundColor: "#007AFF",
+    backgroundColor: colors.primary,
     elevation: 4,
   },
   appbarTitle: {
@@ -328,7 +329,7 @@ const styles = StyleSheet.create({
   },
   headerButton: {
     marginHorizontal: 3,
-    borderRadius: 8,
+    borderRadius: radii.md,
   },
   headerButtonLabel: {
     fontSize: 12,
@@ -341,62 +342,67 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 32,
-    gap: 12,
+    padding: spacing.xxl,
+    gap: spacing.md,
   },
   loadingText: {
-    color: "#666",
+    color: colors.textSecondary,
   },
   errorText: {
-    color: "#dc3545",
+    color: colors.danger,
     fontSize: 16,
   },
   list: {
     flex: 1,
   },
   emptyText: {
-    padding: 24,
-    color: "#999",
+    padding: spacing.xl,
+    color: colors.textTertiary,
     fontSize: 16,
     textAlign: "center",
   },
   item: {
-    backgroundColor: "#fff",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md + 2,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: colors.border,
   },
   eventName: {
     fontWeight: "600",
-    color: "#222",
+    color: colors.text,
     marginBottom: 4,
   },
   meta: {
-    color: "#666",
+    color: colors.textSecondary,
     marginBottom: 2,
   },
   badgeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 6,
-    marginTop: 8,
+    marginTop: spacing.sm,
   },
   docsChip: {
-    backgroundColor: "#007AFF",
-    borderRadius: 10,
+    backgroundColor: "#EEF2FF",
+    borderRadius: radii.pill,
   },
   runnersChip: {
-    backgroundColor: "#28a745",
-    borderRadius: 10,
+    backgroundColor: "#CFFAFE",
+    borderRadius: radii.pill,
   },
-  chipText: {
-    color: "#fff",
+  docsChipText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  runnersChipText: {
+    color: colors.info,
     fontSize: 12,
     fontWeight: "600",
   },
   loadMoreButton: {
-    margin: 16,
-    borderRadius: 8,
+    margin: spacing.lg,
+    borderRadius: radii.md,
   },
 });

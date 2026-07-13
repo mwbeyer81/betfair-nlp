@@ -314,3 +314,17 @@ export const NoBspWhenAbsent: Story = {
     }
   },
 };
+
+export const RendersAtIphone12: Story = {
+  args: {
+    races: MOCK_RACES,
+    isLoading: false,
+    error: null,
+  },
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("all-runners-panel")).toBeInTheDocument();
+    await expect(canvas.getByTestId("all-runners-panel-close")).toBeInTheDocument();
+  },
+};

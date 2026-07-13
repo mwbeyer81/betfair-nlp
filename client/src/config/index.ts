@@ -13,6 +13,11 @@ const getConfig = (): Config => {
   if (expoApiUrl) {
     return { baseUrl: expoApiUrl };
   }
+  // Storybook stories mock API calls against http://localhost:3000 via MSW,
+  // regardless of what host Storybook itself is served from (see preview-head.html).
+  if (typeof window !== 'undefined' && (window as any).__STORYBOOK__) {
+    return { baseUrl: 'http://localhost:3000' };
+  }
   if (
     typeof window !== 'undefined' &&
     !['localhost', '127.0.0.1'].includes(window.location.hostname)

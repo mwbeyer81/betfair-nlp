@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { within, expect } from "@storybook/test";
 import { ChatInput } from "./ChatInput";
 import { useState } from "react";
 
@@ -278,5 +279,19 @@ export const InteractiveTest: Story = {
   args: {
     isLoading: false,
     placeholder: "Type your message...",
+  },
+};
+
+export const RendersAtIphone12: Story = {
+  args: {
+    isLoading: false,
+    placeholder: "Type your message...",
+  },
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("chat-input")).toBeInTheDocument();
+    await expect(canvas.getByTestId("message-input")).toBeInTheDocument();
+    await expect(canvas.getByTestId("send-button")).toBeInTheDocument();
   },
 };

@@ -102,3 +102,13 @@ export const EventsButtonNavigates: Story = {
     await expect(args.onNavigateToEvents).toHaveBeenCalledTimes(1);
   },
 };
+
+export const RendersAtIphone12: Story = {
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("chat-screen")).toBeInTheDocument();
+    await expect(canvas.getByTestId("message-list")).toBeInTheDocument();
+    await expect(canvas.getByTestId("chat-input")).toBeInTheDocument();
+  },
+};

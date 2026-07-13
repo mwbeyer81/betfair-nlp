@@ -126,7 +126,12 @@ export const Empty: Story = {
     msw: {
       handlers: [
         http.get(`${BASE}/api/runners`, () =>
-          HttpResponse.json({ success: true, data: [], count: 0 })
+          HttpResponse.json({
+            success: true,
+            data: [],
+            count: 0,
+            pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
+          })
         ),
         http.get(`${BASE}/api/stats`, () =>
           HttpResponse.json({ success: true, data: { totalRaces: 0, totalRunners: 0 } })
@@ -609,5 +614,39 @@ export const MobilePnlBarWraps: Story = {
     const barRect = bar.getBoundingClientRect();
     const pnlRect = pnl.getBoundingClientRect();
     await expect(pnlRect.right).toBeLessThanOrEqual(barRect.right + 2);
+  },
+};
+
+export const RendersAtIphone12: Story = {
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+    await expect(canvas.getByTestId("all-runners-screen")).toBeInTheDocument();
+    await expect(canvas.getByTestId("all-runners-filter-bar")).toBeInTheDocument();
+    await expect(canvas.getByTestId("all-runners-min-bsp")).toBeInTheDocument();
+  },
+};
+
+// Regression test for the BSP/Race numeric-input clipping bug: the price/step
+// inputs used to have a fixed pixel width narrower than their maxLength, so
+// entered digits were visually cut off. Assert scrollWidth never exceeds
+// clientWidth after typing a max-length value — a real overflow signal since
+// this runs in a headless browser via test-storybook.
+export const NumericInputsDoNotClip: Story = {
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+
+    const minBspInput = canvas.getByTestId("all-runners-min-bsp") as HTMLInputElement;
+    await userEvent.clear(minBspInput);
+    await userEvent.type(minBspInput, "1234.5");
+    await expect(minBspInput.scrollWidth).toBeLessThanOrEqual(minBspInput.clientWidth);
+
+    const toRowInput = canvas.getByTestId("all-runners-to-row") as HTMLInputElement;
+    await userEvent.clear(toRowInput);
+    await userEvent.type(toRowInput, "12345");
+    await expect(toRowInput.scrollWidth).toBeLessThanOrEqual(toRowInput.clientWidth);
   },
 };

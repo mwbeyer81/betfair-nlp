@@ -171,3 +171,16 @@ export const MobileEventListScrollable: Story = {
     await expect(canvas.findByText("Leopardstown 1st Feb")).resolves.toBeInTheDocument();
   },
 };
+
+export const RendersAtIphone12: Story = {
+  parameters: {
+    viewport: { defaultViewport: "iphone12" },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("event-group-item-33858191")).resolves.toBeInTheDocument();
+    await expect(canvas.getByTestId("events-screen")).toBeInTheDocument();
+    await expect(canvas.getByTestId("events-sort-toggle")).toBeInTheDocument();
+    await expect(canvas.getByTestId("events-screen-chat-button")).toBeInTheDocument();
+  },
+};

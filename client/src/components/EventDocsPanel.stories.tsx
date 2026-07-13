@@ -46,7 +46,7 @@ const meta: Meta<typeof EventDocsPanel> = {
   tags: ["autodocs"],
   decorators: [
     Story => (
-      <div style={{ width: "420px" }}>
+      <div style={{ width: "100%", maxWidth: "420px" }}>
         <Story />
       </div>
     ),
@@ -166,6 +166,20 @@ export const SortToggle: Story = {
     await userEvent.click(toggle);
     const firstItemAsc = canvas.getByTestId("event-doc-item-0");
     await expect(firstItemAsc).toHaveTextContent("12,890,365,544");
+  },
+};
+
+export const RendersAtIphone12: Story = {
+  args: {
+    docs: MOCK_DOCS,
+    isLoading: false,
+    error: null,
+  },
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("event-docs-panel")).toBeInTheDocument();
+    await expect(canvas.getByTestId("event-docs-close")).toBeInTheDocument();
   },
 };
 

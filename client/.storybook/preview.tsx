@@ -1,7 +1,14 @@
 import React from "react";
 import { Provider as PaperProvider } from "react-native-paper";
 import { initialize, mswLoader } from "msw-storybook-addon";
+import { INITIAL_VIEWPORTS } from "@storybook/addon-viewport";
 import { theme } from "../src/theme";
+
+const iphone12Viewport = {
+  name: "iPhone 12",
+  styles: { width: "390px", height: "844px" },
+  type: "mobile" as const,
+};
 
 // Initialize MSW
 initialize({ onUnhandledRequest: "bypass" });
@@ -41,6 +48,9 @@ const preview = {
           value: "#333333",
         },
       ],
+    },
+    viewport: {
+      viewports: { ...INITIAL_VIEWPORTS, iphone12: iphone12Viewport },
     },
     // Enable interaction testing logging in headless mode
     test: {
