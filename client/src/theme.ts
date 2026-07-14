@@ -21,6 +21,7 @@ export const statusPill: Record<string, { bg: string; fg: string }> = {
   LOSER: { bg: "#FEE2E2", fg: colors.danger },
   HIDDEN: { bg: "#F1F5F9", fg: colors.textSecondary },
   PLACED: { bg: "#CFFAFE", fg: colors.info },
+  NON_FINISHER: { bg: "#F1F5F9", fg: colors.textSecondary },
 };
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };

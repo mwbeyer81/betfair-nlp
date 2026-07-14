@@ -41,6 +41,8 @@ const meta: Meta<typeof EventsScreen> = {
   },
   args: {
     onNavigateToChat: fn(),
+    onNavigateToAllRunners: fn(),
+    onNavigateToIsp: fn(),
     onLogout: fn(),
   },
 };
@@ -119,6 +121,19 @@ export const ChatButtonNavigates: Story = {
 
     await userEvent.click(chatBtn);
     await expect(args.onNavigateToChat).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const IspNavLinkNavigates: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+
+    const ispLink = await canvas.findByTestId("events-nav-isp");
+    await expect(ispLink).toBeInTheDocument();
+    await expect(ispLink).toHaveTextContent("Industry SP →");
+
+    await userEvent.click(ispLink);
+    await expect(args.onNavigateToIsp).toHaveBeenCalledTimes(1);
   },
 };
 

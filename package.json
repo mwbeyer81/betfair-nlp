@@ -41,6 +41,7 @@
     "process:basic:docker-mongo": "ts-node src/commands/process-basic-files.ts",
     "process:basic:docker": "docker-compose -f docker-compose.local.yml exec api-server yarn process:basic:local",
     "uncompress:bz2": "ts-node src/commands/uncompress-bz2.ts",
+    "import:industry-sp": "ts-node src/commands/import-industry-sp.ts",
     "mongo:drop-all": "docker-compose -f docker-compose.local.yml exec mongodb mongosh betfair_nlp_dev --eval \"$(cat scripts/drop-all-collections.js)\"",
     "mongo:exec": "node scripts/mongo-exec.js",
     "mongo:check": "node scripts/mongo-exec.js --check",
@@ -59,6 +60,7 @@
   "dependencies": {
     "config": "^4.1.1",
     "cors": "^2.8.5",
+    "csv-parse": "^7.0.1",
     "express": "^5.1.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",

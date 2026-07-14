@@ -5,6 +5,7 @@ import { ChatScreen } from "./src/components/ChatScreen";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { EventsScreen } from "./src/components/EventsScreen";
 import { AllRunnersScreen } from "./src/components/AllRunnersScreen";
+import { IndustrySpScreen } from "./src/components/IndustrySpScreen";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
 import { theme } from "./src/theme";
@@ -68,10 +69,14 @@ export default function App() {
     if (route === "/runners") {
       return <AllRunnersScreen onNavigateToEvents={() => navigate("/events")} />;
     }
+    if (route === "/isp") {
+      return <IndustrySpScreen onNavigateToEvents={() => navigate("/events")} />;
+    }
     return (
       <EventsScreen
         onNavigateToChat={() => navigate("/chat")}
         onNavigateToAllRunners={() => navigate("/runners")}
+        onNavigateToIsp={() => navigate("/isp")}
         onLogout={() => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); }}
       />
     );

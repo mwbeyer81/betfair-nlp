@@ -106,6 +106,53 @@ async function setupApiMocks(page: Page) {
     });
   });
 
+  await page.route((url) => url.pathname === "/api/industry-sp/filter-bounds", (route) =>
+    route.fulfill({ json: { success: true, data: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 } } })
+  );
+
+  await page.route((url) => url.pathname === "/api/industry-sp/countries", (route) =>
+    route.fulfill({ json: { success: true, data: ["GB", "IE"] } })
+  );
+
+  await page.route((url) => url.pathname === "/api/industry-sp/pnl-stats", (route) =>
+    route.fulfill({ json: { success: true, data: { staked: 1.6, returns: 2.6, pnl: 1.0 } } })
+  );
+
+  await page.route((url) => url.pathname === "/api/industry-sp", (route) => {
+    // The mocked race has 3 runners in ISP range. Return empty data when maxInIspRange < 3.
+    const reqUrl = new URL(route.request().url());
+    const maxInIspRange = parseInt(reqUrl.searchParams.get("maxInIspRange") ?? "30");
+    const raceData = maxInIspRange >= 3 ? [
+      {
+        raceId: 914592,
+        meetingId: "Cheltenham|2025-01-01",
+        meetingName: "Cheltenham — 1 January 2025",
+        course: "Cheltenham",
+        countryCode: "GB",
+        raceTime: "2025-01-01T14:01:00",
+        raceName: "Cheltenham Chase",
+        raceType: "Chase",
+        ran: 3,
+        runners: [
+          { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, isFavourite: false },
+          { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, isFavourite: false },
+          { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, isFavourite: true },
+        ],
+      },
+    ] : [];
+    route.fulfill({
+      json: {
+        success: true,
+        count: raceData.length,
+        total: raceData.length,
+        totalPages: 1,
+        totalRunners: raceData.length > 0 ? 3 : 0,
+        pnlStats: { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 },
+        data: raceData,
+      },
+    });
+  });
+
   await page.route("**/health", (route) =>
     route.fulfill({ json: { status: "OK", service: "Betfair NLP API", database: "connected" } })
   );

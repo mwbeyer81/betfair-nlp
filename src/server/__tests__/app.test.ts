@@ -29,6 +29,7 @@ jest.mock("../../config/database", () => ({
       connect: jest.fn().mockResolvedValue(undefined),
       getDb: jest.fn().mockReturnValue({
         collection: jest.fn().mockReturnValue({
+          distinct: jest.fn().mockResolvedValue(["GB", "IE"]),
           find: jest.fn().mockReturnValue({
             sort: jest.fn().mockReturnThis(),
             limit: jest.fn().mockReturnThis(),
@@ -91,9 +92,22 @@ jest.mock("../../config/database", () => ({
                     marketType: "ANTEPOST_WIN",
                     marketName: "Cheltenham Chase",
                     runners: [{ id: 12345, name: "Springwell Bay", status: "ACTIVE", sortPriority: 1 }],
+                    // IspRace fields (getAllRacesByRace)
+                    raceId: 914592,
+                    course: "Ascot",
+                    countryCode: "GB",
+                    raceTime: "2025-01-01T14:01:00.000Z",
+                    raceName: "Cheltenham Chase",
+                    raceType: "Hurdle",
+                    ran: 1,
+                    meetingId: "Ascot|2025-01-01",
+                    meetingName: "Ascot — 1 January 2025",
                   },
                 ],
                 total: [{ count: 1 }],
+                pnlStats: [{ staked: 1, returns: 2, count: 1 }],
+                runnerCounts: [{ maxRunners: 12 }],
+                ispBounds: [{ maxIsp: 100, minIsp: 1.5 }],
               },
             ]),
           }),
@@ -500,6 +514,136 @@ describe("API Endpoints", () => {
       expect(response.body).toHaveProperty("success", true);
       expect(Array.isArray(response.body.data)).toBe(true);
       expect(response.body.count).toBe(response.body.data.length);
+    });
+  });
+
+  describe("GET /api/industry-sp", () => {
+    it("returns paginated races with pagination metadata", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(typeof response.body.count).toBe("number");
+      expect(typeof response.body.total).toBe("number");
+      expect(typeof response.body.page).toBe("number");
+      expect(typeof response.body.limit).toBe("number");
+      expect(typeof response.body.totalPages).toBe("number");
+      expect(typeof response.body.totalRunners).toBe("number");
+    });
+
+    it("each race has raceId, course, countryCode, raceTime, runners", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const race = response.body.data[0];
+      expect(race).toHaveProperty("raceId");
+      expect(race).toHaveProperty("course");
+      expect(race).toHaveProperty("countryCode");
+      expect(race).toHaveProperty("raceTime");
+      expect(Array.isArray(race.runners)).toBe(true);
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/industry-sp").expect(401);
+    });
+
+    it("count equals data.length", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    it("respects page and limit query params", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?page=1&limit=5")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.page).toBe(1);
+      expect(response.body.limit).toBe(5);
+      expect(response.body.data.length).toBeLessThanOrEqual(5);
+    });
+
+    it("accepts minIsp and maxIsp params and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?minIsp=2&maxIsp=50")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("response includes pnlStats with staked, returns, pnl", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("pnlStats");
+      expect(typeof response.body.pnlStats.staked).toBe("number");
+      expect(typeof response.body.pnlStats.returns).toBe("number");
+      expect(typeof response.body.pnlStats.pnl).toBe("number");
+    });
+  });
+
+  describe("GET /api/industry-sp/filter-bounds", () => {
+    it("returns success with maxRunnersPerRace, minIsp, maxIsp", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/filter-bounds")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data).toHaveProperty("maxRunnersPerRace");
+      expect(response.body.data).toHaveProperty("minIsp");
+      expect(response.body.data).toHaveProperty("maxIsp");
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/industry-sp/filter-bounds").expect(401);
+    });
+  });
+
+  describe("GET /api/industry-sp/countries", () => {
+    it("returns success with an array of country codes", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/countries")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/industry-sp/countries").expect(401);
+    });
+  });
+
+  describe("GET /api/industry-sp/pnl-stats", () => {
+    it("returns success with staked, returns, pnl", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/pnl-stats")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data).toHaveProperty("staked");
+      expect(response.body.data).toHaveProperty("returns");
+      expect(response.body.data).toHaveProperty("pnl");
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/industry-sp/pnl-stats").expect(401);
     });
   });
 

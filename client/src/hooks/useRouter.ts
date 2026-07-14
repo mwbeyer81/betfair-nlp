@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 
-export type Route = "/events" | "/chat" | "/runners";
+export type Route = "/events" | "/chat" | "/runners" | "/isp";
 
-const STATIC_ROUTES = ["/events", "/chat", "/runners"];
+const STATIC_ROUTES = ["/events", "/chat", "/runners", "/isp"];
 
 function pathToRoute(path: string): Route {
   if (STATIC_ROUTES.includes(path)) return path as Route;
