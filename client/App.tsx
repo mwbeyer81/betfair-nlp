@@ -42,7 +42,11 @@ export default function App() {
     const u = params.get("u");
     const p = params.get("p");
     if (u && p) {
-      const clean = window.location.pathname;
+      // Only strip u/p, not the whole query string — /isp's filter params
+      // (minRunners, sort, etc.) can ride along in the same bookmarked URL.
+      params.delete("u");
+      params.delete("p");
+      const clean = window.location.pathname + (params.toString() ? `?${params}` : "");
       window.history.replaceState({}, "", clean);
       chatApi.login(u, p).then((token) => {
         localStorage.setItem(TOKEN_KEY, token);

@@ -14,7 +14,8 @@ async function getBearerToken(request: import("@playwright/test").APIRequestCont
 async function goToEvents(page: import("@playwright/test").Page) {
   // ?u=&p= triggers a real login (POST /api/auth/login) and stores the Bearer
   // JWT the app actually needs — plain navigation lands on the login screen.
-  await page.goto(`${APP_URL}?u=matthew&p=beyer`);
+  // /isp is the home page ("/"), so Events must be requested explicitly.
+  await page.goto(`${APP_URL}events?u=matthew&p=beyer`);
   await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
   await expect(page.getByTestId("event-group-loading")).not.toBeVisible({ timeout: 90000 });
 }
@@ -84,6 +85,12 @@ test.describe("Industry SP screen (Expo web @ localhost:80)", () => {
   test("/isp URL shows Industry SP screen directly", async ({ page }) => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+  });
+
+  test("/ (home page) shows Industry SP screen directly", async ({ page }) => {
+    await page.goto(`${APP_URL}?u=matthew&p=beyer`);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("events-screen")).not.toBeVisible();
   });
 
   test("Industry SP screen loads data and shows runner rows", async ({ page }) => {
@@ -180,6 +187,50 @@ test.describe("# in ISP range filter (real app at localhost:80)", () => {
     await expect(raceRows.first()).toBeVisible({ timeout: 10000 });
     const restored = await raceRows.count();
     expect(restored).toBe(original);
+  });
+});
+
+test.describe("Filter query param persistence + Reset button (real app at localhost:80)", () => {
+  test("applying a filter updates the URL query string", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await page.getByTestId("industry-sp-max-rir-value").fill("5");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    expect(page.url()).toContain("maxInIspRange=5");
+  });
+
+  test("reloading a URL with filter params restores those filter values", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await page.getByTestId("industry-sp-max-rir-value").fill("5");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    const urlAfterApply = page.url();
+
+    await page.goto(urlAfterApply);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await expect(page.getByTestId("industry-sp-max-rir-value")).toHaveValue("5");
+  });
+
+  test("Reset button restores default filter values and clears the URL query string", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await page.getByTestId("industry-sp-max-rir-value").fill("5");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    expect(page.url()).toContain("maxInIspRange=5");
+
+    await page.getByTestId("industry-sp-filter-reset").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await expect(page.getByTestId("industry-sp-max-rir-value")).toHaveValue("30");
+    expect(page.url()).not.toContain("maxInIspRange");
   });
 });
 

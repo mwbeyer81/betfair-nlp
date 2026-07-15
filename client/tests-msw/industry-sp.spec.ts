@@ -111,4 +111,46 @@ test.describe("Industry SP screen - navigation (MSW mocked)", () => {
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
   });
+
+  test("/ (home page) shows Industry SP screen directly", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("events-screen")).not.toBeVisible();
+  });
+});
+
+test.describe("Industry SP screen - filter URL persistence + Reset (MSW mocked)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+  });
+
+  test("applying a filter writes it to the URL query string", async ({ page }) => {
+    await page.getByTestId("industry-sp-max-rir-value").fill("2");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("maxInIspRange=2");
+  });
+
+  test("loading /isp with filter params in the URL pre-fills those filters", async ({ page }) => {
+    await page.goto("/isp?maxInIspRange=2&sort=desc");
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("industry-sp-max-rir-value")).toHaveValue("2");
+    await expect(page.getByTestId("industry-sp-sort-toggle")).toHaveText("Last → First");
+  });
+
+  test("Reset button restores default filter values and clears the URL", async ({ page }) => {
+    await page.getByTestId("industry-sp-max-rir-value").fill("2");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("maxInIspRange=2");
+
+    await page.getByTestId("industry-sp-filter-reset").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("industry-sp-max-rir-value")).toHaveValue("30");
+    expect(page.url()).not.toContain("maxInIspRange");
+    await expect(page.getByTestId("industry-sp-race-914592")).toBeVisible({ timeout: 3000 });
+  });
 });

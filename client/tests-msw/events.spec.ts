@@ -2,15 +2,16 @@ import { test, expect } from "./fixtures";
 
 test.describe("Events view — MSW mocked network", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    // /isp is the home page ("/"), so Events must be requested explicitly.
+    await page.goto("/events");
     // Wait for MSW service worker to activate and events to load
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("event-group-loading")).not.toBeVisible({ timeout: 10000 });
   });
 
-  test("lands on events screen by default", async ({ page }) => {
+  test("/events shows the events screen", async ({ page }) => {
     await expect(page.getByTestId("events-screen")).toBeVisible();
-    expect(page.url()).toMatch(/\/(\?|$)/); // root or /events
+    expect(page.url()).toMatch(/\/events(\?|$)/);
   });
 
   test("shows mocked event groups", async ({ page }) => {

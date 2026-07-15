@@ -1,9 +1,10 @@
 import { test, expect } from "./fixtures";
 
 test.describe("Routing — MSW mocked network", () => {
-  test("/ resolves to Events view by default", async ({ page }) => {
+  test("/ resolves to Industry SP view by default", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("events-screen")).not.toBeVisible();
     await expect(page.getByTestId("chat-screen")).not.toBeVisible();
   });
 
@@ -25,7 +26,7 @@ test.describe("Routing — MSW mocked network", () => {
   });
 
   test("clicking runners stat navigates to /runners", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("event-group-loading")).not.toBeVisible({ timeout: 10000 });
 
@@ -46,7 +47,7 @@ test.describe("Routing — MSW mocked network", () => {
   });
 
   test("Chat → button on Events screen navigates to /chat", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
 
     await page.getByTestId("events-screen-chat-button").click();
@@ -66,7 +67,7 @@ test.describe("Routing — MSW mocked network", () => {
   });
 
   test("URL updates to /chat after navigation", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
 
     await page.getByTestId("events-screen-chat-button").click();
@@ -86,7 +87,7 @@ test.describe("Routing — MSW mocked network", () => {
   });
 
   test("browser back button restores previous route", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
 
     await page.getByTestId("events-screen-chat-button").click();
@@ -94,5 +95,25 @@ test.describe("Routing — MSW mocked network", () => {
 
     await page.goBack();
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
+  });
+
+  test("Industry SP → link on Events screen navigates to /isp", async ({ page }) => {
+    await page.goto("/events");
+    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("events-nav-isp").click();
+
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/isp");
+  });
+
+  test("← Events button on Industry SP (home) screen navigates to /events", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-screen-events-button").click();
+
+    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
+    expect(page.url()).toMatch(/\/events/);
   });
 });

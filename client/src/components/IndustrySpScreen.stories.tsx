@@ -339,6 +339,44 @@ export const IspFilterParamsPassedToApi: Story = {
   },
 };
 
+export const ApplyingFilterUpdatesUrl: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    const maxRirInput = canvas.getByTestId("industry-sp-max-rir-value");
+    await userEvent.clear(maxRirInput);
+    await userEvent.type(maxRirInput, "5");
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
+
+    await waitFor(() => {
+      expect(window.location.search).toContain("maxInIspRange=5");
+    }, { timeout: 3000 });
+  },
+};
+
+export const ResetButtonRestoresDefaultsAndClearsUrl: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    const maxRirInput = canvas.getByTestId("industry-sp-max-rir-value");
+    await userEvent.clear(maxRirInput);
+    await userEvent.type(maxRirInput, "5");
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
+    await waitFor(() => {
+      expect(window.location.search).toContain("maxInIspRange=5");
+    }, { timeout: 3000 });
+
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-reset"));
+
+    await waitFor(() => {
+      expect((canvas.getByTestId("industry-sp-max-rir-value") as HTMLInputElement).value).toBe("30");
+      expect(window.location.search).not.toContain("maxInIspRange");
+    }, { timeout: 3000 });
+  },
+};
+
 export const InIspBoundDisplayed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

@@ -84,6 +84,67 @@ function formatRaceDate(isoTime: string): string {
   }
 }
 
+// Filter values are persisted to the URL query string (using the same param
+// names the API itself uses) so a filtered view can be bookmarked, shared, or
+// survive a refresh. Only non-default values are written, so the URL stays
+// clean (just "/isp") until the user actually changes something.
+const FILTER_DEFAULTS = {
+  minRunners: 1,
+  maxRunners: 20,
+  fromRow: 1,
+  minIsp: 1,
+  maxIsp: 1000,
+  minInIspRange: 1,
+  maxInIspRange: 30,
+  sort: "asc" as const,
+};
+
+function getUrlSearchParams(): URLSearchParams | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search);
+}
+
+function urlIntParam(name: string, fallback: number): number {
+  const raw = getUrlSearchParams()?.get(name);
+  if (raw == null) return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function urlFloatParam(name: string, fallback: number): number {
+  const raw = getUrlSearchParams()?.get(name);
+  if (raw == null) return fallback;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function urlToRowParam(): number | null {
+  const raw = getUrlSearchParams()?.get("toRow");
+  if (raw == null) return null;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function urlCountriesParam(): Set<string> {
+  const raw = getUrlSearchParams()?.get("countries");
+  if (!raw) return new Set();
+  return new Set(raw.split(",").filter(Boolean));
+}
+
+function urlSortParam(): "asc" | "desc" {
+  return getUrlSearchParams()?.get("sort") === "desc" ? "desc" : "asc";
+}
+
+function updateUrlParams(params: Record<string, string | undefined>) {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value == null || value === "") url.searchParams.delete(key);
+    else url.searchParams.set(key, value);
+  });
+  window.history.replaceState({}, "", url.pathname + url.search);
+}
+
 export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   onNavigateToEvents,
 }) => {
@@ -91,23 +152,26 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [minRunners, setMinRunners] = useState(1);
-  const [maxRunners, setMaxRunners] = useState(20);
-  const [draftMin, setDraftMin] = useState("1");
-  const [draftMax, setDraftMax] = useState("20");
-  const [fromRow, setFromRow] = useState(1);
-  const [toRow, setToRow] = useState<number | null>(null);
-  const [draftFrom, setDraftFrom] = useState("1");
-  const [draftTo, setDraftTo] = useState("0");
-  const [minIsp, setMinIsp] = useState(1);
-  const [maxIsp, setMaxIsp] = useState(1000);
-  const [draftMinIsp, setDraftMinIsp] = useState("1");
-  const [draftMaxIsp, setDraftMaxIsp] = useState("1000");
-  const [minRunnersInRange, setMinRunnersInRange] = useState(1);
-  const [maxRunnersInRange, setMaxRunnersInRange] = useState(30);
-  const [draftMinRIR, setDraftMinRIR] = useState("1");
-  const [draftMaxRIR, setDraftMaxRIR] = useState("30");
-  const [selectedCountries, setSelectedCountries] = useState<Set<string>>(new Set());
+  const [minRunners, setMinRunners] = useState(() => urlIntParam("minRunners", FILTER_DEFAULTS.minRunners));
+  const [maxRunners, setMaxRunners] = useState(() => urlIntParam("maxRunners", FILTER_DEFAULTS.maxRunners));
+  const [draftMin, setDraftMin] = useState(() => String(urlIntParam("minRunners", FILTER_DEFAULTS.minRunners)));
+  const [draftMax, setDraftMax] = useState(() => String(urlIntParam("maxRunners", FILTER_DEFAULTS.maxRunners)));
+  const [fromRow, setFromRow] = useState(() => urlIntParam("fromRow", FILTER_DEFAULTS.fromRow));
+  const [toRow, setToRow] = useState<number | null>(() => urlToRowParam());
+  const [draftFrom, setDraftFrom] = useState(() => String(urlIntParam("fromRow", FILTER_DEFAULTS.fromRow)));
+  const [draftTo, setDraftTo] = useState(() => {
+    const t = urlToRowParam();
+    return t != null ? String(t) : "0";
+  });
+  const [minIsp, setMinIsp] = useState(() => urlFloatParam("minIsp", FILTER_DEFAULTS.minIsp));
+  const [maxIsp, setMaxIsp] = useState(() => urlFloatParam("maxIsp", FILTER_DEFAULTS.maxIsp));
+  const [draftMinIsp, setDraftMinIsp] = useState(() => String(urlFloatParam("minIsp", FILTER_DEFAULTS.minIsp)));
+  const [draftMaxIsp, setDraftMaxIsp] = useState(() => String(urlFloatParam("maxIsp", FILTER_DEFAULTS.maxIsp)));
+  const [minRunnersInRange, setMinRunnersInRange] = useState(() => urlIntParam("minInIspRange", FILTER_DEFAULTS.minInIspRange));
+  const [maxRunnersInRange, setMaxRunnersInRange] = useState(() => urlIntParam("maxInIspRange", FILTER_DEFAULTS.maxInIspRange));
+  const [draftMinRIR, setDraftMinRIR] = useState(() => String(urlIntParam("minInIspRange", FILTER_DEFAULTS.minInIspRange)));
+  const [draftMaxRIR, setDraftMaxRIR] = useState(() => String(urlIntParam("maxInIspRange", FILTER_DEFAULTS.maxInIspRange)));
+  const [selectedCountries, setSelectedCountries] = useState<Set<string>>(() => urlCountriesParam());
   const [availableCountries, setAvailableCountries] = useState<string[]>([]);
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [page, setPage] = useState(1);
@@ -116,7 +180,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [totalRunners, setTotalRunners] = useState(0);
   const [pnlStats, setPnlStats] = useState<PnlStats>({ staked: 0, returns: 0, pnl: 0 });
   const [filterBounds, setFilterBounds] = useState<IspFilterBounds | null>(null);
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">(() => urlSortParam());
   const PAGE_SIZE = 20;
 
   function applyFilter() {
@@ -154,6 +218,48 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
     setFetchTrigger(t => t + 1);
   }
+
+  function resetFilters() {
+    setMinRunners(FILTER_DEFAULTS.minRunners);
+    setMaxRunners(FILTER_DEFAULTS.maxRunners);
+    setDraftMin(String(FILTER_DEFAULTS.minRunners));
+    setDraftMax(String(FILTER_DEFAULTS.maxRunners));
+    setFromRow(FILTER_DEFAULTS.fromRow);
+    setToRow(null);
+    setDraftFrom(String(FILTER_DEFAULTS.fromRow));
+    setDraftTo("0");
+    setMinIsp(FILTER_DEFAULTS.minIsp);
+    setMaxIsp(FILTER_DEFAULTS.maxIsp);
+    setDraftMinIsp(String(FILTER_DEFAULTS.minIsp));
+    setDraftMaxIsp(String(FILTER_DEFAULTS.maxIsp));
+    setMinRunnersInRange(FILTER_DEFAULTS.minInIspRange);
+    setMaxRunnersInRange(FILTER_DEFAULTS.maxInIspRange);
+    setDraftMinRIR(String(FILTER_DEFAULTS.minInIspRange));
+    setDraftMaxRIR(String(FILTER_DEFAULTS.maxInIspRange));
+    setSelectedCountries(new Set());
+    setSortOrder(FILTER_DEFAULTS.sort);
+    setFetchTrigger(t => t + 1);
+  }
+
+  // Keep the URL query string in sync with the currently *applied* filters
+  // (not draft/in-progress typing) so a filtered view can be bookmarked,
+  // shared, or survives a refresh. Only fires on committed changes — Apply,
+  // a country chip click, the sort toggle, or Reset — since those are the
+  // only actions that update these particular state variables.
+  useEffect(() => {
+    updateUrlParams({
+      minRunners: minRunners !== FILTER_DEFAULTS.minRunners ? String(minRunners) : undefined,
+      maxRunners: maxRunners !== FILTER_DEFAULTS.maxRunners ? String(maxRunners) : undefined,
+      fromRow: fromRow !== FILTER_DEFAULTS.fromRow ? String(fromRow) : undefined,
+      toRow: toRow != null ? String(toRow) : undefined,
+      minIsp: minIsp !== FILTER_DEFAULTS.minIsp ? String(minIsp) : undefined,
+      maxIsp: maxIsp !== FILTER_DEFAULTS.maxIsp ? String(maxIsp) : undefined,
+      minInIspRange: minRunnersInRange !== FILTER_DEFAULTS.minInIspRange ? String(minRunnersInRange) : undefined,
+      maxInIspRange: maxRunnersInRange !== FILTER_DEFAULTS.maxInIspRange ? String(maxRunnersInRange) : undefined,
+      countries: selectedCountries.size > 0 ? [...selectedCountries].sort().join(",") : undefined,
+      sort: sortOrder !== FILTER_DEFAULTS.sort ? sortOrder : undefined,
+    });
+  }, [minRunners, maxRunners, fromRow, toRow, minIsp, maxIsp, minRunnersInRange, maxRunnersInRange, selectedCountries, sortOrder]);
 
   useEffect(() => {
     chatApi.getIspCountries().then(setAvailableCountries).catch(() => {});
@@ -419,6 +525,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           labelStyle={styles.applyBtnLabel}
         >
           Apply
+        </Button>
+        <Button
+          testID="industry-sp-filter-reset"
+          mode="outlined"
+          compact
+          onPress={resetFilters}
+          style={styles.resetBtn}
+          labelStyle={styles.resetBtnLabel}
+        >
+          Reset
         </Button>
       </View>
 
@@ -727,6 +843,16 @@ const styles = StyleSheet.create({
   applyBtnLabel: {
     fontSize: 13,
     fontWeight: "700",
+  },
+  resetBtn: {
+    borderRadius: radii.sm,
+    marginLeft: 6,
+    borderColor: colors.primary,
+  },
+  resetBtnLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.primary,
   },
   countryBar: {
     backgroundColor: colors.background,

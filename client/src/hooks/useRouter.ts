@@ -6,11 +6,11 @@ const STATIC_ROUTES = ["/events", "/chat", "/runners", "/isp"];
 
 function pathToRoute(path: string): Route {
   if (STATIC_ROUTES.includes(path)) return path as Route;
-  return "/events";
+  return "/isp";
 }
 
 export function useRouter(): { route: Route; navigate: (to: Route) => void } {
-  const [route, setRoute] = useState<Route>("/events");
+  const [route, setRoute] = useState<Route>("/isp");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
