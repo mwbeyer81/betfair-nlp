@@ -729,6 +729,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     maxHeight: 44,
+    ...({ overscrollBehavior: "contain" } as any),
   },
   countryBarContent: {
     flexDirection: "row",
@@ -822,6 +823,10 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
+    // overscrollBehavior is a web-only CSS property (not in RN's ViewStyle type)
+    // that react-native-web passes through as-is; spread via `any` to bypass
+    // the excess-property check without an unreliable @ts-expect-error line.
+    ...({ overscrollBehavior: "contain" } as any),
   },
   emptyText: {
     padding: spacing.xl,
