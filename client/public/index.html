@@ -80,8 +80,14 @@
           "touchend",
           function (e) {
             var target = e.target;
+            // react-native-web's Touchable* components render as a plain
+            // <div tabindex="0"> with no role="button" at all, so [tabindex]
+            // is the reliable signal here — without it this only matched
+            // real <button>/<a> elements and swallowed one of every two
+            // rapid taps on the app's own +/- stepper buttons.
             var isInteractive =
-              target.closest && target.closest('button, input, textarea, select, a, [role="button"]');
+              target.closest &&
+              target.closest('button, input, textarea, select, a, [role="button"], [tabindex]');
             if (isInteractive) return;
             var now = Date.now();
             if (now - lastTouchEnd <= 300) e.preventDefault();
