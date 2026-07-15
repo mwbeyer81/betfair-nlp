@@ -653,6 +653,10 @@ const styles = StyleSheet.create({
   filterStepper: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
+    flexShrink: 1,
+    minWidth: 0,
+    rowGap: 4,
     gap: 6,
   },
   filterStepperLabel: {
@@ -849,6 +853,7 @@ const styles = StyleSheet.create({
   raceHeader: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     paddingHorizontal: spacing.lg,
     paddingVertical: 6,
     backgroundColor: colors.background,
@@ -887,6 +892,8 @@ const styles = StyleSheet.create({
   runnerRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
+    rowGap: 4,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     backgroundColor: colors.surface,
