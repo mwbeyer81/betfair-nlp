@@ -4,11 +4,15 @@
     <meta charset="utf-8" />
     <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
     <!--
-      maximum-scale=1 + user-scalable=no lock out pinch/double-tap zoom, and the
-      position:fixed html/body below lock out whole-page pan/bounce-scroll.
-      Without both, an accidental zoom or scroll gesture on iOS Safari can pan the
-      entire page (header included) out from under the status bar, which is what
-      caused the header to appear to "disappear" and row content to get clipped.
+      iOS Safari deliberately ignores maximum-scale=1 / user-scalable=no in the
+      viewport meta tag (a WebKit accessibility override, since iOS 10) — so
+      pinch/double-tap zoom can still happen despite these. The touch-action:
+      pan-y rule below is what actually blocks it: unlike the viewport meta,
+      touch-action IS honored by iOS, and restricting gestures to vertical pan
+      only prevents pinch-zoom and horizontal drag while still allowing the
+      app's own vertical scroll views to work. position:fixed html/body locks
+      out whole-page pan/bounce-scroll (iOS Safari can bounce-scroll the page
+      even with overflow:hidden on body alone).
     -->
     <meta
       name="viewport"
@@ -32,12 +36,14 @@
         width: 100%;
         overflow: hidden;
         overscroll-behavior: none;
+        touch-action: pan-y;
       }
       #root {
         display: flex;
         height: 100%;
         width: 100%;
         flex: 1;
+        touch-action: pan-y;
       }
     </style>
   </head>
