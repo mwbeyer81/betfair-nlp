@@ -54,5 +54,42 @@
     </noscript>
     <!-- The root element for your Expo app. -->
     <div id="root"></div>
+    <script>
+      // CSS alone (viewport meta, touch-action:pan-y) does not reliably block
+      // pinch/double-tap zoom on all iOS Safari versions — once zoomed in,
+      // the whole page becomes pannable, clipping the header/filters off
+      // whichever edge you drag toward. This is belt-and-braces JS backup:
+      // - gesturestart/gesturechange are WebKit-only events that fire solely
+      //   for pinch gestures, so blocking them can't interfere with taps.
+      // - the touchmove check blocks any 2+finger pinch on non-WebKit engines.
+      // - the touchend double-tap check only prevents zoom on non-interactive
+      //   areas (skips buttons/inputs/links) so rapid taps on the +/- steppers
+      //   still register as two clicks, not a blocked zoom gesture.
+      (function () {
+        document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
+        document.addEventListener("gesturechange", function (e) { e.preventDefault(); });
+        document.addEventListener(
+          "touchmove",
+          function (e) {
+            if (e.touches.length > 1) e.preventDefault();
+          },
+          { passive: false }
+        );
+        var lastTouchEnd = 0;
+        document.addEventListener(
+          "touchend",
+          function (e) {
+            var target = e.target;
+            var isInteractive =
+              target.closest && target.closest('button, input, textarea, select, a, [role="button"]');
+            if (isInteractive) return;
+            var now = Date.now();
+            if (now - lastTouchEnd <= 300) e.preventDefault();
+            lastTouchEnd = now;
+          },
+          { passive: false }
+        );
+      })();
+    </script>
   </body>
 </html>
