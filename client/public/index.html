@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <!--
+      maximum-scale=1 + user-scalable=no lock out pinch/double-tap zoom, and the
+      position:fixed html/body below lock out whole-page pan/bounce-scroll.
+      Without both, an accidental zoom or scroll gesture on iOS Safari can pan the
+      entire page (header included) out from under the status bar, which is what
+      caused the header to appear to "disappear" and row content to get clipped.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#4338CA" />
+    <title>client</title>
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* Lock the page frame so only the app's own scroll views can scroll —
+         iOS Safari can pan/bounce the whole document even with overflow:hidden
+         unless html/body are also taken out of the normal flow with position:fixed. */
+      html,
+      body {
+        position: fixed;
+        inset: 0;
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+      #root {
+        display: flex;
+        height: 100%;
+        width: 100%;
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+  </body>
+</html>

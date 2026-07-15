@@ -481,7 +481,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               <Text style={styles.pnlStatLabel}>Return </Text>{formatGbp(displayPnl.returns)}
             </Text>
             <Text testID="industry-sp-pnl" style={[styles.pnlValue, displayPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
-              {formatPnl(displayPnl.pnl)} <Text style={styles.pnlPct}>({formatPct(displayPnl.pnl, displayPnl.staked)})</Text>
+              {formatPnl(displayPnl.pnl)}{" "}
+              <Text style={[styles.pnlPct, displayPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                ({formatPct(displayPnl.pnl, displayPnl.staked)})
+              </Text>
             </Text>
           </View>
         </View>
@@ -774,6 +777,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
+    flexShrink: 1,
+    minWidth: 0,
     gap: 10,
   },
   pnlStat: {
