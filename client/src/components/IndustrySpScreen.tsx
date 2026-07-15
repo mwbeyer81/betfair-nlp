@@ -271,7 +271,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             maxLength={7}
           />
           {filterBounds != null && (
-            <Text testID="industry-sp-isp-bound" style={styles.boundsHint}>
+            <Text testID="industry-sp-sp-bound" style={styles.boundsHint}>
               ({filterBounds.minIsp.toFixed(1)}–{Math.ceil(filterBounds.maxIsp)})
             </Text>
           )}
