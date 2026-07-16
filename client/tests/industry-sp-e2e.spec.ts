@@ -136,7 +136,9 @@ test.describe("Industry SP screen (Expo web @ localhost:80)", () => {
     expect(await ispBadges.count()).toBeGreaterThan(0);
 
     const firstIspText = await ispBadges.first().textContent();
-    expect(firstIspText).toMatch(/^ISP \d/);
+    // Default display is fraction ("ISP 8/15") or the textual "ISP Evens" —
+    // not necessarily starting with a digit.
+    expect(firstIspText).toMatch(/^ISP (\d+\/\d+|Evens)$/);
   });
 
   test("← Events button navigates back to /events", async ({ page }) => {
@@ -561,5 +563,104 @@ test.describe("Meeting and race drill-down navigation (real app at localhost:80)
 
     const actualCount = await page.locator('[data-testid^="industry-race-item-"]').count();
     expect(actualCount).toBe(expectedCount);
+  });
+});
+
+test.describe("Odds display mode + filters visibility toggle (real app at localhost:80)", () => {
+  test("ISP defaults to fraction display", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await expect(page.getByTestId("industry-sp-odds-mode-toggle")).toHaveText("Odds: Fraction");
+
+    const firstBadge = await page.locator('[data-testid^="industry-sp-isp-"]').first().textContent();
+    // A fraction badge looks like "ISP 8/15" or "ISP Evens" — never a decimal point.
+    expect(firstBadge).toMatch(/^ISP (\d+\/\d+|Evens)$/);
+  });
+
+  test("toggling to decimal shows a clean, rounded value — never a raw floating-point artifact", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await page.getByTestId("industry-sp-odds-mode-toggle").click();
+    await expect(page.getByTestId("industry-sp-odds-mode-toggle")).toHaveText("Odds: Decimal");
+
+    const ispBadges = page.locator('[data-testid^="industry-sp-isp-"]');
+    // .allTextContents() below doesn't auto-wait like .first() does — it just
+    // reads whatever's in the DOM at that instant, which can race the toggle's
+    // re-render. Wait for at least one badge first.
+    await expect(ispBadges.first()).toBeVisible({ timeout: 10000 });
+    const badges = await ispBadges.allTextContents();
+    expect(badges.length).toBeGreaterThan(0);
+    for (const badge of badges) {
+      // "ISP 3.13" — exactly 2 decimal places, never a long float like
+      // "ISP 1.5333333333333332" (the original reported bug).
+      expect(badge).toMatch(/^ISP \d+\.\d{2}$/);
+    }
+  });
+
+  test("toggling back to fraction restores fraction display", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await page.getByTestId("industry-sp-odds-mode-toggle").click();
+    await expect(page.getByTestId("industry-sp-odds-mode-toggle")).toHaveText("Odds: Decimal");
+    await page.getByTestId("industry-sp-odds-mode-toggle").click();
+    await expect(page.getByTestId("industry-sp-odds-mode-toggle")).toHaveText("Odds: Fraction");
+
+    const badge = await page.locator('[data-testid^="industry-sp-isp-"]').first().textContent();
+    expect(badge).toMatch(/^ISP (\d+\/\d+|Evens)$/);
+  });
+
+  test("the meeting screen also has a fraction/decimal toggle", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await page.locator('[data-testid^="industry-sp-meeting-link-"]').first().click();
+    await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-meeting-loading")).not.toBeVisible({ timeout: 30000 });
+
+    await expect(page.getByTestId("industry-meeting-odds-mode-toggle")).toHaveText("Odds: Fraction");
+    const before = await page.locator('[data-testid^="industry-meeting-isp-"]').first().textContent();
+    expect(before).toMatch(/^ISP (\d+\/\d+|Evens)$/);
+
+    await page.getByTestId("industry-meeting-odds-mode-toggle").click();
+    const after = await page.locator('[data-testid^="industry-meeting-isp-"]').first().textContent();
+    expect(after).toMatch(/^ISP \d+\.\d{2}$/);
+  });
+
+  test("the race screen also has a fraction/decimal toggle", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').first().click();
+    await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 30000 });
+
+    await expect(page.getByTestId("industry-race-odds-mode-toggle")).toHaveText("Odds: Fraction");
+    const before = await page.locator('[data-testid^="industry-race-isp-"]').first().textContent();
+    expect(before).toMatch(/^ISP (\d+\/\d+|Evens)$/);
+
+    await page.getByTestId("industry-race-odds-mode-toggle").click();
+    const after = await page.locator('[data-testid^="industry-race-isp-"]').first().textContent();
+    expect(after).toMatch(/^ISP \d+\.\d{2}$/);
+  });
+
+  test("filters are visible by default and the toggle button hides/shows them", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await expect(page.getByTestId("industry-sp-filter-bar")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Hide filters ▾");
+
+    await page.getByTestId("industry-sp-filters-toggle").click();
+    await expect(page.getByTestId("industry-sp-filter-bar")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Show filters ▸");
+
+    // Hiding filters must not affect the underlying data/list.
+    await expect(page.getByTestId("industry-sp-list")).toBeVisible();
+    const raceCount = await page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').count();
+    expect(raceCount).toBeGreaterThan(0);
+
+    await page.getByTestId("industry-sp-filters-toggle").click();
+    await expect(page.getByTestId("industry-sp-filter-bar")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Hide filters ▾");
   });
 });

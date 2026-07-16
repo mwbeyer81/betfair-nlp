@@ -8,10 +8,12 @@ import {
   formatGbp,
   formatPnl,
   formatPct,
+  formatIsp,
   computeRangePnl,
   runnerPnl,
   formatRaceTime,
   formatRaceDate,
+  OddsMode,
 } from "../utils/ispFormat";
 
 interface IndustryRaceScreenProps {
@@ -28,6 +30,7 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
   const [race, setRace] = useState<IspRace | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [oddsMode, setOddsMode] = useState<OddsMode>("fraction");
 
   useEffect(() => {
     (async () => {
@@ -67,6 +70,19 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
           ← Meeting
         </Button>
       </Appbar.Header>
+
+      <View testID="industry-race-toolbar" style={styles.toolbar}>
+        <Button
+          testID="industry-race-odds-mode-toggle"
+          mode="outlined"
+          compact
+          onPress={() => setOddsMode(m => (m === "fraction" ? "decimal" : "fraction"))}
+          style={styles.toolbarButton}
+          labelStyle={styles.toolbarButtonLabel}
+        >
+          {oddsMode === "fraction" ? "Odds: Fraction" : "Odds: Decimal"}
+        </Button>
+      </View>
 
       {!isLoading && race && (
         <View testID="industry-race-header" style={styles.raceInfoBar}>
@@ -131,7 +147,7 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
                 </Text>
                 {runner.isp != null && (
                   <Text testID={`industry-race-isp-${runner.id}`} style={styles.bspBadge}>
-                    ISP {runner.isp}
+                    ISP {formatIsp(runner, oddsMode)}
                   </Text>
                 )}
                 {runner.isp != null && (
@@ -190,6 +206,26 @@ const styles = StyleSheet.create({
   headerButtonLabel: {
     fontSize: 11,
     fontWeight: "600",
+  },
+  toolbar: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  toolbarButton: {
+    borderRadius: radii.sm,
+    borderColor: colors.primary,
+  },
+  toolbarButtonLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.primary,
   },
   raceInfoBar: {
     paddingHorizontal: spacing.lg,

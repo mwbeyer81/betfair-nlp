@@ -16,7 +16,7 @@ const MOCK_RACES: Array<{
   raceName: string;
   raceType: string;
   ran: number;
-  runners: Array<{ id: number; name: string; num: number | null; draw: number | null; status: string; sortPriority: number; isp: number; isFavourite: boolean }>;
+  runners: Array<{ id: number; name: string; num: number | null; draw: number | null; status: string; sortPriority: number; isp: number; ispFraction: string; isFavourite: boolean }>;
 }> = [
   {
     raceId: 914592,
@@ -29,8 +29,8 @@ const MOCK_RACES: Array<{
     raceType: "Chase",
     ran: 2,
     runners: [
-      { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, isFavourite: true },
-      { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 5.5, isFavourite: false },
+      { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true },
+      { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 5.5, ispFraction: "9/2", isFavourite: false },
     ],
   },
   {
@@ -44,8 +44,8 @@ const MOCK_RACES: Array<{
     raceType: "Hurdle",
     ran: 2,
     runners: [
-      { id: 22001, name: "State Man", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.4, isFavourite: true },
-      { id: 22002, name: "Brighterdaysahead", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 6.0, isFavourite: false },
+      { id: 22001, name: "State Man", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.4, ispFraction: "2/5", isFavourite: true },
+      { id: 22002, name: "Brighterdaysahead", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 6.0, ispFraction: "5/1", isFavourite: false },
     ],
   },
 ];
@@ -225,6 +225,43 @@ export const RaceRowNavigatesToRace: Story = {
   },
 };
 
+export const OddsModeDefaultsToFraction: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+    await expect(canvas.getByTestId("industry-sp-odds-mode-toggle")).toHaveTextContent("Odds: Fraction");
+    await expect(canvas.getByTestId(`industry-sp-isp-${MOCK_RACES[0].runners[0].id}`)).toHaveTextContent("ISP 19/20");
+  },
+};
+
+export const OddsModeToggleSwitchesToDecimal: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+    await userEvent.click(canvas.getByTestId("industry-sp-odds-mode-toggle"));
+    await expect(canvas.getByTestId("industry-sp-odds-mode-toggle")).toHaveTextContent("Odds: Decimal");
+    // 19/20 + 1 = 1.95 — a clean 2dp value, never a raw float artifact.
+    await expect(canvas.getByTestId(`industry-sp-isp-${MOCK_RACES[0].runners[0].id}`)).toHaveTextContent("ISP 1.95");
+  },
+};
+
+export const FiltersToggleHidesAndShowsFilterBar: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    await expect(canvas.getByTestId("industry-sp-filter-bar")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-filters-toggle")).toHaveTextContent("Hide filters");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-filters-toggle"));
+    await expect(canvas.queryByTestId("industry-sp-filter-bar")).not.toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-filters-toggle")).toHaveTextContent("Show filters");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-filters-toggle"));
+    await expect(canvas.getByTestId("industry-sp-filter-bar")).toBeInTheDocument();
+  },
+};
+
 export const IspDisplayed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -233,7 +270,7 @@ export const IspDisplayed: Story = {
     for (const runner of runners) {
       const ispEl = await canvas.findByTestId(`industry-sp-isp-${runner.id}`);
       await expect(ispEl).toBeInTheDocument();
-      await expect(ispEl).toHaveTextContent(`ISP ${runner.isp}`);
+      await expect(ispEl).toHaveTextContent(`ISP ${runner.ispFraction}`);
     }
   },
 };

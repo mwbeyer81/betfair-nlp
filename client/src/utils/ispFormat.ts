@@ -1,5 +1,17 @@
 import { IspRace, IspRunner, PnlStats } from "../services/chatApi";
 
+export type OddsMode = "fraction" | "decimal";
+
+// Industry SP is conventionally quoted as a fraction ("8/15") — that's the
+// default display. Decimal is the derived/secondary form, shown rounded to
+// 2dp (the value stored in the DB is already rounded at import time, but
+// .toFixed(2) here is a defensive belt-and-braces guard against ever
+// rendering an unrounded value, e.g. from older cached data).
+export function formatIsp(runner: IspRunner, mode: OddsMode): string {
+  if (mode === "fraction") return runner.ispFraction ?? (runner.isp != null ? runner.isp.toFixed(2) : "-");
+  return runner.isp != null ? runner.isp.toFixed(2) : "-";
+}
+
 export function stakeToWin1(isp: number): number {
   return 1 / (isp - 1);
 }

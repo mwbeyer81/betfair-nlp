@@ -130,9 +130,9 @@ async function setupApiMocks(page: Page) {
       raceType: "Chase",
       ran: 3,
       runners: [
-        { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, isFavourite: false },
-        { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, isFavourite: false },
-        { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, isFavourite: true },
+        { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, ispFraction: "7/2", isFavourite: false },
+        { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, ispFraction: "41/5", isFavourite: false },
+        { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, ispFraction: "11/10", isFavourite: true },
       ],
     },
     {
@@ -146,8 +146,8 @@ async function setupApiMocks(page: Page) {
       raceType: "Hurdle",
       ran: 2,
       runners: [
-        { id: 22345, name: "Constitution Hill", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.5, isFavourite: true },
-        { id: 22346, name: "State Man", num: 2, draw: null, status: "PLACED", sortPriority: 2, isp: 3.2, isFavourite: false },
+        { id: 22345, name: "Constitution Hill", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.5, ispFraction: "1/2", isFavourite: true },
+        { id: 22346, name: "State Man", num: 2, draw: null, status: "PLACED", sortPriority: 2, isp: 3.2, ispFraction: "11/5", isFavourite: false },
       ],
     },
   ];
@@ -184,9 +184,9 @@ async function setupApiMocks(page: Page) {
         raceType: "Chase",
         ran: 3,
         runners: [
-          { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, isFavourite: false },
-          { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, isFavourite: false },
-          { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, isFavourite: true },
+          { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, ispFraction: "7/2", isFavourite: false },
+          { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, ispFraction: "41/5", isFavourite: false },
+          { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, ispFraction: "11/10", isFavourite: true },
         ],
       },
     ] : [];

@@ -16,6 +16,7 @@ export interface IspRunner {
   status: IspRunnerStatus;
   sortPriority: number;
   isp: number | null;
+  ispFraction: string | null;
   isFavourite: boolean;
 }
 

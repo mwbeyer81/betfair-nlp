@@ -215,3 +215,54 @@ test.describe("Industry SP meeting/race drill-down (MSW mocked)", () => {
     await expect(page.getByTestId("industry-race-error")).toBeVisible();
   });
 });
+
+test.describe("Odds display mode + filters visibility toggle (MSW mocked)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+  });
+
+  test("ISP defaults to fraction display", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-odds-mode-toggle")).toHaveText("Odds: Fraction");
+    await expect(page.getByTestId("industry-sp-isp-12345")).toHaveText("ISP 7/2");
+  });
+
+  test("toggling switches to decimal, rounded to 2dp", async ({ page }) => {
+    await page.getByTestId("industry-sp-odds-mode-toggle").click();
+    await expect(page.getByTestId("industry-sp-odds-mode-toggle")).toHaveText("Odds: Decimal");
+    await expect(page.getByTestId("industry-sp-isp-12345")).toHaveText("ISP 4.50");
+  });
+
+  test("filter bar is visible by default and the toggle hides/shows it", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-filter-bar")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Hide filters ▾");
+
+    await page.getByTestId("industry-sp-filters-toggle").click();
+    await expect(page.getByTestId("industry-sp-filter-bar")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Show filters ▸");
+
+    await page.getByTestId("industry-sp-filters-toggle").click();
+    await expect(page.getByTestId("industry-sp-filter-bar")).toBeVisible();
+  });
+
+  test("meeting screen has its own fraction/decimal toggle", async ({ page }) => {
+    await page.getByTestId("industry-sp-meeting-link-Cheltenham|2025-01-01").click();
+    await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-meeting-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("industry-meeting-isp-12345")).toHaveText("ISP 7/2");
+    await page.getByTestId("industry-meeting-odds-mode-toggle").click();
+    await expect(page.getByTestId("industry-meeting-isp-12345")).toHaveText("ISP 4.50");
+  });
+
+  test("race screen has its own fraction/decimal toggle", async ({ page }) => {
+    await page.getByTestId("industry-sp-race-914592").click();
+    await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("industry-race-isp-12345")).toHaveText("ISP 7/2");
+    await page.getByTestId("industry-race-odds-mode-toggle").click();
+    await expect(page.getByTestId("industry-race-isp-12345")).toHaveText("ISP 4.50");
+  });
+});

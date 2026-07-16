@@ -68,6 +68,7 @@ export interface IspRunner {
   status: "WINNER" | "PLACED" | "LOSER" | "NON_FINISHER";
   sortPriority: number;
   isp: number | null;
+  ispFraction: string | null;
   isFavourite: boolean;
 }
 

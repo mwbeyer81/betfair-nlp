@@ -19,8 +19,8 @@ const MOCK_RACES = [
     raceType: "Chase",
     ran: 2,
     runners: [
-      { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, isFavourite: true },
-      { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 5.5, isFavourite: false },
+      { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true },
+      { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 5.5, ispFraction: "9/2", isFavourite: false },
     ],
   },
   {
@@ -34,8 +34,8 @@ const MOCK_RACES = [
     raceType: "Hurdle",
     ran: 2,
     runners: [
-      { id: 22001, name: "State Man", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.4, isFavourite: true },
-      { id: 22002, name: "Brighterdaysahead", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 6.0, isFavourite: false },
+      { id: 22001, name: "State Man", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.4, ispFraction: "2/5", isFavourite: true },
+      { id: 22002, name: "Brighterdaysahead", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 6.0, ispFraction: "5/1", isFavourite: false },
     ],
   },
 ];
@@ -99,6 +99,19 @@ export const RaceRowNavigatesToRace: Story = {
     await canvas.findByTestId("industry-meeting-list");
     await userEvent.click(canvas.getByTestId(`industry-meeting-race-${MOCK_RACES[0].raceId}`));
     await expect(args.onNavigateToRace).toHaveBeenCalledWith(MOCK_RACES[0].raceId);
+  },
+};
+
+export const OddsModeToggle: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-meeting-list");
+    await expect(canvas.getByTestId("industry-meeting-odds-mode-toggle")).toHaveTextContent("Odds: Fraction");
+    await expect(canvas.getByTestId(`industry-meeting-isp-${MOCK_RACES[0].runners[0].id}`)).toHaveTextContent("ISP 19/20");
+
+    await userEvent.click(canvas.getByTestId("industry-meeting-odds-mode-toggle"));
+    await expect(canvas.getByTestId("industry-meeting-odds-mode-toggle")).toHaveTextContent("Odds: Decimal");
+    await expect(canvas.getByTestId(`industry-meeting-isp-${MOCK_RACES[0].runners[0].id}`)).toHaveTextContent("ISP 1.95");
   },
 };
 

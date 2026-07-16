@@ -31,6 +31,7 @@ interface RunnerDoc {
   status: RunnerStatus;
   sortPriority: number;
   isp: number | null;
+  ispFraction: string | null;
   isFavourite: boolean;
   jockey?: string;
   trainer?: string;
@@ -136,7 +137,7 @@ async function run() {
     const raceId = Number(raceIdStr);
 
     const runners: RunnerDoc[] = rows.map((row, idx) => {
-      const { odds, isFavourite } = parseIsp(row.sp);
+      const { odds, isFavourite, fraction } = parseIsp(row.sp);
       if (odds === null) nullIspCount++;
       runnerCount++;
       const num = toNullableInt(row.num);
@@ -149,6 +150,7 @@ async function run() {
         status: deriveStatus(row.pos),
         sortPriority: num ?? idx,
         isp: odds,
+        ispFraction: fraction,
         isFavourite,
         jockey: row.jockey || undefined,
         trainer: row.trainer || undefined,

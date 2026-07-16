@@ -18,9 +18,9 @@ const MOCK_RACE = {
   raceType: "Chase",
   ran: 3,
   runners: [
-    { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, isFavourite: true },
-    { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "PLACED", sortPriority: 2, isp: 5.5, isFavourite: false },
-    { id: 21003, name: "Fastorslow", num: 3, draw: null, status: "LOSER", sortPriority: 3, isp: 9.0, isFavourite: false },
+    { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true },
+    { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "PLACED", sortPriority: 2, isp: 5.5, ispFraction: "9/2", isFavourite: false },
+    { id: 21003, name: "Fastorslow", num: 3, draw: null, status: "LOSER", sortPriority: 3, isp: 9.0, ispFraction: "8/1", isFavourite: false },
   ],
 };
 
@@ -72,6 +72,19 @@ export const BackButtonNavigatesToMeeting: Story = {
     await canvas.findByTestId("industry-race-list");
     await userEvent.click(canvas.getByTestId("industry-race-back"));
     await expect(args.onNavigateToMeeting).toHaveBeenCalledWith(MOCK_RACE.meetingId);
+  },
+};
+
+export const OddsModeToggle: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-race-list");
+    await expect(canvas.getByTestId("industry-race-odds-mode-toggle")).toHaveTextContent("Odds: Fraction");
+    await expect(canvas.getByTestId(`industry-race-isp-${MOCK_RACE.runners[0].id}`)).toHaveTextContent("ISP 19/20");
+
+    await userEvent.click(canvas.getByTestId("industry-race-odds-mode-toggle"));
+    await expect(canvas.getByTestId("industry-race-odds-mode-toggle")).toHaveTextContent("Odds: Decimal");
+    await expect(canvas.getByTestId(`industry-race-isp-${MOCK_RACE.runners[0].id}`)).toHaveTextContent("ISP 1.95");
   },
 };
 

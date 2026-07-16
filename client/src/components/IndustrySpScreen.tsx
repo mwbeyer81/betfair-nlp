@@ -21,10 +21,12 @@ import {
   formatGbp,
   formatPnl,
   formatPct,
+  formatIsp,
   computeRangePnl,
   runnerPnl,
   formatRaceTime,
   formatRaceDate,
+  OddsMode,
 } from "../utils/ispFormat";
 
 interface IndustrySpScreenProps {
@@ -132,6 +134,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [pnlStats, setPnlStats] = useState<PnlStats>({ staked: 0, returns: 0, pnl: 0 });
   const [filterBounds, setFilterBounds] = useState<IspFilterBounds | null>(null);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">(() => urlSortParam());
+  const [oddsMode, setOddsMode] = useState<OddsMode>("fraction");
+  const [filtersVisible, setFiltersVisible] = useState(true);
   const PAGE_SIZE = 20;
 
   function applyFilter() {
@@ -306,7 +310,31 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </Button>
       </Appbar.Header>
 
+      <View testID="industry-sp-toolbar" style={styles.toolbar}>
+        <Button
+          testID="industry-sp-filters-toggle"
+          mode="outlined"
+          compact
+          onPress={() => setFiltersVisible(v => !v)}
+          style={styles.toolbarButton}
+          labelStyle={styles.toolbarButtonLabel}
+        >
+          {filtersVisible ? "Hide filters ▾" : "Show filters ▸"}
+        </Button>
+        <Button
+          testID="industry-sp-odds-mode-toggle"
+          mode="outlined"
+          compact
+          onPress={() => setOddsMode(m => (m === "fraction" ? "decimal" : "fraction"))}
+          style={styles.toolbarButton}
+          labelStyle={styles.toolbarButtonLabel}
+        >
+          {oddsMode === "fraction" ? "Odds: Fraction" : "Odds: Decimal"}
+        </Button>
+      </View>
+
       {/* Filter bar — kept as custom for density */}
+      {filtersVisible && (
       <View testID="industry-sp-filter-bar" style={styles.filterBar}>
         <View style={styles.filterStepper}>
           <Text style={styles.filterStepperLabel}>ISP</Text>
@@ -488,6 +516,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           Reset
         </Button>
       </View>
+      )}
 
       {!isLoading && availableCountries.length > 0 && (
         <ScrollView
@@ -620,7 +649,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
                         </Text>
                         {runner.isp != null && (
                           <Text testID={`industry-sp-isp-${runner.id}`} style={styles.bspBadge}>
-                            ISP {runner.isp}
+                            ISP {formatIsp(runner, oddsMode)}
                           </Text>
                         )}
                         {runner.isp != null && (
@@ -704,6 +733,26 @@ const styles = StyleSheet.create({
   headerButtonLabel: {
     fontSize: 11,
     fontWeight: "600",
+  },
+  toolbar: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  toolbarButton: {
+    borderRadius: radii.sm,
+    borderColor: colors.primary,
+  },
+  toolbarButtonLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.primary,
   },
   filterBar: {
     flexDirection: "row",
