@@ -120,10 +120,17 @@ async function run() {
   const docs: RaceDoc[] = [];
   let nullIspCount = 0;
   let runnerCount = 0;
+  let nonUkSkipped = 0;
+  const nonUkCoursesSeen = new Set<string>();
 
   for (const [raceIdStr, rows] of races) {
     const first = rows[0];
     const { course, countryCode } = deriveCountryCode(first.course);
+    if (countryCode === null) {
+      nonUkSkipped++;
+      nonUkCoursesSeen.add(course);
+      continue;
+    }
     const raceDate = first.date;
     const raceTime = `${first.date}T${(first.off || "00:00").padStart(5, "0")}:00`;
     const raceId = Number(raceIdStr);
@@ -168,6 +175,10 @@ async function run() {
   }
 
   console.log(`Built ${docs.length} race docs, ${runnerCount} runners, ${nullIspCount} with null ISP`);
+  console.log(
+    `Skipped ${nonUkSkipped} non-UK races across ${nonUkCoursesSeen.size} courses` +
+      (nonUkCoursesSeen.size > 0 ? `: ${[...nonUkCoursesSeen].sort().join(", ")}` : "")
+  );
 
   for (let i = 0; i < docs.length; i += BATCH_SIZE) {
     const batch = docs.slice(i, i + BATCH_SIZE);

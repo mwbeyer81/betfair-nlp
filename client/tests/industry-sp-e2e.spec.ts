@@ -342,3 +342,74 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
     await expect(firstMeeting).toContainText(earliest.course);
   });
 });
+
+// The 59 racecourses currently licensed by the British Horseracing Authority
+// in Great Britain (England/Scotland/Wales) — sourced from
+// britishhorseracing.com and cross-checked against Wikipedia's "List of
+// British racecourses", using the short course-name forms (no "Park"/"City"/
+// "-on-Avon" suffixes) that match how this dataset's `course` field is
+// written. Deliberately excludes Down Royal/Downpatrick (Northern Ireland —
+// administered by Horse Racing Ireland, not the BHA) since the requirement
+// is Great Britain only, not "anything under the UK state".
+const UK_RACECOURSES = new Set([
+  "Aintree", "Ascot", "Ayr", "Bangor-on-Dee", "Bath", "Beverley", "Brighton",
+  "Carlisle", "Cartmel", "Catterick", "Chelmsford", "Cheltenham", "Chepstow", "Chester",
+  "Doncaster", "Epsom", "Exeter", "Fakenham", "Ffos Las", "Fontwell", "Goodwood",
+  "Hamilton", "Haydock", "Hereford", "Hexham", "Huntingdon",
+  "Kelso", "Kempton", "Leicester", "Lingfield", "Ludlow",
+  "Market Rasen", "Musselburgh", "Newbury", "Newcastle", "Newmarket", "Newton Abbot",
+  "Nottingham", "Perth", "Plumpton", "Pontefract", "Redcar", "Ripon",
+  "Salisbury", "Sandown", "Sedgefield", "Southwell", "Stratford", "Taunton", "Thirsk",
+  "Uttoxeter", "Warwick", "Wetherby", "Wincanton", "Windsor", "Wolverhampton", "Worcester",
+  "Yarmouth", "York",
+]);
+
+test.describe("Industry SP data is UK-only (real app at localhost:80)", () => {
+  // Regression test for the reported bug: the Kaggle source dataset is
+  // titled "UK/Ireland" but actually covers Racing Post's full international
+  // betting-market coverage (Hong Kong, Japan, Australia, US, France, UAE,
+  // etc.) — Sha Tin (Hong Kong) was the very first race in the imported
+  // trial window. This test intentionally has no import/reseed step of its
+  // own: it checks whatever data is *currently live*, so it fails against
+  // the un-filtered dataset and passes once the import is UK-only.
+  test("every race returned by the API is at a genuine UK (Great Britain) racecourse", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp?limit=5000`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.data.length).toBeGreaterThan(0);
+
+    const nonUkCourses = [...new Set(body.data.map((r: { course: string }) => r.course))].filter(
+      (course) => !UK_RACECOURSES.has(course as string)
+    );
+    expect(nonUkCourses, `Found non-UK courses in the data: ${JSON.stringify(nonUkCourses)}`).toEqual([]);
+  });
+
+  test("no Irish racecourses are present either", async ({ request }) => {
+    const IRISH_COURSES = [
+      "Ballinrobe", "Bellewstown", "Clonmel", "Cork", "Curragh", "Down Royal", "Downpatrick",
+      "Dundalk", "Fairyhouse", "Gowran Park", "Kilbeggan", "Killarney", "Leopardstown",
+      "Limerick", "Naas", "Navan", "Punchestown", "Roscommon", "Sligo", "Thurles",
+      "Tramore", "Wexford",
+    ];
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp?limit=5000`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    const courses = new Set(body.data.map((r: { course: string }) => r.course));
+    const irishFound = IRISH_COURSES.filter((c) => courses.has(c));
+    expect(irishFound, `Found Irish courses in the data: ${JSON.stringify(irishFound)}`).toEqual([]);
+  });
+
+  test("the countries filter never offers IE, only GB", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp/countries`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(body.data).toEqual(["GB"]);
+  });
+});

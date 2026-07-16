@@ -48,18 +48,27 @@ describe("deriveCountryCode", () => {
     expect(deriveCountryCode("Lingfield (AW)")).toEqual({ course: "Lingfield", countryCode: "GB" });
   });
 
-  it("maps a known legacy country suffix", () => {
-    expect(deriveCountryCode("Tramore (IRE)")).toEqual({ course: "Tramore", countryCode: "IE" });
-    expect(deriveCountryCode("Auteuil (FR)")).toEqual({ course: "Auteuil", countryCode: "FR" });
-  });
-
-  it("defaults known Irish courses to IE when no suffix is present", () => {
-    expect(deriveCountryCode("Fairyhouse")).toEqual({ course: "Fairyhouse", countryCode: "IE" });
-    expect(deriveCountryCode("curragh")).toEqual({ course: "curragh", countryCode: "IE" });
-  });
-
-  it("defaults everything else to GB", () => {
+  it("recognises a genuine UK racecourse regardless of a country-style suffix", () => {
+    // The suffix isn't trusted for country determination — only AW is
+    // stripped as non-country. A UK course is matched by name either way.
     expect(deriveCountryCode("Ascot")).toEqual({ course: "Ascot", countryCode: "GB" });
-    expect(deriveCountryCode("Compiegne")).toEqual({ course: "Compiegne", countryCode: "GB" });
+    expect(deriveCountryCode("ascot")).toEqual({ course: "ascot", countryCode: "GB" });
+  });
+
+  it("rejects (countryCode: null) a known Irish racecourse — not even Ireland is imported", () => {
+    expect(deriveCountryCode("Fairyhouse")).toEqual({ course: "Fairyhouse", countryCode: null });
+    expect(deriveCountryCode("curragh")).toEqual({ course: "curragh", countryCode: null });
+    expect(deriveCountryCode("Tramore (IRE)")).toEqual({ course: "Tramore (IRE)", countryCode: null });
+  });
+
+  it("rejects (countryCode: null) an international racecourse, even one previously mislabeled GB by the old default-to-GB heuristic", () => {
+    expect(deriveCountryCode("Compiegne")).toEqual({ course: "Compiegne", countryCode: null });
+    expect(deriveCountryCode("Sha Tin")).toEqual({ course: "Sha Tin", countryCode: null });
+    expect(deriveCountryCode("Auteuil (FR)")).toEqual({ course: "Auteuil (FR)", countryCode: null });
+  });
+
+  it("excludes Down Royal and Downpatrick (Northern Ireland, administered by Horse Racing Ireland, not the BHA)", () => {
+    expect(deriveCountryCode("Down Royal")).toEqual({ course: "Down Royal", countryCode: null });
+    expect(deriveCountryCode("Downpatrick")).toEqual({ course: "Downpatrick", countryCode: null });
   });
 });
