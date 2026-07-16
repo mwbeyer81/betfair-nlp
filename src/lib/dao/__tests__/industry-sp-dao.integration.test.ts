@@ -97,6 +97,58 @@ describe("IndustrySpDAO (integration)", () => {
     }
   });
 
+  it("page 1 of an ascending/descending sort actually contains the true first/last race, not just a locally-consistent subset", async () => {
+    // Regression test: the aggregation used to sort documents that still
+    // carried their full embedded runners array, which risked exceeding
+    // Atlas M0's 32MB in-memory sort buffer as the collection grew (the same
+    // bug already caused MongoServerError 292 / 500s on the equivalent
+    // Betfair-SP query in production). A pipeline bug in that neighborhood —
+    // e.g. accidentally paginating before sorting — would still produce a
+    // page whose items are consistent with *each other*, which the test
+    // above wouldn't catch, while silently omitting the actual first/last
+    // race in the full dataset. Comparing against a raw, unpaginated
+    // min/max query closes that gap.
+    const bounds = await dao.getFilterBounds();
+    const rawExtremes = await db
+      .collection("industry_starting_prices")
+      .aggregate([
+        { $match: {} },
+        { $group: { _id: null, min: { $min: "$raceTime" }, max: { $max: "$raceTime" } } },
+      ])
+      .toArray();
+    const trueMin = rawExtremes[0]?.min;
+    const trueMax = rawExtremes[0]?.max;
+    expect(trueMin).toBeTruthy();
+    expect(trueMax).toBeTruthy();
+
+    const asc = await dao.getAllRacesByRace(1, 20, 1, bounds.maxRunnersPerRace, [], bounds.minIsp, bounds.maxIsp, "asc");
+    expect(asc.data[0]?.raceTime).toBe(trueMin);
+
+    const desc = await dao.getAllRacesByRace(1, 20, 1, bounds.maxRunnersPerRace, [], bounds.minIsp, bounds.maxIsp, "desc");
+    expect(desc.data[0]?.raceTime).toBe(trueMax);
+  });
+
+  it("a row-range (fromRow/toRow) is computed relative to the current sort order, not natural document order", async () => {
+    // Regression test: total/totalRunners/pnlStats used to apply the
+    // fromRow/toRow skip+limit without sorting first, so "row 1-5" meant
+    // "the first 5 docs in whatever order Mongo happened to store them" —
+    // which silently disagreed with the sorted race list actually shown to
+    // the user, especially for a descending sort where it should mean "the
+    // 5 latest races" but didn't.
+    const ascRanged = await dao.getAllRacesByRace(1, 20, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, 5);
+    expect(ascRanged.total).toBe(5);
+    expect(ascRanged.data.map(r => r.raceTime)).toEqual([...ascRanged.data.map(r => r.raceTime)].sort());
+
+    const descRanged = await dao.getAllRacesByRace(1, 20, 1, 100, [], 1, 100000, "desc", 1, 10000, 1, 5);
+    expect(descRanged.total).toBe(5);
+    // The 5 latest races (desc row-range) must be strictly newer than every
+    // one of the 5 earliest races (asc row-range) — the two ranges can only
+    // overlap if there are 5 or fewer races in the whole dataset.
+    const earliestOfDescRange = descRanged.data[descRanged.data.length - 1].raceTime;
+    const latestOfAscRange = ascRanged.data[ascRanged.data.length - 1].raceTime;
+    expect(new Date(earliestOfDescRange).getTime()).toBeGreaterThanOrEqual(new Date(latestOfAscRange).getTime());
+  });
+
   it("getFilterBounds returns sensible bounds", async () => {
     const bounds = await dao.getFilterBounds();
     expect(bounds.maxRunnersPerRace).toBeGreaterThan(0);

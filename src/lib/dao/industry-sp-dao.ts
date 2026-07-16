@@ -38,9 +38,11 @@ interface IspRaceDocument extends IspRace {
 
 export class IndustrySpDAO {
   private collection: Collection<IspRaceDocument>;
+  private collectionName: string;
 
   constructor(db: Db, collectionName = "industry_starting_prices") {
     this.collection = db.collection<IspRaceDocument>(collectionName);
+    this.collectionName = collectionName;
   }
 
   /**
@@ -72,13 +74,40 @@ export class IndustrySpDAO {
 
     const rowSkip = fromRow - 1;
     const rowLimit = toRow !== null ? toRow - fromRow + 1 : null;
-    const rowRangeStages: Record<string, unknown>[] = [];
+    // A row range means "row N of the current sort order", so any branch
+    // using rowRangeStages must sort first — done on the lightweight
+    // (runners-free) doc shape below, never on the full array.
+    const rowRangeStages: Record<string, unknown>[] = [{ $sort: { raceTime: raceTimeSortDir } }];
     if (rowSkip > 0) rowRangeStages.push({ $skip: rowSkip });
     if (rowLimit !== null) rowRangeStages.push({ $limit: rowLimit });
 
     const effectiveDataSkip = rowSkip + (page - 1) * limit;
     const effectiveDataLimit =
       rowLimit !== null ? Math.min(limit, Math.max(1, rowLimit - (page - 1) * limit)) : limit;
+
+    // Only a lightweight per-race ISP-in-range *count* is computed here, not
+    // the actual filtered/sorted runners array — Atlas M0 enforces a 32MB
+    // in-memory sort buffer, and $sort-ing documents that still carry their
+    // full embedded runners array can exceed that once the collection grows
+    // (this already caused MongoServerError 292 / 500s on the equivalent
+    // Betfair-SP query in production — see market-definition-dao.ts). Every
+    // branch below re-attaches runners, if it needs them, via a $lookup back
+    // onto this same collection *after* sorting/paginating down to a handful
+    // of docs, never before.
+    const runnersInRangeFilter = {
+      $filter: {
+        input: "$runners",
+        as: "r",
+        cond: {
+          $and: [
+            { $ifNull: ["$$r.isp", false] },
+            { $gt: ["$$r.isp", 1] },
+            { $gte: ["$$r.isp", minIsp] },
+            { $lte: ["$$r.isp", maxIsp] },
+          ],
+        },
+      },
+    };
 
     const basePipeline = [
       { $match: countryMatch },
@@ -93,11 +122,33 @@ export class IndustrySpDAO {
               },
             },
           },
+          inRangeRunnersCount: { $size: runnersInRangeFilter },
+        },
+      },
+      {
+        $match: {
+          $expr: {
+            $and: [
+              { $gte: ["$allRunnersCount", minRunners] },
+              { $lte: ["$allRunnersCount", maxRunners] },
+              { $gte: ["$inRangeRunnersCount", minInIspRange] },
+              { $lte: ["$inRangeRunnersCount", maxInIspRange] },
+            ],
+          },
+        },
+      },
+      { $project: { runners: 0 } },
+    ];
+
+    const reattachSortedRunners = [
+      { $lookup: { from: this.collectionName, localField: "_id", foreignField: "_id", as: "_docs" } },
+      {
+        $addFields: {
           runners: {
             $sortArray: {
               input: {
                 $filter: {
-                  input: "$runners",
+                  input: { $ifNull: [{ $arrayElemAt: ["$_docs.runners", 0] }, []] },
                   as: "r",
                   cond: {
                     $and: [
@@ -111,18 +162,6 @@ export class IndustrySpDAO {
               },
               sortBy: { sortPriority: 1 },
             },
-          },
-        },
-      },
-      {
-        $match: {
-          $expr: {
-            $and: [
-              { $gte: ["$allRunnersCount", minRunners] },
-              { $lte: ["$allRunnersCount", maxRunners] },
-              { $gte: [{ $size: "$runners" }, minInIspRange] },
-              { $lte: [{ $size: "$runners" }, maxInIspRange] },
-            ],
           },
         },
       },
@@ -142,6 +181,7 @@ export class IndustrySpDAO {
               { $sort: { raceTime: raceTimeSortDir } },
               { $skip: effectiveDataSkip },
               { $limit: effectiveDataLimit },
+              ...reattachSortedRunners,
               {
                 $project: {
                   _id: 0,
@@ -159,9 +199,13 @@ export class IndustrySpDAO {
               },
             ],
             total: [...rowRangeStages, { $count: "count" }],
-            totalRunners: [...rowRangeStages, { $group: { _id: null, count: { $sum: { $size: "$runners" } } } }],
+            totalRunners: [
+              ...rowRangeStages,
+              { $group: { _id: null, count: { $sum: "$inRangeRunnersCount" } } },
+            ],
             pnlStats: [
               ...rowRangeStages,
+              ...reattachSortedRunners,
               { $unwind: "$runners" },
               { $match: { "runners.isp": { $exists: true, $gt: 1 } } },
               {

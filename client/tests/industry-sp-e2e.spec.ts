@@ -272,4 +272,73 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
 
     expect(sortParam).toBe("desc");
   });
+
+  async function fetchGroundTruthExtremes(request: import("@playwright/test").APIRequestContext) {
+    const token = await getBearerToken(request);
+    // minRunners/maxRunners must mirror the frontend's own defaults
+    // (IndustrySpScreen.tsx's FILTER_DEFAULTS) — the backend's own default
+    // maxRunners (30) is wider, so leaving it off here could pick a "true"
+    // earliest/latest race that the frontend's default view wouldn't
+    // actually include, causing a false mismatch.
+    const res = await request.get(`${API_URL}/api/industry-sp?limit=5000&sort=asc&minRunners=1&maxRunners=20`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    const races: { raceTime: string; course: string }[] = body.data;
+    const earliest = races.reduce((min, r) => (r.raceTime < min.raceTime ? r : min), races[0]);
+    const latest = races.reduce((max, r) => (r.raceTime > max.raceTime ? r : max), races[0]);
+    return { earliest, latest };
+  }
+
+  // Compares by course name (raw, no timezone-dependent formatting) rather
+  // than the displayed HH:MM, which goes through a UTC-naive-string ->
+  // Europe/London conversion (formatRaceTime) that shifts by an hour across
+  // the BST boundary — comparing formatted time text would be a fragile,
+  // timezone-dependent test in its own right.
+  test("'First → Last' shows the true earliest race in the full dataset, not just a locally-sorted page", async ({ page, request }) => {
+    // Regression test: the aggregation used to $sort documents that still
+    // carried their full embedded runners array, risking Atlas M0's 32MB
+    // in-memory sort limit as the collection grows (this already caused a
+    // MongoServerError 292 / 500 in production for the equivalent Betfair-SP
+    // query). A bug in that neighborhood — e.g. paginating before sorting —
+    // would produce a page whose races are consistent with each other while
+    // silently missing the actual earliest race, which is exactly what was
+    // reported. Ground truth here comes from a raw, high-limit API call
+    // rather than a UI-only check, so this can't pass by coincidence.
+    const { earliest } = await fetchGroundTruthExtremes(request);
+
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    const firstMeeting = page.locator('[data-testid^="industry-sp-meeting-"]').first();
+    await expect(firstMeeting).toBeVisible({ timeout: 10000 });
+    await expect(firstMeeting).toContainText(earliest.course);
+  });
+
+  test("'Last → First' shows the true latest race in the full dataset", async ({ page, request }) => {
+    const { latest } = await fetchGroundTruthExtremes(request);
+
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await page.getByTestId("industry-sp-sort-toggle").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 30000 });
+
+    const firstMeeting = page.locator('[data-testid^="industry-sp-meeting-"]').first();
+    await expect(firstMeeting).toBeVisible({ timeout: 10000 });
+    await expect(firstMeeting).toContainText(latest.course);
+  });
+
+  test("toggling back to 'First → Last' still shows the true earliest race", async ({ page, request }) => {
+    const { earliest } = await fetchGroundTruthExtremes(request);
+
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await page.getByTestId("industry-sp-sort-toggle").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 30000 });
+    await page.getByTestId("industry-sp-sort-toggle").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 30000 });
+
+    const firstMeeting = page.locator('[data-testid^="industry-sp-meeting-"]').first();
+    await expect(firstMeeting).toBeVisible({ timeout: 10000 });
+    await expect(firstMeeting).toContainText(earliest.course);
+  });
 });
