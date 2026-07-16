@@ -242,6 +242,93 @@ export class IndustrySpDAO {
     };
   }
 
+  /**
+   * All races for one meeting (course + date), sorted by raceTime. A
+   * meeting only ever has a handful of races, so no pagination or 32MB
+   * sort-limit concerns here — this is a plain $match + $sort.
+   */
+  public async getRacesByMeetingId(meetingId: string): Promise<IspRace[]> {
+    const races = await this.collection
+      .aggregate<IspRace>([
+        { $match: { meetingId } },
+        {
+          $addFields: {
+            runners: {
+              $sortArray: {
+                input: {
+                  $filter: {
+                    input: "$runners",
+                    as: "r",
+                    cond: { $and: [{ $ifNull: ["$$r.isp", false] }, { $gt: ["$$r.isp", 1] }] },
+                  },
+                },
+                sortBy: { sortPriority: 1 },
+              },
+            },
+          },
+        },
+        { $sort: { raceTime: 1 } },
+        {
+          $project: {
+            _id: 0,
+            raceId: 1,
+            meetingId: 1,
+            meetingName: 1,
+            course: 1,
+            countryCode: 1,
+            raceTime: 1,
+            raceName: 1,
+            raceType: 1,
+            ran: 1,
+            runners: 1,
+          },
+        },
+      ])
+      .toArray();
+    return races;
+  }
+
+  /** A single race by its raceId, or null if not found. */
+  public async getRaceById(raceId: number): Promise<IspRace | null> {
+    const [race] = await this.collection
+      .aggregate<IspRace>([
+        { $match: { _id: raceId } },
+        {
+          $addFields: {
+            runners: {
+              $sortArray: {
+                input: {
+                  $filter: {
+                    input: "$runners",
+                    as: "r",
+                    cond: { $and: [{ $ifNull: ["$$r.isp", false] }, { $gt: ["$$r.isp", 1] }] },
+                  },
+                },
+                sortBy: { sortPriority: 1 },
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            raceId: 1,
+            meetingId: 1,
+            meetingName: 1,
+            course: 1,
+            countryCode: 1,
+            raceTime: 1,
+            raceName: 1,
+            raceType: 1,
+            ran: 1,
+            runners: 1,
+          },
+        },
+      ])
+      .toArray();
+    return race ?? null;
+  }
+
   public async getPnlStats(): Promise<{ staked: number; returns: number; pnl: number }> {
     const [result] = await this.collection
       .aggregate<{ staked: number; returns: number }>([

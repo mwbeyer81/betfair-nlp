@@ -270,6 +270,25 @@ class ChatApi {
     return result.data;
   }
 
+  async getIspMeeting(meetingId: string): Promise<IspRace[]> {
+    const response = await fetch(
+      `${this.baseUrl}/api/industry-sp/meeting/${encodeURIComponent(meetingId)}`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch meeting");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIspRace(raceId: number): Promise<IspRace> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/race/${raceId}`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch race");
+    const result = await response.json();
+    return result.data;
+  }
+
   async getStats(): Promise<Stats> {
     const response = await fetch(`${this.baseUrl}/api/stats`, {
       headers: this.authHeader(),

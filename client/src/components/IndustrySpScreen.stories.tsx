@@ -90,6 +90,8 @@ const meta: Meta<typeof IndustrySpScreen> = {
   },
   args: {
     onNavigateToEvents: fn(),
+    onNavigateToMeeting: fn(),
+    onNavigateToRace: fn(),
   },
 };
 
@@ -198,6 +200,28 @@ export const EventsButtonNavigates: Story = {
     await expect(btn).toBeInTheDocument();
     await userEvent.click(btn);
     await expect(args.onNavigateToEvents).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const MeetingHeaderNavigatesToMeeting: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    const link = canvas.getByTestId(`industry-sp-meeting-link-${MOCK_RACES[0].meetingId}`);
+    await userEvent.click(link);
+    await expect(args.onNavigateToMeeting).toHaveBeenCalledWith(MOCK_RACES[0].meetingId);
+  },
+};
+
+export const RaceRowNavigatesToRace: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    const raceRow = canvas.getByTestId(`industry-sp-race-${MOCK_RACES[0].raceId}`);
+    await userEvent.click(raceRow);
+    await expect(args.onNavigateToRace).toHaveBeenCalledWith(MOCK_RACES[0].raceId);
   },
 };
 

@@ -56,6 +56,14 @@ export class IndustrySpService {
     return this.industrySpDAO.getFilterBounds();
   }
 
+  public async getRacesByMeetingId(meetingId: string): Promise<IspRace[]> {
+    return this.industrySpDAO.getRacesByMeetingId(meetingId);
+  }
+
+  public async getRaceById(raceId: number): Promise<IspRace | null> {
+    return this.industrySpDAO.getRaceById(raceId);
+  }
+
   public async getDistinctCountryCodes(): Promise<string[]> {
     return this.industrySpDAO.getDistinctCountryCodes();
   }

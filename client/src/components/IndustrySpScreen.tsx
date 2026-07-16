@@ -16,72 +16,21 @@ import {
 } from "react-native-paper";
 import { chatApi, IspRace, IspRunner, PnlStats, IspFilterBounds } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
+import {
+  stakeToWin1,
+  formatGbp,
+  formatPnl,
+  formatPct,
+  computeRangePnl,
+  runnerPnl,
+  formatRaceTime,
+  formatRaceDate,
+} from "../utils/ispFormat";
 
 interface IndustrySpScreenProps {
   onNavigateToEvents: () => void;
-}
-
-function stakeToWin1(isp: number): number {
-  return 1 / (isp - 1);
-}
-
-function formatGbp(val: number): string {
-  return `£${Math.abs(val).toFixed(2)}`;
-}
-
-function formatPnl(val: number): string {
-  return val >= 0 ? `+${formatGbp(val)}` : `-${formatGbp(val)}`;
-}
-
-function formatPct(pnl: number, staked: number): string {
-  if (staked === 0) return "";
-  const pct = (pnl / staked) * 100;
-  return pct >= 0 ? `+${pct.toFixed(1)}%` : `${pct.toFixed(1)}%`;
-}
-
-function computeRangePnl(races: IspRace[]): PnlStats {
-  let staked = 0, returns = 0, count = 0;
-  for (const race of races) {
-    for (const runner of race.runners) {
-      if (runner.isp != null && runner.isp > 1) {
-        count++;
-        const stake = 1 / (runner.isp - 1);
-        staked += stake;
-        if (runner.status === "WINNER") returns += stake + 1;
-      }
-    }
-  }
-  return { staked, returns, pnl: returns - staked, count };
-}
-
-function runnerPnl(runner: IspRunner): number | null {
-  if (runner.isp == null) return null;
-  return runner.status === "WINNER" ? 1 : -stakeToWin1(runner.isp);
-}
-
-function formatRaceTime(isoTime: string): string {
-  try {
-    return new Date(isoTime).toLocaleTimeString("en-GB", {
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: "Europe/London",
-    });
-  } catch {
-    return isoTime;
-  }
-}
-
-function formatRaceDate(isoTime: string): string {
-  try {
-    return new Date(isoTime).toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      timeZone: "Europe/London",
-    });
-  } catch {
-    return "";
-  }
+  onNavigateToMeeting: (meetingId: string) => void;
+  onNavigateToRace: (raceId: number) => void;
 }
 
 // Filter values are persisted to the URL query string (using the same param
@@ -147,6 +96,8 @@ function updateUrlParams(params: Record<string, string | undefined>) {
 
 export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   onNavigateToEvents,
+  onNavigateToMeeting,
+  onNavigateToRace,
 }) => {
   const [races, setRaces] = useState<IspRace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -629,14 +580,19 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             )}
             {Object.entries(byMeeting).map(([meetingId, { meetingName, races: meetingRaces }]) => (
               <View key={meetingId} testID={`industry-sp-meeting-${meetingId}`}>
-                <View style={styles.eventHeader}>
+                <TouchableOpacity
+                  testID={`industry-sp-meeting-link-${meetingId}`}
+                  style={styles.eventHeader}
+                  onPress={() => onNavigateToMeeting(meetingId)}
+                >
                   <Text style={styles.eventName}>{meetingName}</Text>
-                </View>
+                </TouchableOpacity>
                 {meetingRaces.map(race => (
                   <View key={race.raceId}>
-                    <View
+                    <TouchableOpacity
                       testID={`industry-sp-race-${race.raceId}`}
                       style={styles.raceHeader}
+                      onPress={() => onNavigateToRace(race.raceId)}
                     >
                       <Text style={styles.raceTime}>{formatRaceTime(race.raceTime)}</Text>
                       <Text style={styles.raceDate}>{formatRaceDate(race.raceTime)}</Text>
@@ -651,7 +607,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
                           </Text>
                         );
                       })()}
-                    </View>
+                    </TouchableOpacity>
                     {race.runners.map((runner: IspRunner) => (
                       <View
                         key={runner.id}

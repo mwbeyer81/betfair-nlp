@@ -413,3 +413,153 @@ test.describe("Industry SP data is UK-only (real app at localhost:80)", () => {
     expect(body.data).toEqual(["GB"]);
   });
 });
+
+test.describe("GET /api/industry-sp/meeting/:meetingId and /race/:raceId (live server @ localhost:3000)", () => {
+  test("meeting endpoint returns all races for a meeting, sorted by time", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const listRes = await request.get(`${API_URL}/api/industry-sp?limit=1`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const listBody = await listRes.json();
+    const meetingId = listBody.data[0].meetingId;
+
+    const res = await request.get(`${API_URL}/api/industry-sp/meeting/${encodeURIComponent(meetingId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.length).toBeGreaterThan(0);
+    for (const race of body.data) {
+      expect(race.meetingId).toBe(meetingId);
+    }
+    for (let i = 1; i < body.data.length; i++) {
+      expect(body.data[i].raceTime >= body.data[i - 1].raceTime).toBe(true);
+    }
+  });
+
+  test("meeting endpoint returns 401 without auth", async ({ request }) => {
+    const res = await request.get(`${API_URL}/api/industry-sp/meeting/anything`);
+    expect(res.status()).toBe(401);
+  });
+
+  test("race endpoint returns a single race with its runners", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const listRes = await request.get(`${API_URL}/api/industry-sp?limit=1`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const listBody = await listRes.json();
+    const raceId = listBody.data[0].raceId;
+
+    const res = await request.get(`${API_URL}/api/industry-sp/race/${raceId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.data.raceId).toBe(raceId);
+    expect(Array.isArray(body.data.runners)).toBe(true);
+    expect(body.data.runners.length).toBeGreaterThan(0);
+  });
+
+  test("race endpoint returns 404 for an unknown raceId", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp/race/999999999`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(404);
+  });
+
+  test("race endpoint returns 401 without auth", async ({ request }) => {
+    const res = await request.get(`${API_URL}/api/industry-sp/race/123`);
+    expect(res.status()).toBe(401);
+  });
+});
+
+test.describe("Meeting and race drill-down navigation (real app at localhost:80)", () => {
+  test("tapping a meeting header opens a full-screen view of just that meeting", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    const meetingLink = page.locator('[data-testid^="industry-sp-meeting-link-"]').first();
+    const meetingText = (await meetingLink.textContent()) ?? "";
+    await meetingLink.click();
+
+    await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
+    await expect(page.getByTestId("industry-meeting-loading")).not.toBeVisible({ timeout: 30000 });
+    expect(page.url()).toContain("/isp/meeting?id=");
+
+    // Every race shown belongs to the meeting that was tapped.
+    const races = page.locator('[data-testid^="industry-meeting-race-"]');
+    await expect(races.first()).toBeVisible({ timeout: 10000 });
+    expect(await races.count()).toBeGreaterThan(0);
+    // Sanity: the tapped meeting's course name appears in the header title.
+    const courseName = meetingText.split("—")[0].trim();
+    await expect(page.getByText(courseName, { exact: false }).first()).toBeVisible();
+  });
+
+  test("meeting screen's back button returns to /isp", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await page.locator('[data-testid^="industry-sp-meeting-link-"]').first().click();
+    await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-meeting-back").click();
+
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-meeting-screen")).not.toBeVisible();
+    expect(page.url()).toMatch(/\/isp(\?|$)/);
+  });
+
+  test("tapping a race (from the main list) opens a full-screen view of just that race", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    const raceRow = page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').first();
+    await raceRow.click();
+
+    await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
+    await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 30000 });
+    expect(page.url()).toContain("/isp/race?id=");
+
+    const runners = page.locator('[data-testid^="industry-race-item-"]');
+    await expect(runners.first()).toBeVisible({ timeout: 10000 });
+    expect(await runners.count()).toBeGreaterThan(0);
+  });
+
+  test("tapping a race from within the meeting view opens that race, and back returns to the meeting", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await page.locator('[data-testid^="industry-sp-meeting-link-"]').first().click();
+    await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-meeting-loading")).not.toBeVisible({ timeout: 30000 });
+    const meetingUrl = page.url();
+
+    const raceRow = page.locator('[data-testid^="industry-meeting-race-"]').first();
+    await raceRow.click();
+    await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 30000 });
+
+    await page.getByTestId("industry-race-back").click();
+
+    await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toBe(meetingUrl);
+  });
+
+  test("the race header shows a runner count that matches the number of runner rows shown", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').first().click();
+    await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 30000 });
+
+    const headerText = await page.getByTestId("industry-race-header").textContent();
+    const match = headerText?.match(/(\d+) runners/);
+    expect(match).not.toBeNull();
+    const expectedCount = parseInt(match![1], 10);
+
+    const actualCount = await page.locator('[data-testid^="industry-race-item-"]').count();
+    expect(actualCount).toBe(expectedCount);
+  });
+});

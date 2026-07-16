@@ -154,3 +154,64 @@ test.describe("Industry SP screen - filter URL persistence + Reset (MSW mocked)"
     await expect(page.getByTestId("industry-sp-race-914592")).toBeVisible({ timeout: 3000 });
   });
 });
+
+test.describe("Industry SP meeting/race drill-down (MSW mocked)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+  });
+
+  test("tapping the meeting header opens a full-screen meeting view", async ({ page }) => {
+    await page.getByTestId("industry-sp-meeting-link-Cheltenham|2025-01-01").click();
+
+    await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
+    await expect(page.getByTestId("industry-meeting-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/isp/meeting?id=");
+
+    // Both mocked races for this meeting are shown.
+    await expect(page.getByTestId("industry-meeting-race-914592")).toBeVisible();
+    await expect(page.getByTestId("industry-meeting-race-914593")).toBeVisible();
+  });
+
+  test("meeting screen back button returns to /isp", async ({ page }) => {
+    await page.getByTestId("industry-sp-meeting-link-Cheltenham|2025-01-01").click();
+    await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-meeting-back").click();
+
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toMatch(/\/isp(\?|$)/);
+  });
+
+  test("tapping a race from the main list opens a full-screen race view", async ({ page }) => {
+    await page.getByTestId("industry-sp-race-914592").click();
+
+    await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/isp/race?id=914592");
+
+    await expect(page.getByTestId("industry-race-item-12345")).toBeVisible();
+    await expect(page.getByTestId("industry-race-item-12346")).toBeVisible();
+    await expect(page.getByTestId("industry-race-item-12347")).toBeVisible();
+  });
+
+  test("race screen back button returns to the race's meeting", async ({ page }) => {
+    await page.getByTestId("industry-sp-race-914592").click();
+    await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-race-back").click();
+
+    await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/isp/meeting?id=");
+  });
+
+  test("404 race shows an error state", async ({ page }) => {
+    await page.goto("/isp/race?id=999999");
+    await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-race-error")).toBeVisible();
+  });
+});

@@ -279,6 +279,31 @@ router.get("/api/industry-sp", async (req, res) => {
   }
 });
 
+router.get("/api/industry-sp/meeting/:meetingId", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const data = await industrySpService.getRacesByMeetingId(req.params.meetingId);
+    res.status(200).json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error("getRacesByMeetingId error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch meeting" });
+  }
+});
+
+router.get("/api/industry-sp/race/:raceId", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const raceId = parseInt(req.params.raceId, 10);
+    if (isNaN(raceId)) return res.status(400).json({ success: false, error: "Invalid raceId" });
+    const race = await industrySpService.getRaceById(raceId);
+    if (!race) return res.status(404).json({ success: false, error: "Race not found" });
+    res.status(200).json({ success: true, data: race });
+  } catch (error) {
+    console.error("getRaceById error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch race" });
+  }
+});
+
 // 404 and error handlers
 router.use((req, res) => {
   res.status(404).json({ error: "Not found", message: `Route ${req.originalUrl} not found` });
