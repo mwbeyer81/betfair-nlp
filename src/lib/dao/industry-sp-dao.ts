@@ -75,24 +75,41 @@ export class IndustrySpDAO {
 
     const rowSkip = fromRow - 1;
     const rowLimit = toRow !== null ? toRow - fromRow + 1 : null;
-    // A row range means "row N of the current sort order", so a branch using
-    // rowRangeStages must sort first when a range is actually being applied.
-    // With no fromRow/toRow narrowing (the common case), rowRangeStages must
-    // stay empty — an unconditional leading $sort here would run over every
-    // matching doc for no reason, and once the collection is large enough
-    // that's exactly what blew Atlas M0's 32MB in-memory sort limit (this
-    // already happened once for the equivalent Betfair-SP query — see
-    // market-definition-dao.ts — and the fix there is the same shape).
+    // A row range means "row N of the current sort order", so applying it
+    // requires a $sort. With no fromRow/toRow narrowing (the common case),
+    // no extra sort stage is added here at all — the no-range case is
+    // handled entirely by dataPageStages below.
+    //
+    // When a range IS active, `raceTime` is indexed ({raceTime: 1}, see
+    // createIndexes below), but only if the $sort is the *first* stage in
+    // the pipeline — MongoDB can then walk the index directly instead of
+    // buffering an in-memory sort, so $match/$addFields/$skip/$limit
+    // afterwards cost O(1) memory regardless of collection size. Putting
+    // the $sort anywhere after basePipeline's $match/$addFields (as this
+    // used to) forces a blocking in-memory sort instead — confirmed live:
+    // that blocking sort works up to ~40k matching docs but exceeds Atlas
+    // M0's 32MB in-memory sort limit above ~45k, well under this
+    // collection's real size (~109k) — and `allowDiskUse` can't rescue it,
+    // since Atlas M0/M2/M5 silently ignore that option. Leading with the
+    // indexed $sort avoids the blocking sort altogether, at any range size.
     const rowRangeActive = rowSkip > 0 || rowLimit !== null;
-    const rowRangeStages: Record<string, unknown>[] = rowRangeActive
+    const leadingSortStage: Record<string, unknown>[] = rowRangeActive
       ? [{ $sort: { raceTime: raceTimeSortDir } }]
       : [];
+    const rowRangeStages: Record<string, unknown>[] = [];
     if (rowSkip > 0) rowRangeStages.push({ $skip: rowSkip });
     if (rowLimit !== null) rowRangeStages.push({ $limit: rowLimit });
 
-    const effectiveDataSkip = rowSkip + (page - 1) * limit;
-    const effectiveDataLimit =
-      rowLimit !== null ? Math.min(limit, Math.max(1, rowLimit - (page - 1) * limit)) : limit;
+    // Once rowRangeStages has already sorted+skipped+limited the input
+    // ahead of $facet, the "data" branch only needs to page within that
+    // already-ordered subset — page skip/limit alone, no re-sort.
+    const dataPageStages: Record<string, unknown>[] = rowRangeActive
+      ? [{ $skip: (page - 1) * limit }, { $limit: limit }]
+      : [
+          { $sort: { raceTime: raceTimeSortDir } },
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+        ];
 
     const runnersInRangeFilter = {
       $filter: {
@@ -134,6 +151,7 @@ export class IndustrySpDAO {
     // what used to be a $filter/$size scan over every race's embedded
     // runners array on every single request.
     const basePipeline = [
+      ...leadingSortStage,
       {
         $match: {
           ...countryMatch,
@@ -212,21 +230,14 @@ export class IndustrySpDAO {
         pnlStats: [{ staked: number; returns: number; count: number }];
       }>([
         ...basePipeline,
+        // Applied once, ahead of $facet, when a row range is active — see
+        // the rowRangeStages comment above for why this can't live inside
+        // the facet branches below (that would re-run the sort per branch).
+        ...rowRangeStages,
         {
-          // A row range (fromRow/toRow) duplicates rowRangeStages' own $sort
-          // into all three of the total/totalRunners/pnlStats facet branches
-          // below (each $facet branch gets its own copy of the incoming
-          // documents), tripling the in-memory sort's footprint versus the
-          // single $sort the plain "data" branch does. At this collection's
-          // real size (~109k matching races) that tripled footprint is
-          // enough on its own to exceed Atlas M0's 32MB in-memory sort limit
-          // even though each individual doc is small — allowDiskUse lets
-          // MongoDB spill to disk instead of erroring out.
           $facet: {
             data: [
-              { $sort: { raceTime: raceTimeSortDir } },
-              { $skip: effectiveDataSkip },
-              { $limit: effectiveDataLimit },
+              ...dataPageStages,
               ...reattachFullDoc,
               {
                 $project: {
@@ -244,11 +255,8 @@ export class IndustrySpDAO {
                 },
               },
             ],
-            total: [...rowRangeStages, { $count: "count" }],
-            totalRunners: [
-              ...rowRangeStages,
-              { $group: { _id: null, count: { $sum: "$inRangeRunnersCount" } } },
-            ],
+            total: [{ $count: "count" }],
+            totalRunners: [{ $group: { _id: null, count: { $sum: "$inRangeRunnersCount" } } }],
             // Fast path: raceStaked/raceReturns are precomputed at import time
             // over the same static isp>1 runner set as runnersWithIspCount, so
             // whenever the isp range filter covers every real isp value this
@@ -260,7 +268,6 @@ export class IndustrySpDAO {
             // original $lookup + $unwind + $group computation.
             pnlStats: ispRangeCoversAllRealValues
               ? [
-                  ...rowRangeStages,
                   {
                     $group: {
                       _id: null,
@@ -271,7 +278,6 @@ export class IndustrySpDAO {
                   },
                 ]
               : [
-                  ...rowRangeStages,
                   ...reattachFullDoc,
                   { $unwind: "$runners" },
                   { $match: { "runners.isp": { $exists: true, $gt: 1 } } },
