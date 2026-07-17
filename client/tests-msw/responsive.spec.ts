@@ -148,7 +148,7 @@ test.describe("Responsive layout — /runners (MSW mocked, iPhone 12)", () => {
   });
 });
 
-test.describe("Responsive layout — /isp (MSW mocked, iPhone 12 mini, 375px)", () => {
+test.describe("Responsive layout — /isp filters screen (MSW mocked, iPhone 12 mini, 375px)", () => {
   test.use({ viewport: IPHONE_12_MINI_VIEWPORT });
 
   test.beforeEach(async ({ page }) => {
@@ -158,25 +158,52 @@ test.describe("Responsive layout — /isp (MSW mocked, iPhone 12 mini, 375px)", 
   });
 
   test("no element on the page overflows the 375px viewport", async ({ page }) => {
-    // Regression test: raceHeader (race time/type/runner-count/PnL%) and
-    // runnerRow (ISP/stake/PnL/status pill) were flexDirection:row with no
-    // flexWrap and no flexShrink protection, so on a narrow viewport the
-    // trailing element (PnL% or the WINNER/LOSER/PLACED pill) got pushed
-    // off-screen with nothing to wrap it onto a second line. filterStepper
-    // had a related but distinct bug: it wrapped its own children correctly,
-    // but had no width constraint on itself as a child of the outer
-    // filterBar wrap, so it grew to fit its unwrapped content and overflowed
-    // its own parent before its internal wrap could ever engage.
+    // Regression test: the filter grid's rows/inputs had no width constraint
+    // as children of the outer wrap container, so they grew to fit their
+    // unwrapped content and overflowed their own parent before any internal
+    // wrap could engage.
     const overflowing = await findOverflowingElements(page, IPHONE_12_MINI_VIEWPORT.width);
     expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
   });
 
-  test("filter bar, race header, and runner rows fit within the viewport", async ({ page }) => {
+  test("filter bar and Apply button fit within the viewport", async ({ page }) => {
     const bar = page.getByTestId("industry-sp-filter-bar");
     await expect(bar).toBeVisible();
     const barBox = await bar.boundingBox();
     expect(barBox!.x + barBox!.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
 
+    await expect(page.getByTestId("industry-sp-filter-apply")).toBeVisible();
+  });
+
+  test("header buttons ('← Events') fit within the viewport", async ({ page }) => {
+    const eventsBtn = page.getByTestId("industry-sp-screen-events-button");
+    await expect(eventsBtn).toBeVisible();
+
+    const eventsBox = await eventsBtn.boundingBox();
+    expect(eventsBox!.x + eventsBox!.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
+  });
+});
+
+test.describe("Responsive layout — /isp/races screen (MSW mocked, iPhone 12 mini, 375px)", () => {
+  test.use({ viewport: IPHONE_12_MINI_VIEWPORT });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/isp/races");
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+  });
+
+  test("no element on the page overflows the 375px viewport", async ({ page }) => {
+    // Regression test: raceHeader (race time/type/runner-count/PnL%) and
+    // runnerRow (ISP/stake/PnL/status pill) were flexDirection:row with no
+    // flexWrap and no flexShrink protection, so on a narrow viewport the
+    // trailing element (PnL% or the WINNER/LOSER/PLACED pill) got pushed
+    // off-screen with nothing to wrap it onto a second line.
+    const overflowing = await findOverflowingElements(page, IPHONE_12_MINI_VIEWPORT.width);
+    expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
+  });
+
+  test("race header and runner rows fit within the viewport", async ({ page }) => {
     const raceHeader = page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').first();
     await expect(raceHeader).toBeVisible();
     const raceBox = await raceHeader.boundingBox();
@@ -186,8 +213,6 @@ test.describe("Responsive layout — /isp (MSW mocked, iPhone 12 mini, 375px)", 
     await expect(runnerRow).toBeVisible();
     const runnerBox = await runnerRow.boundingBox();
     expect(runnerBox!.x + runnerBox!.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
-
-    await expect(page.getByTestId("industry-sp-filter-apply")).toBeVisible();
   });
 
   test("PnL percentage text and status pill are visible, not clipped", async ({ page }) => {
@@ -202,14 +227,14 @@ test.describe("Responsive layout — /isp (MSW mocked, iPhone 12 mini, 375px)", 
     await expect(runnerRow).toBeVisible();
   });
 
-  test("header buttons ('First → Last', '← Events') fit within the viewport", async ({ page }) => {
+  test("header buttons ('First → Last', '← Filters') fit within the viewport", async ({ page }) => {
     const sortBtn = page.getByTestId("industry-sp-sort-toggle");
-    const eventsBtn = page.getByTestId("industry-sp-screen-events-button");
+    const backBtn = page.getByTestId("industry-sp-races-back");
     await expect(sortBtn).toBeVisible();
-    await expect(eventsBtn).toBeVisible();
+    await expect(backBtn).toBeVisible();
 
-    const eventsBox = await eventsBtn.boundingBox();
-    expect(eventsBox!.x + eventsBox!.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
+    const backBox = await backBtn.boundingBox();
+    expect(backBox!.x + backBox!.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
   });
 });
 

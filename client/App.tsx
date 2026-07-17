@@ -6,6 +6,7 @@ import { AuthScreen } from "./src/components/AuthScreen";
 import { EventsScreen } from "./src/components/EventsScreen";
 import { AllRunnersScreen } from "./src/components/AllRunnersScreen";
 import { IndustrySpScreen } from "./src/components/IndustrySpScreen";
+import { IspRacesScreen } from "./src/components/IspRacesScreen";
 import { IndustryMeetingScreen } from "./src/components/IndustryMeetingScreen";
 import { IndustryRaceScreen } from "./src/components/IndustryRaceScreen";
 import { useRouter } from "./src/hooks/useRouter";
@@ -79,6 +80,19 @@ export default function App() {
       return (
         <IndustrySpScreen
           onNavigateToEvents={() => navigate("/events")}
+          // Filter Apply/Reset update the URL directly via history.replaceState
+          // (see updateUrlParams), which doesn't flow back through this hook's
+          // `queryParams` state — read window.location.search directly here so
+          // the just-applied filters (not a stale snapshot from mount) carry
+          // over to the races screen.
+          onViewRaces={() => navigate("/isp/races", window.location.search.slice(1))}
+        />
+      );
+    }
+    if (route === "/isp/races") {
+      return (
+        <IspRacesScreen
+          onBack={() => navigate("/isp", window.location.search.slice(1))}
           onNavigateToMeeting={(meetingId) => navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}`)}
           onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}`)}
         />
@@ -89,7 +103,9 @@ export default function App() {
       return (
         <IndustryMeetingScreen
           meetingId={meetingId}
-          onBack={() => navigate("/isp")}
+          // The user drilled into this meeting from the races list, so "back"
+          // returns there (not the filters screen they aren't editing).
+          onBack={() => navigate("/isp/races")}
           onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}`)}
         />
       );
@@ -100,7 +116,7 @@ export default function App() {
         <IndustryRaceScreen
           raceId={raceId}
           onNavigateToMeeting={(meetingId) => navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}`)}
-          onNavigateToIsp={() => navigate("/isp")}
+          onNavigateToIsp={() => navigate("/isp/races")}
         />
       );
     }

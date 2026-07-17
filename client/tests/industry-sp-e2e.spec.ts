@@ -20,8 +20,17 @@ async function goToEvents(page: import("@playwright/test").Page) {
   await expect(page.getByTestId("event-group-loading")).not.toBeVisible({ timeout: 90000 });
 }
 
+// /isp is the filters + PnL screen — it renders no race list of its own.
 async function gotoIsp(page: import("@playwright/test").Page) {
   await page.goto(`${APP_URL}isp?u=matthew&p=beyer`);
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+}
+
+// /isp/races is the dedicated races-list screen (meetings/races/runners,
+// sort, odds mode) — it reads whatever filters are in the URL query string.
+async function gotoIspRaces(page: import("@playwright/test").Page, query = "") {
+  await page.goto(`${APP_URL}isp/races?u=matthew&p=beyer${query ? `&${query}` : ""}`);
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 }
 
 test.describe("GET /api/industry-sp (live server @ localhost:3000)", () => {
@@ -71,7 +80,7 @@ test.describe("GET /api/industry-sp (live server @ localhost:3000)", () => {
   });
 });
 
-test.describe("Industry SP screen (Expo web @ localhost:80)", () => {
+test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
   test("nav link on Events screen navigates to /isp full-screen view", async ({ page }) => {
     await goToEvents(page);
     await expect(page.getByTestId("events-stats-bar")).toBeVisible({ timeout: 10000 });
@@ -82,63 +91,28 @@ test.describe("Industry SP screen (Expo web @ localhost:80)", () => {
     await expect(page.getByTestId("events-screen")).not.toBeVisible();
   });
 
-  test("/isp URL shows Industry SP screen directly", async ({ page }) => {
+  test("/isp URL shows Industry SP filters screen directly", async ({ page }) => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
   });
 
-  test("/ (home page) shows Industry SP screen directly", async ({ page }) => {
+  test("/ (home page) shows Industry SP filters screen directly", async ({ page }) => {
     await page.goto(`${APP_URL}?u=matthew&p=beyer`);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("events-screen")).not.toBeVisible();
   });
 
-  test("Industry SP screen loads data and shows runner rows", async ({ page }) => {
+  test("filters screen loads aggregate totals and shows the View Races button", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    await expect(page.getByTestId("industry-sp-list")).toBeVisible({ timeout: 60000 });
-
-    const items = page.locator('[data-testid^="industry-sp-item-"]');
-    await expect(items.first()).toBeVisible({ timeout: 30000 });
-    expect(await items.count()).toBeGreaterThan(0);
-  });
-
-  test("Industry SP screen shows meeting section headers", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-
-    const meetingHeaders = page.locator('[data-testid^="industry-sp-meeting-"]');
-    await expect(meetingHeaders.first()).toBeVisible({ timeout: 30000 });
-    expect(await meetingHeaders.count()).toBeGreaterThan(0);
-  });
-
-  test("Industry SP screen shows race time headers within each meeting", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-
-    const raceHeaders = page.locator('[data-testid^="industry-sp-race-"]');
-    await expect(raceHeaders.first()).toBeVisible({ timeout: 30000 });
-    expect(await raceHeaders.count()).toBeGreaterThan(1);
+    await expect(page.getByTestId("industry-sp-view-races-card")).toBeVisible({ timeout: 60000 });
+    const btn = page.getByTestId("industry-sp-view-races-button");
+    await expect(btn).toBeVisible();
+    await expect(btn).toContainText("View Races");
   });
 
   test("PnL bar shows horse count (react-native-paper Appbar subtitle does not render on web)", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
     await expect(page.getByTestId("industry-sp-pnl-count")).toContainText("Horses", { timeout: 60000 });
-  });
-
-  test("ISP price is displayed for runners", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-
-    const ispBadges = page.locator('[data-testid^="industry-sp-isp-"]');
-    await expect(ispBadges.first()).toBeVisible({ timeout: 30000 });
-    expect(await ispBadges.count()).toBeGreaterThan(0);
-
-    const firstIspText = await ispBadges.first().textContent();
-    // Default display is fraction ("ISP 8/15") or the textual "ISP Evens" —
-    // not necessarily starting with a digit.
-    expect(firstIspText).toMatch(/^ISP (\d+\/\d+|Evens)$/);
   });
 
   test("← Events button navigates back to /events", async ({ page }) => {
@@ -150,52 +124,103 @@ test.describe("Industry SP screen (Expo web @ localhost:80)", () => {
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
   });
+
+  test("View Races button navigates to /isp/races and shows runner rows", async ({ page }) => {
+    await gotoIsp(page);
+    await page.getByTestId("industry-sp-view-races-button").click();
+
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/isp/races");
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await expect(page.getByTestId("industry-sp-list")).toBeVisible({ timeout: 60000 });
+
+    const items = page.locator('[data-testid^="industry-sp-item-"]');
+    await expect(items.first()).toBeVisible({ timeout: 30000 });
+    expect(await items.count()).toBeGreaterThan(0);
+  });
+
+  test("applying a filter on /isp carries over to /isp/races when View Races is clicked", async ({ page }) => {
+    await gotoIsp(page);
+    await page.getByTestId("industry-sp-max-rir-value").fill("5");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    expect(page.url()).toContain("maxInIspRange=5");
+
+    await page.getByTestId("industry-sp-view-races-button").click();
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    // Regression: the router's queryParams state can go stale after
+    // history.replaceState calls, silently dropping just-applied filters.
+    expect(page.url()).toContain("maxInIspRange=5");
+  });
+
+  test("the races screen's back button returns to /isp with filters preserved", async ({ page }) => {
+    await gotoIsp(page);
+    await page.getByTestId("industry-sp-max-rir-value").fill("5");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await page.getByTestId("industry-sp-view-races-button").click();
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-races-back").click();
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("maxInIspRange=5");
+    await expect(page.getByTestId("industry-sp-max-rir-value")).toHaveValue("5");
+  });
 });
 
-test.describe("# in ISP range filter (real app at localhost:80)", () => {
-  test("# in ISP filter controls are visible on /isp", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    await expect(page.getByTestId("industry-sp-min-rir-value")).toBeVisible();
-    await expect(page.getByTestId("industry-sp-max-rir-value")).toBeVisible();
+test.describe("Industry SP races screen (Expo web @ localhost:80)", () => {
+  test("Industry SP races screen loads data and shows runner rows", async ({ page }) => {
+    await gotoIspRaces(page);
+    await expect(page.getByTestId("industry-sp-list")).toBeVisible({ timeout: 60000 });
+
+    const items = page.locator('[data-testid^="industry-sp-item-"]');
+    await expect(items.first()).toBeVisible({ timeout: 30000 });
+    expect(await items.count()).toBeGreaterThan(0);
   });
 
-  test("setting maxRunnersInRange=1 hides multi-runner races", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    const raceRows = page.locator(`[data-testid^="industry-sp-race-"]`);
-    await expect(raceRows.first()).toBeVisible({ timeout: 60000 });
-    const before = await raceRows.count();
-    await page.getByTestId("industry-sp-max-rir-value").fill("1");
-    await page.getByTestId("industry-sp-filter-apply").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    const after = await raceRows.count();
-    expect(after).toBeLessThan(before);
+  test("Industry SP races screen shows meeting section headers", async ({ page }) => {
+    await gotoIspRaces(page);
+
+    const meetingHeaders = page.locator('[data-testid^="industry-sp-meeting-"]');
+    await expect(meetingHeaders.first()).toBeVisible({ timeout: 30000 });
+    expect(await meetingHeaders.count()).toBeGreaterThan(0);
   });
 
-  test("resetting filter restores original race count", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    const raceRows = page.locator(`[data-testid^="industry-sp-race-"]`);
-    await expect(raceRows.first()).toBeVisible({ timeout: 30000 });
-    const original = await raceRows.count();
-    await page.getByTestId("industry-sp-max-rir-value").fill("1");
-    await page.getByTestId("industry-sp-filter-apply").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    await page.getByTestId("industry-sp-min-rir-value").fill("1");
-    await page.getByTestId("industry-sp-max-rir-value").fill("30");
-    await page.getByTestId("industry-sp-filter-apply").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    await expect(raceRows.first()).toBeVisible({ timeout: 30000 });
-    const restored = await raceRows.count();
-    expect(restored).toBe(original);
+  test("Industry SP races screen shows race time headers within each meeting", async ({ page }) => {
+    await gotoIspRaces(page);
+
+    const raceHeaders = page.locator('[data-testid^="industry-sp-race-"]');
+    await expect(raceHeaders.first()).toBeVisible({ timeout: 30000 });
+    expect(await raceHeaders.count()).toBeGreaterThan(1);
+  });
+
+  test("ISP price is displayed for runners", async ({ page }) => {
+    await gotoIspRaces(page);
+
+    const ispBadges = page.locator('[data-testid^="industry-sp-isp-"]');
+    await expect(ispBadges.first()).toBeVisible({ timeout: 30000 });
+    expect(await ispBadges.count()).toBeGreaterThan(0);
+
+    const firstIspText = await ispBadges.first().textContent();
+    // Default display is fraction ("ISP 8/15") or the textual "ISP Evens" —
+    // not necessarily starting with a digit.
+    expect(firstIspText).toMatch(/^ISP (\d+\/\d+|Evens)$/);
+  });
+
+  test("← Filters button navigates back to /isp", async ({ page }) => {
+    await gotoIspRaces(page);
+
+    await page.getByTestId("industry-sp-races-back").click();
+
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-races-screen")).not.toBeVisible();
   });
 });
 
 test.describe("Filter query param persistence + Reset button (real app at localhost:80)", () => {
   test("applying a filter updates the URL query string", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     await page.getByTestId("industry-sp-max-rir-value").fill("5");
     await page.getByTestId("industry-sp-filter-apply").click();
@@ -206,7 +231,6 @@ test.describe("Filter query param persistence + Reset button (real app at localh
 
   test("reloading a URL with filter params restores those filter values", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     await page.getByTestId("industry-sp-max-rir-value").fill("5");
     await page.getByTestId("industry-sp-filter-apply").click();
@@ -221,7 +245,6 @@ test.describe("Filter query param persistence + Reset button (real app at localh
 
   test("Reset button restores default filter values and clears the URL query string", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     await page.getByTestId("industry-sp-max-rir-value").fill("5");
     await page.getByTestId("industry-sp-filter-apply").click();
@@ -236,22 +259,58 @@ test.describe("Filter query param persistence + Reset button (real app at localh
   });
 });
 
-test.describe("Sort order toggle (real app at localhost:80)", () => {
-  test("sort toggle button is visible on /isp", async ({ page }) => {
+test.describe("# in ISP range filter (real app at localhost:80)", () => {
+  test("# in ISP filter controls are visible on /isp", async ({ page }) => {
     await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-min-rir-value")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-max-rir-value")).toBeVisible();
+  });
+
+  test("setting maxRunnersInRange=1 reduces the total races matching the filter", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-view-races-card")).toBeVisible({ timeout: 60000 });
+    const before = await page.getByTestId("industry-sp-view-races-card").textContent();
+
+    await page.getByTestId("industry-sp-max-rir-value").fill("1");
+    await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    const after = await page.getByTestId("industry-sp-view-races-card").textContent();
+    expect(after).not.toBe(before);
+  });
+
+  test("resetting filter restores original race count", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-view-races-card")).toBeVisible({ timeout: 60000 });
+    const original = await page.getByTestId("industry-sp-view-races-card").textContent();
+
+    await page.getByTestId("industry-sp-max-rir-value").fill("1");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await page.getByTestId("industry-sp-min-rir-value").fill("1");
+    await page.getByTestId("industry-sp-max-rir-value").fill("30");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    const restored = await page.getByTestId("industry-sp-view-races-card").textContent();
+    expect(restored).toBe(original);
+  });
+});
+
+test.describe("Sort order toggle (real app at localhost:80, on the races screen)", () => {
+  test("sort toggle button is visible on /isp/races", async ({ page }) => {
+    await gotoIspRaces(page);
     await expect(page.getByTestId("industry-sp-sort-toggle")).toBeVisible();
   });
 
   test("sort toggle starts showing 'First → Last'", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await expect(page.getByTestId("industry-sp-sort-toggle")).toHaveText("First → Last");
   });
 
   test("clicking toggle switches to 'Last → First' and reloads data", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
 
     await page.getByTestId("industry-sp-sort-toggle").click();
     await expect(page.getByTestId("industry-sp-sort-toggle")).toHaveText("Last → First");
@@ -267,8 +326,7 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
       route.continue();
     });
 
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.getByTestId("industry-sp-sort-toggle").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
@@ -322,8 +380,7 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
     // rather than a UI-only check, so this can't pass by coincidence.
     const { earliest } = await fetchGroundTruthExtremes(request);
 
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     const firstMeeting = page.locator('[data-testid^="industry-sp-meeting-"]').first();
     await expect(firstMeeting).toBeVisible({ timeout: 30000 });
     await expect(firstMeeting).toContainText(earliest.course);
@@ -332,8 +389,7 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
   test("'Last → First' shows the true latest race in the full dataset", async ({ page, request }) => {
     const { latest } = await fetchGroundTruthExtremes(request);
 
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.getByTestId("industry-sp-sort-toggle").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
@@ -345,8 +401,7 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
   test("toggling back to 'First → Last' still shows the true earliest race", async ({ page, request }) => {
     const { earliest } = await fetchGroundTruthExtremes(request);
 
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.getByTestId("industry-sp-sort-toggle").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
     await page.getByTestId("industry-sp-sort-toggle").click();
@@ -492,15 +547,14 @@ test.describe("GET /api/industry-sp/meeting/:meetingId and /race/:raceId (live s
 
 test.describe("Meeting and race drill-down navigation (real app at localhost:80)", () => {
   test("tapping a meeting header opens a full-screen view of just that meeting", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
 
     const meetingLink = page.locator('[data-testid^="industry-sp-meeting-link-"]').first();
     const meetingText = (await meetingLink.textContent()) ?? "";
     await meetingLink.click();
 
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-races-screen")).not.toBeVisible();
     await expect(page.getByTestId("industry-meeting-loading")).not.toBeVisible({ timeout: 30000 });
     expect(page.url()).toContain("/isp/meeting?id=");
 
@@ -513,28 +567,26 @@ test.describe("Meeting and race drill-down navigation (real app at localhost:80)
     await expect(page.getByText(courseName, { exact: false }).first()).toBeVisible();
   });
 
-  test("meeting screen's back button returns to /isp", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+  test("meeting screen's back button returns to /isp/races", async ({ page }) => {
+    await gotoIspRaces(page);
     await page.locator('[data-testid^="industry-sp-meeting-link-"]').first().click();
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
 
     await page.getByTestId("industry-meeting-back").click();
 
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-meeting-screen")).not.toBeVisible();
-    expect(page.url()).toMatch(/\/isp(\?|$)/);
+    expect(page.url()).toMatch(/\/isp\/races(\?|$)/);
   });
 
-  test("tapping a race (from the main list) opens a full-screen view of just that race", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+  test("tapping a race (from the races list) opens a full-screen view of just that race", async ({ page }) => {
+    await gotoIspRaces(page);
 
     const raceRow = page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').first();
     await raceRow.click();
 
     await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-races-screen")).not.toBeVisible();
     await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 30000 });
     expect(page.url()).toContain("/isp/race?id=");
 
@@ -544,8 +596,7 @@ test.describe("Meeting and race drill-down navigation (real app at localhost:80)
   });
 
   test("tapping a race from within the meeting view opens that race, and back returns to the meeting", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.locator('[data-testid^="industry-sp-meeting-link-"]').first().click();
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-meeting-loading")).not.toBeVisible({ timeout: 30000 });
@@ -563,8 +614,7 @@ test.describe("Meeting and race drill-down navigation (real app at localhost:80)
   });
 
   test("the race header shows a runner count that matches the number of runner rows shown", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').first().click();
     await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 30000 });
@@ -579,10 +629,9 @@ test.describe("Meeting and race drill-down navigation (real app at localhost:80)
   });
 });
 
-test.describe("Odds display mode + filters visibility toggle (real app at localhost:80)", () => {
+test.describe("Odds display mode (real app at localhost:80, on the races screen)", () => {
   test("ISP defaults to fraction display", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await expect(page.getByTestId("industry-sp-odds-mode-toggle")).toHaveText("Odds: Fraction");
 
     const firstBadge = await page.locator('[data-testid^="industry-sp-isp-"]').first().textContent();
@@ -591,8 +640,7 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
   });
 
   test("toggling to decimal shows a clean, rounded value — never a raw floating-point artifact", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
 
     await page.getByTestId("industry-sp-odds-mode-toggle").click();
     await expect(page.getByTestId("industry-sp-odds-mode-toggle")).toHaveText("Odds: Decimal");
@@ -612,8 +660,7 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
   });
 
   test("toggling back to fraction restores fraction display", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
 
     await page.getByTestId("industry-sp-odds-mode-toggle").click();
     await expect(page.getByTestId("industry-sp-odds-mode-toggle")).toHaveText("Odds: Decimal");
@@ -625,8 +672,7 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
   });
 
   test("the meeting screen also has a fraction/decimal toggle", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.locator('[data-testid^="industry-sp-meeting-link-"]').first().click();
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-meeting-loading")).not.toBeVisible({ timeout: 30000 });
@@ -641,8 +687,7 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
   });
 
   test("the race screen also has a fraction/decimal toggle", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').first().click();
     await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 30000 });
@@ -655,10 +700,11 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
     const after = await page.locator('[data-testid^="industry-race-isp-"]').first().textContent();
     expect(after).toMatch(/^ISP \d+\.\d{2}$/);
   });
+});
 
+test.describe("Filters visibility toggle (real app at localhost:80)", () => {
   test("filters are visible by default and the toggle button hides/shows them", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     await expect(page.getByTestId("industry-sp-filter-bar")).toBeVisible();
     await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Hide filters ▾");
@@ -667,10 +713,8 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
     await expect(page.getByTestId("industry-sp-filter-bar")).not.toBeVisible();
     await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Show filters ▸");
 
-    // Hiding filters must not affect the underlying data/list.
-    await expect(page.getByTestId("industry-sp-list")).toBeVisible({ timeout: 30000 });
-    const raceCount = await page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').count();
-    expect(raceCount).toBeGreaterThan(0);
+    // Hiding filters must not affect the aggregate totals shown below.
+    await expect(page.getByTestId("industry-sp-view-races-card")).toBeVisible({ timeout: 30000 });
 
     await page.getByTestId("industry-sp-filters-toggle").click();
     await expect(page.getByTestId("industry-sp-filter-bar")).toBeVisible();

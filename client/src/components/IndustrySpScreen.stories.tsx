@@ -6,52 +6,6 @@ import { IndustrySpScreen } from "./IndustrySpScreen";
 
 const BASE = "http://localhost:3000";
 
-const MOCK_RACES: Array<{
-  raceId: number;
-  meetingId: string;
-  meetingName: string;
-  course: string;
-  countryCode: string;
-  raceTime: string;
-  raceName: string;
-  raceType: string;
-  ran: number;
-  runners: Array<{ id: number; name: string; num: number | null; draw: number | null; status: string; sortPriority: number; isp: number; ispFraction: string; isFavourite: boolean }>;
-}> = [
-  {
-    raceId: 914592,
-    meetingId: "Leopardstown|2026-02-01",
-    meetingName: "Leopardstown — 1 February 2026",
-    course: "Leopardstown",
-    countryCode: "IE",
-    raceTime: "2026-02-01T13:15:00",
-    raceName: "Leopardstown 13:15",
-    raceType: "Chase",
-    ran: 2,
-    runners: [
-      { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true },
-      { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 5.5, ispFraction: "9/2", isFavourite: false },
-    ],
-  },
-  {
-    raceId: 914593,
-    meetingId: "Leopardstown|2026-02-01",
-    meetingName: "Leopardstown — 1 February 2026",
-    course: "Leopardstown",
-    countryCode: "IE",
-    raceTime: "2026-02-01T13:50:00",
-    raceName: "Leopardstown 13:50",
-    raceType: "Hurdle",
-    ran: 2,
-    runners: [
-      { id: 22001, name: "State Man", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.4, ispFraction: "2/5", isFavourite: true },
-      { id: 22002, name: "Brighterdaysahead", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 6.0, ispFraction: "5/1", isFavourite: false },
-    ],
-  },
-];
-
-const TOTAL_RUNNERS_IN_DB = MOCK_RACES.reduce((s, r) => s + r.runners.length, 0); // 4
-
 const filterBoundsHandler = http.get(`${BASE}/api/industry-sp/filter-bounds`, () =>
   HttpResponse.json({ success: true, data: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 } })
 );
@@ -60,25 +14,25 @@ const countriesHandler = http.get(`${BASE}/api/industry-sp/countries`, () =>
   HttpResponse.json({ success: true, data: ["GB", "IE"] })
 );
 
+// This screen only ever asks the API for aggregate totals (it renders no
+// race list of its own), so the mock response's `data` array is irrelevant —
+// only total/totalRunners/pnlStats matter here.
 const defaultHandlers = [
   http.get(`${BASE}/api/industry-sp`, () =>
     HttpResponse.json({
       success: true,
-      data: MOCK_RACES,
-      count: MOCK_RACES.length,
-      total: MOCK_RACES.length,
+      data: [],
+      count: 0,
+      total: 2,
       page: 1,
-      limit: 20,
-      totalPages: 1,
-      totalRunners: TOTAL_RUNNERS_IN_DB,
+      limit: 1,
+      totalPages: 2,
+      totalRunners: 4,
       pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 },
     })
   ),
   countriesHandler,
   filterBoundsHandler,
-  http.get(`${BASE}/api/industry-sp/pnl-stats`, () =>
-    HttpResponse.json({ success: true, data: { staked: 3.97, returns: 5.55, pnl: 1.58 } })
-  ),
 ];
 
 const meta: Meta<typeof IndustrySpScreen> = {
@@ -90,8 +44,7 @@ const meta: Meta<typeof IndustrySpScreen> = {
   },
   args: {
     onNavigateToEvents: fn(),
-    onNavigateToMeeting: fn(),
-    onNavigateToRace: fn(),
+    onViewRaces: fn(),
   },
 };
 
@@ -116,7 +69,7 @@ export const Loading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByTestId("industry-sp-loading")).toBeInTheDocument();
-    await expect(canvas.queryByTestId("industry-sp-list")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-view-races-card")).not.toBeInTheDocument();
   },
 };
 
@@ -127,11 +80,11 @@ export const WithError: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.findByTestId("industry-sp-error")).resolves.toBeInTheDocument();
-    await expect(canvas.queryByTestId("industry-sp-list")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-view-races-card")).not.toBeInTheDocument();
   },
 };
 
-export const Empty: Story = {
+export const ZeroMatchesShowsZeroCount: Story = {
   parameters: {
     msw: {
       handlers: [
@@ -142,8 +95,8 @@ export const Empty: Story = {
             count: 0,
             total: 0,
             page: 1,
-            limit: 20,
-            totalPages: 1,
+            limit: 1,
+            totalPages: 0,
             totalRunners: 0,
             pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
           })
@@ -155,7 +108,11 @@ export const Empty: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.findByText("No races found.")).resolves.toBeInTheDocument();
+    const card = await canvas.findByTestId("industry-sp-view-races-card");
+    await expect(card).toHaveTextContent("0");
+    await expect(card).toHaveTextContent("races match your filters");
+    // No stake was placed on zero races, so the PnL bar shouldn't render.
+    await expect(canvas.queryByTestId("industry-sp-pnl-bar")).not.toBeInTheDocument();
   },
 };
 
@@ -164,31 +121,9 @@ export const ScreenLoaded: Story = {
     const canvas = within(canvasElement);
 
     await expect(canvas.getByTestId("industry-sp-screen")).toBeInTheDocument();
-    await expect(canvas.findByTestId("industry-sp-list")).resolves.toBeInTheDocument();
-
-    // Note: react-native-paper's Appbar.Content does not render its `subtitle`
-    // prop on web, so the "N/N runners · N/N races" text is set but never in
-    // the DOM — assert against content that actually renders instead.
+    await expect(canvas.findByTestId("industry-sp-view-races-card")).resolves.toBeInTheDocument();
     await expect(canvas.findByText("Industry Starting Price")).resolves.toBeInTheDocument();
     await expect(canvas.findByTestId("industry-sp-pnl-count")).resolves.toHaveTextContent("Horses 4");
-  },
-};
-
-export const MeetingSections: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.findByTestId("industry-sp-meeting-Leopardstown|2026-02-01")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("Leopardstown — 1 February 2026")).resolves.toBeInTheDocument();
-  },
-};
-
-export const RaceAndRunnerRows: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.findByTestId("industry-sp-race-914592")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("Galopin Des Champs")).resolves.toBeInTheDocument();
   },
 };
 
@@ -203,52 +138,22 @@ export const EventsButtonNavigates: Story = {
   },
 };
 
-export const MeetingHeaderNavigatesToMeeting: Story = {
+export const ViewRacesButtonNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
 
-    const link = canvas.getByTestId(`industry-sp-meeting-link-${MOCK_RACES[0].meetingId}`);
-    await userEvent.click(link);
-    await expect(args.onNavigateToMeeting).toHaveBeenCalledWith(MOCK_RACES[0].meetingId);
-  },
-};
-
-export const RaceRowNavigatesToRace: Story = {
-  play: async ({ canvasElement, args }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
-
-    const raceRow = canvas.getByTestId(`industry-sp-race-${MOCK_RACES[0].raceId}`);
-    await userEvent.click(raceRow);
-    await expect(args.onNavigateToRace).toHaveBeenCalledWith(MOCK_RACES[0].raceId);
-  },
-};
-
-export const OddsModeDefaultsToFraction: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
-    await expect(canvas.getByTestId("industry-sp-odds-mode-toggle")).toHaveTextContent("Odds: Fraction");
-    await expect(canvas.getByTestId(`industry-sp-isp-${MOCK_RACES[0].runners[0].id}`)).toHaveTextContent("ISP 19/20");
-  },
-};
-
-export const OddsModeToggleSwitchesToDecimal: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
-    await userEvent.click(canvas.getByTestId("industry-sp-odds-mode-toggle"));
-    await expect(canvas.getByTestId("industry-sp-odds-mode-toggle")).toHaveTextContent("Odds: Decimal");
-    // 19/20 + 1 = 1.95 — a clean 2dp value, never a raw float artifact.
-    await expect(canvas.getByTestId(`industry-sp-isp-${MOCK_RACES[0].runners[0].id}`)).toHaveTextContent("ISP 1.95");
+    const btn = canvas.getByTestId("industry-sp-view-races-button");
+    await expect(btn).toHaveTextContent("View Races");
+    await userEvent.click(btn);
+    await expect(args.onViewRaces).toHaveBeenCalledTimes(1);
   },
 };
 
 export const FiltersToggleHidesAndShowsFilterBar: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
 
     await expect(canvas.getByTestId("industry-sp-filter-bar")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-filters-toggle")).toHaveTextContent("Hide filters");
@@ -262,19 +167,6 @@ export const FiltersToggleHidesAndShowsFilterBar: Story = {
   },
 };
 
-export const IspDisplayed: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    const runners = MOCK_RACES.flatMap(r => r.runners);
-    for (const runner of runners) {
-      const ispEl = await canvas.findByTestId(`industry-sp-isp-${runner.id}`);
-      await expect(ispEl).toBeInTheDocument();
-      await expect(ispEl).toHaveTextContent(`ISP ${runner.ispFraction}`);
-    }
-  },
-};
-
 export const PnlBar: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -284,28 +176,14 @@ export const PnlBar: Story = {
     await expect(canvas.getByTestId("industry-sp-pnl")).toHaveTextContent("+£1.58");
     await expect(bar).toHaveTextContent("£3.97");
     await expect(bar).toHaveTextContent("£5.55");
-    await expect(canvas.getByTestId("industry-sp-pnl-races")).toHaveTextContent(`Races ${MOCK_RACES.length}`);
-  },
-};
-
-export const PerRunnerPnl: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
-
-    // Galopin Des Champs: WINNER at ISP 1.95, stake £1.05 → +£1.00
-    await expect(await canvas.findByTestId("industry-sp-pnl-item-21001")).toHaveTextContent("+£1.00");
-    await expect(canvas.getByTestId("industry-sp-stake-21001")).toHaveTextContent("Bet £1.05");
-    // Meetingofthewaters: LOSER at ISP 5.5, stake £0.22 → -£0.22
-    await expect(canvas.getByTestId("industry-sp-pnl-item-21002")).toHaveTextContent("-£0.22");
-    await expect(canvas.getByTestId("industry-sp-stake-21002")).toHaveTextContent("Bet £0.22");
+    await expect(canvas.getByTestId("industry-sp-pnl-races")).toHaveTextContent("Races 2");
   },
 };
 
 export const RunnersInRangeFilterVisible: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
     await expect(canvas.getByTestId("industry-sp-min-rir-value")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-max-rir-value")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-in-isp-label")).toBeInTheDocument();
@@ -313,7 +191,7 @@ export const RunnersInRangeFilterVisible: Story = {
   },
 };
 
-export const RunnersInRangeFilterHides: Story = {
+export const RestrictiveFilterZeroesOutMatches: Story = {
   parameters: {
     msw: {
       // Real filtering by maxInIspRange, mirroring server behavior — the flat
@@ -322,17 +200,17 @@ export const RunnersInRangeFilterHides: Story = {
         http.get(`${BASE}/api/industry-sp`, ({ request }) => {
           const url = new URL(request.url);
           const maxInIspRange = parseInt(url.searchParams.get("maxInIspRange") ?? "30");
-          const data = maxInIspRange >= 2 ? MOCK_RACES : [];
+          const matches = maxInIspRange >= 2;
           return HttpResponse.json({
             success: true,
-            data,
-            count: data.length,
-            total: data.length,
+            data: [],
+            count: 0,
+            total: matches ? 2 : 0,
             page: 1,
-            limit: 20,
-            totalPages: 1,
-            totalRunners: data.length > 0 ? TOTAL_RUNNERS_IN_DB : 0,
-            pnlStats: data.length > 0 ? { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } : { staked: 0, returns: 0, pnl: 0, count: 0 },
+            limit: 1,
+            totalPages: matches ? 2 : 0,
+            totalRunners: matches ? 4 : 0,
+            pnlStats: matches ? { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } : { staked: 0, returns: 0, pnl: 0, count: 0 },
           });
         }),
         countriesHandler,
@@ -342,38 +220,68 @@ export const RunnersInRangeFilterHides: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
     const maxInput = canvas.getByTestId("industry-sp-max-rir-value");
     await userEvent.clear(maxInput);
     await userEvent.type(maxInput, "1");
     await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
-    await expect(canvas.findByText("No races found.")).resolves.toBeInTheDocument();
+    await waitFor(() => {
+      expect(canvas.getByTestId("industry-sp-view-races-card")).toHaveTextContent("0");
+    }, { timeout: 3000 });
   },
 };
 
 let capturedIspParams: { minIsp: string | null; maxIsp: string | null } = { minIsp: null, maxIsp: null };
 
+export const FilterRowsAreGridAligned: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-view-races-card");
+
+    // The whole point of the grid redesign: every row's min-input starts at
+    // the same x position, so columns read as aligned rather than each row
+    // being its own independently-sized flow.
+    const lefts = ["isp", "runners", "inIsp", "race"].map(key =>
+      canvas.getByTestId(`industry-sp-filter-row-${key}`).querySelector('input')!.getBoundingClientRect().left
+    );
+    await expect(lefts[1]).toBe(lefts[0]);
+    await expect(lefts[2]).toBe(lefts[0]);
+    await expect(lefts[3]).toBe(lefts[0]);
+  },
+};
+
+export const GridInputsAreLargeEnoughToType: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-view-races-card");
+
+    for (const testId of ["industry-sp-min-isp", "industry-sp-max-isp", "industry-sp-min-value", "industry-sp-max-value", "industry-sp-min-rir-value", "industry-sp-max-rir-value", "industry-sp-from-row", "industry-sp-to-row"]) {
+      const box = canvas.getByTestId(testId).getBoundingClientRect();
+      await expect(box.width).toBeGreaterThanOrEqual(60);
+      await expect(box.height).toBeGreaterThanOrEqual(40);
+    }
+  },
+};
+
 export const RunnersHeadingGroupedWithInputs: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
 
-    const runnersLabel = canvas.getByText("Runners");
-    const minInput = canvas.getByTestId("industry-sp-min-value");
-    const maxInput = canvas.getByTestId("industry-sp-max-value");
-
-    // The "Runners" heading must live in the same row container as its own
-    // Min/Max inputs, not float off as an unrelated sibling elsewhere in the
-    // filter bar (regression: it used to wrap onto a different line).
-    await expect(runnersLabel.parentElement).toBe(minInput.parentElement);
-    await expect(runnersLabel.parentElement).toBe(maxInput.parentElement);
+    // The "Runners" heading must live in the same row as its own Min/Max
+    // inputs, not float off as an unrelated sibling elsewhere in the filter
+    // bar (regression: it used to wrap onto a different line).
+    const row = within(canvas.getByTestId("industry-sp-filter-row-runners"));
+    await expect(row.getByText("Runners")).toBeInTheDocument();
+    await expect(row.getByTestId("industry-sp-min-value")).toBeInTheDocument();
+    await expect(row.getByTestId("industry-sp-max-value")).toBeInTheDocument();
   },
 };
 
 export const TooltipTogglesShowAndHideExplanation: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
 
     await expect(canvas.queryByTestId("industry-sp-tooltip-text-runners")).not.toBeInTheDocument();
 
@@ -397,7 +305,7 @@ export const TooltipTogglesShowAndHideExplanation: Story = {
 export const TooltipDoesNotShiftFilterLayout: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
 
     const applyButton = canvas.getByTestId("industry-sp-filter-apply");
     const raceLabelBefore = canvas.getByTestId("industry-sp-from-row").getBoundingClientRect().top;
@@ -419,13 +327,11 @@ export const TooltipDoesNotShiftFilterLayout: Story = {
 export const ApplyAndResetShareTheSameLine: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
 
     const applyBox = canvas.getByTestId("industry-sp-filter-apply").getBoundingClientRect();
     const resetBox = canvas.getByTestId("industry-sp-filter-reset").getBoundingClientRect();
 
-    // Regression: Apply used to ride along the end of the Race row while
-    // Reset wrapped alone onto its own line below.
     await expect(resetBox.top).toBe(applyBox.top);
   },
 };
@@ -433,11 +339,8 @@ export const ApplyAndResetShareTheSameLine: Story = {
 export const TooltipToggleHasAdequateTapTarget: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
 
-    // Real, rendered box size — on web, RN's hitSlop prop is a no-op, so the
-    // actual tap target is whatever the element itself renders at. Regression:
-    // it used to be an 18x18 circle that was hard to hit on a phone.
     for (const key of ["isp", "runners", "inIsp", "race"]) {
       const toggle = canvas.getByTestId(`industry-sp-tooltip-toggle-${key}`);
       const box = toggle.getBoundingClientRect();
@@ -459,13 +362,13 @@ export const IspFilterParamsPassedToApi: Story = {
           };
           return HttpResponse.json({
             success: true,
-            data: MOCK_RACES,
-            count: MOCK_RACES.length,
-            total: MOCK_RACES.length,
+            data: [],
+            count: 0,
+            total: 2,
             page: 1,
-            limit: 20,
-            totalPages: 1,
-            totalRunners: TOTAL_RUNNERS_IN_DB,
+            limit: 1,
+            totalPages: 2,
+            totalRunners: 4,
             pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 },
           });
         }),
@@ -476,7 +379,7 @@ export const IspFilterParamsPassedToApi: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
 
     const minInput = canvas.getByTestId("industry-sp-min-isp");
     const maxInput = canvas.getByTestId("industry-sp-max-isp");
@@ -498,7 +401,7 @@ export const IspFilterParamsPassedToApi: Story = {
 export const IspInputsAcceptDecimals: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
 
     const minInput = canvas.getByTestId("industry-sp-min-isp");
     const maxInput = canvas.getByTestId("industry-sp-max-isp");
@@ -517,7 +420,7 @@ export const IspInputsAcceptDecimals: Story = {
 export const ApplyingFilterUpdatesUrl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
 
     const maxRirInput = canvas.getByTestId("industry-sp-max-rir-value");
     await userEvent.clear(maxRirInput);
@@ -533,7 +436,7 @@ export const ApplyingFilterUpdatesUrl: Story = {
 export const ResetButtonRestoresDefaultsAndClearsUrl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
 
     const maxRirInput = canvas.getByTestId("industry-sp-max-rir-value");
     await userEvent.clear(maxRirInput);
@@ -555,32 +458,9 @@ export const ResetButtonRestoresDefaultsAndClearsUrl: Story = {
 export const InIspBoundDisplayed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    await canvas.findByTestId("industry-sp-view-races-card");
     const bound = await canvas.findByTestId("industry-sp-max-rir-bound");
     await expect(bound).toBeInTheDocument();
     await expect(bound).toHaveTextContent("/29");
-  },
-};
-
-export const SortToggleVisible: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
-
-    const btn = canvas.getByTestId("industry-sp-sort-toggle");
-    await expect(btn).toBeInTheDocument();
-    await expect(btn).toHaveTextContent("First → Last");
-  },
-};
-
-export const SortToggleSwitchesToDesc: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
-
-    const btn = canvas.getByTestId("industry-sp-sort-toggle");
-    await expect(btn).toHaveTextContent("First → Last");
-    await userEvent.click(btn);
-    await expect(btn).toHaveTextContent("Last → First");
   },
 };
