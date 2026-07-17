@@ -53,6 +53,19 @@ interface RaceDoc {
   meetingId: string;
   meetingName: string;
   runners: RunnerDoc[];
+  // Precomputed count of runners with a valid, parseable ISP (isp > 1) —
+  // this definition never depends on request-time filter params, so it's
+  // stored once here instead of recomputed via $filter/$size on every
+  // /api/industry-sp query. See industry-sp-dao.ts getAllRacesByRace.
+  runnersWithIspCount: number;
+  // Precomputed per-race staked/returns (same $1-stake-per-runner P&L model
+  // as getPnlStats), over the same static isp>1 runner set as
+  // runnersWithIspCount above. Lets the home page's pnlStats facet sum two
+  // plain fields instead of re-fetching every matched race's full runners
+  // array via $lookup + $unwind on every request — that $lookup was the
+  // single largest cost in the whole /api/industry-sp query.
+  raceStaked: number;
+  raceReturns: number;
 }
 
 function deriveStatus(pos: string): RunnerStatus {
@@ -172,6 +185,15 @@ async function run() {
       };
     });
 
+    // Same $1-stake-per-runner P&L model as getPnlStats / the DAO's on-the-fly
+    // pnlStats fallback: stake = 1/(isp-1) per valid-isp runner, return = stake+1 on a win.
+    const validIspRunners = runners.filter(r => r.isp !== null && r.isp > 1);
+    const raceStaked = validIspRunners.reduce((sum, r) => sum + 1 / (r.isp! - 1), 0);
+    const raceReturns = validIspRunners.reduce(
+      (sum, r) => sum + (r.status === "WINNER" ? 1 / (r.isp! - 1) + 1 : 0),
+      0
+    );
+
     docs.push({
       _id: raceId,
       raceId,
@@ -188,6 +210,9 @@ async function run() {
       meetingId: `${course}|${raceDate}`,
       meetingName: formatMeetingName(course, raceDate),
       runners,
+      runnersWithIspCount: validIspRunners.length,
+      raceStaked,
+      raceReturns,
     });
   }
 
@@ -206,6 +231,7 @@ async function run() {
 
   await collection.createIndex({ raceTime: 1 });
   await collection.createIndex({ countryCode: 1 });
+  await collection.createIndex({ runnersWithIspCount: 1 });
 
   if (docs.length > 0) {
     const minDate = docs.reduce((min, d) => (d.raceDate < min ? d.raceDate : min), docs[0].raceDate);

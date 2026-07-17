@@ -109,40 +109,63 @@ export class IndustrySpDAO {
       },
     };
 
+    // `runnersWithIspCount` is precomputed at import time (see
+    // import-industry-sp.ts) as "count of runners with a valid, parseable
+    // ISP (isp > 1)" — a definition that never depends on request params, so
+    // it's stored + indexed instead of recomputed via $filter/$size on every
+    // query. That makes it always usable for allRunnersCount, and it doubles
+    // as inRangeRunnersCount whenever the isp range filter is wide enough to
+    // cover every real isp value (true range in this dataset is
+    // [1.01, 751]; minIsp<=1/maxIsp>=1000 matches the frontend's own
+    // "no filter" defaults with margin). When the caller actually narrows
+    // the isp range, fall back to the on-the-fly $filter as before.
+    const ispRangeCoversAllRealValues = minIsp <= 1 && maxIsp >= 1000;
+    const inRangeRunnersCountExpr = ispRangeCoversAllRealValues
+      ? "$runnersWithIspCount"
+      : { $size: runnersInRangeFilter };
+
     // Only a per-race id + sort key + the two precomputed counts survive
     // into the $facet — every other field (course, meetingName, runners,
     // ...) is re-fetched via $lookup after sorting/paginating down to a
     // handful of docs, never before. This keeps every $sort in this
     // pipeline operating on a ~40-byte doc regardless of collection size.
+    // The leading $match filters on the plain, indexed runnersWithIspCount
+    // field directly (not $expr) so it can use the index — this replaces
+    // what used to be a $filter/$size scan over every race's embedded
+    // runners array on every single request.
     const basePipeline = [
-      { $match: countryMatch },
+      {
+        $match: {
+          ...countryMatch,
+          runnersWithIspCount: { $gte: minRunners, $lte: maxRunners },
+        },
+      },
       {
         $addFields: {
-          allRunnersCount: {
-            $size: {
-              $filter: {
-                input: "$runners",
-                as: "r",
-                cond: { $and: [{ $ifNull: ["$$r.isp", false] }, { $gt: ["$$r.isp", 1] }] },
-              },
-            },
-          },
-          inRangeRunnersCount: { $size: runnersInRangeFilter },
+          allRunnersCount: "$runnersWithIspCount",
+          inRangeRunnersCount: inRangeRunnersCountExpr,
         },
       },
       {
         $match: {
           $expr: {
             $and: [
-              { $gte: ["$allRunnersCount", minRunners] },
-              { $lte: ["$allRunnersCount", maxRunners] },
               { $gte: ["$inRangeRunnersCount", minInIspRange] },
               { $lte: ["$inRangeRunnersCount", maxInIspRange] },
             ],
           },
         },
       },
-      { $project: { _id: 1, raceTime: 1, allRunnersCount: 1, inRangeRunnersCount: 1 } },
+      {
+        $project: {
+          _id: 1,
+          raceTime: 1,
+          allRunnersCount: 1,
+          inRangeRunnersCount: 1,
+          raceStaked: 1,
+          raceReturns: 1,
+        },
+      },
     ];
 
     const reattachFullDoc = [
@@ -217,28 +240,49 @@ export class IndustrySpDAO {
               ...rowRangeStages,
               { $group: { _id: null, count: { $sum: "$inRangeRunnersCount" } } },
             ],
-            pnlStats: [
-              ...rowRangeStages,
-              ...reattachFullDoc,
-              { $unwind: "$runners" },
-              { $match: { "runners.isp": { $exists: true, $gt: 1 } } },
-              {
-                $group: {
-                  _id: null,
-                  staked: { $sum: { $divide: [1, { $subtract: ["$runners.isp", 1] }] } },
-                  returns: {
-                    $sum: {
-                      $cond: [
-                        { $eq: ["$runners.status", "WINNER"] },
-                        { $add: [{ $divide: [1, { $subtract: ["$runners.isp", 1] }] }, 1] },
-                        0,
-                      ],
+            // Fast path: raceStaked/raceReturns are precomputed at import time
+            // over the same static isp>1 runner set as runnersWithIspCount, so
+            // whenever the isp range filter covers every real isp value this
+            // is a plain $sum over already-matched docs — no $lookup, no
+            // $unwind over every runner in every matched race (that $lookup
+            // was previously the single largest cost in this whole query,
+            // since it re-fetched all ~109k matched races' full runners
+            // arrays on every request). Narrowed isp ranges fall back to the
+            // original $lookup + $unwind + $group computation.
+            pnlStats: ispRangeCoversAllRealValues
+              ? [
+                  ...rowRangeStages,
+                  {
+                    $group: {
+                      _id: null,
+                      staked: { $sum: "$raceStaked" },
+                      returns: { $sum: "$raceReturns" },
+                      count: { $sum: "$inRangeRunnersCount" },
                     },
                   },
-                  count: { $sum: 1 },
-                },
-              },
-            ],
+                ]
+              : [
+                  ...rowRangeStages,
+                  ...reattachFullDoc,
+                  { $unwind: "$runners" },
+                  { $match: { "runners.isp": { $exists: true, $gt: 1 } } },
+                  {
+                    $group: {
+                      _id: null,
+                      staked: { $sum: { $divide: [1, { $subtract: ["$runners.isp", 1] }] } },
+                      returns: {
+                        $sum: {
+                          $cond: [
+                            { $eq: ["$runners.status", "WINNER"] },
+                            { $add: [{ $divide: [1, { $subtract: ["$runners.isp", 1] }] }, 1] },
+                            0,
+                          ],
+                        },
+                      },
+                      count: { $sum: 1 },
+                    },
+                  },
+                ],
           },
         },
       ])
@@ -415,6 +459,7 @@ export class IndustrySpDAO {
     const specs: [Record<string, unknown>, Record<string, unknown>?][] = [
       [{ raceTime: 1 }],
       [{ countryCode: 1 }],
+      [{ runnersWithIspCount: 1 }],
     ];
     for (const [keys, opts] of specs) {
       try {
