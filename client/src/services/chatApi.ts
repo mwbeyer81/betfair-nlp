@@ -60,6 +60,49 @@ export interface RunnersPage {
   pnlStats: PnlStats;
 }
 
+export interface IspRunner {
+  id: number;
+  name: string;
+  num: number | null;
+  draw: number | null;
+  status: "WINNER" | "PLACED" | "LOSER" | "NON_FINISHER";
+  sortPriority: number;
+  isp: number | null;
+  ispFraction: string | null;
+  isFavourite: boolean;
+}
+
+export interface IspRace {
+  raceId: number;
+  meetingId: string;
+  meetingName: string;
+  course: string;
+  countryCode: string;
+  raceTime: string;
+  raceName: string;
+  raceType: string;
+  ran: number;
+  runners: IspRunner[];
+}
+
+export interface IspFilterBounds {
+  maxRunnersPerRace: number;
+  maxIsp: number;
+  minIsp: number;
+}
+
+export interface IspPage {
+  success: boolean;
+  data: IspRace[];
+  count: number;
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  totalRunners: number;
+  pnlStats: PnlStats;
+}
+
 export interface MarketDefinitionDoc {
   _id: string;
   changeId: string;
@@ -174,6 +217,75 @@ class ChatApi {
       headers: this.authHeader(),
     });
     if (!response.ok) throw new Error("Failed to fetch runners P&L stats");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIspFilterBounds(): Promise<IspFilterBounds> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/filter-bounds`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch ISP filter bounds");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIspCountries(): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/countries`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch ISP countries");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number): Promise<IspPage> {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+      minRunners: String(minRunners),
+      maxRunners: String(maxRunners),
+      minIsp: String(minIsp),
+      maxIsp: String(maxIsp),
+      sort: sortOrder,
+      minInIspRange: String(minInIspRange),
+      maxInIspRange: String(maxInIspRange),
+      fromRow: String(fromRow),
+    });
+    if (countries.length > 0) params.set("countries", countries.join(","));
+    if (toRow != null) params.set("toRow", String(toRow));
+    const response = await fetch(
+      `${this.baseUrl}/api/industry-sp?${params}`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch industry SP");
+    return response.json();
+  }
+
+  async getIspPnlStats(): Promise<PnlStats> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/pnl-stats`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch ISP P&L stats");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIspMeeting(meetingId: string): Promise<IspRace[]> {
+    const response = await fetch(
+      `${this.baseUrl}/api/industry-sp/meeting/${encodeURIComponent(meetingId)}`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch meeting");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIspRace(raceId: number): Promise<IspRace> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/race/${raceId}`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch race");
     const result = await response.json();
     return result.data;
   }

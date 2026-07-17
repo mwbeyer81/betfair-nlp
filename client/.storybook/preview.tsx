@@ -1,8 +1,16 @@
 import React from "react";
 import { Provider as PaperProvider } from "react-native-paper";
 import { initialize, mswLoader } from "msw-storybook-addon";
-import { INITIAL_VIEWPORTS } from "@storybook/addon-viewport";
 import { theme } from "../src/theme";
+
+// @storybook/addon-viewport is incompatible with Storybook 9 (package removed) —
+// define the small set of viewports this project's stories actually reference
+// (mobile1, iphone12) instead of importing its INITIAL_VIEWPORTS.
+const mobile1Viewport = {
+  name: "Small mobile",
+  styles: { width: "375px", height: "667px" },
+  type: "mobile" as const,
+};
 
 const iphone12Viewport = {
   name: "iPhone 12",
@@ -50,7 +58,7 @@ const preview = {
       ],
     },
     viewport: {
-      viewports: { ...INITIAL_VIEWPORTS, iphone12: iphone12Viewport },
+      viewports: { mobile1: mobile1Viewport, iphone12: iphone12Viewport },
     },
     // Enable interaction testing logging in headless mode
     test: {

@@ -21,6 +21,7 @@ nohup.out
 # Large data files
 horse-racing-data/
 horse-racing-results-ukireland-2015-2025.zip
+data/
 
 # Playwright MCP cache
 .playwright-mcp/

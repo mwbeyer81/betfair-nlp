@@ -5,6 +5,9 @@ import { ChatScreen } from "./src/components/ChatScreen";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { EventsScreen } from "./src/components/EventsScreen";
 import { AllRunnersScreen } from "./src/components/AllRunnersScreen";
+import { IndustrySpScreen } from "./src/components/IndustrySpScreen";
+import { IndustryMeetingScreen } from "./src/components/IndustryMeetingScreen";
+import { IndustryRaceScreen } from "./src/components/IndustryRaceScreen";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
 import { theme } from "./src/theme";
@@ -22,7 +25,7 @@ function isTokenExpired(token: string): boolean {
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const { route, navigate } = useRouter();
+  const { route, navigate, queryParams } = useRouter();
 
   // Restore token from localStorage on mount, then check for ?u=&p= URL params.
   useEffect(() => {
@@ -41,7 +44,11 @@ export default function App() {
     const u = params.get("u");
     const p = params.get("p");
     if (u && p) {
-      const clean = window.location.pathname;
+      // Only strip u/p, not the whole query string — /isp's filter params
+      // (minRunners, sort, etc.) can ride along in the same bookmarked URL.
+      params.delete("u");
+      params.delete("p");
+      const clean = window.location.pathname + (params.toString() ? `?${params}` : "");
       window.history.replaceState({}, "", clean);
       chatApi.login(u, p).then((token) => {
         localStorage.setItem(TOKEN_KEY, token);
@@ -68,10 +75,40 @@ export default function App() {
     if (route === "/runners") {
       return <AllRunnersScreen onNavigateToEvents={() => navigate("/events")} />;
     }
+    if (route === "/isp") {
+      return (
+        <IndustrySpScreen
+          onNavigateToEvents={() => navigate("/events")}
+          onNavigateToMeeting={(meetingId) => navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}`)}
+          onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}`)}
+        />
+      );
+    }
+    if (route === "/isp/meeting") {
+      const meetingId = queryParams.get("id") ?? "";
+      return (
+        <IndustryMeetingScreen
+          meetingId={meetingId}
+          onBack={() => navigate("/isp")}
+          onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}`)}
+        />
+      );
+    }
+    if (route === "/isp/race") {
+      const raceId = parseInt(queryParams.get("id") ?? "", 10);
+      return (
+        <IndustryRaceScreen
+          raceId={raceId}
+          onNavigateToMeeting={(meetingId) => navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}`)}
+          onNavigateToIsp={() => navigate("/isp")}
+        />
+      );
+    }
     return (
       <EventsScreen
         onNavigateToChat={() => navigate("/chat")}
         onNavigateToAllRunners={() => navigate("/runners")}
+        onNavigateToIsp={() => navigate("/isp")}
         onLogout={() => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); }}
       />
     );

@@ -5,7 +5,7 @@ const config: StorybookConfig = {
     "../src/**/*.mdx",
     "../src/**/*.stories.@(js|jsx|mjs|ts|tsx)",
   ],
-  addons: ["@storybook/addon-links", "@storybook/addon-viewport"],
+  addons: ["@storybook/addon-links"],
   staticDirs: ["../public"],
   framework: {
     name: "@storybook/react-webpack5",

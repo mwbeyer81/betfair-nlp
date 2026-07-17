@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import config from "config";
 import { NaturalLanguageService } from "../lib/service/natural-language-service";
 import { BetfairService } from "../lib/service/betfair-service";
+import { IndustrySpService } from "../lib/service/industry-sp-service";
 import { DatabaseConnection } from "../config/database";
 import { jwtAuth } from "./middleware";
 
@@ -13,6 +14,7 @@ const router = express.Router();
 let dbConnection: DatabaseConnection | null = null;
 let naturalLanguageService: NaturalLanguageService | null = null;
 let betfairService: BetfairService | null = null;
+let industrySpService: IndustrySpService | null = null;
 
 export const initializeServices = async () => {
   try {
@@ -26,6 +28,12 @@ export const initializeServices = async () => {
       await betfairService.createIndexes();
     } catch (indexError) {
       console.warn("createIndexes failed (non-fatal, queries may be slower):", indexError);
+    }
+    industrySpService = new IndustrySpService();
+    try {
+      await industrySpService.createIndexes();
+    } catch (indexError) {
+      console.warn("industry-sp createIndexes failed (non-fatal, queries may be slower):", indexError);
     }
     try {
       naturalLanguageService = new NaturalLanguageService(null as any, dbConnection.getDb());
@@ -214,6 +222,85 @@ router.get("/api/runners", async (req, res) => {
   } catch (error) {
     console.error("getAllRunnersByRace error:", error);
     res.status(500).json({ success: false, error: "Failed to fetch all runners" });
+  }
+});
+
+router.get("/api/industry-sp/pnl-stats", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const pnlStats = await industrySpService.getPnlStats();
+    res.status(200).json({ success: true, data: pnlStats });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch P&L stats" });
+  }
+});
+
+router.get("/api/industry-sp/filter-bounds", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const bounds = await industrySpService.getFilterBounds();
+    res.status(200).json({ success: true, data: bounds });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch filter bounds" });
+  }
+});
+
+router.get("/api/industry-sp/countries", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const countries = await industrySpService.getDistinctCountryCodes();
+    res.status(200).json({ success: true, data: countries });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch countries" });
+  }
+});
+
+router.get("/api/industry-sp", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(10000, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
+    const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
+    const countries = req.query.countries ? (req.query.countries as string).split(",").map(c => c.trim()).filter(Boolean) : [];
+    const minIsp = Math.max(1, parseFloat(req.query.minIsp as string) || 1);
+    const maxIsp = Math.min(100000, parseFloat(req.query.maxIsp as string) || 1000);
+    const sortOrder = req.query.sort === "desc" ? "desc" : "asc";
+    const minInIspRange = Math.max(1, parseInt(req.query.minInIspRange as string) || 1);
+    const maxInIspRange = Math.min(10000, Math.max(1, parseInt(req.query.maxInIspRange as string) || 10000));
+    const fromRow = Math.max(1, parseInt(req.query.fromRow as string) || 1);
+    const toRowRaw = parseInt(req.query.toRow as string);
+    const toRow: number | null = isNaN(toRowRaw) ? null : Math.max(fromRow, toRowRaw);
+    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow);
+    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
+  } catch (error) {
+    console.error("getAllRacesByRace error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch industry SP" });
+  }
+});
+
+router.get("/api/industry-sp/meeting/:meetingId", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const data = await industrySpService.getRacesByMeetingId(req.params.meetingId);
+    res.status(200).json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error("getRacesByMeetingId error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch meeting" });
+  }
+});
+
+router.get("/api/industry-sp/race/:raceId", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const raceId = parseInt(req.params.raceId, 10);
+    if (isNaN(raceId)) return res.status(400).json({ success: false, error: "Invalid raceId" });
+    const race = await industrySpService.getRaceById(raceId);
+    if (!race) return res.status(404).json({ success: false, error: "Race not found" });
+    res.status(200).json({ success: true, data: race });
+  } catch (error) {
+    console.error("getRaceById error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch race" });
   }
 });
 

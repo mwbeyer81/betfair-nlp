@@ -26,12 +26,14 @@ import { colors, radii, spacing } from "../theme";
 interface EventsScreenProps {
   onNavigateToChat: () => void;
   onNavigateToAllRunners: () => void;
+  onNavigateToIsp: () => void;
   onLogout?: () => void;
 }
 
 export const EventsScreen: React.FC<EventsScreenProps> = ({
   onNavigateToChat,
   onNavigateToAllRunners,
+  onNavigateToIsp,
   onLogout,
 }) => {
   const [groups, setGroups] = useState<EventGroup[]>([]);
@@ -139,6 +141,14 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
         <Text style={styles.statDot}>·</Text>
         <Text testID="events-total-races" style={styles.statText}>
           {stats != null ? stats.totalRaces : "—"} races
+        </Text>
+        <Text style={styles.statDot}>·</Text>
+        <Text
+          testID="events-nav-isp"
+          style={[styles.statText, styles.statLinkText]}
+          onPress={onNavigateToIsp}
+        >
+          Industry SP →
         </Text>
       </View>
 

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <!--
+      iOS Safari deliberately ignores maximum-scale=1 / user-scalable=no in the
+      viewport meta tag (a WebKit accessibility override, since iOS 10) — so
+      pinch/double-tap zoom can still happen despite these. The touch-action:
+      pan-y rule below is what actually blocks it: unlike the viewport meta,
+      touch-action IS honored by iOS, and restricting gestures to vertical pan
+      only prevents pinch-zoom and horizontal drag while still allowing the
+      app's own vertical scroll views to work. position:fixed html/body locks
+      out whole-page pan/bounce-scroll (iOS Safari can bounce-scroll the page
+      even with overflow:hidden on body alone).
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#4338CA" />
+    <title>client</title>
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* Lock the page frame so only the app's own scroll views can scroll —
+         iOS Safari can pan/bounce the whole document even with overflow:hidden
+         unless html/body are also taken out of the normal flow with position:fixed. */
+      html,
+      body {
+        position: fixed;
+        inset: 0;
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+        touch-action: pan-y;
+      }
+      #root {
+        display: flex;
+        height: 100%;
+        width: 100%;
+        flex: 1;
+        touch-action: pan-y;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+    <script>
+      // CSS alone (viewport meta, touch-action:pan-y) does not reliably block
+      // pinch/double-tap zoom on all iOS Safari versions — once zoomed in,
+      // the whole page becomes pannable, clipping the header/filters off
+      // whichever edge you drag toward. This is belt-and-braces JS backup:
+      // - gesturestart/gesturechange are WebKit-only events that fire solely
+      //   for pinch gestures, so blocking them can't interfere with taps.
+      // - the touchmove check blocks any 2+finger pinch on non-WebKit engines.
+      // - the touchend double-tap check only prevents zoom on non-interactive
+      //   areas (skips buttons/inputs/links) so rapid taps on the +/- steppers
+      //   still register as two clicks, not a blocked zoom gesture.
+      (function () {
+        document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
+        document.addEventListener("gesturechange", function (e) { e.preventDefault(); });
+        document.addEventListener(
+          "touchmove",
+          function (e) {
+            if (e.touches.length > 1) e.preventDefault();
+          },
+          { passive: false }
+        );
+        var lastTouchEnd = 0;
+        document.addEventListener(
+          "touchend",
+          function (e) {
+            var target = e.target;
+            // react-native-web's Touchable* components render as a plain
+            // <div tabindex="0"> with no role="button" at all, so [tabindex]
+            // is the reliable signal here — without it this only matched
+            // real <button>/<a> elements and swallowed one of every two
+            // rapid taps on the app's own +/- stepper buttons.
+            var isInteractive =
+              target.closest &&
+              target.closest('button, input, textarea, select, a, [role="button"], [tabindex]');
+            if (isInteractive) return;
+            var now = Date.now();
+            if (now - lastTouchEnd <= 300) e.preventDefault();
+            lastTouchEnd = now;
+          },
+          { passive: false }
+        );
+      })();
+    </script>
+  </body>
+</html>
