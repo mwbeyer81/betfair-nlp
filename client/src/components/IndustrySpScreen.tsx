@@ -222,12 +222,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       setIsLoading(true);
       setError(null);
       setRaces([]);
       try {
         const result = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined);
+        if (cancelled) return;
         setRaces(result.data);
         setPage(1);
         setTotalPages(result.totalPages);
@@ -236,11 +238,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         setPnlStats(result.pnlStats ?? { staked: 0, returns: 0, pnl: 0 });
         if (toRow == null) setDraftTo(String(result.total));
       } catch {
-        setError("Failed to load industry SP");
+        if (!cancelled) setError("Failed to load industry SP");
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [fetchTrigger, sortOrder]);
 
   async function loadMore() {

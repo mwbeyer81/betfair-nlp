@@ -10,11 +10,11 @@ import { deriveCountryCode } from "../lib/dao/course-country";
 const SOURCE_CSV =
   process.env.SOURCE_CSV ||
   "data/kaggle-horse-racing-uk-ireland/extracted/form_2015-present/form_2015-present/raceform.csv";
-const FROM_DATE = process.env.FROM_DATE || "2026-03-01";
+const FROM_DATE = process.env.FROM_DATE || "2015-01-01";
 const TO_DATE = process.env.TO_DATE || "2026-05-27";
 const DROP_FIRST = process.env.DROP_FIRST === "true";
 const COLLECTION_NAME = "industry_starting_prices";
-const BATCH_SIZE = 500;
+const BATCH_SIZE = 1000;
 
 interface RawRow {
   [key: string]: string;
@@ -97,9 +97,16 @@ async function run() {
     await collection.drop().catch(() => {});
   }
 
+  // Non-UK races are filtered out immediately (never buffered) rather than after a full
+  // pass, since the full CSV history is ~1.85M rows and ~42% of races are outside the
+  // BHA allowlist — buffering all of them first would nearly double peak memory for no
+  // reason.
   const races = new Map<string, RawRow[]>();
+  const nonUkRaceIds = new Set<string>();
   let rowsSeen = 0;
   let rowsInWindow = 0;
+  let nonUkSkipped = 0;
+  const nonUkCoursesSeen = new Set<string>();
 
   const parser = createReadStream(SOURCE_CSV).pipe(
     parse({ columns: true, skip_empty_lines: true, relax_column_count: true })
@@ -111,27 +118,35 @@ async function run() {
     if (!date || date < FROM_DATE || date > TO_DATE) continue;
     rowsInWindow++;
     const raceId = row.race_id;
-    if (!races.has(raceId)) races.set(raceId, []);
+    if (nonUkRaceIds.has(raceId)) continue;
+    if (!races.has(raceId)) {
+      const { course, countryCode } = deriveCountryCode(row.course);
+      if (countryCode === null) {
+        nonUkRaceIds.add(raceId);
+        nonUkSkipped++;
+        nonUkCoursesSeen.add(course);
+        continue;
+      }
+      races.set(raceId, []);
+    }
     races.get(raceId)!.push(row);
     if (rowsSeen % 200000 === 0) console.log(`  scanned ${rowsSeen} rows...`);
   }
 
-  console.log(`Scanned ${rowsSeen} total rows, ${rowsInWindow} in window, ${races.size} distinct races`);
+  console.log(`Scanned ${rowsSeen} total rows, ${rowsInWindow} in window, ${races.size} distinct UK races`);
+  console.log(
+    `Skipped ${nonUkSkipped} non-UK races across ${nonUkCoursesSeen.size} courses` +
+      (nonUkCoursesSeen.size > 0 ? `: ${[...nonUkCoursesSeen].sort().join(", ")}` : "")
+  );
 
   const docs: RaceDoc[] = [];
   let nullIspCount = 0;
   let runnerCount = 0;
-  let nonUkSkipped = 0;
-  const nonUkCoursesSeen = new Set<string>();
 
   for (const [raceIdStr, rows] of races) {
     const first = rows[0];
-    const { course, countryCode } = deriveCountryCode(first.course);
-    if (countryCode === null) {
-      nonUkSkipped++;
-      nonUkCoursesSeen.add(course);
-      continue;
-    }
+    const { course } = deriveCountryCode(first.course);
+    const countryCode = "GB";
     const raceDate = first.date;
     const raceTime = `${first.date}T${(first.off || "00:00").padStart(5, "0")}:00`;
     const raceId = Number(raceIdStr);
@@ -177,17 +192,14 @@ async function run() {
   }
 
   console.log(`Built ${docs.length} race docs, ${runnerCount} runners, ${nullIspCount} with null ISP`);
-  console.log(
-    `Skipped ${nonUkSkipped} non-UK races across ${nonUkCoursesSeen.size} courses` +
-      (nonUkCoursesSeen.size > 0 ? `: ${[...nonUkCoursesSeen].sort().join(", ")}` : "")
-  );
 
   for (let i = 0; i < docs.length; i += BATCH_SIZE) {
     const batch = docs.slice(i, i + BATCH_SIZE);
     await collection.bulkWrite(
       batch.map(doc => ({
         replaceOne: { filter: { _id: doc._id }, replacement: doc, upsert: true },
-      }))
+      })),
+      { ordered: false }
     );
     console.log(`  upserted ${Math.min(i + BATCH_SIZE, docs.length)}/${docs.length}`);
   }

@@ -75,10 +75,18 @@ export class IndustrySpDAO {
 
     const rowSkip = fromRow - 1;
     const rowLimit = toRow !== null ? toRow - fromRow + 1 : null;
-    // A row range means "row N of the current sort order", so any branch
-    // using rowRangeStages must sort first — done on the lightweight
-    // (runners-free) doc shape below, never on the full array.
-    const rowRangeStages: Record<string, unknown>[] = [{ $sort: { raceTime: raceTimeSortDir } }];
+    // A row range means "row N of the current sort order", so a branch using
+    // rowRangeStages must sort first when a range is actually being applied.
+    // With no fromRow/toRow narrowing (the common case), rowRangeStages must
+    // stay empty — an unconditional leading $sort here would run over every
+    // matching doc for no reason, and once the collection is large enough
+    // that's exactly what blew Atlas M0's 32MB in-memory sort limit (this
+    // already happened once for the equivalent Betfair-SP query — see
+    // market-definition-dao.ts — and the fix there is the same shape).
+    const rowRangeActive = rowSkip > 0 || rowLimit !== null;
+    const rowRangeStages: Record<string, unknown>[] = rowRangeActive
+      ? [{ $sort: { raceTime: raceTimeSortDir } }]
+      : [];
     if (rowSkip > 0) rowRangeStages.push({ $skip: rowSkip });
     if (rowLimit !== null) rowRangeStages.push({ $limit: rowLimit });
 
@@ -86,15 +94,6 @@ export class IndustrySpDAO {
     const effectiveDataLimit =
       rowLimit !== null ? Math.min(limit, Math.max(1, rowLimit - (page - 1) * limit)) : limit;
 
-    // Only a lightweight per-race ISP-in-range *count* is computed here, not
-    // the actual filtered/sorted runners array — Atlas M0 enforces a 32MB
-    // in-memory sort buffer, and $sort-ing documents that still carry their
-    // full embedded runners array can exceed that once the collection grows
-    // (this already caused MongoServerError 292 / 500s on the equivalent
-    // Betfair-SP query in production — see market-definition-dao.ts). Every
-    // branch below re-attaches runners, if it needs them, via a $lookup back
-    // onto this same collection *after* sorting/paginating down to a handful
-    // of docs, never before.
     const runnersInRangeFilter = {
       $filter: {
         input: "$runners",
@@ -110,6 +109,11 @@ export class IndustrySpDAO {
       },
     };
 
+    // Only a per-race id + sort key + the two precomputed counts survive
+    // into the $facet — every other field (course, meetingName, runners,
+    // ...) is re-fetched via $lookup after sorting/paginating down to a
+    // handful of docs, never before. This keeps every $sort in this
+    // pipeline operating on a ~40-byte doc regardless of collection size.
     const basePipeline = [
       { $match: countryMatch },
       {
@@ -138,18 +142,27 @@ export class IndustrySpDAO {
           },
         },
       },
-      { $project: { runners: 0 } },
+      { $project: { _id: 1, raceTime: 1, allRunnersCount: 1, inRangeRunnersCount: 1 } },
     ];
 
-    const reattachSortedRunners = [
+    const reattachFullDoc = [
       { $lookup: { from: this.collectionName, localField: "_id", foreignField: "_id", as: "_docs" } },
+      { $addFields: { _doc: { $arrayElemAt: ["$_docs", 0] } } },
       {
         $addFields: {
+          raceId: "$_doc.raceId",
+          meetingId: "$_doc.meetingId",
+          meetingName: "$_doc.meetingName",
+          course: "$_doc.course",
+          countryCode: "$_doc.countryCode",
+          raceName: "$_doc.raceName",
+          raceType: "$_doc.raceType",
+          ran: "$_doc.ran",
           runners: {
             $sortArray: {
               input: {
                 $filter: {
-                  input: { $ifNull: [{ $arrayElemAt: ["$_docs.runners", 0] }, []] },
+                  input: { $ifNull: ["$_doc.runners", []] },
                   as: "r",
                   cond: {
                     $and: [
@@ -182,7 +195,7 @@ export class IndustrySpDAO {
               { $sort: { raceTime: raceTimeSortDir } },
               { $skip: effectiveDataSkip },
               { $limit: effectiveDataLimit },
-              ...reattachSortedRunners,
+              ...reattachFullDoc,
               {
                 $project: {
                   _id: 0,
@@ -206,7 +219,7 @@ export class IndustrySpDAO {
             ],
             pnlStats: [
               ...rowRangeStages,
-              ...reattachSortedRunners,
+              ...reattachFullDoc,
               { $unwind: "$runners" },
               { $match: { "runners.isp": { $exists: true, $gt: 1 } } },
               {

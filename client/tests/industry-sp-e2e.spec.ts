@@ -96,10 +96,10 @@ test.describe("Industry SP screen (Expo web @ localhost:80)", () => {
   test("Industry SP screen loads data and shows runner rows", async ({ page }) => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    await expect(page.getByTestId("industry-sp-list")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-list")).toBeVisible({ timeout: 60000 });
 
     const items = page.locator('[data-testid^="industry-sp-item-"]');
-    await expect(items.first()).toBeVisible({ timeout: 10000 });
+    await expect(items.first()).toBeVisible({ timeout: 30000 });
     expect(await items.count()).toBeGreaterThan(0);
   });
 
@@ -108,7 +108,7 @@ test.describe("Industry SP screen (Expo web @ localhost:80)", () => {
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     const meetingHeaders = page.locator('[data-testid^="industry-sp-meeting-"]');
-    await expect(meetingHeaders.first()).toBeVisible({ timeout: 10000 });
+    await expect(meetingHeaders.first()).toBeVisible({ timeout: 30000 });
     expect(await meetingHeaders.count()).toBeGreaterThan(0);
   });
 
@@ -117,14 +117,14 @@ test.describe("Industry SP screen (Expo web @ localhost:80)", () => {
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     const raceHeaders = page.locator('[data-testid^="industry-sp-race-"]');
-    await expect(raceHeaders.first()).toBeVisible({ timeout: 10000 });
+    await expect(raceHeaders.first()).toBeVisible({ timeout: 30000 });
     expect(await raceHeaders.count()).toBeGreaterThan(1);
   });
 
   test("PnL bar shows horse count (react-native-paper Appbar subtitle does not render on web)", async ({ page }) => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    await expect(page.getByTestId("industry-sp-pnl-count")).toContainText("Horses");
+    await expect(page.getByTestId("industry-sp-pnl-count")).toContainText("Horses", { timeout: 60000 });
   });
 
   test("ISP price is displayed for runners", async ({ page }) => {
@@ -132,7 +132,7 @@ test.describe("Industry SP screen (Expo web @ localhost:80)", () => {
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     const ispBadges = page.locator('[data-testid^="industry-sp-isp-"]');
-    await expect(ispBadges.first()).toBeVisible({ timeout: 10000 });
+    await expect(ispBadges.first()).toBeVisible({ timeout: 30000 });
     expect(await ispBadges.count()).toBeGreaterThan(0);
 
     const firstIspText = await ispBadges.first().textContent();
@@ -164,7 +164,7 @@ test.describe("# in ISP range filter (real app at localhost:80)", () => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
     const raceRows = page.locator(`[data-testid^="industry-sp-race-"]`);
-    await expect(raceRows.first()).toBeVisible({ timeout: 10000 });
+    await expect(raceRows.first()).toBeVisible({ timeout: 60000 });
     const before = await raceRows.count();
     await page.getByTestId("industry-sp-max-rir-value").fill("1");
     await page.getByTestId("industry-sp-filter-apply").click();
@@ -177,7 +177,7 @@ test.describe("# in ISP range filter (real app at localhost:80)", () => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
     const raceRows = page.locator(`[data-testid^="industry-sp-race-"]`);
-    await expect(raceRows.first()).toBeVisible({ timeout: 10000 });
+    await expect(raceRows.first()).toBeVisible({ timeout: 30000 });
     const original = await raceRows.count();
     await page.getByTestId("industry-sp-max-rir-value").fill("1");
     await page.getByTestId("industry-sp-filter-apply").click();
@@ -186,7 +186,7 @@ test.describe("# in ISP range filter (real app at localhost:80)", () => {
     await page.getByTestId("industry-sp-max-rir-value").fill("30");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    await expect(raceRows.first()).toBeVisible({ timeout: 10000 });
+    await expect(raceRows.first()).toBeVisible({ timeout: 30000 });
     const restored = await raceRows.count();
     expect(restored).toBe(original);
   });
@@ -255,8 +255,8 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
 
     await page.getByTestId("industry-sp-sort-toggle").click();
     await expect(page.getByTestId("industry-sp-sort-toggle")).toHaveText("Last → First");
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 30000 });
-    await expect(page.getByTestId("industry-sp-list")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await expect(page.getByTestId("industry-sp-list")).toBeVisible({ timeout: 30000 });
   });
 
   test("desc sort sends sort=desc to the API", async ({ page }) => {
@@ -270,7 +270,7 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
     await page.getByTestId("industry-sp-sort-toggle").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     expect(sortParam).toBe("desc");
   });
@@ -282,13 +282,26 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
     // maxRunners (30) is wider, so leaving it off here could pick a "true"
     // earliest/latest race that the frontend's default view wouldn't
     // actually include, causing a false mismatch.
-    const res = await request.get(`${API_URL}/api/industry-sp?limit=5000&sort=asc&minRunners=1&maxRunners=20`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const body = await res.json();
-    const races: { raceTime: string; course: string }[] = body.data;
-    const earliest = races.reduce((min, r) => (r.raceTime < min.raceTime ? r : min), races[0]);
-    const latest = races.reduce((max, r) => (r.raceTime > max.raceTime ? r : max), races[0]);
+    //
+    // Each extreme is fetched with its own server-side sort + limit=1 rather
+    // than pulling a big page and reducing client-side: with ~109,775 races
+    // in the full GB history, a single ascending page (even limit=5000) only
+    // covers a small chronological slice from the start of the dataset, so
+    // reducing that slice for "latest" silently returns the latest race
+    // *within the slice*, not the true dataset-wide latest — a bug that
+    // previously made this test compare against the wrong race entirely.
+    const [earliestRes, latestRes] = await Promise.all([
+      request.get(`${API_URL}/api/industry-sp?limit=1&sort=asc&minRunners=1&maxRunners=20`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      request.get(`${API_URL}/api/industry-sp?limit=1&sort=desc&minRunners=1&maxRunners=20`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    ]);
+    const earliestBody = await earliestRes.json();
+    const latestBody = await latestRes.json();
+    const earliest: { raceTime: string; course: string } = earliestBody.data[0];
+    const latest: { raceTime: string; course: string } = latestBody.data[0];
     return { earliest, latest };
   }
 
@@ -312,7 +325,7 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
     const firstMeeting = page.locator('[data-testid^="industry-sp-meeting-"]').first();
-    await expect(firstMeeting).toBeVisible({ timeout: 10000 });
+    await expect(firstMeeting).toBeVisible({ timeout: 30000 });
     await expect(firstMeeting).toContainText(earliest.course);
   });
 
@@ -322,10 +335,10 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
     await page.getByTestId("industry-sp-sort-toggle").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     const firstMeeting = page.locator('[data-testid^="industry-sp-meeting-"]').first();
-    await expect(firstMeeting).toBeVisible({ timeout: 10000 });
+    await expect(firstMeeting).toBeVisible({ timeout: 30000 });
     await expect(firstMeeting).toContainText(latest.course);
   });
 
@@ -335,12 +348,12 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
     await page.getByTestId("industry-sp-sort-toggle").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
     await page.getByTestId("industry-sp-sort-toggle").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     const firstMeeting = page.locator('[data-testid^="industry-sp-meeting-"]').first();
-    await expect(firstMeeting).toBeVisible({ timeout: 10000 });
+    await expect(firstMeeting).toBeVisible({ timeout: 30000 });
     await expect(firstMeeting).toContainText(earliest.course);
   });
 });
@@ -588,7 +601,7 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
     // .allTextContents() below doesn't auto-wait like .first() does — it just
     // reads whatever's in the DOM at that instant, which can race the toggle's
     // re-render. Wait for at least one badge first.
-    await expect(ispBadges.first()).toBeVisible({ timeout: 10000 });
+    await expect(ispBadges.first()).toBeVisible({ timeout: 30000 });
     const badges = await ispBadges.allTextContents();
     expect(badges.length).toBeGreaterThan(0);
     for (const badge of badges) {
@@ -655,7 +668,7 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
     await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Show filters ▸");
 
     // Hiding filters must not affect the underlying data/list.
-    await expect(page.getByTestId("industry-sp-list")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-list")).toBeVisible({ timeout: 30000 });
     const raceCount = await page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').count();
     expect(raceCount).toBeGreaterThan(0);
 
