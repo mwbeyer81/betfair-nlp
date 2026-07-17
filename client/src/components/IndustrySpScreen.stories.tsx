@@ -284,6 +284,7 @@ export const PnlBar: Story = {
     await expect(canvas.getByTestId("industry-sp-pnl")).toHaveTextContent("+£1.58");
     await expect(bar).toHaveTextContent("£3.97");
     await expect(bar).toHaveTextContent("£5.55");
+    await expect(canvas.getByTestId("industry-sp-pnl-races")).toHaveTextContent(`Races ${MOCK_RACES.length}`);
   },
 };
 
@@ -351,6 +352,47 @@ export const RunnersInRangeFilterHides: Story = {
 };
 
 let capturedIspParams: { minIsp: string | null; maxIsp: string | null } = { minIsp: null, maxIsp: null };
+
+export const RunnersHeadingGroupedWithInputs: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    const runnersLabel = canvas.getByText("Runners");
+    const minInput = canvas.getByTestId("industry-sp-min-value");
+    const maxInput = canvas.getByTestId("industry-sp-max-value");
+
+    // The "Runners" heading must live in the same row container as its own
+    // Min/Max inputs, not float off as an unrelated sibling elsewhere in the
+    // filter bar (regression: it used to wrap onto a different line).
+    await expect(runnersLabel.parentElement).toBe(minInput.parentElement);
+    await expect(runnersLabel.parentElement).toBe(maxInput.parentElement);
+  },
+};
+
+export const TooltipTogglesShowAndHideExplanation: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    await expect(canvas.queryByTestId("industry-sp-tooltip-text-runners")).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId("industry-sp-tooltip-toggle-runners"));
+    await expect(canvas.getByTestId("industry-sp-tooltip-text-runners")).toHaveTextContent(
+      "Only show races with this many total runners taking part."
+    );
+
+    await userEvent.click(canvas.getByTestId("industry-sp-tooltip-toggle-runners"));
+    await expect(canvas.queryByTestId("industry-sp-tooltip-text-runners")).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId("industry-sp-tooltip-toggle-isp"));
+    await expect(canvas.getByTestId("industry-sp-tooltip-text-isp")).toBeInTheDocument();
+    await userEvent.click(canvas.getByTestId("industry-sp-tooltip-toggle-race"));
+    await expect(canvas.getByTestId("industry-sp-tooltip-text-race")).toBeInTheDocument();
+    // Opening a new tooltip closes the previous one — only one shown at a time.
+    await expect(canvas.queryByTestId("industry-sp-tooltip-text-isp")).not.toBeInTheDocument();
+  },
+};
 
 export const IspFilterParamsPassedToApi: Story = {
   parameters: {

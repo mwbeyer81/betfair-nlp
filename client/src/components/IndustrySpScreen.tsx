@@ -50,6 +50,13 @@ const FILTER_DEFAULTS = {
   sort: "asc" as const,
 };
 
+const FILTER_TOOLTIPS: Record<string, string> = {
+  isp: "Only show races where the runner's official starting price (ISP) falls in this range.",
+  runners: "Only show races with this many total runners taking part.",
+  inIsp: "Only show races with this many runners priced inside the ISP range above, out of the full field.",
+  race: "Restrict results to races numbered within this range, out of the total matching races.",
+};
+
 function getUrlSearchParams(): URLSearchParams | null {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search);
@@ -136,6 +143,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">(() => urlSortParam());
   const [oddsMode, setOddsMode] = useState<OddsMode>("fraction");
   const [filtersVisible, setFiltersVisible] = useState(true);
+  const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const PAGE_SIZE = 20;
 
   function applyFilter() {
@@ -283,6 +291,28 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     {}
   );
 
+  function renderTooltipToggle(key: string) {
+    return (
+      <TouchableOpacity
+        testID={`industry-sp-tooltip-toggle-${key}`}
+        onPress={() => setOpenTooltip(t => (t === key ? null : key))}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        style={styles.tooltipToggle}
+      >
+        <Text style={styles.tooltipToggleText}>?</Text>
+      </TouchableOpacity>
+    );
+  }
+
+  function renderTooltipText(key: string) {
+    if (openTooltip !== key) return null;
+    return (
+      <Text testID={`industry-sp-tooltip-text-${key}`} style={styles.tooltipText}>
+        {FILTER_TOOLTIPS[key]}
+      </Text>
+    );
+  }
+
   return (
     <SafeAreaView testID="industry-sp-screen" style={styles.screen}>
       <Appbar.Header style={styles.appbar}>
@@ -343,6 +373,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       <View testID="industry-sp-filter-bar" style={styles.filterBar}>
         <View style={styles.filterStepper}>
           <Text style={styles.filterStepperLabel}>ISP</Text>
+          {renderTooltipToggle("isp")}
           <RNTextInput
             testID="industry-sp-min-isp"
             style={styles.priceInput}
@@ -365,11 +396,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               ({filterBounds.minIsp.toFixed(1)}–{Math.ceil(filterBounds.maxIsp)})
             </Text>
           )}
+          {renderTooltipText("isp")}
         </View>
         <View style={styles.filterDivider} />
-        <Text style={styles.filterLabel}>Runners</Text>
         <View style={styles.filterStepper}>
-          <Text style={styles.filterStepperLabel}>Min</Text>
+          <Text style={styles.filterStepperLabel}>Runners</Text>
+          {renderTooltipToggle("runners")}
           <TouchableOpacity
             testID="industry-sp-min-dec"
             style={[styles.stepBtn, (parseInt(draftMin) || 1) <= 1 && styles.stepBtnDisabled]}
@@ -393,9 +425,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           >
             <Text style={styles.stepBtnText}>+</Text>
           </TouchableOpacity>
-        </View>
-        <View style={styles.filterStepper}>
-          <Text style={styles.filterStepperLabel}>Max</Text>
+          <Text style={styles.filterStepperLabel}>to</Text>
           <TouchableOpacity
             testID="industry-sp-max-dec"
             style={styles.stepBtn}
@@ -422,10 +452,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           {filterBounds != null && (
             <Text testID="industry-sp-max-bound" style={styles.boundsHint}>of {filterBounds.maxRunnersPerRace}</Text>
           )}
+          {renderTooltipText("runners")}
         </View>
         <View style={styles.filterDivider} />
         <View style={styles.filterStepper}>
           <Text testID="industry-sp-in-isp-label" style={styles.filterStepperLabel}># in ISP</Text>
+          {renderTooltipToggle("inIsp")}
           <TouchableOpacity
             testID="industry-sp-min-rir-dec"
             style={styles.stepBtn}
@@ -475,17 +507,19 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           {filterBounds != null && (
             <Text testID="industry-sp-max-rir-bound" style={styles.boundsHint}>of {filterBounds.maxRunnersPerRace}</Text>
           )}
+          {renderTooltipText("inIsp")}
         </View>
         <View style={styles.filterDivider} />
         <View style={styles.filterStepper}>
           <Text style={styles.filterStepperLabel}>Race</Text>
+          {renderTooltipToggle("race")}
           <RNTextInput
             testID="industry-sp-from-row"
             style={styles.raceInput}
             value={draftFrom}
             onChangeText={setDraftFrom}
             keyboardType="numeric"
-            maxLength={5}
+            maxLength={6}
           />
           <Text style={styles.filterStepperLabel}>–</Text>
           <RNTextInput
@@ -494,11 +528,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             value={draftTo}
             onChangeText={setDraftTo}
             keyboardType="numeric"
-            maxLength={5}
+            maxLength={6}
           />
           {totalRaces > 0 && (
-            <Text testID="industry-sp-race-bound" style={styles.boundsHint}>/{totalRaces}</Text>
+            <Text testID="industry-sp-race-bound" style={[styles.boundsHint, styles.raceBoundsHint]}>/{totalRaces}</Text>
           )}
+          {renderTooltipText("race")}
         </View>
         <Button
           testID="industry-sp-filter-apply"
@@ -570,6 +605,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             {hasRowRange ? `races ${fromRow}–${effectiveToRow}` : "Stake to win £1 per runner"}
           </Text>
           <View style={styles.pnlStats}>
+            <Text testID="industry-sp-pnl-races" style={styles.pnlStat}>
+              <Text style={styles.pnlStatLabel}>Races </Text>{totalRaces}
+            </Text>
             {displayPnl.count != null && (
               <Text testID="industry-sp-pnl-count" style={styles.pnlStat}>
                 <Text style={styles.pnlStatLabel}>Horses </Text>{displayPnl.count}
@@ -770,11 +808,29 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  filterLabel: {
-    fontSize: 12,
-    fontWeight: "600",
+  tooltipToggle: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.textTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 2,
+  },
+  tooltipToggleText: {
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "700",
     color: colors.textSecondary,
-    marginRight: 4,
+  },
+  tooltipText: {
+    width: "100%",
+    fontSize: 11,
+    fontStyle: "italic",
+    color: colors.textSecondary,
+    marginTop: 4,
+    paddingRight: 4,
   },
   filterStepper: {
     flexDirection: "row",
@@ -828,12 +884,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: colors.text,
-    width: 52,
+    width: 68,
     textAlign: "center",
     borderBottomWidth: 1,
     borderBottomColor: colors.textTertiary,
     paddingVertical: 2,
     paddingHorizontal: 2,
+  },
+  raceBoundsHint: {
+    marginLeft: 6,
   },
   priceInput: {
     fontSize: 14,
