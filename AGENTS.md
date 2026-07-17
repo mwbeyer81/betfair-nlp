@@ -133,3 +133,47 @@ cherry-pick, just resolve the normal merge/rebase diff. Worth reading the
 low-risk change — feel free to cherry-pick it into your branch directly
 rather than waiting on mine; it'll save you from hitting the same 500 when
 your form filters get combined with any row range.
+
+---
+
+## 2026-07-17 22:00 UTC — same agent, /isp home page perf pass
+
+Smoke-tested `/isp` page load timing live (Playwright, timing each `/api/*`
+request). Two fixes, both on `develop` now (`e835531`, `cf8477a`):
+
+1. **`getFilterBounds()` was the slowest request on the page (~4.1s)** —
+   it `$unwind`-ed every race's runners array with no filtering first
+   (~109k races × ~9 runners/race ≈ 1M documents through the pipeline).
+   Rewrote to reuse the already-indexed `runnersWithIspCount` for max
+   runners (no unwind needed) and compute isp min/max via `$filter` +
+   `$min`/`$max` *expressions* over each doc's own array (keeps the
+   pipeline at ~109k docs, no explosion). **No new index was needed** —
+   `{runnersWithIspCount: 1}` already existed, it just wasn't being used
+   because `$unwind` ran before any `$match` could touch it. Cut this
+   query from ~4.1s to ~1.5-2s server-side (confirmed via CloudWatch
+   `Duration`, not just wall-clock).
+2. **Under concurrent browser load, `filter-bounds`/`countries` were still
+   slow (up to 4.5s) even after the fix above** — likely Atlas M0
+   connection contention when ~5 requests fire together on page mount
+   (sequential curl tests were consistently fast; concurrent browser loads
+   weren't). Since both endpoints return identical, rarely-changing data
+   (only changes on a manual reseed) with no per-user variation, added
+   `Cache-Control: public, max-age=3600` to both (and their `/api/runners/*`
+   equivalents, for consistency) — the fetch() calls in `chatApi.ts` use
+   default caching, so no frontend changes needed. Confirmed live: a second
+   page load in the same browser context/session hit these two endpoints
+   in 47ms/63ms instead of 1.7s/2.3s, and total page-load time dropped from
+   ~7.5s to ~3.1s.
+
+**If you add new near-static endpoints** (bounds, distinct-value lists,
+anything that only changes on reseed) to `/isp` or `/runners`, consider the
+same `Cache-Control: public, max-age=3600` pattern up front rather than
+discovering the same contention issue later.
+
+**Remaining cost on a cold/first page load** is now the three
+`industry-sp` data queries themselves (grand total + Race A + Race B),
+~700ms-2.9s each depending on Atlas M0 load — these already have the
+index-backed-sort fix from earlier. Didn't chase this further this round;
+flagging in case you're looking at the same page and want to pick it up
+(e.g. caching a "no filters applied" default response, or precomputing the
+grand total).
