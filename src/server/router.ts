@@ -185,6 +185,12 @@ router.get("/api/runners/filter-bounds", async (_req, res) => {
   try {
     if (!betfairService) return res.status(503).json({ success: false, error: "Service not initialized" });
     const bounds = await betfairService.getRunnerFilterBounds();
+    // This dataset only changes on a manual reseed, and the bounds are
+    // identical for every caller — safe to let the browser skip the round
+    // trip entirely on repeat page loads within the hour rather than
+    // recomputing (and re-contending Atlas M0's limited concurrent
+    // capacity with whatever else the page fetches at the same time).
+    res.set("Cache-Control", "public, max-age=3600");
     res.status(200).json({ success: true, data: bounds });
   } catch (error) {
     res.status(500).json({ success: false, error: "Failed to fetch filter bounds" });
@@ -195,6 +201,7 @@ router.get("/api/runners/countries", async (_req, res) => {
   try {
     if (!betfairService) return res.status(503).json({ success: false, error: "Service not initialized" });
     const countries = await betfairService.getDistinctCountryCodes();
+    res.set("Cache-Control", "public, max-age=3600");
     res.status(200).json({ success: true, data: countries });
   } catch (error) {
     res.status(500).json({ success: false, error: "Failed to fetch countries" });
@@ -239,6 +246,12 @@ router.get("/api/industry-sp/filter-bounds", async (_req, res) => {
   try {
     if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
     const bounds = await industrySpService.getFilterBounds();
+    // Same reasoning as /api/runners/filter-bounds above: this is one of
+    // the slowest requests on the /isp home page (smoke-tested live at
+    // ~1.5-4.5s even after removing the $unwind that used to make it much
+    // worse) and its result is identical for every caller until the next
+    // reseed — cache it so repeat page loads skip the round trip.
+    res.set("Cache-Control", "public, max-age=3600");
     res.status(200).json({ success: true, data: bounds });
   } catch (error) {
     res.status(500).json({ success: false, error: "Failed to fetch filter bounds" });
@@ -249,6 +262,7 @@ router.get("/api/industry-sp/countries", async (_req, res) => {
   try {
     if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
     const countries = await industrySpService.getDistinctCountryCodes();
+    res.set("Cache-Control", "public, max-age=3600");
     res.status(200).json({ success: true, data: countries });
   } catch (error) {
     res.status(500).json({ success: false, error: "Failed to fetch countries" });
