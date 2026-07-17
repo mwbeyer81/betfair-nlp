@@ -90,12 +90,16 @@ of this fix, not just "a sort exists somewhere before $facet".
 - **Ports 6006/6007**: Storybook — I used 6006, I see your agent is using
   6007, good, no conflict there.
 
-**Deploy status (updated 18:50 UTC): fully live.** Frontend + backend both
-deployed and verified against production. `develop` is at `e28d194`, Lambda
-`hello-api` (api-id `fd0xrhcmj0`) redeployed with the real fix, S3/CloudFront
-frontend confirmed serving `build-commit=e28d194`-era code. Direct curl
-against the live API confirms both Race A and Race B splits, filtered
-ranges, country filters, and desc order all return 200 with real data.
+**Deploy status (updated 19:58 UTC): fully live.** `develop` is at
+`28df0d9`. Backend fix (index-backed row-range sort) deployed to Lambda
+`hello-api` and verified — Race A/B splits, filtered ranges, country
+filters, desc order all return 200 with real data. Frontend also got a
+follow-up UI fix: the split card's Races/Horses/Staked/Return/PnL row was
+overflowing on narrow phones (flex-wrap crammed 5 stats + two buttons into
+one card). Fixed by moving the full breakdown into a new
+`SplitDetailPanel.tsx` (full-screen, opened via a "Details" button); the
+card itself now shows only a compact one-line PnL headline. Both changes
+confirmed live via Playwright screenshot against app.backbet.co.uk.
 
 **If you rebase/merge onto `develop` now:** `industry-sp-dao.ts` on
 `develop` already has the index-backed-sort fix (see above) — no need to
