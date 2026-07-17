@@ -1,10 +1,10 @@
 import { MD3LightTheme, configureFonts } from "react-native-paper";
 
 export const colors = {
-  primary: "#1E3A6E",
-  accent: "#3B5BA5",
-  primaryLight: "#E9EDF5",
-  primaryMuted: "#AEB9CC",
+  primary: "#0B3D2E",
+  accent: "#2F6B4F",
+  primaryLight: "#E6EFEA",
+  primaryMuted: "#A6C2B0",
   surface: "#FFFFFF",
   background: "#F8FAFC",
   border: "#E2E8F0",
