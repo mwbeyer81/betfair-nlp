@@ -28,27 +28,46 @@ hypothesis can be backtested on two slices of the data independently.
 - `client/tests/industry-sp-e2e.spec.ts` — testID updates + new split test
 - `src/lib/dao/industry-sp-dao.ts` — **see bug report below**
 
-**⚠️ Backend bug found + fixed — relevant to your `industry-sp-dao.ts` changes too:**
-`getAllRacesByRace`'s `$facet` stage runs the same `$sort` independently in
-all three of the `total`/`totalRunners`/`pnlStats` branches whenever a row
-range (`fromRow`/`toRow`) is active (`rowRangeStages` starts with `$sort`).
-That triples the in-memory sort footprint versus the single sort the `data`
-branch does, and at this collection's real size (~109k matching races) that
-alone is enough to exceed Atlas M0's 32MB in-memory sort limit — confirmed
-via live server logs, `MongoServerError code 292
-QueryExceededMemoryLimitNoDiskUseAllowed`. **Any query with `fromRow > 1` or
-`toRow` set was returning HTTP 500** before this fix. Since nothing before
-my A/B split feature actually exercised row ranges in production traffic,
-this bug was invisible until now.
+**⚠️ Backend bug found + fixed (twice — the first attempt didn't work,
+leaving this note in case it saves you the same detour) — relevant to your
+`industry-sp-dao.ts` changes too:**
 
-Fix: added `{ allowDiskUse: true }` as the aggregate options arg on that
-same call (last few lines of `getAllRacesByRace`, right after the `$facet`
-closes, before `.toArray()`). Checked your diff of this file — you haven't
-touched the `$facet`/`rowRangeStages`/`allowDiskUse` region, so this
-shouldn't conflict, but you're adding `formFilterStages` earlier in the same
-`basePipeline` — worth pulling this fix in when you merge/rebase so your new
-form-filter query paths don't hit the same 500 once combined with a row
-range. **DAO integration tests pass locally with this fix.**
+`getAllRacesByRace`'s `$facet` stage was running the same `$sort` on
+`raceTime` independently in the `total`/`totalRunners`/`pnlStats`/`data`
+branches whenever a row range (`fromRow`/`toRow`) was active, each as a
+blocking in-memory sort. At this collection's real size (~109k matching
+races) that's enough to exceed Atlas M0's 32MB in-memory sort limit —
+confirmed via live server logs, `MongoServerError code 292
+QueryExceededMemoryLimitNoDiskUseAllowed`. **Any query with `fromRow > 1` or
+`toRow` set was returning HTTP 500.** Nothing before the A/B split feature
+exercised row ranges in production traffic, so this was invisible until now.
+
+- First attempt (commit `56d9d59`): de-duplicated the sort (ran it once
+  before `$facet` instead of once per branch) and added
+  `{ allowDiskUse: true }`. **This did not fully work** — de-duplicating
+  raised the safe ceiling from basically nothing to ~40k matching docs
+  (confirmed via binary search against the live API), but the exact 50/50
+  default split of the current ~109k-race dataset (54621/54622) sits just
+  past that line, so it still 500'd. `allowDiskUse` turned out to be a
+  no-op here: **Atlas M0/M2/M5 silently ignore that option** — same error,
+  same codeName, even with it set.
+- Real fix (commit `e28d194`): put the `$sort` on `raceTime` as the
+  pipeline's *first* stage, ahead of the `$match`/`$addFields` filtering —
+  MongoDB then walks the existing `{raceTime: 1}` index directly instead of
+  buffering an in-memory sort, so everything downstream (skip/limit, bounded
+  or open-ended) costs O(1) memory regardless of range size. Verified live:
+  default A/B split, narrow filtered ranges, country filters, and desc sort
+  all return 200 now, in under ~2.5s.
+
+You're adding `formFilterStages` into the same `basePipeline` for your form
+filters — worth pulling this fix in when you merge/rebase (`develop` has it
+as of `e28d194`) so your new filter paths don't hit the same wall once
+combined with a row range. One thing to watch for in your own work: if you
+add any `$match`/`$addFields` stage that needs to run *before* the row-range
+sort can be pushed down to the index (i.e. before `leadingSortStage` in the
+current code), that would reintroduce the blocking-sort problem — keeping
+the index-eligible `$sort` as pipeline stage zero is the load-bearing part
+of this fix, not just "a sort exists somewhere before $facet".
 
 **⚠️ Local infra state you should know about:**
 - **Port 3000** (`ts-node src/server/index.ts`): I killed and restarted this
@@ -71,15 +90,17 @@ range. **DAO integration tests pass locally with this fix.**
 - **Ports 6006/6007**: Storybook — I used 6006, I see your agent is using
   6007, good, no conflict there.
 
-**Deploy status:** Backend fix (`industry-sp-dao.ts`) and frontend feature
-are implemented and locally tested (MSW + Storybook green; live e2e against
-the real dataset caught and confirmed the bug above). Not yet deployed —
-`apps/lambda/build.sh` (backend) is blocked on user permission per the
-sandbox's auto-mode classifier; user said they'll run it themselves.
-Frontend deploy (`apps/web/deploy.sh`) is queued behind that. Nothing pushed
-to `develop` yet — flagging here specifically because of the file overlap
-above, so let's coordinate before either of us pushes, to avoid a painful
-rebase on `industry-sp-dao.ts`/`IndustrySpScreen.tsx`.
+**Deploy status (updated 18:50 UTC): fully live.** Frontend + backend both
+deployed and verified against production. `develop` is at `e28d194`, Lambda
+`hello-api` (api-id `fd0xrhcmj0`) redeployed with the real fix, S3/CloudFront
+frontend confirmed serving `build-commit=e28d194`-era code. Direct curl
+against the live API confirms both Race A and Race B splits, filtered
+ranges, country filters, and desc order all return 200 with real data.
+
+**If you rebase/merge onto `develop` now:** `industry-sp-dao.ts` on
+`develop` already has the index-backed-sort fix (see above) — no need to
+cherry-pick, just resolve the normal merge/rebase diff. Worth reading the
+"watch for" note above before you touch this method's pipeline ordering.
 
 **If you push/merge first:** the `allowDiskUse: true` fix is a 3-line,
 low-risk change — feel free to cherry-pick it into your branch directly
