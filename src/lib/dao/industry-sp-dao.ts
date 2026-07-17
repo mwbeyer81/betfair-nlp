@@ -213,6 +213,15 @@ export class IndustrySpDAO {
       }>([
         ...basePipeline,
         {
+          // A row range (fromRow/toRow) duplicates rowRangeStages' own $sort
+          // into all three of the total/totalRunners/pnlStats facet branches
+          // below (each $facet branch gets its own copy of the incoming
+          // documents), tripling the in-memory sort's footprint versus the
+          // single $sort the plain "data" branch does. At this collection's
+          // real size (~109k matching races) that tripled footprint is
+          // enough on its own to exceed Atlas M0's 32MB in-memory sort limit
+          // even though each individual doc is small — allowDiskUse lets
+          // MongoDB spill to disk instead of erroring out.
           $facet: {
             data: [
               { $sort: { raceTime: raceTimeSortDir } },
@@ -285,7 +294,7 @@ export class IndustrySpDAO {
                 ],
           },
         },
-      ])
+      ], { allowDiskUse: true })
       .toArray();
 
     const staked = result?.pnlStats?.[0]?.staked ?? 0;

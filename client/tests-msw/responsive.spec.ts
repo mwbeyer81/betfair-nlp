@@ -196,39 +196,40 @@ test.describe("Responsive layout — /isp filters screen on a short viewport (MS
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
   });
 
-  test("the PnL bar and the View Races count don't overlap", async ({ page }) => {
-    // Regression test: this screen is built as a fixed, non-scrolling app
-    // layout (no ScrollView) — when the filter grid + PnL bar's natural
-    // height exceeded a real phone's visible viewport, the flex:1 "View
-    // Races" card below used to get squeezed toward zero height and its
-    // centered content (a big "N races match your filters" count) rendered
-    // on top of the PnL bar's own text. The fix was to shrink the content
-    // itself (compact inputs/spacing) so it fits without needing to scroll
-    // or squeeze at all.
-    const pnlBar = page.getByTestId("industry-sp-pnl-bar");
-    const card = page.getByTestId("industry-sp-view-races-card");
+  test("split A's PnL bar and its View Races button don't overlap", async ({ page }) => {
+    // Regression test: this screen used to be a fixed, non-scrolling app
+    // layout — when the filter grid + PnL bar's natural height exceeded a
+    // real phone's visible viewport, the flex:1 card below used to get
+    // squeezed toward zero height and its centered content rendered on top
+    // of the PnL bar's own text. The screen now scrolls, and each split
+    // renders in its own card, but the PnL text and the View Races button
+    // within a single card must still never overlap each other.
+    const pnlBar = page.getByTestId("industry-sp-pnl-bar-a");
+    const card = page.getByTestId("industry-sp-split-card-a");
+    const button = page.getByTestId("industry-sp-view-races-button-a");
     await expect(pnlBar).toBeVisible();
     await expect(card).toBeVisible();
 
     const pnlBox = (await pnlBar.boundingBox())!;
-    const cardBox = (await card.boundingBox())!;
+    const buttonBox = (await button.boundingBox())!;
 
-    // The card must start at or below the PnL bar's bottom edge — any
-    // overlap means the count text is painting over the PnL figures.
-    expect(cardBox.y).toBeGreaterThanOrEqual(pnlBox.y + pnlBox.height - 1);
+    // The button must start at or below the PnL bar's bottom edge — any
+    // overlap means the button is painting over the PnL figures.
+    expect(buttonBox.y).toBeGreaterThanOrEqual(pnlBox.y + pnlBox.height - 1);
   });
 
-  test("no scrolling is needed — the whole screen fits within the viewport", async ({ page }) => {
-    const { scrollHeight, viewportHeight } = await page.evaluate(() => ({
-      scrollHeight: document.documentElement.scrollHeight,
-      viewportHeight: window.innerHeight,
-    }));
-    expect(scrollHeight).toBeLessThanOrEqual(viewportHeight);
-
-    // The View Races button — the whole point of this screen — must be
-    // reachable without scrolling.
-    const buttonBox = await page.getByTestId("industry-sp-view-races-button").boundingBox();
-    expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(viewportHeight);
+  test("both split cards are reachable on the page", async ({ page }) => {
+    // This screen now scrolls (it holds two independent split cards, plus
+    // the filter grid), so unlike the old single-card layout it's fine —
+    // expected, even — for the whole page to exceed one short viewport.
+    // What matters is that both split cards' View Races buttons actually
+    // exist and are scrollable into view.
+    const buttonA = page.getByTestId("industry-sp-view-races-button-a");
+    const buttonB = page.getByTestId("industry-sp-view-races-button-b");
+    await buttonA.scrollIntoViewIfNeeded();
+    await expect(buttonA).toBeVisible();
+    await buttonB.scrollIntoViewIfNeeded();
+    await expect(buttonB).toBeVisible();
   });
 });
 

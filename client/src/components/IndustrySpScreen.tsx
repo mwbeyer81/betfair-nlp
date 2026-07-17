@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   ScrollView,
@@ -23,12 +23,13 @@ import {
   urlFloatParam,
   urlToRowParam,
   urlCountriesParam,
+  urlHasParam,
   updateUrlParams,
 } from "../utils/ispUrlParams";
 
 interface IndustrySpScreenProps {
   onNavigateToEvents: () => void;
-  onViewRaces: () => void;
+  onViewRaces: (fromRow: number, toRow: number | null) => void;
 }
 
 // Filter values are persisted to the URL query string (using the same param
@@ -39,7 +40,6 @@ interface IndustrySpScreenProps {
 const FILTER_DEFAULTS = {
   minRunners: 1,
   maxRunners: 20,
-  fromRow: 1,
   minIsp: 1,
   maxIsp: 1000,
   minInIspRange: 1,
@@ -50,14 +50,17 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   isp: "Only show races where the runner's official starting price (ISP) falls in this range.",
   runners: "Only show races with this many total runners taking part.",
   inIsp: "Only show races with this many runners priced inside the ISP range above, out of the full field.",
-  race: "Restrict results to races numbered within this range, out of the total matching races.",
+  raceA: "The first split of races — defaults to the earlier half of the matching races, so you can test a filter combination here first.",
+  raceB: "The second split — defaults to the later half. Check whether the same filters are still profitable here before trusting them.",
 };
 
 // This screen only needs the aggregate totals (totalRaces/totalRunners/
-// pnlStats) for the PnL bar and the Race filter's bound hint — it no longer
-// renders the race list itself, so there's no need to fetch a full page of
-// race data on every filter change.
+// pnlStats) for the PnL cards and the Race filters' bound hints — it no
+// longer renders the race list itself, so there's no need to fetch a full
+// page of race data on every filter change.
 const AGGREGATE_ONLY_LIMIT = 1;
+
+const EMPTY_PNL: PnlStats = { staked: 0, returns: 0, pnl: 0 };
 
 export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   onNavigateToEvents,
@@ -67,13 +70,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [draftMin, setDraftMin] = useState(() => String(urlIntParam("minRunners", FILTER_DEFAULTS.minRunners)));
   const [draftMax, setDraftMax] = useState(() => String(urlIntParam("maxRunners", FILTER_DEFAULTS.maxRunners)));
-  const [fromRow, setFromRow] = useState(() => urlIntParam("fromRow", FILTER_DEFAULTS.fromRow));
-  const [toRow, setToRow] = useState<number | null>(() => urlToRowParam());
-  const [draftFrom, setDraftFrom] = useState(() => String(urlIntParam("fromRow", FILTER_DEFAULTS.fromRow)));
-  const [draftTo, setDraftTo] = useState(() => {
-    const t = urlToRowParam();
-    return t != null ? String(t) : "0";
-  });
   const [draftMinIsp, setDraftMinIsp] = useState(() => String(urlFloatParam("minIsp", FILTER_DEFAULTS.minIsp)));
   const [draftMaxIsp, setDraftMaxIsp] = useState(() => String(urlFloatParam("maxIsp", FILTER_DEFAULTS.maxIsp)));
   const [draftMinRIR, setDraftMinRIR] = useState(() => String(urlIntParam("minInIspRange", FILTER_DEFAULTS.minInIspRange)));
@@ -89,10 +85,37 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
-  const [pnlStats, setPnlStats] = useState<PnlStats>({ staked: 0, returns: 0, pnl: 0 });
   const [filterBounds, setFilterBounds] = useState<IspFilterBounds | null>(null);
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
+
+  // Two independent race-row splits, so a filter combination can be tested
+  // on one half of the historical data and checked for profit on the other.
+  // Until the user has applied an explicit split (or one arrived via a
+  // bookmarked URL), the splits auto-compute to an even first-half/
+  // second-half divide once the grand total is known.
+  const splitsAreDefaultRef = useRef(!urlHasParam("fromRowA"));
+  const [fromRowA, setFromRowA] = useState(() => urlIntParam("fromRowA", 1));
+  const [toRowA, setToRowA] = useState<number | null>(() => urlToRowParam("toRowA"));
+  const [draftFromA, setDraftFromA] = useState(() => String(urlIntParam("fromRowA", 1)));
+  const [draftToA, setDraftToA] = useState(() => {
+    const t = urlToRowParam("toRowA");
+    return t != null ? String(t) : "0";
+  });
+  const [fromRowB, setFromRowB] = useState(() => urlIntParam("fromRowB", 1));
+  const [toRowB, setToRowB] = useState<number | null>(() => urlToRowParam("toRowB"));
+  const [draftFromB, setDraftFromB] = useState(() => String(urlIntParam("fromRowB", 1)));
+  const [draftToB, setDraftToB] = useState(() => {
+    const t = urlToRowParam("toRowB");
+    return t != null ? String(t) : "0";
+  });
+
+  const [totalRacesA, setTotalRacesA] = useState(0);
+  const [totalRunnersA, setTotalRunnersA] = useState(0);
+  const [pnlStatsA, setPnlStatsA] = useState<PnlStats>(EMPTY_PNL);
+  const [totalRacesB, setTotalRacesB] = useState(0);
+  const [totalRunnersB, setTotalRunnersB] = useState(0);
+  const [pnlStatsB, setPnlStatsB] = useState<PnlStats>(EMPTY_PNL);
 
   function applyFilter() {
     const maxRunnersLimit = filterBounds?.maxRunnersPerRace ?? 100;
@@ -104,14 +127,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setDraftMax(String(max));
     setMinRunners(min);
     setMaxRunners(max);
-
-    const from = Math.max(1, parseInt(draftFrom) || 1);
-    const toRaw = Math.min(totalRaces, Math.max(from, parseInt(draftTo) || totalRaces));
-    const to = toRaw >= totalRaces ? null : toRaw;
-    setDraftFrom(String(from));
-    setDraftTo(String(to ?? totalRaces));
-    setFromRow(from);
-    setToRow(to);
 
     const minI = Math.max(1, parseFloat(draftMinIsp) || 1);
     const maxI = Math.min(maxIspLimit, Math.max(minI, parseFloat(draftMaxIsp) || maxIspLimit));
@@ -127,6 +142,28 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMinRunnersInRange(minRIR);
     setMaxRunnersInRange(maxRIR);
 
+    // Once the user applies filters explicitly, the two race splits are no
+    // longer auto-derived from the total — whatever's in the two Race boxes
+    // (even if it's still the auto-filled 50/50 default) becomes the
+    // committed split from here on.
+    splitsAreDefaultRef.current = false;
+
+    const fromA = Math.max(1, parseInt(draftFromA) || 1);
+    const toARaw = Math.min(totalRaces || 1, Math.max(fromA, parseInt(draftToA) || totalRaces));
+    const toA = toARaw >= totalRaces ? null : toARaw;
+    setDraftFromA(String(fromA));
+    setDraftToA(String(toA ?? totalRaces));
+    setFromRowA(fromA);
+    setToRowA(toA);
+
+    const fromB = Math.max(1, parseInt(draftFromB) || 1);
+    const toBRaw = Math.min(totalRaces || 1, Math.max(fromB, parseInt(draftToB) || totalRaces));
+    const toB = toBRaw >= totalRaces ? null : toBRaw;
+    setDraftFromB(String(fromB));
+    setDraftToB(String(toB ?? totalRaces));
+    setFromRowB(fromB);
+    setToRowB(toB);
+
     setFetchTrigger(t => t + 1);
   }
 
@@ -135,10 +172,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMaxRunners(FILTER_DEFAULTS.maxRunners);
     setDraftMin(String(FILTER_DEFAULTS.minRunners));
     setDraftMax(String(FILTER_DEFAULTS.maxRunners));
-    setFromRow(FILTER_DEFAULTS.fromRow);
-    setToRow(null);
-    setDraftFrom(String(FILTER_DEFAULTS.fromRow));
-    setDraftTo("0");
     setMinIsp(FILTER_DEFAULTS.minIsp);
     setMaxIsp(FILTER_DEFAULTS.maxIsp);
     setDraftMinIsp(String(FILTER_DEFAULTS.minIsp));
@@ -148,6 +181,19 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setDraftMinRIR(String(FILTER_DEFAULTS.minInIspRange));
     setDraftMaxRIR(String(FILTER_DEFAULTS.maxInIspRange));
     setSelectedCountries(new Set());
+
+    // Hand the two race splits back to auto (even first-half/second-half)
+    // mode — the next fetch recomputes them from the fresh grand total.
+    splitsAreDefaultRef.current = true;
+    setFromRowA(1);
+    setToRowA(null);
+    setDraftFromA("1");
+    setDraftToA("0");
+    setFromRowB(1);
+    setToRowB(null);
+    setDraftFromB("1");
+    setDraftToB("0");
+
     setFetchTrigger(t => t + 1);
   }
 
@@ -161,15 +207,21 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     updateUrlParams({
       minRunners: minRunners !== FILTER_DEFAULTS.minRunners ? String(minRunners) : undefined,
       maxRunners: maxRunners !== FILTER_DEFAULTS.maxRunners ? String(maxRunners) : undefined,
-      fromRow: fromRow !== FILTER_DEFAULTS.fromRow ? String(fromRow) : undefined,
-      toRow: toRow != null ? String(toRow) : undefined,
       minIsp: minIsp !== FILTER_DEFAULTS.minIsp ? String(minIsp) : undefined,
       maxIsp: maxIsp !== FILTER_DEFAULTS.maxIsp ? String(maxIsp) : undefined,
       minInIspRange: minRunnersInRange !== FILTER_DEFAULTS.minInIspRange ? String(minRunnersInRange) : undefined,
       maxInIspRange: maxRunnersInRange !== FILTER_DEFAULTS.maxInIspRange ? String(maxRunnersInRange) : undefined,
       countries: selectedCountries.size > 0 ? [...selectedCountries].sort().join(",") : undefined,
+      // The split boundaries are data-dependent (half of however many races
+      // currently match), not a fixed constant — always write them once
+      // resolved so a bookmarked URL reproduces the exact same split rather
+      // than a possibly-different auto-computed one.
+      fromRowA: totalRacesA > 0 || totalRacesB > 0 ? String(fromRowA) : undefined,
+      toRowA: toRowA != null ? String(toRowA) : undefined,
+      fromRowB: totalRacesA > 0 || totalRacesB > 0 ? String(fromRowB) : undefined,
+      toRowB: toRowB != null ? String(toRowB) : undefined,
     });
-  }, [minRunners, maxRunners, fromRow, toRow, minIsp, maxIsp, minRunnersInRange, maxRunnersInRange, selectedCountries]);
+  }, [minRunners, maxRunners, minIsp, maxIsp, minRunnersInRange, maxRunnersInRange, selectedCountries, fromRowA, toRowA, fromRowB, toRowB, totalRacesA, totalRacesB]);
 
   useEffect(() => {
     chatApi.getIspCountries().then(setAvailableCountries).catch(() => {});
@@ -182,12 +234,55 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       setIsLoading(true);
       setError(null);
       try {
-        const result = await chatApi.getIndustrySp(1, AGGREGATE_ONLY_LIMIT, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, "asc", minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined);
+        // Phase 1: the grand total matching every filter except the row
+        // range — needed both for the bound hints and (the first time
+        // through, or after Reset) to compute an even 50/50 split.
+        const totalResult = await chatApi.getIndustrySp(1, AGGREGATE_ONLY_LIMIT, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, "asc", minRunnersInRange, maxRunnersInRange, 1, undefined);
         if (cancelled) return;
-        setTotalRaces(result.total);
-        setTotalRunners(result.totalRunners);
-        setPnlStats(result.pnlStats ?? { staked: 0, returns: 0, pnl: 0 });
-        if (toRow == null) setDraftTo(String(result.total));
+        const grandTotal = totalResult.total;
+        setTotalRaces(grandTotal);
+        setTotalRunners(totalResult.totalRunners);
+
+        let effFromA = fromRowA;
+        let effToA = toRowA;
+        let effFromB = fromRowB;
+        let effToB = toRowB;
+
+        if (splitsAreDefaultRef.current) {
+          const half = Math.floor(grandTotal / 2);
+          effFromA = 1;
+          effToA = half;
+          effFromB = half + 1;
+          effToB = null;
+          setFromRowA(effFromA);
+          setToRowA(effToA);
+          setFromRowB(effFromB);
+          setToRowB(effToB);
+        }
+
+        // Keep the draft boxes in sync with whatever range is actually being
+        // queried — including filling in an open-ended ("no cap") upper
+        // bound with the current grand total, so a box never shows a stale
+        // placeholder value (e.g. when a bookmarked URL set fromRowA/fromRowB
+        // explicitly but left the upper bound uncapped).
+        setDraftFromA(String(effFromA));
+        setDraftToA(String(effToA ?? grandTotal));
+        setDraftFromB(String(effFromB));
+        setDraftToB(String(effToB ?? grandTotal));
+
+        // Phase 2: each split's own aggregate — fetched in parallel since
+        // they're independent of each other.
+        const [resultA, resultB] = await Promise.all([
+          chatApi.getIndustrySp(1, AGGREGATE_ONLY_LIMIT, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, "asc", minRunnersInRange, maxRunnersInRange, effFromA, effToA ?? undefined),
+          chatApi.getIndustrySp(1, AGGREGATE_ONLY_LIMIT, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, "asc", minRunnersInRange, maxRunnersInRange, effFromB, effToB ?? undefined),
+        ]);
+        if (cancelled) return;
+        setTotalRacesA(resultA.total);
+        setTotalRunnersA(resultA.totalRunners);
+        setPnlStatsA(resultA.pnlStats ?? EMPTY_PNL);
+        setTotalRacesB(resultB.total);
+        setTotalRunnersB(resultB.totalRunners);
+        setPnlStatsB(resultB.pnlStats ?? EMPTY_PNL);
       } catch {
         if (!cancelled) setError("Failed to load industry SP");
       } finally {
@@ -197,11 +292,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchTrigger]);
-
-  const hasRowRange = fromRow > 1 || toRow != null;
-  const effectiveToRow = toRow ?? totalRaces;
-  const displayPnl = pnlStats;
 
   function renderTooltipToggle(key: string) {
     return (
@@ -275,6 +367,64 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         />
         <Text testID={hintTestId} style={styles.filterGridHint}>{hint ?? ""}</Text>
         {renderTooltipText(filterKey)}
+      </View>
+    );
+  }
+
+  function renderSplitCard(opts: {
+    id: "a" | "b";
+    label: string;
+    fromRow: number;
+    toRow: number | null;
+    totalRaces: number;
+    totalRunners: number;
+    pnl: PnlStats;
+  }) {
+    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl } = opts;
+    const effectiveTo = toRow ?? totalRaces;
+    return (
+      <View testID={`industry-sp-split-card-${id}`} style={styles.splitCard}>
+        <Text style={styles.splitCardLabel}>
+          {label} — races {fromRow}–{effectiveTo}
+        </Text>
+        {pnl.staked > 0 ? (
+          <View testID={`industry-sp-pnl-bar-${id}`} style={styles.pnlStats}>
+            <Text testID={`industry-sp-pnl-races-${id}`} style={styles.pnlStat}>
+              <Text style={styles.pnlStatLabel}>Races </Text>{splitTotalRaces}
+            </Text>
+            {pnl.count != null && (
+              <Text testID={`industry-sp-pnl-count-${id}`} style={styles.pnlStat}>
+                <Text style={styles.pnlStatLabel}>Horses </Text>{pnl.count}
+              </Text>
+            )}
+            <Text style={styles.pnlStat}>
+              <Text style={styles.pnlStatLabel}>Staked </Text>{formatGbp(pnl.staked)}
+            </Text>
+            <Text style={styles.pnlStat}>
+              <Text style={styles.pnlStatLabel}>Return </Text>{formatGbp(pnl.returns)}
+            </Text>
+            <Text testID={`industry-sp-pnl-${id}`} style={[styles.pnlValue, pnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+              {formatPnl(pnl.pnl)}{" "}
+              <Text style={[styles.pnlPct, pnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                ({formatPct(pnl.pnl, pnl.staked)})
+              </Text>
+            </Text>
+          </View>
+        ) : (
+          <Text testID={`industry-sp-split-empty-${id}`} style={styles.splitEmptyText}>
+            {splitTotalRunners > 0 ? "No qualifying bets in this split." : "No races match this split."}
+          </Text>
+        )}
+        <Button
+          testID={`industry-sp-view-races-button-${id}`}
+          mode="contained"
+          compact
+          onPress={() => onViewRaces(fromRow, toRow)}
+          style={styles.splitViewButton}
+          labelStyle={styles.splitViewButtonLabel}
+        >
+          View {splitTotalRaces} Races →
+        </Button>
       </View>
     );
   }
@@ -361,18 +511,32 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           hintTestId: "industry-sp-max-rir-bound",
         })}
         {renderFilterRow({
-          filterKey: "race",
-          label: "Race",
-          minValue: draftFrom,
-          onMinChange: setDraftFrom,
-          minTestId: "industry-sp-from-row",
-          maxValue: draftTo,
-          onMaxChange: setDraftTo,
-          maxTestId: "industry-sp-to-row",
+          filterKey: "raceA",
+          label: "Race A",
+          minValue: draftFromA,
+          onMinChange: setDraftFromA,
+          minTestId: "industry-sp-from-row-a",
+          maxValue: draftToA,
+          onMaxChange: setDraftToA,
+          maxTestId: "industry-sp-to-row-a",
           keyboardType: "numeric",
           maxLength: 6,
           hint: totalRaces > 0 ? `/${totalRaces}` : null,
-          hintTestId: "industry-sp-race-bound",
+          hintTestId: "industry-sp-race-bound-a",
+        })}
+        {renderFilterRow({
+          filterKey: "raceB",
+          label: "Race B",
+          minValue: draftFromB,
+          onMinChange: setDraftFromB,
+          minTestId: "industry-sp-from-row-b",
+          maxValue: draftToB,
+          onMaxChange: setDraftToB,
+          maxTestId: "industry-sp-to-row-b",
+          keyboardType: "numeric",
+          maxLength: 6,
+          hint: totalRaces > 0 ? `/${totalRaces}` : null,
+          hintTestId: "industry-sp-race-bound-b",
         })}
         <View style={styles.filterActions}>
           <Button
@@ -440,37 +604,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </ScrollView>
       )}
 
-      {!isLoading && displayPnl.staked > 0 && (
-        <View testID="industry-sp-pnl-bar" style={styles.pnlBar}>
-          <Text style={styles.pnlLabel}>
-            {hasRowRange ? `races ${fromRow}–${effectiveToRow}` : "Stake to win £1 per runner"}
-          </Text>
-          <View style={styles.pnlStats}>
-            <Text testID="industry-sp-pnl-races" style={styles.pnlStat}>
-              <Text style={styles.pnlStatLabel}>Races </Text>{totalRaces}
-            </Text>
-            {displayPnl.count != null && (
-              <Text testID="industry-sp-pnl-count" style={styles.pnlStat}>
-                <Text style={styles.pnlStatLabel}>Horses </Text>{displayPnl.count}
-              </Text>
-            )}
-            <Text style={styles.pnlStat}>
-              <Text style={styles.pnlStatLabel}>Staked </Text>{formatGbp(displayPnl.staked)}
-            </Text>
-            <Text style={styles.pnlStat}>
-              <Text style={styles.pnlStatLabel}>Return </Text>{formatGbp(displayPnl.returns)}
-            </Text>
-            <Text testID="industry-sp-pnl" style={[styles.pnlValue, displayPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
-              {formatPnl(displayPnl.pnl)}{" "}
-              <Text style={[styles.pnlPct, displayPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
-                ({formatPct(displayPnl.pnl, displayPnl.staked)})
-              </Text>
-            </Text>
-          </View>
-        </View>
-      )}
-
-      <View>
+      <View testID="industry-sp-split-cards" style={styles.splitCards}>
         {isLoading && (
           <View testID="industry-sp-loading" style={styles.centered}>
             <ActivityIndicator size="large" animating color={colors.primary} />
@@ -487,19 +621,26 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         )}
 
         {!isLoading && !error && (
-          <View testID="industry-sp-view-races-card" style={styles.viewRacesCard}>
-            <Text style={styles.viewRacesCount}>{totalRaces.toLocaleString()}</Text>
-            <Text style={styles.viewRacesLabel}>races match your filters</Text>
-            <Button
-              testID="industry-sp-view-races-button"
-              mode="contained"
-              onPress={onViewRaces}
-              style={styles.viewRacesButton}
-              labelStyle={styles.viewRacesButtonLabel}
-            >
-              View Races →
-            </Button>
-          </View>
+          <>
+            {renderSplitCard({
+              id: "a",
+              label: "Split A",
+              fromRow: fromRowA,
+              toRow: toRowA,
+              totalRaces: totalRacesA,
+              totalRunners: totalRunnersA,
+              pnl: pnlStatsA,
+            })}
+            {renderSplitCard({
+              id: "b",
+              label: "Split B",
+              fromRow: fromRowB,
+              toRow: toRowB,
+              totalRaces: totalRacesB,
+              totalRunners: totalRunnersB,
+              pnl: pnlStatsB,
+            })}
+          </>
         )}
       </View>
     </SafeAreaView>
@@ -695,26 +836,29 @@ const styles = StyleSheet.create({
   countryChipTextActive: {
     color: "#fff",
   },
-  pnlBar: {
-    backgroundColor: colors.text,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 4,
+  splitCards: {
+    padding: spacing.md,
+    gap: spacing.md,
   },
-  pnlLabel: {
-    fontSize: 11,
+  splitCard: {
+    backgroundColor: colors.text,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  splitCardLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.85)",
+  },
+  splitEmptyText: {
+    fontSize: 12,
     color: "rgba(255,255,255,0.5)",
-    marginRight: spacing.sm,
   },
   pnlStats: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
-    flexShrink: 1,
-    minWidth: 0,
     gap: 10,
   },
   pnlStat: {
@@ -739,6 +883,14 @@ const styles = StyleSheet.create({
   pnlNeg: {
     color: colors.pnlNegative,
   },
+  splitViewButton: {
+    borderRadius: radii.sm,
+    alignSelf: "flex-start",
+  },
+  splitViewButtonLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
   centered: {
     alignItems: "center",
     justifyContent: "center",
@@ -751,31 +903,5 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.danger,
     fontSize: 16,
-  },
-  viewRacesCard: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xxl,
-    gap: 2,
-  },
-  viewRacesCount: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: colors.accent,
-  },
-  viewRacesLabel: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
-  },
-  viewRacesButton: {
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-  },
-  viewRacesButtonLabel: {
-    fontSize: 15,
-    fontWeight: "700",
-    paddingVertical: 2,
   },
 });

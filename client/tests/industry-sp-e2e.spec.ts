@@ -104,15 +104,30 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
 
   test("filters screen loads aggregate totals and shows the View Races button", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-view-races-card")).toBeVisible({ timeout: 60000 });
-    const btn = page.getByTestId("industry-sp-view-races-button");
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+    const btn = page.getByTestId("industry-sp-view-races-button-a");
     await expect(btn).toBeVisible();
-    await expect(btn).toContainText("View Races");
+    await expect(btn).toContainText(/View \d+ Races/);
   });
 
   test("PnL bar shows horse count (react-native-paper Appbar subtitle does not render on web)", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-pnl-count")).toContainText("Horses", { timeout: 60000 });
+    await expect(page.getByTestId("industry-sp-pnl-count-a")).toContainText("Horses", { timeout: 60000 });
+  });
+
+  test("both Race A and Race B splits render their own card and View Races button, defaulting to the first/second half of the matching races", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+    await expect(page.getByTestId("industry-sp-split-card-b")).toBeVisible({ timeout: 60000 });
+    await expect(page.getByTestId("industry-sp-view-races-button-a")).toContainText(/View \d+ Races/);
+    await expect(page.getByTestId("industry-sp-view-races-button-b")).toContainText(/View \d+ Races/);
+
+    const fromA = await page.getByTestId("industry-sp-from-row-a").inputValue();
+    const toA = await page.getByTestId("industry-sp-to-row-a").inputValue();
+    const fromB = await page.getByTestId("industry-sp-from-row-b").inputValue();
+    // Split B picks up immediately where split A's default range left off.
+    expect(parseInt(fromB, 10)).toBe(parseInt(toA, 10) + 1);
+    expect(parseInt(fromA, 10)).toBe(1);
   });
 
   test("← Events button navigates back to /events", async ({ page }) => {
@@ -127,7 +142,7 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
 
   test("View Races button navigates to /isp/races and shows runner rows", async ({ page }) => {
     await gotoIsp(page);
-    await page.getByTestId("industry-sp-view-races-button").click();
+    await page.getByTestId("industry-sp-view-races-button-a").click();
 
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("/isp/races");
@@ -146,7 +161,7 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
     expect(page.url()).toContain("maxInIspRange=5");
 
-    await page.getByTestId("industry-sp-view-races-button").click();
+    await page.getByTestId("industry-sp-view-races-button-a").click();
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
     // Regression: the router's queryParams state can go stale after
     // history.replaceState calls, silently dropping just-applied filters.
@@ -159,7 +174,7 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
-    await page.getByTestId("industry-sp-view-races-button").click();
+    await page.getByTestId("industry-sp-view-races-button-a").click();
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
 
     await page.getByTestId("industry-sp-races-back").click();
@@ -268,21 +283,21 @@ test.describe("# in ISP range filter (real app at localhost:80)", () => {
 
   test("setting maxRunnersInRange=1 reduces the total races matching the filter", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-view-races-card")).toBeVisible({ timeout: 60000 });
-    const before = await page.getByTestId("industry-sp-view-races-card").textContent();
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+    const before = await page.getByTestId("industry-sp-split-card-a").textContent();
 
     await page.getByTestId("industry-sp-max-rir-value").fill("1");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
-    const after = await page.getByTestId("industry-sp-view-races-card").textContent();
+    const after = await page.getByTestId("industry-sp-split-card-a").textContent();
     expect(after).not.toBe(before);
   });
 
   test("resetting filter restores original race count", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-view-races-card")).toBeVisible({ timeout: 60000 });
-    const original = await page.getByTestId("industry-sp-view-races-card").textContent();
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+    const original = await page.getByTestId("industry-sp-split-card-a").textContent();
 
     await page.getByTestId("industry-sp-max-rir-value").fill("1");
     await page.getByTestId("industry-sp-filter-apply").click();
@@ -293,7 +308,7 @@ test.describe("# in ISP range filter (real app at localhost:80)", () => {
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
-    const restored = await page.getByTestId("industry-sp-view-races-card").textContent();
+    const restored = await page.getByTestId("industry-sp-split-card-a").textContent();
     expect(restored).toBe(original);
   });
 });
@@ -714,7 +729,7 @@ test.describe("Filters visibility toggle (real app at localhost:80)", () => {
     await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Show filters ▸");
 
     // Hiding filters must not affect the aggregate totals shown below.
-    await expect(page.getByTestId("industry-sp-view-races-card")).toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 30000 });
 
     await page.getByTestId("industry-sp-filters-toggle").click();
     await expect(page.getByTestId("industry-sp-filter-bar")).toBeVisible();

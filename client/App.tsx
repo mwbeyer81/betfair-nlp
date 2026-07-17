@@ -100,8 +100,18 @@ export default function App() {
           // (see updateUrlParams), which doesn't flow back through this hook's
           // `queryParams` state — read window.location.search directly here so
           // the just-applied filters (not a stale snapshot from mount) carry
-          // over to the races screen.
-          onViewRaces={() => navigate("/isp/races", window.location.search.slice(1))}
+          // over to the races screen. The races screen only understands a
+          // single fromRow/toRow pair (not the A/B split), so whichever split
+          // card's "View Races" button was clicked overwrites those two keys
+          // explicitly — the fromRowA/toRowA/fromRowB/toRowB keys stay in the
+          // query string too, but IspRacesScreen ignores them.
+          onViewRaces={(fromRow, toRow) => {
+            const params = new URLSearchParams(window.location.search);
+            params.set("fromRow", String(fromRow));
+            if (toRow != null) params.set("toRow", String(toRow));
+            else params.delete("toRow");
+            navigate("/isp/races", params.toString());
+          }}
         />
       );
     }

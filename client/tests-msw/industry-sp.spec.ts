@@ -32,9 +32,16 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
   });
 
   test("View Races button navigates to /isp/races", async ({ page }) => {
-    await page.getByTestId("industry-sp-view-races-button").click();
+    await page.getByTestId("industry-sp-view-races-button-a").click();
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("/isp/races");
+  });
+
+  test("both split cards are shown, each with their own View Races button", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-split-card-b")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-view-races-button-a")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-view-races-button-b")).toBeVisible();
   });
 
   test("# in ISP filter controls are present", async ({ page }) => {
@@ -47,7 +54,8 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await maxInput.fill("2");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-view-races-card")).toContainText("0");
+    await expect(page.getByTestId("industry-sp-split-card-a")).toContainText("View 0 Races");
+    await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("View 0 Races");
   });
 
   test("filter bar is visible by default and the toggle hides/shows it", async ({ page }) => {
@@ -101,7 +109,7 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-sp-view-races-button").click();
+    await page.getByTestId("industry-sp-view-races-button-a").click();
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
     // Regression: the router's queryParams state goes stale after
     // history.replaceState calls, which could silently drop just-applied
