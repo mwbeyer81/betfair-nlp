@@ -398,7 +398,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           )}
           {renderTooltipText("isp")}
         </View>
-        <View style={styles.filterDivider} />
         <View style={[styles.filterStepper, openTooltip === "runners" && styles.filterStepperElevated]}>
           <Text style={styles.filterStepperLabel}>Runners</Text>
           {renderTooltipToggle("runners")}
@@ -454,7 +453,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           )}
           {renderTooltipText("runners")}
         </View>
-        <View style={styles.filterDivider} />
         <View style={[styles.filterStepper, openTooltip === "inIsp" && styles.filterStepperElevated]}>
           <Text testID="industry-sp-in-isp-label" style={styles.filterStepperLabel}># in ISP</Text>
           {renderTooltipToggle("inIsp")}
@@ -509,7 +507,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           )}
           {renderTooltipText("inIsp")}
         </View>
-        <View style={styles.filterDivider} />
         <View style={[styles.filterStepper, openTooltip === "race" && styles.filterStepperElevated]}>
           <Text style={styles.filterStepperLabel}>Race</Text>
           {renderTooltipToggle("race")}
@@ -970,12 +967,6 @@ const styles = StyleSheet.create({
   },
   countryChipTextActive: {
     color: "#fff",
-  },
-  filterDivider: {
-    width: 1,
-    height: 20,
-    backgroundColor: colors.border,
-    marginHorizontal: 6,
   },
   pnlBar: {
     backgroundColor: colors.text,
