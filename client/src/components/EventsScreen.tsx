@@ -168,7 +168,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
           testID="events-screen-chat-button"
           mode="contained"
           compact
-          buttonColor={colors.primaryDark}
+          buttonColor={colors.accent}
           onPress={onNavigateToChat}
           style={styles.headerButton}
           labelStyle={styles.headerButtonLabel}
@@ -311,7 +311,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
     paddingVertical: 5,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
@@ -394,11 +394,11 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   docsChip: {
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
     borderRadius: radii.pill,
   },
   runnersChip: {
-    backgroundColor: "#CFFAFE",
+    backgroundColor: colors.infoLight,
     borderRadius: radii.pill,
   },
   docsChipText: {

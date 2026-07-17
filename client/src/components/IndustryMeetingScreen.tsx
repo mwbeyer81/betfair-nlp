@@ -64,7 +64,7 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
           testID="industry-meeting-back"
           mode="contained"
           compact
-          buttonColor={colors.primaryDark}
+          buttonColor={colors.accent}
           onPress={onBack}
           style={styles.headerButton}
           labelStyle={styles.headerButtonLabel}
@@ -284,10 +284,10 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   pnlPos: {
-    color: "#4ADE80",
+    color: colors.pnlPositive,
   },
   pnlNeg: {
-    color: "#F87171",
+    color: colors.pnlNegative,
   },
   body: {
     flex: 1,
@@ -391,8 +391,8 @@ const styles = StyleSheet.create({
   bspBadge: {
     fontSize: 11,
     fontWeight: "700",
-    color: colors.primaryDark,
-    backgroundColor: "#EEF2FF",
+    color: colors.accent,
+    backgroundColor: colors.primaryLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,

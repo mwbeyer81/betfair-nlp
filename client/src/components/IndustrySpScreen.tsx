@@ -292,7 +292,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           testID="industry-sp-screen-events-button"
           mode="contained"
           compact
-          buttonColor={colors.primaryDark}
+          buttonColor={colors.accent}
           onPress={onNavigateToEvents}
           style={styles.headerButton}
           labelStyle={styles.headerButtonLabel}
@@ -556,7 +556,7 @@ const styles = StyleSheet.create({
     position: "relative",
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     gap: spacing.sm,
@@ -734,10 +734,10 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   pnlPos: {
-    color: "#4ADE80",
+    color: colors.pnlPositive,
   },
   pnlNeg: {
-    color: "#F87171",
+    color: colors.pnlNegative,
   },
   centered: {
     alignItems: "center",
@@ -762,7 +762,7 @@ const styles = StyleSheet.create({
   viewRacesCount: {
     fontSize: 28,
     fontWeight: "800",
-    color: colors.primaryDark,
+    color: colors.accent,
   },
   viewRacesLabel: {
     fontSize: 13,

@@ -135,7 +135,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
           testID="industry-sp-races-back"
           mode="contained"
           compact
-          buttonColor={colors.primaryDark}
+          buttonColor={colors.accent}
           onPress={onBack}
           style={styles.headerButton}
           labelStyle={styles.headerButtonLabel}
@@ -372,14 +372,14 @@ const styles = StyleSheet.create({
   eventHeader: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md - 2,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   eventName: {
     fontSize: 15,
     fontWeight: "700",
-    color: colors.primaryDark,
+    color: colors.accent,
   },
   raceHeader: {
     flexDirection: "row",
@@ -460,8 +460,8 @@ const styles = StyleSheet.create({
   bspBadge: {
     fontSize: 11,
     fontWeight: "700",
-    color: colors.primaryDark,
-    backgroundColor: "#EEF2FF",
+    color: colors.accent,
+    backgroundColor: colors.primaryLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,
@@ -482,9 +482,9 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   pnlPos: {
-    color: "#4ADE80",
+    color: colors.pnlPositive,
   },
   pnlNeg: {
-    color: "#F87171",
+    color: colors.pnlNegative,
   },
 });

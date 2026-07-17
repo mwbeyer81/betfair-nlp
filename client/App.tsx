@@ -1,6 +1,10 @@
 import { StatusBar } from "expo-status-bar";
 import { useState, useEffect } from "react";
+import { View, ActivityIndicator } from "react-native";
 import { Provider as PaperProvider } from "react-native-paper";
+import { useFonts } from "@expo-google-fonts/inter/useFonts";
+import { Inter_400Regular } from "@expo-google-fonts/inter/400Regular";
+import { Inter_500Medium } from "@expo-google-fonts/inter/500Medium";
 import { ChatScreen } from "./src/components/ChatScreen";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { EventsScreen } from "./src/components/EventsScreen";
@@ -11,7 +15,7 @@ import { IndustryMeetingScreen } from "./src/components/IndustryMeetingScreen";
 import { IndustryRaceScreen } from "./src/components/IndustryRaceScreen";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
-import { theme } from "./src/theme";
+import { theme, colors } from "./src/theme";
 
 const TOKEN_KEY = "auth_token";
 
@@ -25,6 +29,10 @@ function isTokenExpired(token: string): boolean {
 }
 
 export default function App() {
+  const [fontsLoaded, fontError] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+  });
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const { route, navigate, queryParams } = useRouter();
 
@@ -60,6 +68,14 @@ export default function App() {
       });
     }
   }, []);
+
+  if (!fontsLoaded && !fontError) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background }}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   const content = (() => {
     if (!isAuthenticated) {

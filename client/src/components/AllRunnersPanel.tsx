@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
     paddingLeft: spacing.lg,
     paddingRight: spacing.xs,
     paddingVertical: 6,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
   },
   headerText: {
     flex: 1,
@@ -298,10 +298,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   pnlPos: {
-    color: "#4ADE80",
+    color: colors.pnlPositive,
   },
   pnlNeg: {
-    color: "#F87171",
+    color: colors.pnlNegative,
   },
   centered: {
     alignItems: "center",
@@ -326,14 +326,14 @@ const styles = StyleSheet.create({
   eventHeader: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   eventName: {
     fontSize: 14,
     fontWeight: "700",
-    color: colors.primaryDark,
+    color: colors.accent,
   },
   raceHeader: {
     flexDirection: "row",
@@ -396,8 +396,8 @@ const styles = StyleSheet.create({
   bspBadge: {
     fontSize: 11,
     fontWeight: "700",
-    color: colors.primaryDark,
-    backgroundColor: "#EEF2FF",
+    color: colors.accent,
+    backgroundColor: colors.primaryLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,

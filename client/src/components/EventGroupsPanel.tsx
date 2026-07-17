@@ -206,11 +206,11 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   docsChip: {
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
     borderRadius: radii.pill,
   },
   runnersChip: {
-    backgroundColor: "#CFFAFE",
+    backgroundColor: colors.infoLight,
     borderRadius: radii.pill,
   },
   docsChipText: {

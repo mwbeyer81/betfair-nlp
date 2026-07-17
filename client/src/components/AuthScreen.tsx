@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   urlCredentialsInfo: {
-    backgroundColor: "#DCFCE7",
+    backgroundColor: colors.successLight,
     borderRadius: radii.md,
     padding: spacing.lg,
     marginBottom: spacing.lg,

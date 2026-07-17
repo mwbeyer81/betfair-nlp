@@ -278,7 +278,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           testID="all-runners-screen-events-button"
           mode="contained"
           compact
-          buttonColor={colors.primaryDark}
+          buttonColor={colors.accent}
           onPress={onNavigateToEvents}
           style={styles.headerButton}
           labelStyle={styles.headerButtonLabel}
@@ -715,7 +715,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
@@ -744,7 +744,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   stepBtnDisabled: {
-    backgroundColor: "#C7D2FE",
+    backgroundColor: colors.primaryMuted,
     opacity: 0.6,
   },
   boundsHint: {
@@ -871,10 +871,10 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   pnlPos: {
-    color: "#4ADE80",
+    color: colors.pnlPositive,
   },
   pnlNeg: {
-    color: "#F87171",
+    color: colors.pnlNegative,
   },
   body: {
     flex: 1,
@@ -905,14 +905,14 @@ const styles = StyleSheet.create({
   eventHeader: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md - 2,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   eventName: {
     fontSize: 15,
     fontWeight: "700",
-    color: colors.primaryDark,
+    color: colors.accent,
   },
   raceHeader: {
     flexDirection: "row",
@@ -990,8 +990,8 @@ const styles = StyleSheet.create({
   bspBadge: {
     fontSize: 11,
     fontWeight: "700",
-    color: colors.primaryDark,
-    backgroundColor: "#EEF2FF",
+    color: colors.accent,
+    backgroundColor: colors.primaryLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,
