@@ -301,11 +301,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </Button>
       </Appbar.Header>
 
-      <ScrollView
-        testID="industry-sp-scroll"
-        style={styles.scrollContainer}
-        contentContainerStyle={styles.scrollContent}
-      >
       <View testID="industry-sp-toolbar" style={styles.toolbar}>
         <Button
           testID="industry-sp-filters-toggle"
@@ -383,6 +378,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           <Button
             testID="industry-sp-filter-apply"
             mode="contained"
+            compact
             onPress={applyFilter}
             style={styles.applyBtn}
             labelStyle={styles.applyBtnLabel}
@@ -392,6 +388,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           <Button
             testID="industry-sp-filter-reset"
             mode="outlined"
+            compact
             onPress={resetFilters}
             style={styles.resetBtn}
             labelStyle={styles.resetBtnLabel}
@@ -473,7 +470,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </View>
       )}
 
-      <View style={styles.body}>
+      <View>
         {isLoading && (
           <View testID="industry-sp-loading" style={styles.centered}>
             <ActivityIndicator size="large" animating color={colors.primary} />
@@ -505,7 +502,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           </View>
         )}
       </View>
-      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -542,7 +538,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
     backgroundColor: colors.background,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
@@ -559,11 +555,11 @@ const styles = StyleSheet.create({
   filterGrid: {
     position: "relative",
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     backgroundColor: "#EEF2FF",
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   filterGridElevated: {
     zIndex: 40,
@@ -625,9 +621,9 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   gridInput: {
-    width: 88,
-    height: 48,
-    fontSize: 17,
+    width: 84,
+    height: 40,
+    fontSize: 16,
     fontWeight: "700",
     color: colors.text,
     textAlign: "center",
@@ -651,39 +647,36 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    marginTop: 4,
   },
   applyBtn: {
     borderRadius: radii.sm,
     flex: 1,
   },
   applyBtnLabel: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
-    paddingVertical: 2,
   },
   resetBtn: {
     borderRadius: radii.sm,
     borderColor: colors.primary,
   },
   resetBtnLabel: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
     color: colors.primary,
-    paddingVertical: 2,
   },
   countryBar: {
     backgroundColor: colors.background,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    maxHeight: 44,
+    maxHeight: 38,
     ...({ overscrollBehavior: "contain" } as any),
   },
   countryBarContent: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: spacing.md,
-    paddingVertical: 6,
+    paddingVertical: 4,
     gap: 6,
   },
   countryChip: {
@@ -746,21 +739,11 @@ const styles = StyleSheet.create({
   pnlNeg: {
     color: "#F87171",
   },
-  scrollContainer: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  body: {
-    flex: 1,
-  },
   centered: {
-    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: spacing.xxl,
-    gap: spacing.md,
+    padding: spacing.lg,
+    gap: spacing.sm,
   },
   loadingText: {
     color: colors.textSecondary,
@@ -770,29 +753,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   viewRacesCard: {
-    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: spacing.xxl,
-    gap: spacing.xs,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xxl,
+    gap: 2,
   },
   viewRacesCount: {
-    fontSize: 40,
+    fontSize: 28,
     fontWeight: "800",
     color: colors.primaryDark,
   },
   viewRacesLabel: {
-    fontSize: 15,
+    fontSize: 13,
     color: colors.textSecondary,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.sm,
   },
   viewRacesButton: {
     borderRadius: radii.md,
     paddingHorizontal: spacing.md,
   },
   viewRacesButtonLabel: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
 });

@@ -196,13 +196,15 @@ test.describe("Responsive layout — /isp filters screen on a short viewport (MS
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
   });
 
-  test("the page scrolls instead of squeezing content, so the PnL bar and the View Races count don't overlap", async ({ page }) => {
-    // Regression test: the screen's content (header aside) wasn't wrapped in
-    // a ScrollView, so when the filter grid + PnL bar's natural height
-    // exceeded a real phone's visible viewport, the flex:1 "View Races" card
-    // below got squeezed toward zero height and its centered content
-    // (a big "N races match your filters" count) rendered on top of the PnL
-    // bar's own text instead of scrolling into view below it.
+  test("the PnL bar and the View Races count don't overlap", async ({ page }) => {
+    // Regression test: this screen is built as a fixed, non-scrolling app
+    // layout (no ScrollView) — when the filter grid + PnL bar's natural
+    // height exceeded a real phone's visible viewport, the flex:1 "View
+    // Races" card below used to get squeezed toward zero height and its
+    // centered content (a big "N races match your filters" count) rendered
+    // on top of the PnL bar's own text. The fix was to shrink the content
+    // itself (compact inputs/spacing) so it fits without needing to scroll
+    // or squeeze at all.
     const pnlBar = page.getByTestId("industry-sp-pnl-bar");
     const card = page.getByTestId("industry-sp-view-races-card");
     await expect(pnlBar).toBeVisible();
@@ -214,6 +216,19 @@ test.describe("Responsive layout — /isp filters screen on a short viewport (MS
     // The card must start at or below the PnL bar's bottom edge — any
     // overlap means the count text is painting over the PnL figures.
     expect(cardBox.y).toBeGreaterThanOrEqual(pnlBox.y + pnlBox.height - 1);
+  });
+
+  test("no scrolling is needed — the whole screen fits within the viewport", async ({ page }) => {
+    const { scrollHeight, viewportHeight } = await page.evaluate(() => ({
+      scrollHeight: document.documentElement.scrollHeight,
+      viewportHeight: window.innerHeight,
+    }));
+    expect(scrollHeight).toBeLessThanOrEqual(viewportHeight);
+
+    // The View Races button — the whole point of this screen — must be
+    // reachable without scrolling.
+    const buttonBox = await page.getByTestId("industry-sp-view-races-button").boundingBox();
+    expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(viewportHeight);
   });
 });
 
