@@ -449,6 +449,23 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </Button>
       </Appbar.Header>
 
+      {/*
+        The document/body itself can never scroll on this app (see
+        index.html — html/body are locked with position:fixed +
+        overflow:hidden to stop iOS Safari's pinch-zoom/bounce-scroll from
+        dragging the whole page around), so any content taller than the
+        viewport MUST live inside a real RN ScrollView or it's simply
+        unreachable — confirmed live on iOS: the second split card was
+        cut off below the fold with no way to reach it. This ScrollView is
+        that fix; the Appbar header stays outside it (fixed), and the
+        SplitDetailPanel overlay below also stays outside it (full-screen
+        regardless of scroll position).
+      */}
+      <ScrollView
+        testID="industry-sp-scroll"
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+      >
       <View testID="industry-sp-toolbar" style={styles.toolbar}>
         <Button
           testID="industry-sp-filters-toggle"
@@ -641,6 +658,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           </>
         )}
       </View>
+      </ScrollView>
 
       {detailSplit != null && (
         <SplitDetailPanel
@@ -668,6 +686,12 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   appbar: {
     backgroundColor: colors.primary,
