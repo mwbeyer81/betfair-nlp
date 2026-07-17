@@ -442,6 +442,25 @@ export const IspFilterParamsPassedToApi: Story = {
   },
 };
 
+export const IspInputsAcceptDecimals: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    const minInput = canvas.getByTestId("industry-sp-min-isp");
+    const maxInput = canvas.getByTestId("industry-sp-max-isp");
+
+    // "decimal" (not "numeric") is what puts a decimal point on the mobile
+    // keyboard — regression: "numeric" renders a phone-style pad with no ".".
+    await expect(minInput).toHaveAttribute("inputmode", "decimal");
+    await expect(maxInput).toHaveAttribute("inputmode", "decimal");
+
+    await userEvent.clear(minInput);
+    await userEvent.type(minInput, "4.5");
+    await expect(minInput).toHaveValue("4.5");
+  },
+};
+
 export const ApplyingFilterUpdatesUrl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

@@ -379,7 +379,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             style={styles.priceInput}
             value={draftMinIsp}
             onChangeText={setDraftMinIsp}
-            keyboardType="numeric"
+            keyboardType="decimal-pad"
             maxLength={7}
           />
           <Text style={styles.filterStepperLabel}>–</Text>
@@ -388,7 +388,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             style={styles.priceInput}
             value={draftMaxIsp}
             onChangeText={setDraftMaxIsp}
-            keyboardType="numeric"
+            keyboardType="decimal-pad"
             maxLength={7}
           />
           {filterBounds != null && (
