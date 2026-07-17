@@ -416,6 +416,20 @@ export const TooltipDoesNotShiftFilterLayout: Story = {
   },
 };
 
+export const ApplyAndResetShareTheSameLine: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    const applyBox = canvas.getByTestId("industry-sp-filter-apply").getBoundingClientRect();
+    const resetBox = canvas.getByTestId("industry-sp-filter-reset").getBoundingClientRect();
+
+    // Regression: Apply used to ride along the end of the Race row while
+    // Reset wrapped alone onto its own line below.
+    await expect(resetBox.top).toBe(applyBox.top);
+  },
+};
+
 export const TooltipToggleHasAdequateTapTarget: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

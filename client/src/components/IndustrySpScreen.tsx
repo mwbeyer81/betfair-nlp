@@ -532,26 +532,28 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           )}
           {renderTooltipText("race")}
         </View>
-        <Button
-          testID="industry-sp-filter-apply"
-          mode="contained"
-          compact
-          onPress={applyFilter}
-          style={styles.applyBtn}
-          labelStyle={styles.applyBtnLabel}
-        >
-          Apply
-        </Button>
-        <Button
-          testID="industry-sp-filter-reset"
-          mode="outlined"
-          compact
-          onPress={resetFilters}
-          style={styles.resetBtn}
-          labelStyle={styles.resetBtnLabel}
-        >
-          Reset
-        </Button>
+        <View style={styles.filterActions}>
+          <Button
+            testID="industry-sp-filter-apply"
+            mode="contained"
+            compact
+            onPress={applyFilter}
+            style={styles.applyBtn}
+            labelStyle={styles.applyBtnLabel}
+          >
+            Apply
+          </Button>
+          <Button
+            testID="industry-sp-filter-reset"
+            mode="outlined"
+            compact
+            onPress={resetFilters}
+            style={styles.resetBtn}
+            labelStyle={styles.resetBtnLabel}
+          >
+            Reset
+          </Button>
+        </View>
       </View>
       )}
 
@@ -920,9 +922,13 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     paddingHorizontal: 2,
   },
+  filterActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   applyBtn: {
     borderRadius: radii.sm,
-    marginLeft: 6,
   },
   applyBtnLabel: {
     fontSize: 13,
@@ -930,7 +936,6 @@ const styles = StyleSheet.create({
   },
   resetBtn: {
     borderRadius: radii.sm,
-    marginLeft: 6,
     borderColor: colors.primary,
   },
   resetBtnLabel: {
