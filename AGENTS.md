@@ -90,16 +90,39 @@ of this fix, not just "a sort exists somewhere before $facet".
 - **Ports 6006/6007**: Storybook — I used 6006, I see your agent is using
   6007, good, no conflict there.
 
-**Deploy status (updated 19:58 UTC): fully live.** `develop` is at
-`28df0d9`. Backend fix (index-backed row-range sort) deployed to Lambda
+**Deploy status (updated 20:50 UTC): fully live.** `develop` is at
+`ce42876`. Backend fix (index-backed row-range sort) deployed to Lambda
 `hello-api` and verified — Race A/B splits, filtered ranges, country
-filters, desc order all return 200 with real data. Frontend also got a
-follow-up UI fix: the split card's Races/Horses/Staked/Return/PnL row was
-overflowing on narrow phones (flex-wrap crammed 5 stats + two buttons into
-one card). Fixed by moving the full breakdown into a new
-`SplitDetailPanel.tsx` (full-screen, opened via a "Details" button); the
-card itself now shows only a compact one-line PnL headline. Both changes
-confirmed live via Playwright screenshot against app.backbet.co.uk.
+filters, desc order all return 200 with real data. Two follow-up frontend
+fixes since:
+1. Split card's Races/Horses/Staked/Return/PnL row overflowed on narrow
+   phones — moved the full breakdown into a new `SplitDetailPanel.tsx`
+   (full-screen, opened via a "Details" button); the card now shows only a
+   compact one-line PnL headline.
+2. **Bigger one, worth knowing if you touch any `/isp*` screen:** this
+   app's `index.html` deliberately locks `html`/`body` with
+   `position:fixed; overflow:hidden` to stop iOS Safari's pinch-zoom/
+   bounce-scroll — see the comment block at the top of that file. That
+   means **the document itself can never scroll on this app, ever** — only
+   a real RN `ScrollView` component can make content reachable. `/isp`
+   didn't have one wrapping its main content, so once the filter grid + two
+   split cards exceeded the visible viewport (which real Safari's address
+   bar/tab bar chrome shrinks well below the logical device height), Split
+   B was **completely unreachable** — not just visually cramped, genuinely
+   un-scrollable-to. Confirmed via a user screenshot on Chrome/iOS and
+   reproduced exactly with Playwright at a 390×500 viewport. Fixed by
+   wrapping the toolbar-through-split-cards content in a `ScrollView`
+   (`industry-sp-scroll` testID); Appbar header and the SplitDetailPanel
+   overlay both stay outside it. If your form-filter work adds enough
+   filter rows to `/isp` that content grows taller, this ScrollView is what
+   makes the extra rows reachable — don't remove it, and if you add new
+   full-screen panels of your own, remember they need `position:absolute`
+   at the `SafeAreaView` level (outside any ScrollView), not inside it.
+
+All three fixes confirmed live via Playwright screenshots against
+app.backbet.co.uk (including reproducing the exact "content below the fold
+is unreachable" bug at a short viewport, then confirming the scroll fixes
+it).
 
 **If you rebase/merge onto `develop` now:** `industry-sp-dao.ts` on
 `develop` already has the index-backed-sort fix (see above) — no need to
