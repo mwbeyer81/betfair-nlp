@@ -196,26 +196,35 @@ test.describe("Responsive layout — /isp filters screen on a short viewport (MS
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
   });
 
-  test("split A's PnL bar and its View Races button don't overlap", async ({ page }) => {
-    // Regression test: this screen used to be a fixed, non-scrolling app
-    // layout — when the filter grid + PnL bar's natural height exceeded a
-    // real phone's visible viewport, the flex:1 card below used to get
-    // squeezed toward zero height and its centered content rendered on top
-    // of the PnL bar's own text. The screen now scrolls, and each split
-    // renders in its own card, but the PnL text and the View Races button
-    // within a single card must still never overlap each other.
-    const pnlBar = page.getByTestId("industry-sp-pnl-bar-a");
+  test("split A's PnL headline and its View Races button don't overlap", async ({ page }) => {
+    // Regression test: the split card used to cram Races/Horses/Staked/
+    // Return/PnL into one flex-wrapped row, which wrapped onto the View
+    // Races button on narrow phones. That detail moved to a dedicated
+    // SplitDetailPanel; the card itself now shows only a single-line PnL
+    // headline, but this guards against a future regression reintroducing
+    // overlap between the headline and the button row below it.
+    const pnlHeadline = page.getByTestId("industry-sp-pnl-a");
     const card = page.getByTestId("industry-sp-split-card-a");
     const button = page.getByTestId("industry-sp-view-races-button-a");
-    await expect(pnlBar).toBeVisible();
+    await expect(pnlHeadline).toBeVisible();
     await expect(card).toBeVisible();
 
-    const pnlBox = (await pnlBar.boundingBox())!;
+    const pnlBox = (await pnlHeadline.boundingBox())!;
     const buttonBox = (await button.boundingBox())!;
 
-    // The button must start at or below the PnL bar's bottom edge — any
-    // overlap means the button is painting over the PnL figures.
+    // The button must start at or below the PnL headline's bottom edge —
+    // any overlap means the button is painting over the PnL figure.
     expect(buttonBox.y).toBeGreaterThanOrEqual(pnlBox.y + pnlBox.height - 1);
+  });
+
+  test("split A's Details button opens a full-screen panel that fits the viewport", async ({ page }) => {
+    await page.getByTestId("industry-sp-split-details-button-a").click();
+    const panel = page.getByTestId("split-detail-panel-a");
+    await expect(panel).toBeVisible();
+
+    const box = (await panel.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(SHORT_MOBILE_VIEWPORT.width + 1);
   });
 
   test("both split cards are reachable on the page", async ({ page }) => {

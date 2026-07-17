@@ -16,8 +16,9 @@ import {
   ActivityIndicator,
 } from "react-native-paper";
 import { chatApi, IspFilterBounds, PnlStats } from "../services/chatApi";
+import { SplitDetailPanel } from "./SplitDetailPanel";
 import { colors, radii, spacing } from "../theme";
-import { formatGbp, formatPnl, formatPct } from "../utils/ispFormat";
+import { formatPnl, formatPct } from "../utils/ispFormat";
 import {
   urlIntParam,
   urlFloatParam,
@@ -88,6 +89,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [filterBounds, setFilterBounds] = useState<IspFilterBounds | null>(null);
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
+  const [detailSplit, setDetailSplit] = useState<"a" | "b" | null>(null);
 
   // Two independent race-row splits, so a filter combination can be tested
   // on one half of the historical data and checked for profit on the other.
@@ -388,43 +390,39 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           {label} — races {fromRow}–{effectiveTo}
         </Text>
         {pnl.staked > 0 ? (
-          <View testID={`industry-sp-pnl-bar-${id}`} style={styles.pnlStats}>
-            <Text testID={`industry-sp-pnl-races-${id}`} style={styles.pnlStat}>
-              <Text style={styles.pnlStatLabel}>Races </Text>{splitTotalRaces}
+          <Text testID={`industry-sp-pnl-${id}`} style={[styles.pnlHeadline, pnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]} numberOfLines={1}>
+            {formatPnl(pnl.pnl)}{" "}
+            <Text style={[styles.pnlPct, pnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+              ({formatPct(pnl.pnl, pnl.staked)})
             </Text>
-            {pnl.count != null && (
-              <Text testID={`industry-sp-pnl-count-${id}`} style={styles.pnlStat}>
-                <Text style={styles.pnlStatLabel}>Horses </Text>{pnl.count}
-              </Text>
-            )}
-            <Text style={styles.pnlStat}>
-              <Text style={styles.pnlStatLabel}>Staked </Text>{formatGbp(pnl.staked)}
-            </Text>
-            <Text style={styles.pnlStat}>
-              <Text style={styles.pnlStatLabel}>Return </Text>{formatGbp(pnl.returns)}
-            </Text>
-            <Text testID={`industry-sp-pnl-${id}`} style={[styles.pnlValue, pnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
-              {formatPnl(pnl.pnl)}{" "}
-              <Text style={[styles.pnlPct, pnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
-                ({formatPct(pnl.pnl, pnl.staked)})
-              </Text>
-            </Text>
-          </View>
+          </Text>
         ) : (
           <Text testID={`industry-sp-split-empty-${id}`} style={styles.splitEmptyText}>
             {splitTotalRunners > 0 ? "No qualifying bets in this split." : "No races match this split."}
           </Text>
         )}
-        <Button
-          testID={`industry-sp-view-races-button-${id}`}
-          mode="contained"
-          compact
-          onPress={() => onViewRaces(fromRow, toRow)}
-          style={styles.splitViewButton}
-          labelStyle={styles.splitViewButtonLabel}
-        >
-          View {splitTotalRaces} Races →
-        </Button>
+        <View style={styles.splitButtonRow}>
+          <Button
+            testID={`industry-sp-split-details-button-${id}`}
+            mode="outlined"
+            compact
+            onPress={() => setDetailSplit(id)}
+            style={styles.splitDetailsButton}
+            labelStyle={styles.splitDetailsButtonLabel}
+          >
+            Details
+          </Button>
+          <Button
+            testID={`industry-sp-view-races-button-${id}`}
+            mode="contained"
+            compact
+            onPress={() => onViewRaces(fromRow, toRow)}
+            style={styles.splitViewButton}
+            labelStyle={styles.splitViewButtonLabel}
+          >
+            View {splitTotalRaces} Races →
+          </Button>
+        </View>
       </View>
     );
   }
@@ -643,6 +641,25 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           </>
         )}
       </View>
+
+      {detailSplit != null && (
+        <SplitDetailPanel
+          id={detailSplit}
+          label={detailSplit === "a" ? "Split A" : "Split B"}
+          fromRow={detailSplit === "a" ? fromRowA : fromRowB}
+          toRow={(detailSplit === "a" ? toRowA : toRowB) ?? totalRaces}
+          totalRaces={detailSplit === "a" ? totalRacesA : totalRacesB}
+          totalRunners={detailSplit === "a" ? totalRunnersA : totalRunnersB}
+          pnl={detailSplit === "a" ? pnlStatsA : pnlStatsB}
+          onClose={() => setDetailSplit(null)}
+          onViewRaces={() => {
+            const fromRow = detailSplit === "a" ? fromRowA : fromRowB;
+            const toRow = detailSplit === "a" ? toRowA : toRowB;
+            setDetailSplit(null);
+            onViewRaces(fromRow, toRow);
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -855,25 +872,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "rgba(255,255,255,0.5)",
   },
-  pnlStats: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  pnlStat: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.75)",
-  },
-  pnlStatLabel: {
-    color: "rgba(255,255,255,0.4)",
-  },
-  pnlValue: {
-    fontSize: 14,
+  pnlHeadline: {
+    fontSize: 18,
     fontWeight: "700",
   },
   pnlPct: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "400",
     opacity: 0.8,
   },
@@ -883,9 +887,22 @@ const styles = StyleSheet.create({
   pnlNeg: {
     color: colors.pnlNegative,
   },
+  splitButtonRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  splitDetailsButton: {
+    borderRadius: radii.sm,
+    borderColor: "rgba(255,255,255,0.4)",
+  },
+  splitDetailsButtonLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#fff",
+  },
   splitViewButton: {
     borderRadius: radii.sm,
-    alignSelf: "flex-start",
+    flex: 1,
   },
   splitViewButtonLabel: {
     fontSize: 13,

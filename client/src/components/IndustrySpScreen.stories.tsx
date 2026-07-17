@@ -118,9 +118,9 @@ export const ZeroMatchesShowsZeroCount: Story = {
     const cardB = canvas.getByTestId("industry-sp-split-card-b");
     await expect(cardA).toHaveTextContent("View 0 Races");
     await expect(cardB).toHaveTextContent("View 0 Races");
-    // No stake was placed on zero races, so neither PnL bar should render.
-    await expect(canvas.queryByTestId("industry-sp-pnl-bar-a")).not.toBeInTheDocument();
-    await expect(canvas.queryByTestId("industry-sp-pnl-bar-b")).not.toBeInTheDocument();
+    // No stake was placed on zero races, so neither PnL headline should render.
+    await expect(canvas.queryByTestId("industry-sp-pnl-a")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-pnl-b")).not.toBeInTheDocument();
   },
 };
 
@@ -132,8 +132,8 @@ export const ScreenLoaded: Story = {
     await expect(canvas.findByTestId("industry-sp-split-card-a")).resolves.toBeInTheDocument();
     await expect(canvas.findByTestId("industry-sp-split-card-b")).resolves.toBeInTheDocument();
     await expect(canvas.findByText("Industry Starting Price")).resolves.toBeInTheDocument();
-    await expect(canvas.findByTestId("industry-sp-pnl-count-a")).resolves.toHaveTextContent("Horses 4");
-    await expect(canvas.findByTestId("industry-sp-pnl-count-b")).resolves.toHaveTextContent("Horses 4");
+    await expect(canvas.findByTestId("industry-sp-pnl-a")).resolves.toHaveTextContent("+£1.58");
+    await expect(canvas.findByTestId("industry-sp-pnl-b")).resolves.toHaveTextContent("+£1.58");
   },
 };
 
@@ -196,18 +196,61 @@ export const FiltersToggleHidesAndShowsFilterBar: Story = {
   },
 };
 
-export const PnlBarsShowIndependentStats: Story = {
+export const PnlHeadlinesShowIndependentStats: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
     for (const id of ["a", "b"]) {
-      const bar = await canvas.findByTestId(`industry-sp-pnl-bar-${id}`);
-      await expect(bar).toBeInTheDocument();
+      await expect(canvas.findByTestId(`industry-sp-split-card-${id}`)).resolves.toBeInTheDocument();
       await expect(canvas.getByTestId(`industry-sp-pnl-${id}`)).toHaveTextContent("+£1.58");
-      await expect(bar).toHaveTextContent("£3.97");
-      await expect(bar).toHaveTextContent("£5.55");
-      await expect(canvas.getByTestId(`industry-sp-pnl-races-${id}`)).toHaveTextContent("Races 2");
     }
+  },
+};
+
+export const DetailsButtonOpensFullBreakdown: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+
+    await expect(canvas.queryByTestId("split-detail-panel-a")).not.toBeInTheDocument();
+    await userEvent.click(canvas.getByTestId("industry-sp-split-details-button-a"));
+
+    const panel = await canvas.findByTestId("split-detail-panel-a");
+    await expect(panel).toBeInTheDocument();
+    await expect(canvas.getByTestId("split-detail-row-races-a")).toHaveTextContent("2");
+    await expect(canvas.getByTestId("split-detail-row-horses-a")).toHaveTextContent("4");
+    await expect(canvas.getByTestId("split-detail-row-staked-a")).toHaveTextContent("£3.97");
+    await expect(canvas.getByTestId("split-detail-row-return-a")).toHaveTextContent("£5.55");
+    await expect(canvas.getByTestId("split-detail-pnl-a")).toHaveTextContent("+£1.58");
+  },
+};
+
+export const DetailsPanelCloseButtonReturnsToSplitCards: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-b");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-split-details-button-b"));
+    await canvas.findByTestId("split-detail-panel-b");
+
+    await userEvent.click(canvas.getByTestId("split-detail-panel-close-b"));
+    await expect(canvas.queryByTestId("split-detail-panel-b")).not.toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-split-card-b")).toBeInTheDocument();
+  },
+};
+
+export const DetailsPanelViewRacesButtonNavigates: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-split-details-button-a"));
+    await canvas.findByTestId("split-detail-panel-a");
+
+    await userEvent.click(canvas.getByTestId("split-detail-view-races-button-a"));
+    await expect(args.onViewRaces).toHaveBeenLastCalledWith(1, 1);
+    // Navigating away from the detail panel also closes it.
+    await expect(canvas.queryByTestId("split-detail-panel-a")).not.toBeInTheDocument();
   },
 };
 

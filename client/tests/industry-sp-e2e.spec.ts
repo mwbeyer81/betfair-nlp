@@ -110,9 +110,20 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     await expect(btn).toContainText(/View \d+ Races/);
   });
 
-  test("PnL bar shows horse count (react-native-paper Appbar subtitle does not render on web)", async ({ page }) => {
+  test("Details button opens a full-screen breakdown with horse count, staked, and return", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-pnl-count-a")).toContainText("Horses", { timeout: 60000 });
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+
+    await page.getByTestId("industry-sp-split-details-button-a").click();
+    const panel = page.getByTestId("split-detail-panel-a");
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId("split-detail-row-horses-a")).toBeVisible();
+    await expect(page.getByTestId("split-detail-row-staked-a")).toContainText("£");
+    await expect(page.getByTestId("split-detail-row-return-a")).toContainText("£");
+    await expect(page.getByTestId("split-detail-pnl-a")).toContainText("£");
+
+    await page.getByTestId("split-detail-panel-close-a").click();
+    await expect(panel).not.toBeVisible();
   });
 
   test("both Race A and Race B splits render their own card and View Races button, defaulting to the first/second half of the matching races", async ({ page }) => {
