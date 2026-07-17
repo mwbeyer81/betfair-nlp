@@ -15,6 +15,9 @@ const IPHONE_12_VIEWPORT = { width: 390, height: 844 };
 const IPHONE_12_MINI_VIEWPORT = { width: 375, height: 812 };
 const TABLET_VIEWPORT = { width: 768, height: 1024 }; // narrow laptop / iPad
 const DESKTOP_VIEWPORT = { width: 1280, height: 800 };
+// A real phone's *visible* viewport once Safari's address bar and bottom tab
+// bar chrome are accounted for — shorter than the device's full screen height.
+const SHORT_MOBILE_VIEWPORT = { width: 390, height: 500 };
 
 // Scans every element in the page and returns any whose right edge extends
 // past the viewport width — used to catch text/badges clipped off-screen
@@ -181,6 +184,36 @@ test.describe("Responsive layout — /isp filters screen (MSW mocked, iPhone 12 
 
     const eventsBox = await eventsBtn.boundingBox();
     expect(eventsBox!.x + eventsBox!.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
+  });
+});
+
+test.describe("Responsive layout — /isp filters screen on a short viewport (MSW mocked)", () => {
+  test.use({ viewport: SHORT_MOBILE_VIEWPORT });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+  });
+
+  test("the page scrolls instead of squeezing content, so the PnL bar and the View Races count don't overlap", async ({ page }) => {
+    // Regression test: the screen's content (header aside) wasn't wrapped in
+    // a ScrollView, so when the filter grid + PnL bar's natural height
+    // exceeded a real phone's visible viewport, the flex:1 "View Races" card
+    // below got squeezed toward zero height and its centered content
+    // (a big "N races match your filters" count) rendered on top of the PnL
+    // bar's own text instead of scrolling into view below it.
+    const pnlBar = page.getByTestId("industry-sp-pnl-bar");
+    const card = page.getByTestId("industry-sp-view-races-card");
+    await expect(pnlBar).toBeVisible();
+    await expect(card).toBeVisible();
+
+    const pnlBox = (await pnlBar.boundingBox())!;
+    const cardBox = (await card.boundingBox())!;
+
+    // The card must start at or below the PnL bar's bottom edge — any
+    // overlap means the count text is painting over the PnL figures.
+    expect(cardBox.y).toBeGreaterThanOrEqual(pnlBox.y + pnlBox.height - 1);
   });
 });
 

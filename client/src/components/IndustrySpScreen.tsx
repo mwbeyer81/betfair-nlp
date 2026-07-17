@@ -301,6 +301,11 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </Button>
       </Appbar.Header>
 
+      <ScrollView
+        testID="industry-sp-scroll"
+        style={styles.scrollContainer}
+        contentContainerStyle={styles.scrollContent}
+      >
       <View testID="industry-sp-toolbar" style={styles.toolbar}>
         <Button
           testID="industry-sp-filters-toggle"
@@ -500,6 +505,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           </View>
         )}
       </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -739,6 +745,12 @@ const styles = StyleSheet.create({
   },
   pnlNeg: {
     color: "#F87171",
+  },
+  scrollContainer: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   body: {
     flex: 1,
