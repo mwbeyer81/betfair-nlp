@@ -436,25 +436,46 @@ export class IndustrySpDAO {
   }
 
   public async getFilterBounds(): Promise<IspFilterBounds> {
+    // Used to $unwind every race's runners array (~9 runners/race, so
+    // ~109k races became ~1M documents flowing through the rest of the
+    // pipeline) with no filtering beforehand — a full, unindexed
+    // collection scan blown up ~9x before any $group even started. That
+    // made this the single slowest request on the home page (~4s live),
+    // well past every other query on this screen.
+    //
+    // maxRunners reuses `runnersWithIspCount`, precomputed + indexed at
+    // import time (see the comment on that field above) — no unwind
+    // needed, just a $group over the already-matched doc count. minIsp/
+    // maxIsp still need every race's runner ISPs, but computing them with
+    // $filter + $min/$max *expressions* over each doc's own runners array
+    // keeps the pipeline at the raw ~109k-document scale instead of
+    // exploding it — no per-runner documents, no $unwind.
     const [result] = await this.collection
       .aggregate<{
         runnerCounts: [{ maxRunners: number }];
         ispBounds: [{ maxIsp: number; minIsp: number }];
       }>([
-        { $unwind: "$runners" },
-        { $match: { "runners.isp": { $exists: true, $gt: 1 } } },
         {
           $facet: {
-            runnerCounts: [
-              { $group: { _id: "$_id", count: { $sum: 1 } } },
-              { $group: { _id: null, maxRunners: { $max: "$count" } } },
-            ],
+            runnerCounts: [{ $group: { _id: null, maxRunners: { $max: "$runnersWithIspCount" } } }],
             ispBounds: [
+              {
+                $addFields: {
+                  validIsps: {
+                    $filter: {
+                      input: "$runners.isp",
+                      as: "isp",
+                      cond: { $and: [{ $ne: ["$$isp", null] }, { $gt: ["$$isp", 1] }] },
+                    },
+                  },
+                },
+              },
+              { $match: { validIsps: { $ne: [] } } },
               {
                 $group: {
                   _id: null,
-                  maxIsp: { $max: "$runners.isp" },
-                  minIsp: { $min: "$runners.isp" },
+                  maxIsp: { $max: { $max: "$validIsps" } },
+                  minIsp: { $min: { $min: "$validIsps" } },
                 },
               },
             ],
