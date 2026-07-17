@@ -296,7 +296,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       <TouchableOpacity
         testID={`industry-sp-tooltip-toggle-${key}`}
         onPress={() => setOpenTooltip(t => (t === key ? null : key))}
-        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        hitSlop={{ top: 13, bottom: 13, left: 13, right: 13 }}
         style={styles.tooltipToggle}
       >
         <Text style={styles.tooltipToggleText}>?</Text>
@@ -370,8 +370,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
       {/* Filter bar — kept as custom for density */}
       {filtersVisible && (
-      <View testID="industry-sp-filter-bar" style={styles.filterBar}>
-        <View style={styles.filterStepper}>
+      <View testID="industry-sp-filter-bar" style={[styles.filterBar, openTooltip != null && styles.filterBarElevated]}>
+        <View style={[styles.filterStepper, openTooltip === "isp" && styles.filterStepperElevated]}>
           <Text style={styles.filterStepperLabel}>ISP</Text>
           {renderTooltipToggle("isp")}
           <RNTextInput
@@ -399,7 +399,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           {renderTooltipText("isp")}
         </View>
         <View style={styles.filterDivider} />
-        <View style={styles.filterStepper}>
+        <View style={[styles.filterStepper, openTooltip === "runners" && styles.filterStepperElevated]}>
           <Text style={styles.filterStepperLabel}>Runners</Text>
           {renderTooltipToggle("runners")}
           <TouchableOpacity
@@ -450,12 +450,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             <Text style={styles.stepBtnText}>+</Text>
           </TouchableOpacity>
           {filterBounds != null && (
-            <Text testID="industry-sp-max-bound" style={styles.boundsHint}>of {filterBounds.maxRunnersPerRace}</Text>
+            <Text testID="industry-sp-max-bound" style={styles.boundsHint}>/{filterBounds.maxRunnersPerRace}</Text>
           )}
           {renderTooltipText("runners")}
         </View>
         <View style={styles.filterDivider} />
-        <View style={styles.filterStepper}>
+        <View style={[styles.filterStepper, openTooltip === "inIsp" && styles.filterStepperElevated]}>
           <Text testID="industry-sp-in-isp-label" style={styles.filterStepperLabel}># in ISP</Text>
           {renderTooltipToggle("inIsp")}
           <TouchableOpacity
@@ -505,12 +505,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             <Text style={styles.stepBtnText}>+</Text>
           </TouchableOpacity>
           {filterBounds != null && (
-            <Text testID="industry-sp-max-rir-bound" style={styles.boundsHint}>of {filterBounds.maxRunnersPerRace}</Text>
+            <Text testID="industry-sp-max-rir-bound" style={styles.boundsHint}>/{filterBounds.maxRunnersPerRace}</Text>
           )}
           {renderTooltipText("inIsp")}
         </View>
         <View style={styles.filterDivider} />
-        <View style={styles.filterStepper}>
+        <View style={[styles.filterStepper, openTooltip === "race" && styles.filterStepperElevated]}>
           <Text style={styles.filterStepperLabel}>Race</Text>
           {renderTooltipToggle("race")}
           <RNTextInput
@@ -798,6 +798,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   filterBar: {
+    position: "relative",
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
@@ -808,43 +809,60 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  filterBarElevated: {
+    zIndex: 40,
+  },
   tooltipToggle: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: 26,
+    height: 26,
+    borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.textTertiary,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 2,
   },
   tooltipToggleText: {
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 12,
+    lineHeight: 14,
     fontWeight: "700",
     color: colors.textSecondary,
   },
   tooltipText: {
-    width: "100%",
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    marginTop: 6,
+    zIndex: 30,
+    maxWidth: 260,
     fontSize: 11,
-    fontStyle: "italic",
-    color: colors.textSecondary,
-    marginTop: 4,
-    paddingRight: 4,
+    lineHeight: 15,
+    color: "#fff",
+    backgroundColor: colors.text,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: radii.sm,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
   },
   filterStepper: {
+    position: "relative",
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
     flexShrink: 1,
     minWidth: 0,
     rowGap: 4,
-    gap: 6,
+    gap: 5,
+  },
+  filterStepperElevated: {
+    zIndex: 30,
   },
   filterStepperLabel: {
     fontSize: 11,
     color: colors.textSecondary,
-    marginRight: 2,
   },
   stepBtn: {
     width: 32,

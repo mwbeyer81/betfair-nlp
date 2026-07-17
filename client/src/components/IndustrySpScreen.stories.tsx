@@ -394,6 +394,45 @@ export const TooltipTogglesShowAndHideExplanation: Story = {
   },
 };
 
+export const TooltipDoesNotShiftFilterLayout: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    const applyButton = canvas.getByTestId("industry-sp-filter-apply");
+    const raceLabelBefore = canvas.getByTestId("industry-sp-from-row").getBoundingClientRect().top;
+    const applyBefore = applyButton.getBoundingClientRect().top;
+
+    // Opening a tooltip must overlay the filter bar, not push rows below it
+    // down the page — regression: it used to occupy a full-width flow line.
+    await userEvent.click(canvas.getByTestId("industry-sp-tooltip-toggle-runners"));
+    await expect(canvas.getByTestId("industry-sp-tooltip-text-runners")).toBeInTheDocument();
+
+    const raceLabelAfter = canvas.getByTestId("industry-sp-from-row").getBoundingClientRect().top;
+    const applyAfter = applyButton.getBoundingClientRect().top;
+
+    await expect(raceLabelAfter).toBe(raceLabelBefore);
+    await expect(applyAfter).toBe(applyBefore);
+  },
+};
+
+export const TooltipToggleHasAdequateTapTarget: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    // Real, rendered box size — on web, RN's hitSlop prop is a no-op, so the
+    // actual tap target is whatever the element itself renders at. Regression:
+    // it used to be an 18x18 circle that was hard to hit on a phone.
+    for (const key of ["isp", "runners", "inIsp", "race"]) {
+      const toggle = canvas.getByTestId(`industry-sp-tooltip-toggle-${key}`);
+      const box = toggle.getBoundingClientRect();
+      await expect(box.width).toBeGreaterThanOrEqual(24);
+      await expect(box.height).toBeGreaterThanOrEqual(24);
+    }
+  },
+};
+
 export const IspFilterParamsPassedToApi: Story = {
   parameters: {
     msw: {
@@ -505,7 +544,7 @@ export const InIspBoundDisplayed: Story = {
     await canvas.findByTestId("industry-sp-list");
     const bound = await canvas.findByTestId("industry-sp-max-rir-bound");
     await expect(bound).toBeInTheDocument();
-    await expect(bound).toHaveTextContent("of 29");
+    await expect(bound).toHaveTextContent("/29");
   },
 };
 
