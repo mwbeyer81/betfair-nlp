@@ -47,20 +47,27 @@ async function pickDateRangeInCanvas(
 // This screen fetches the grand total + both splits in a single request to
 // /api/industry-sp/splits (see chatApi.getIndustrySpSplits) — this handler
 // mirrors the real backend's own default-split behavior: when the caller
-// omits fromRowA/toRowA/fromRowB/toRowB entirely, it computes an even
-// first-half/second-half split of totalRaces itself; when explicit values
-// are passed (Apply, a bookmarked URL), it honors them instead. Most
-// stories don't care about the exact split boundaries, but a few
-// (DefaultSplitsAreFirstAndSecondHalf, ApplyingCustomSplitUpdatesUrl...)
-// specifically exercise this, so it's worth getting right in the mock
-// rather than returning a flat, param-blind response.
+// omits fromRowA/toRowA/fromRowB/toRowB entirely, it computes two fixed
+// 1000-race windows (1-1000, 1001-2000) rather than an even half/half
+// split; when explicit values are passed (Apply, a bookmarked URL), it
+// honors them instead. Most stories don't care about the exact split
+// boundaries, but a few (DefaultSplitsAreFixed1000RaceWindows,
+// ApplyingCustomSplitUpdatesUrl...) specifically exercise this, so it's
+// worth getting right in the mock rather than returning a flat,
+// param-blind response.
 function splitsHandler(opts?: {
   totalRaces?: number;
   totalRunners?: number;
   pnlStats?: typeof DEFAULT_PNL;
   matchesFilter?: (url: URL) => boolean;
 }) {
-  const totalRaces = opts?.totalRaces ?? 2;
+  // Large enough that the default 1000/1000-race windows (see getSplitStats
+  // on the backend) both come back non-empty — a small total like the old
+  // default of 2 would leave Split B permanently empty (fromRow 1001 is
+  // always beyond a 2-race total), which doesn't exercise the fixed-window
+  // default at all and breaks basically every story that checks Split B
+  // has real content.
+  const totalRaces = opts?.totalRaces ?? 2500;
   const totalRunners = opts?.totalRunners ?? 4;
   const pnlStats = opts?.pnlStats ?? DEFAULT_PNL;
   return http.get(`${BASE}/api/industry-sp/splits`, ({ request }) => {
@@ -77,11 +84,12 @@ function splitsHandler(opts?: {
 
     let fromRowA: number, toRowA: number | null, fromRowB: number, toRowB: number | null;
     if (fromRowARaw == null && toRowARaw == null && fromRowBRaw == null && toRowBRaw == null) {
-      const half = Math.floor(effTotalRaces / 2);
+      // Mirrors the real backend's fixed 1000/1000-race default windows
+      // (see getSplitStats) rather than an even half/half split.
       fromRowA = 1;
-      toRowA = half;
-      fromRowB = half + 1;
-      toRowB = null;
+      toRowA = Math.min(1000, effTotalRaces);
+      fromRowB = 1001;
+      toRowB = Math.min(2000, effTotalRaces);
     } else {
       fromRowA = fromRowARaw != null ? parseInt(fromRowARaw, 10) : 1;
       toRowA = toRowARaw != null ? parseInt(toRowARaw, 10) : null;
@@ -210,16 +218,15 @@ export const SuccessfulLoadPopulatesTheSessionCache: Story = {
   },
 };
 
-export const DefaultSplitsAreFirstAndSecondHalf: Story = {
+export const DefaultSplitsAreFixed1000RaceWindows: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-split-card-a");
 
-    // Mock grand total is 2 races, so the default split is 1–1 / 2–(end).
     await expect((canvas.getByTestId("industry-sp-from-row-a") as HTMLInputElement).value).toBe("1");
-    await expect((canvas.getByTestId("industry-sp-to-row-a") as HTMLInputElement).value).toBe("1");
-    await expect((canvas.getByTestId("industry-sp-from-row-b") as HTMLInputElement).value).toBe("2");
-    await expect((canvas.getByTestId("industry-sp-to-row-b") as HTMLInputElement).value).toBe("2");
+    await expect((canvas.getByTestId("industry-sp-to-row-a") as HTMLInputElement).value).toBe("1000");
+    await expect((canvas.getByTestId("industry-sp-from-row-b") as HTMLInputElement).value).toBe("1001");
+    await expect((canvas.getByTestId("industry-sp-to-row-b") as HTMLInputElement).value).toBe("2000");
   },
 };
 
@@ -242,13 +249,13 @@ export const ViewRacesButtonsNavigateWithTheirOwnSplit: Story = {
     const btnA = canvas.getByTestId("industry-sp-view-races-button-a");
     await expect(btnA).toHaveTextContent(/View \d+ Races/);
     await userEvent.click(btnA);
-    // Mock grand total is 2, so split A defaults to races 1–1.
-    await expect(args.onViewRaces).toHaveBeenLastCalledWith(1, 1);
+    // Split A defaults to the fixed first 1000-race window.
+    await expect(args.onViewRaces).toHaveBeenLastCalledWith(1, 1000);
 
     const btnB = canvas.getByTestId("industry-sp-view-races-button-b");
     await userEvent.click(btnB);
-    // Split B defaults to race 2 through the (open-ended) end.
-    await expect(args.onViewRaces).toHaveBeenLastCalledWith(2, null);
+    // Split B defaults to the fixed next 1000-race window.
+    await expect(args.onViewRaces).toHaveBeenLastCalledWith(1001, 2000);
   },
 };
 
@@ -290,8 +297,8 @@ export const DetailsButtonOpensFullBreakdown: Story = {
 
     const panel = await canvas.findByTestId("split-detail-panel-a");
     await expect(panel).toBeInTheDocument();
-    // Grand total is 2, so split A's own range (races 1-1) covers 1 race.
-    await expect(canvas.getByTestId("split-detail-row-races-a")).toHaveTextContent("1");
+    // Split A's own range defaults to the fixed first-1000-race window.
+    await expect(canvas.getByTestId("split-detail-row-races-a")).toHaveTextContent("1000");
     await expect(canvas.getByTestId("split-detail-row-horses-a")).toHaveTextContent("4");
     await expect(canvas.getByTestId("split-detail-row-staked-a")).toHaveTextContent("£3.97");
     await expect(canvas.getByTestId("split-detail-row-return-a")).toHaveTextContent("£5.55");
@@ -324,7 +331,7 @@ export const DetailsPanelViewRacesButtonNavigates: Story = {
     await canvas.findByTestId("split-detail-panel-a");
 
     await userEvent.click(canvas.getByTestId("split-detail-view-races-button-a"));
-    await expect(args.onViewRaces).toHaveBeenLastCalledWith(1, 1);
+    await expect(args.onViewRaces).toHaveBeenLastCalledWith(1, 1000);
     // Navigating away from the detail panel also closes it.
     await expect(canvas.queryByTestId("split-detail-panel-a")).not.toBeInTheDocument();
   },
@@ -619,10 +626,10 @@ export const ResetButtonRestoresDefaultsAndClearsUrl: Story = {
     }, { timeout: 3000 });
 
     // Reset also hands the split boundaries back to auto mode — they
-    // recompute to the fresh first-half/second-half default.
+    // recompute to the fresh fixed-1000-race-window default.
     await waitFor(() => {
       expect((canvas.getByTestId("industry-sp-from-row-a") as HTMLInputElement).value).toBe("1");
-      expect((canvas.getByTestId("industry-sp-from-row-b") as HTMLInputElement).value).toBe("2");
+      expect((canvas.getByTestId("industry-sp-from-row-b") as HTMLInputElement).value).toBe("1001");
     }, { timeout: 3000 });
   },
 };
@@ -643,8 +650,8 @@ export const RaceBoundsDisplayedForBothSplits: Story = {
     await canvas.findByTestId("industry-sp-split-card-a");
     const boundA = await canvas.findByTestId("industry-sp-race-bound-a");
     const boundB = await canvas.findByTestId("industry-sp-race-bound-b");
-    await expect(boundA).toHaveTextContent("/2");
-    await expect(boundB).toHaveTextContent("/2");
+    await expect(boundA).toHaveTextContent("/2500");
+    await expect(boundB).toHaveTextContent("/2500");
   },
 };
 

@@ -21,20 +21,19 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     await client.close();
   });
 
-  it("defaults to an even first-half/second-half split of the grand total", async () => {
+  it("defaults to two fixed 1000-race windows (1-1000, 1001-2000)", async () => {
     const result = await service.getSplitStats();
-    expect(result.totalRaces).toBeGreaterThan(0);
+    expect(result.totalRaces).toBeGreaterThan(2000);
 
-    const half = Math.floor(result.totalRaces / 2);
     expect(result.splitA.fromRow).toBe(1);
-    expect(result.splitA.toRow).toBe(half);
-    expect(result.splitB.fromRow).toBe(half + 1);
-    expect(result.splitB.toRow).toBeNull();
+    expect(result.splitA.toRow).toBe(1000);
+    expect(result.splitB.fromRow).toBe(1001);
+    expect(result.splitB.toRow).toBe(2000);
 
-    // Split A's own total should match the size of its row range.
-    expect(result.splitA.total).toBe(half);
-    // Split B picks up everything from half+1 through the end.
-    expect(result.splitB.total).toBe(result.totalRaces - half);
+    // A fixed-size sample regardless of how large the total is — unlike
+    // the old even-half default, these don't add up to totalRaces.
+    expect(result.splitA.total).toBe(1000);
+    expect(result.splitB.total).toBe(1000);
   });
 
   it("splits are independent — each carries its own pnlStats", async () => {
@@ -66,7 +65,12 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     const filtered = await service.getSplitStats(1, 100, [country]);
     const unfiltered = await service.getSplitStats(1, 100, []);
     expect(filtered.totalRaces).toBeLessThanOrEqual(unfiltered.totalRaces);
-    expect(filtered.splitA.total + filtered.splitB.total).toBe(filtered.totalRaces);
+    // Each fixed 1000-race window is clamped to whatever actually matched
+    // the filter — the two windows only sum to the full total when the
+    // filtered total happens to be <= 2000, so assert the clamp directly
+    // rather than an equality that only held under the old half/half split.
+    expect(filtered.splitA.total).toBe(Math.min(1000, filtered.totalRaces));
+    expect(filtered.splitB.total).toBe(Math.max(0, Math.min(1000, filtered.totalRaces - 1000)));
   });
 
   it("an inverted split range (toRowA < fromRowA) returns an empty split instead of throwing", async () => {

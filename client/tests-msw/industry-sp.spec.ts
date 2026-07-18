@@ -282,6 +282,40 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     // filter existed) landing on today's smaller default — Split B should
     // never render as a broken, permanently-empty "races 54622-9800/9800"
     // split; it should self-correct back to an even default split.
+    //
+    // Overrides the fixture's normal 1-race mock with a fixed totalRaces
+    // of 2500 — large enough that the corrected 1000/1000-window default
+    // (see getSplitStats) has real, non-empty content in both splits,
+    // which the standard 1-race mock can never demonstrate.
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const url = new URL(route.request().url());
+      const totalRaces = 2500;
+      const fromRowARaw = url.searchParams.get("fromRowA");
+      let fromRowA: number, toRowA: number, fromRowB: number, toRowB: number;
+      if (fromRowARaw == null) {
+        fromRowA = 1; toRowA = 1000; fromRowB = 1001; toRowB = 2000;
+      } else {
+        fromRowA = parseInt(fromRowARaw, 10);
+        toRowA = parseInt(url.searchParams.get("toRowA") ?? String(totalRaces), 10);
+        fromRowB = parseInt(url.searchParams.get("fromRowB") ?? "1", 10);
+        toRowB = totalRaces;
+      }
+      const totalA = Math.max(0, Math.min(toRowA, totalRaces) - fromRowA + 1);
+      const totalB = Math.max(0, Math.min(toRowB, totalRaces) - fromRowB + 1);
+      const pnl = { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 };
+      await route.fulfill({
+        json: {
+          success: true,
+          totalRaces,
+          totalRunners: totalRaces * 2,
+          filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+          countries: ["GB", "IE"],
+          splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: totalA * 2, pnlStats: totalA > 0 ? pnl : { staked: 0, returns: 0, pnl: 0, count: 0 } },
+          splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: totalB * 2, pnlStats: totalB > 0 ? pnl : { staked: 0, returns: 0, pnl: 0, count: 0 } },
+        },
+      });
+    });
+
     await page.goto("/isp?fromRowA=1&toRowA=54621&fromRowB=54622");
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });

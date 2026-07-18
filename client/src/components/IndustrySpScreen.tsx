@@ -76,8 +76,8 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   runners: "Only show races with this many total runners taking part.",
   inIsp: "Only show races with this many runners priced inside the ISP range above, out of the full field.",
   date: "Only show races in this date range (YYYY-MM-DD). Defaults to 2024 to keep the default load fast — widen it any time.",
-  raceA: "The first split of races — defaults to the earlier half of the matching races, so you can test a filter combination here first.",
-  raceB: "The second split — defaults to the later half. Check whether the same filters are still profitable here before trusting them.",
+  raceA: "The first split of races — defaults to the first 1000 matching races, so you can test a filter combination here first.",
+  raceB: "The second split — defaults to the next 1000 matching races. Check whether the same filters are still profitable here before trusting them.",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -125,10 +125,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [detailSplit, setDetailSplit] = useState<"a" | "b" | null>(null);
 
   // Two independent race-row splits, so a filter combination can be tested
-  // on one half of the historical data and checked for profit on the other.
+  // on one slice of the historical data and checked for profit on another.
   // Until the user has applied an explicit split (or one arrived via a
-  // bookmarked URL), the splits auto-compute to an even first-half/
-  // second-half divide once the grand total is known.
+  // bookmarked URL), the splits auto-compute to two fixed 1000-race
+  // windows (1-1000, 1001-2000) once the grand total is known — a
+  // consistent-size backtest sample regardless of how large the current
+  // total is, rather than one that shrinks/grows with every filter change.
   const splitsAreDefaultRef = useRef(!urlHasParam("fromRowA"));
   const [fromRowA, setFromRowA] = useState(() => urlIntParam("fromRowA", 1));
   const [toRowA, setToRowA] = useState<number | null>(() => urlToRowParam("toRowA"));
@@ -233,8 +235,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setDraftMaxDate(FILTER_DEFAULTS.maxDate);
     setSelectedCountries(new Set());
 
-    // Hand the two race splits back to auto (even first-half/second-half)
-    // mode — the next fetch recomputes them from the fresh grand total.
+    // Hand the two race splits back to auto (fixed 1000-race window) mode
+    // — the next fetch recomputes them from the fresh grand total.
     splitsAreDefaultRef.current = true;
     setFromRowA(1);
     setToRowA(null);
@@ -336,11 +338,17 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       // it reloaded from scratch even though nothing had changed.
       if (fetchTrigger === 0) {
         const cached = readSplitsCache(cacheKey);
-        // A cached entry whose split starts beyond the total it was cached
-        // under is already known-broken (see the isStaleSplit check below)
-        // — treat exactly like a cache miss so it falls through to a fresh,
-        // self-correcting fetch instead of replaying the broken values.
-        if (cached && !isStaleSplit(cached.splitB.fromRow, cached.totalRaces)) {
+        // A cached *explicit* (non-default) split whose start is beyond the
+        // total it was cached under is known-broken the same way the
+        // network-fetch path detects it below — treat exactly like a cache
+        // miss so it falls through to a fresh, self-correcting fetch.
+        // Guarded to !isDefault: a cached *default* split legitimately ends
+        // up with an empty (or entirely absent) Split B whenever the total
+        // is under 1001 — that's correct-as-computed, not staleness, and
+        // flagging it here would reject an otherwise-valid cache hit every
+        // time (this bucket's own key already guarantees it was computed
+        // fresh, so there's nothing to re-derive from a different total).
+        if (cached && (isDefault || !isStaleSplit(cached.splitB.fromRow, cached.totalRaces))) {
           applyResult(cached);
           syncUrl(cached, isDefault);
           setIsLoading(false);
@@ -355,7 +363,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         // why this used to be 3 separate concurrent requests (each risking
         // its own Lambda cold start / Atlas M0 connection contention) and
         // isn't anymore. Omitting fromRowA/toRowA/fromRowB/toRowB lets the
-        // backend compute the even first-half/second-half default itself.
+        // backend compute the fixed 1000-race-window default itself.
         const result = await chatApi.getIndustrySpSplits(
           minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, minRunnersInRange, maxRunnersInRange,
           isDefault ? undefined : fromRowA,
@@ -371,15 +379,17 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         // whenever some *other* filter narrows that total afterward without
         // the split being recomputed — e.g. a bookmarked URL from before
         // the date filter existed (fromRowA/fromRowB from the full ~110k
-        // dataset) landing on today's 2024-scoped default, or applying a
-        // narrower date/country/runner filter without also touching the
-        // split boxes. Detected here (fromRowB beyond the actual total)
-        // rather than guessed at ahead of time, since the true total isn't
-        // known until the fetch returns. Self-heals by falling back to the
-        // auto-computed default split and refetching once — this is the
-        // one legitimate case where fetchTrigger advances without a direct
-        // Apply/Reset click.
-        if (!isDefault && isStaleSplit(result.splitB.fromRow, result.totalRaces)) {
+        // dataset) landing on today's 2024-scoped default. Detected here
+        // (fromRowB beyond the actual total) rather than guessed at ahead
+        // of time, since the true total isn't known until the fetch
+        // returns. Scoped to fetchTrigger===0 (a mount/remount reading a
+        // stale URL) deliberately — an Apply click also sets isDefault to
+        // false, and a filter that legitimately narrows the total below
+        // 1001 while the split boxes still hold the old default's numbers
+        // is real user intent, not staleness; auto-correcting *that* would
+        // silently override what Apply just fetched (and cost an extra,
+        // unwanted request every time a filter shrinks the total).
+        if (fetchTrigger === 0 && !isDefault && isStaleSplit(result.splitB.fromRow, result.totalRaces)) {
           splitsAreDefaultRef.current = true;
           setFetchTrigger(t => t + 1);
           return;
@@ -650,7 +660,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </View>
         {renderFilterRow({
           filterKey: "raceA",
-          label: "Race A",
+          label: "Split A",
           minValue: draftFromA,
           onMinChange: setDraftFromA,
           minTestId: "industry-sp-from-row-a",
@@ -664,7 +674,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         })}
         {renderFilterRow({
           filterKey: "raceB",
-          label: "Race B",
+          label: "Split B",
           minValue: draftFromB,
           onMinChange: setDraftFromB,
           minTestId: "industry-sp-from-row-b",

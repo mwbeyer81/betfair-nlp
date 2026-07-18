@@ -218,11 +218,12 @@ async function setupApiMocks(page: Page) {
     const toRowBRaw = reqUrl.searchParams.get("toRowB");
     let fromRowA: number, toRowA: number | null, fromRowB: number, toRowB: number | null;
     if (fromRowARaw == null && toRowARaw == null && fromRowBRaw == null && toRowBRaw == null) {
-      const half = Math.floor(totalRaces / 2);
+      // Mirrors the real backend's fixed 1000/1000-race default windows
+      // (see getSplitStats) rather than an even half/half split.
       fromRowA = 1;
-      toRowA = half;
-      fromRowB = half + 1;
-      toRowB = null;
+      toRowA = Math.min(1000, totalRaces);
+      fromRowB = 1001;
+      toRowB = Math.min(2000, totalRaces);
     } else {
       fromRowA = fromRowARaw != null ? parseInt(fromRowARaw, 10) : 1;
       toRowA = toRowARaw != null ? parseInt(toRowARaw, 10) : null;

@@ -132,22 +132,25 @@ export class IndustrySpService {
       this.industrySpDAO.getDistinctCountryCodes(),
     ]);
 
-    // Splits default to an even first-half/second-half of the grand total
+    // Splits default to two fixed 1000-race windows (1-1000, 1001-2000)
     // whenever the caller doesn't pin down explicit boundaries (a fresh
-    // page load, or after Reset) — mirrors the frontend's own previous
-    // client-side default logic, just computed here instead so it can
-    // happen without an extra round trip to learn the grand total first.
+    // page load, or after Reset) — a fixed-size backtest sample regardless
+    // of how large the current total is, rather than an even half/half
+    // divide that would shrink or grow with every filter/date-range
+    // change. Clamped to the actual total so a dataset smaller than 2000
+    // races doesn't request rows that don't exist (the DAO already
+    // returns an empty result for an inverted/out-of-range request rather
+    // than erroring, so a total under 1000 just leaves Split B empty).
     const splitsAreDefault = fromRowA == null && toRowA == null && fromRowB == null && toRowB == null;
     let effFromA = fromRowA ?? 1;
     let effToA = toRowA;
     let effFromB = fromRowB ?? 1;
     let effToB = toRowB;
     if (splitsAreDefault) {
-      const half = Math.floor(grand.total / 2);
       effFromA = 1;
-      effToA = half;
-      effFromB = half + 1;
-      effToB = null;
+      effToA = Math.min(1000, grand.total);
+      effFromB = 1001;
+      effToB = Math.min(2000, grand.total);
     }
 
     const [resultA, resultB] = await Promise.all([
