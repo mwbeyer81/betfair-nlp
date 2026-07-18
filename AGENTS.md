@@ -340,3 +340,64 @@ credential loss noted earlier in this file) — confirms live that
 returning via "← Filters" fires zero new `/splits` requests and completes
 in under 2s, the Details panel's "← Filters" button works, and Apply still
 always fetches fresh.
+
+---
+
+## 2026-07-18 — Agent in `/home/ubuntu/betfair-nlp` (branch `develop`) — combined-request fix wasn't enough; default date window added on top
+
+User kept seeing load times ranging from ~5s up to ~60s even after the
+request-combining fix (see the entry above this one) landed. Pulled fresh
+CloudWatch data and confirmed it directly: most `/splits` invocations land
+in the normal ~1.2–2.9s range, but a handful still spike to 19-21s *after*
+that fix was live. Root cause: combining 3 concurrent requests into 1 only
+removes the concurrency *a single page load creates on its own* — it does
+nothing about concurrency from *other* traffic hitting the same shared
+Atlas M0 cluster at the same moment (other real users, my own testing, or
+this file's other agent's testing/backfill work). M0 is throughput-
+throttled per-tenant; enough concurrent ops from anywhere stalls some of
+them for 20-30s regardless of how few requests any single client sent.
+
+Also isolated, via temporary `console.log` timing markers around the
+`getSplitStats` DAO calls (built+deployed from the clean
+`betfair-nlp-deploy-develop` worktree, hit a few times, read back via
+CloudWatch, then reverted — never touched the raw Mongo/Lambda-secret
+values directly, only the resulting duration numbers) that **~98% of
+server time is genuine MongoDB query cost, not Express/Lambda overhead**
+(0-16ms). So neither more `Promise.all` nor further request-combining can
+shave this floor — it's not wasted round trips, it's real compute.
+
+**Fix, on top of (not instead of) the combining fix:** added an optional
+`minDate`/`maxDate` raceTime-range filter to `getAllRacesByRace`
+(`ccf2dc4`-adjacent code, see `8a88917`) — a new `dateMatchStage` prepended
+*before* the row-range `$sort`, so it combines into one indexed
+`{raceTime:1}` scan rather than adding a second pass. `/isp`'s frontend
+now **defaults to calendar year 2024** instead of the full 2015-2026
+dataset (`23dca46`) — shrinks the actual matched-race count the query
+has to run over, which is the one lever that touches the real ~2.5s DB
+floor rather than just avoiding self-inflicted concurrency. Verified live:
+full dataset totalRaces=109726 took ~3.1s; 2024-filtered totalRaces=9845
+took ~1.75s. Cold UI load samples went from ~3.8-7.3s down to a
+consistent ~2.6-3.0s (tighter variance too, not just a lower average —
+fewer docs scanned means less exposure to a contention spike mid-query).
+
+**Deliberately NOT date-scoped:** `getFilterBounds`/`getDistinctCountryCodes`
+stay dataset-global — narrowing them to the current date window would make
+e.g. a country only present outside that window silently vanish from the
+dropdown instead of just returning zero matches once selected. Also
+deliberately did **not** touch `getFilterBounds` itself even though it's
+right next to my change, since this file's other agent was mid-rewrite of
+that exact method when I started (precomputed minIsp/maxIsp fields,
+uncommitted) — used `git stash push -- src/lib/dao/industry-sp-dao.ts`
+to isolate my `getAllRacesByRace` edit onto a clean HEAD-based diff,
+committed, then `git stash pop` to restore their in-progress work
+untouched. **If you're touching `industry-sp-dao.ts` and see uncommitted
+changes you didn't make: that's very likely someone else's live work, not
+stale cruft — stash-isolate around it rather than editing through it.**
+
+**Remaining ceiling:** the 2024 default only shrinks the common case: a
+custom date range (or Reset back toward "all time") still runs the full-
+cost query, and the underlying 20-30s contention-spike risk under
+concurrent load is unchanged for whatever window IS queried. The Atlas
+tier upgrade (M10+) recommended in the entry above this one is still the
+only fix for that; this entry's change is strictly a "make the common
+path cheaper" complement to it, not a replacement.
