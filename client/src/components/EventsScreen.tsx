@@ -14,6 +14,7 @@ import {
 } from "react-native-paper";
 import { EventDocsPanel } from "./EventDocsPanel";
 import { RunnersPanel } from "./RunnersPanel";
+import { PageContainer } from "./PageContainer";
 import {
   chatApi,
   EventGroup,
@@ -208,6 +209,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
 
         {!isLoading && !error && (
           <ScrollView testID="event-group-list" style={styles.list}>
+          <PageContainer>
             {groups.length === 0 && (
               <Text style={styles.emptyText}>No events found.</Text>
             )}
@@ -271,6 +273,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
                 Load more
               </Button>
             )}
+          </PageContainer>
           </ScrollView>
         )}
       </View>

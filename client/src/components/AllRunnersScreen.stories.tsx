@@ -628,6 +628,17 @@ export const RendersAtIphone12: Story = {
   },
 };
 
+export const RendersAtLaptop: Story = {
+  parameters: { viewport: { defaultViewport: "laptop" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("all-runners-list");
+    await expect(canvas.getByTestId("all-runners-screen")).toBeInTheDocument();
+    await expect(canvas.getByTestId("all-runners-filter-bar")).toBeInTheDocument();
+    await expect(canvas.getByTestId("all-runners-filter-apply")).toBeInTheDocument();
+  },
+};
+
 // Regression test for the BSP/Race numeric-input clipping bug: the price/step
 // inputs used to have a fixed pixel width narrower than their maxLength, so
 // entered digits were visually cut off. Assert scrollWidth never exceeds

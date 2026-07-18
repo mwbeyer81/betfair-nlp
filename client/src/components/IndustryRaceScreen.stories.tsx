@@ -140,3 +140,21 @@ export const EmptyState: Story = {
     await expect(canvas.findByText("No runners found.")).resolves.toBeInTheDocument();
   },
 };
+
+export const RendersAtIphone12: Story = {
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-race-list");
+    await expect(canvas.getByTestId("industry-race-screen")).toBeInTheDocument();
+  },
+};
+
+export const RendersAtLaptop: Story = {
+  parameters: { viewport: { defaultViewport: "laptop" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-race-list");
+    await expect(canvas.getByTestId("industry-race-screen")).toBeInTheDocument();
+  },
+};

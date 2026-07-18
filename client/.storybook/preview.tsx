@@ -18,6 +18,18 @@ const iphone12Viewport = {
   type: "mobile" as const,
 };
 
+const ipadViewport = {
+  name: "iPad (portrait)",
+  styles: { width: "768px", height: "1024px" },
+  type: "tablet" as const,
+};
+
+const laptopViewport = {
+  name: "Laptop / MacBook (landscape)",
+  styles: { width: "1440px", height: "900px" },
+  type: "desktop" as const,
+};
+
 // Initialize MSW
 initialize({ onUnhandledRequest: "bypass" });
 
@@ -72,7 +84,12 @@ const preview = {
       ],
     },
     viewport: {
-      viewports: { mobile1: mobile1Viewport, iphone12: iphone12Viewport },
+      viewports: {
+        mobile1: mobile1Viewport,
+        iphone12: iphone12Viewport,
+        ipad: ipadViewport,
+        laptop: laptopViewport,
+      },
     },
     // Enable interaction testing logging in headless mode
     test: {

@@ -300,3 +300,21 @@ export const LoadMoreVisibleWhenMorePagesExist: Story = {
     await expect(canvas.getByTestId("industry-sp-load-more")).toHaveTextContent("Load more (48 remaining)");
   },
 };
+
+export const RendersAtIphone12: Story = {
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+    await expect(canvas.getByTestId("industry-sp-races-screen")).toBeInTheDocument();
+  },
+};
+
+export const RendersAtLaptop: Story = {
+  parameters: { viewport: { defaultViewport: "laptop" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+    await expect(canvas.getByTestId("industry-sp-races-screen")).toBeInTheDocument();
+  },
+};

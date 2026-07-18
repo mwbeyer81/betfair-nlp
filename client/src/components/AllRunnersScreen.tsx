@@ -19,6 +19,7 @@ import {
 } from "react-native-paper";
 import { chatApi, RaceWithEvent, Runner, PnlStats, RunnerFilterBounds } from "../services/chatApi";
 import { exportToCsv, exportToXlsx } from "../utils/exportRunners";
+import { PageContainer } from "./PageContainer";
 import { colors, statusPill, radii, spacing } from "../theme";
 
 interface AllRunnersScreenProps {
@@ -288,6 +289,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
       </Appbar.Header>
 
       {/* Filter bar — kept as custom for density */}
+      <PageContainer maxWidth={1200}>
       <View testID="all-runners-filter-bar" style={styles.filterBar}>
         <View style={styles.filterStepper}>
           <Text style={styles.filterStepperLabel}>SP</Text>
@@ -500,6 +502,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           })}
         </ScrollView>
       )}
+      </PageContainer>
 
       {!isLoading && displayPnl.staked > 0 && (
         <View testID="all-runners-pnl-bar" style={styles.pnlBar}>
@@ -543,6 +546,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
 
         {!isLoading && !error && (
           <ScrollView testID="all-runners-list" style={styles.list}>
+          <PageContainer maxWidth={1200}>
             {displayRaces.length === 0 && (
               <Text style={styles.emptyText}>No runners found.</Text>
             )}
@@ -635,6 +639,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
                 Load more ({totalRaces - races.length} remaining)
               </Button>
             )}
+          </PageContainer>
           </ScrollView>
         )}
       </View>

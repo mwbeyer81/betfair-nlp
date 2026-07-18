@@ -705,3 +705,40 @@ export const ApplyingACustomDateRangeSendsItToTheApi: Story = {
     }, { timeout: 3000 });
   },
 };
+
+export const RendersAtIphone12: Story = {
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+    await expect(canvas.getByTestId("industry-sp-screen")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-split-card-a")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-split-card-b")).toBeInTheDocument();
+  },
+};
+
+export const RendersAtIpad: Story = {
+  parameters: { viewport: { defaultViewport: "ipad" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+    await expect(canvas.getByTestId("industry-sp-filter-bar")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-split-card-b")).toBeInTheDocument();
+  },
+};
+
+// At >=1024px the split cards go side-by-side instead of stacked (see
+// isDesktop in useResponsive) — verify both still render their full content
+// rather than just checking presence, since a row layout is more likely to
+// clip something a column layout wouldn't.
+export const RendersAtLaptop: Story = {
+  parameters: { viewport: { defaultViewport: "laptop" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+    await expect(canvas.getByTestId("industry-sp-pnl-a")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-pnl-b")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-view-races-button-a")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-view-races-button-b")).toBeInTheDocument();
+  },
+};

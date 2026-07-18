@@ -15,6 +15,10 @@ const IPHONE_12_VIEWPORT = { width: 390, height: 844 };
 const IPHONE_12_MINI_VIEWPORT = { width: 375, height: 812 };
 const TABLET_VIEWPORT = { width: 768, height: 1024 }; // narrow laptop / iPad
 const DESKTOP_VIEWPORT = { width: 1280, height: 800 };
+const IPAD_LANDSCAPE_VIEWPORT = { width: 1024, height: 768 }; // also the isDesktop breakpoint (see useResponsive)
+const JUST_BELOW_DESKTOP_VIEWPORT = { width: 1023, height: 768 };
+const LAPTOP_VIEWPORT = { width: 1440, height: 900 };
+const MACBOOK_LANDSCAPE_VIEWPORT = { width: 1728, height: 1117 };
 // A real phone's *visible* viewport once Safari's address bar and bottom tab
 // bar chrome are accounted for — shorter than the device's full screen height.
 const SHORT_MOBILE_VIEWPORT = { width: 390, height: 500 };
@@ -204,12 +208,14 @@ test.describe("Responsive layout — /isp filters screen on a short viewport (MS
     // headline, but this guards against a future regression reintroducing
     // overlap between the headline and the button row below it.
     //
-    // Uses split B specifically: this fixture's mocked dataset has exactly
-    // 1 matching race, so the default even split gives split A 0 races
-    // (no PnL headline to check) and split B the 1 race.
-    const pnlHeadline = page.getByTestId("industry-sp-pnl-b");
-    const card = page.getByTestId("industry-sp-split-card-b");
-    const button = page.getByTestId("industry-sp-view-races-button-b");
+    // Uses split A specifically: this fixture's mocked dataset has exactly
+    // 1 matching race, and the default split is now two fixed 1000-race
+    // windows (1-1000, 1001-2000) rather than an even half/half divide —
+    // split A's window (1-1000) covers the single race, split B's
+    // (1001-2000) doesn't, so A is the one with a PnL headline to check.
+    const pnlHeadline = page.getByTestId("industry-sp-pnl-a");
+    const card = page.getByTestId("industry-sp-split-card-a");
+    const button = page.getByTestId("industry-sp-view-races-button-a");
     await expect(pnlHeadline).toBeVisible();
     await expect(card).toBeVisible();
 
@@ -333,5 +339,195 @@ test.describe("Responsive layout — /runners (MSW mocked, 1280px)", () => {
   });
 });
 
-// Note: /events responsive tests are in tests/responsive-e2e.spec.ts (real server) because
-// the events screen requires an authenticated session that the static MSW build cannot mock.
+// --- Wide viewports (tablet-landscape through MacBook) ------------------
+//
+// PageContainer (see src/components/PageContainer.tsx) caps each screen's
+// scrollable content to a max-width and centers it once the viewport is
+// wide enough that content would otherwise stretch edge-to-edge — verified
+// here by checking the content never grows past its cap plus a small
+// tolerance, rather than just "doesn't overflow the viewport" (which a
+// naively-unconstrained full-bleed layout would also satisfy).
+
+async function contentWidth(page: import("@playwright/test").Page, testId: string) {
+  const box = await page.getByTestId(testId).boundingBox();
+  return box!.width;
+}
+
+test.describe("Responsive layout — /events (MSW mocked, laptop 1440px)", () => {
+  test.use({ viewport: LAPTOP_VIEWPORT });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/events");
+    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("event-group-item-33858191")).toBeVisible({ timeout: 10000 });
+  });
+
+  test("no element overflows the viewport at 1440px", async ({ page }) => {
+    const overflowing = await findOverflowingElements(page, LAPTOP_VIEWPORT.width);
+    expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
+  });
+
+  test("event list content is capped well short of the full viewport width", async ({ page }) => {
+    // event-group-list is the ScrollView itself (full-bleed by design, for
+    // scroll physics) — its PageContainer child is what's actually capped,
+    // so measure the first event item instead.
+    const width = await contentWidth(page, "event-group-item-33858191");
+    expect(width).toBeLessThan(LAPTOP_VIEWPORT.width - 200);
+  });
+
+  test("header buttons still visible at 1440px", async ({ page }) => {
+    await expect(page.getByTestId("events-sort-toggle")).toBeVisible();
+    await expect(page.getByTestId("events-screen-chat-button")).toBeVisible();
+  });
+});
+
+test.describe("Responsive layout — /events (MSW mocked, MacBook landscape 1728px)", () => {
+  test.use({ viewport: MACBOOK_LANDSCAPE_VIEWPORT });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/events");
+    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("event-group-item-33858191")).toBeVisible({ timeout: 10000 });
+  });
+
+  test("no element overflows the viewport at 1728px", async ({ page }) => {
+    const overflowing = await findOverflowingElements(page, MACBOOK_LANDSCAPE_VIEWPORT.width);
+    expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
+  });
+
+  test("event list content is capped well short of the full viewport width", async ({ page }) => {
+    const width = await contentWidth(page, "event-group-item-33858191");
+    expect(width).toBeLessThan(MACBOOK_LANDSCAPE_VIEWPORT.width - 500);
+  });
+});
+
+test.describe("Responsive layout — /isp filters screen (MSW mocked, laptop 1440px)", () => {
+  test.use({ viewport: LAPTOP_VIEWPORT });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+  });
+
+  test("no element overflows the viewport at 1440px", async ({ page }) => {
+    const overflowing = await findOverflowingElements(page, LAPTOP_VIEWPORT.width);
+    expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
+  });
+
+  test("filter grid content is capped well short of the full viewport width", async ({ page }) => {
+    const width = await contentWidth(page, "industry-sp-filter-bar");
+    expect(width).toBeLessThan(LAPTOP_VIEWPORT.width - 400);
+  });
+
+  test("Split A and Split B cards sit side by side at desktop width", async ({ page }) => {
+    const boxA = await page.getByTestId("industry-sp-split-card-a").boundingBox();
+    const boxB = await page.getByTestId("industry-sp-split-card-b").boundingBox();
+    // Side-by-side means roughly the same vertical position and B strictly
+    // to the right of A — stacked would instead show B well below A.
+    expect(Math.abs(boxA!.y - boxB!.y)).toBeLessThan(5);
+    expect(boxB!.x).toBeGreaterThan(boxA!.x + boxA!.width - 5);
+  });
+});
+
+test.describe("Responsive layout — /isp split cards at the 1024px isDesktop breakpoint (MSW mocked)", () => {
+  test.use({ viewport: IPAD_LANDSCAPE_VIEWPORT });
+
+  test("cards are side by side right at 1024px", async ({ page }) => {
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    const boxA = await page.getByTestId("industry-sp-split-card-a").boundingBox();
+    const boxB = await page.getByTestId("industry-sp-split-card-b").boundingBox();
+    expect(Math.abs(boxA!.y - boxB!.y)).toBeLessThan(5);
+  });
+});
+
+test.describe("Responsive layout — /isp split cards just below the 1024px isDesktop breakpoint (MSW mocked)", () => {
+  test.use({ viewport: JUST_BELOW_DESKTOP_VIEWPORT });
+
+  test("cards stack vertically just below 1024px", async ({ page }) => {
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    const boxA = await page.getByTestId("industry-sp-split-card-a").boundingBox();
+    const boxB = await page.getByTestId("industry-sp-split-card-b").boundingBox();
+    expect(boxB!.y).toBeGreaterThan(boxA!.y + boxA!.height - 5);
+  });
+});
+
+test.describe("Responsive layout — /isp/races screen (MSW mocked, laptop 1440px)", () => {
+  test.use({ viewport: LAPTOP_VIEWPORT });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/isp/races");
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+  });
+
+  test("no element overflows the viewport at 1440px", async ({ page }) => {
+    const overflowing = await findOverflowingElements(page, LAPTOP_VIEWPORT.width);
+    expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
+  });
+
+  test("race list content is capped well short of the full viewport width", async ({ page }) => {
+    // industry-sp-list is the ScrollView itself (full-bleed by design, for
+    // scroll physics) — its PageContainer child is what's actually capped,
+    // so measure the first meeting row instead.
+    const meetingBox = await page.locator('[data-testid^="industry-sp-meeting-"]').first().boundingBox();
+    expect(meetingBox!.width).toBeLessThan(LAPTOP_VIEWPORT.width - 400);
+  });
+});
+
+test.describe("Responsive layout — /isp/meeting screen (MSW mocked, laptop 1440px)", () => {
+  test.use({ viewport: LAPTOP_VIEWPORT });
+
+  test("no element overflows the viewport at 1440px", async ({ page }) => {
+    await page.goto("/isp/meeting?id=Cheltenham%7C2025-01-01");
+    await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-meeting-list")).toBeVisible({ timeout: 15000 });
+    const overflowing = await findOverflowingElements(page, LAPTOP_VIEWPORT.width);
+    expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
+  });
+});
+
+test.describe("Responsive layout — /isp/race screen (MSW mocked, laptop 1440px)", () => {
+  test.use({ viewport: LAPTOP_VIEWPORT });
+
+  test("no element overflows the viewport at 1440px", async ({ page }) => {
+    await page.goto("/isp/race?id=914592");
+    await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-race-list")).toBeVisible({ timeout: 15000 });
+    const overflowing = await findOverflowingElements(page, LAPTOP_VIEWPORT.width);
+    expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
+  });
+});
+
+test.describe("Responsive layout — /runners (MSW mocked, MacBook landscape 1728px)", () => {
+  test.use({ viewport: MACBOOK_LANDSCAPE_VIEWPORT });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/runners");
+    await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
+  });
+
+  test("no element overflows the viewport at 1728px", async ({ page }) => {
+    const overflowing = await findOverflowingElements(page, MACBOOK_LANDSCAPE_VIEWPORT.width);
+    expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
+  });
+
+  test("filter bar fits in at most 2 rows at 1728px (not the pre-cap 3+ wrap)", async ({ page }) => {
+    // Regression guard for the PageContainer maxWidth={1200} tuning on this
+    // screen — too narrow a cap makes the already-reflowing filter bar wrap
+    // into 3 rows even at very wide viewports, wasting vertical space for
+    // no reason since there's plenty of horizontal room.
+    const applyBox = await page.getByTestId("all-runners-filter-apply").boundingBox();
+    const barBox = await page.getByTestId("all-runners-filter-bar").boundingBox();
+    expect(applyBox!.y - barBox!.y).toBeLessThan(80);
+  });
+
+  test("runner list content is capped well short of the full viewport width", async ({ page }) => {
+    const width = await contentWidth(page, "all-runners-filter-bar");
+    expect(width).toBeLessThan(MACBOOK_LANDSCAPE_VIEWPORT.width - 400);
+  });
+});

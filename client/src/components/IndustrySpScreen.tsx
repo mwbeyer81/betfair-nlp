@@ -19,7 +19,9 @@ import {
 import { chatApi, IspFilterBounds, PnlStats } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
 import { DateRangePicker } from "./DateRangePicker";
+import { PageContainer } from "./PageContainer";
 import { buildSplitsCacheKey, readSplitsCache, writeSplitsCache, CachedSplitsResult } from "../utils/ispSplitsCache";
+import { useResponsive } from "../utils/responsive";
 import { colors, radii, spacing } from "../theme";
 import { formatPnl, formatPct } from "../utils/ispFormat";
 import {
@@ -97,6 +99,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   onNavigateToEvents,
   onViewRaces,
 }) => {
+  const { isDesktop } = useResponsive();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [draftMin, setDraftMin] = useState(() => String(urlIntParam("minRunners", FILTER_DEFAULTS.minRunners)));
@@ -498,7 +501,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl } = opts;
     const effectiveTo = toRow ?? totalRaces;
     return (
-      <View testID={`industry-sp-split-card-${id}`} style={styles.splitCard}>
+      <View testID={`industry-sp-split-card-${id}`} style={[styles.splitCard, isDesktop && styles.splitCardFlex]}>
         <Text style={styles.splitCardLabel}>
           {label} — races {fromRow}–{effectiveTo}
         </Text>
@@ -583,6 +586,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
       >
+      <PageContainer maxWidth={860}>
       <View testID="industry-sp-toolbar" style={styles.toolbar}>
         <Button
           testID="industry-sp-filters-toggle"
@@ -757,7 +761,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </ScrollView>
       )}
 
-      <View testID="industry-sp-split-cards" style={styles.splitCards}>
+      <View
+        testID="industry-sp-split-cards"
+        style={[styles.splitCards, isDesktop && styles.splitCardsRow]}
+      >
         {isLoading && (
           <View testID="industry-sp-loading" style={styles.centered}>
             <ActivityIndicator size="large" animating color={colors.primary} />
@@ -796,6 +803,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           </>
         )}
       </View>
+      </PageContainer>
       </ScrollView>
 
       {detailSplit != null && (
@@ -1023,6 +1031,13 @@ const styles = StyleSheet.create({
   splitCards: {
     padding: spacing.md,
     gap: spacing.md,
+  },
+  splitCardsRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  splitCardFlex: {
+    flex: 1,
   },
   splitCard: {
     backgroundColor: colors.text,

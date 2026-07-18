@@ -199,3 +199,16 @@ export const RendersAtIphone12: Story = {
     await expect(canvas.getByTestId("events-screen-chat-button")).toBeInTheDocument();
   },
 };
+
+export const RendersAtLaptop: Story = {
+  parameters: {
+    viewport: { defaultViewport: "laptop" },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("event-group-item-33858191")).resolves.toBeInTheDocument();
+    await expect(canvas.getByTestId("events-screen")).toBeInTheDocument();
+    await expect(canvas.getByTestId("events-sort-toggle")).toBeInTheDocument();
+    await expect(canvas.getByTestId("events-screen-chat-button")).toBeInTheDocument();
+  },
+};

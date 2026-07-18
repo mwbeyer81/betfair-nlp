@@ -3,6 +3,7 @@ import { View, ScrollView, StyleSheet, SafeAreaView } from "react-native";
 import { Text, Appbar, Button, ActivityIndicator } from "react-native-paper";
 import { chatApi, IspRace, IspRunner } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
+import { PageContainer } from "./PageContainer";
 import {
   stakeToWin1,
   formatGbp,
@@ -132,6 +133,7 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
 
         {!isLoading && !error && race && (
           <ScrollView testID="industry-race-list" style={styles.list}>
+          <PageContainer>
             {race.runners.length === 0 && (
               <Text style={styles.emptyText}>No runners found.</Text>
             )}
@@ -174,6 +176,7 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
                 </View>
               </View>
             ))}
+          </PageContainer>
           </ScrollView>
         )}
       </View>
