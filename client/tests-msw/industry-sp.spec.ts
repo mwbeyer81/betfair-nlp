@@ -71,6 +71,100 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
   });
 });
 
+test.describe("Industry SP filters screen - session cache across navigation (MSW mocked)", () => {
+  // Regression coverage for: navigating away from /isp and back used to
+  // re-fetch /api/industry-sp/splits from scratch every time (component
+  // unmounts on route change, wiping all state) — reported live as
+  // "tapped Filters and it reloaded, which took ages". Filters should only
+  // ever be *reapplied* (a genuine network request) when Apply or Reset is
+  // pressed; any other reason this screen re-mounts should reuse the
+  // sessionStorage-cached result instead.
+  test("returning to /isp via ← Filters reuses the cached result — no second /splits request", async ({ page }) => {
+    const splitsRequests: string[] = [];
+    page.on("request", req => {
+      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
+    });
+
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    expect(splitsRequests.length).toBe(1);
+
+    await page.getByTestId("industry-sp-view-races-button-a").click();
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-races-back").click();
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    // The split cards must still show real data immediately — proves the
+    // cache actually populated state, not just that no request fired.
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible();
+
+    expect(splitsRequests.length).toBe(1);
+  });
+
+  test("closing the split detail panel doesn't trigger a new /splits request either", async ({ page }) => {
+    const splitsRequests: string[] = [];
+    page.on("request", req => {
+      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
+    });
+
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    expect(splitsRequests.length).toBe(1);
+
+    await page.getByTestId("industry-sp-split-details-button-a").click();
+    await expect(page.getByTestId("split-detail-panel-a")).toBeVisible();
+    await page.getByTestId("split-detail-panel-filters-a").click();
+    await expect(page.getByTestId("split-detail-panel-a")).not.toBeVisible();
+
+    expect(splitsRequests.length).toBe(1);
+  });
+
+  test("pressing Apply always fetches fresh, even with unchanged filters", async ({ page }) => {
+    const splitsRequests: string[] = [];
+    page.on("request", req => {
+      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
+    });
+
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    expect(splitsRequests.length).toBe(1);
+
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(splitsRequests.length).toBe(2);
+  });
+
+  test("changing filters and returning later reuses each combination's own cached result", async ({ page }) => {
+    const splitsRequests: string[] = [];
+    page.on("request", req => {
+      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
+    });
+
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    expect(splitsRequests.length).toBe(1);
+
+    // Apply a real filter change — a genuine new request, new cache entry.
+    await page.getByTestId("industry-sp-max-rir-value").fill("2");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(splitsRequests.length).toBe(2);
+
+    // Leave and come back — reuses the filtered result's cache entry.
+    await page.getByTestId("industry-sp-view-races-button-a").click();
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("industry-sp-races-back").click();
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible();
+    expect(splitsRequests.length).toBe(2);
+  });
+});
+
 test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW mocked)", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/isp");

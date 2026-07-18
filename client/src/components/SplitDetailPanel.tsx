@@ -1,6 +1,6 @@
 import React from "react";
 import { View, StyleSheet } from "react-native";
-import { Text, IconButton, Button, Surface, Divider } from "react-native-paper";
+import { Text, Button, Surface, Divider } from "react-native-paper";
 import { PnlStats } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import { formatGbp, formatPnl, formatPct } from "../utils/ispFormat";
@@ -44,13 +44,17 @@ export const SplitDetailPanel: React.FC<SplitDetailPanelProps> = ({
             Races {fromRow}–{toRow}
           </Text>
         </View>
-        <IconButton
-          testID={`split-detail-panel-close-${id}`}
-          icon="close"
-          size={20}
+        <Button
+          testID={`split-detail-panel-filters-${id}`}
+          mode="contained"
+          compact
+          buttonColor={colors.accent}
           onPress={onClose}
-          style={styles.closeButton}
-        />
+          style={styles.filtersButton}
+          labelStyle={styles.filtersButtonLabel}
+        >
+          ← Filters
+        </Button>
       </View>
 
       <Divider />
@@ -132,8 +136,12 @@ const styles = StyleSheet.create({
   subtitle: {
     color: "rgba(255,255,255,0.8)",
   },
-  closeButton: {
-    margin: 0,
+  filtersButton: {
+    borderRadius: radii.sm,
+  },
+  filtersButtonLabel: {
+    fontSize: 11,
+    fontWeight: "600",
   },
   body: {
     padding: spacing.lg,

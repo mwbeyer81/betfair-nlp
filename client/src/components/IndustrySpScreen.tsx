@@ -17,6 +17,7 @@ import {
 } from "react-native-paper";
 import { chatApi, IspFilterBounds, PnlStats } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
+import { buildSplitsCacheKey, readSplitsCache, writeSplitsCache, CachedSplitsResult } from "../utils/ispSplitsCache";
 import { colors, radii, spacing } from "../theme";
 import { formatPnl, formatPct } from "../utils/ispFormat";
 import {
@@ -193,32 +194,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setFetchTrigger(t => t + 1);
   }
 
-  // Keep the URL query string in sync with the currently *applied* filters
-  // (not draft/in-progress typing) so a filtered view can be bookmarked,
-  // shared, carried over to the races screen, or survives a refresh. Only
-  // fires on committed changes — Apply, a country chip click, or Reset —
-  // since those are the only actions that update these particular state
-  // variables.
-  useEffect(() => {
-    updateUrlParams({
-      minRunners: minRunners !== FILTER_DEFAULTS.minRunners ? String(minRunners) : undefined,
-      maxRunners: maxRunners !== FILTER_DEFAULTS.maxRunners ? String(maxRunners) : undefined,
-      minIsp: minIsp !== FILTER_DEFAULTS.minIsp ? String(minIsp) : undefined,
-      maxIsp: maxIsp !== FILTER_DEFAULTS.maxIsp ? String(maxIsp) : undefined,
-      minInIspRange: minRunnersInRange !== FILTER_DEFAULTS.minInIspRange ? String(minRunnersInRange) : undefined,
-      maxInIspRange: maxRunnersInRange !== FILTER_DEFAULTS.maxInIspRange ? String(maxRunnersInRange) : undefined,
-      countries: selectedCountries.size > 0 ? [...selectedCountries].sort().join(",") : undefined,
-      // The split boundaries are data-dependent (half of however many races
-      // currently match), not a fixed constant — always write them once
-      // resolved so a bookmarked URL reproduces the exact same split rather
-      // than a possibly-different auto-computed one.
-      fromRowA: totalRacesA > 0 || totalRacesB > 0 ? String(fromRowA) : undefined,
-      toRowA: toRowA != null ? String(toRowA) : undefined,
-      fromRowB: totalRacesA > 0 || totalRacesB > 0 ? String(fromRowB) : undefined,
-      toRowB: toRowB != null ? String(toRowB) : undefined,
-    });
-  }, [minRunners, maxRunners, minIsp, maxIsp, minRunnersInRange, maxRunnersInRange, selectedCountries, fromRowA, toRowA, fromRowB, toRowB, totalRacesA, totalRacesB]);
-
   useEffect(() => {
     chatApi.getIspCountries().then(setAvailableCountries).catch(() => {});
     chatApi.getIspFilterBounds().then(setFilterBounds).catch(() => {});
@@ -226,9 +201,97 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
   useEffect(() => {
     let cancelled = false;
+
+    function applyResult(result: CachedSplitsResult) {
+      setTotalRaces(result.totalRaces);
+      setTotalRunners(result.totalRunners);
+
+      setFromRowA(result.splitA.fromRow);
+      setToRowA(result.splitA.toRow);
+      setFromRowB(result.splitB.fromRow);
+      setToRowB(result.splitB.toRow);
+
+      // Keep the draft boxes in sync with whatever range was actually
+      // queried — including filling in an open-ended ("no cap") upper
+      // bound with the grand total, so a box never shows a stale
+      // placeholder value (e.g. when a bookmarked URL set fromRowA/
+      // fromRowB explicitly but left the upper bound uncapped).
+      setDraftFromA(String(result.splitA.fromRow));
+      setDraftToA(String(result.splitA.toRow ?? result.totalRaces));
+      setDraftFromB(String(result.splitB.fromRow));
+      setDraftToB(String(result.splitB.toRow ?? result.totalRaces));
+
+      setTotalRacesA(result.splitA.total);
+      setTotalRunnersA(result.splitA.totalRunners);
+      setPnlStatsA(result.splitA.pnlStats ?? EMPTY_PNL);
+      setTotalRacesB(result.splitB.total);
+      setTotalRunnersB(result.splitB.totalRunners);
+      setPnlStatsB(result.splitB.pnlStats ?? EMPTY_PNL);
+    }
+
+    // Keeps the URL query string in sync with the currently *applied*
+    // filters/split (not draft/in-progress typing) so a filtered view can
+    // be bookmarked, shared, carried over to the races screen, or survive
+    // a refresh. Called synchronously right after applyResult(), in the
+    // same tick, rather than as its own reactive useEffect watching
+    // fromRowA/toRowA/etc — those values change *as a result of* this
+    // fetch, so a separate effect reacting to them lags by one extra
+    // render/commit. That gap is enough for a fast click on "View Races"
+    // (a real risk in an automated test, and in principle for a human too)
+    // to read window.location.search before the split boundaries had
+    // landed in it, silently dropping them for the return trip and
+    // defeating the sessionStorage cache below (a differently-shaped
+    // request — no fromRowA/toRowA — can't hit the same cache entry).
+    function syncUrl(result: CachedSplitsResult, isDefault: boolean) {
+      updateUrlParams({
+        minRunners: minRunners !== FILTER_DEFAULTS.minRunners ? String(minRunners) : undefined,
+        maxRunners: maxRunners !== FILTER_DEFAULTS.maxRunners ? String(maxRunners) : undefined,
+        minIsp: minIsp !== FILTER_DEFAULTS.minIsp ? String(minIsp) : undefined,
+        maxIsp: maxIsp !== FILTER_DEFAULTS.maxIsp ? String(maxIsp) : undefined,
+        minInIspRange: minRunnersInRange !== FILTER_DEFAULTS.minInIspRange ? String(minRunnersInRange) : undefined,
+        maxInIspRange: maxRunnersInRange !== FILTER_DEFAULTS.maxInIspRange ? String(maxRunnersInRange) : undefined,
+        countries: selectedCountries.size > 0 ? [...selectedCountries].sort().join(",") : undefined,
+        // Only write the split boundaries once the user has explicitly
+        // applied a custom split — writing the auto-computed default here
+        // too would make the *next* mount think a custom split was already
+        // set (urlHasParam("fromRowA") would find it), silently switching
+        // that mount from "ask the backend for the default" to "request
+        // this exact fromRowA/toRowA": a differently shaped request that
+        // couldn't reuse the sessionStorage cache, even though nothing had
+        // actually changed since the previous visit.
+        fromRowA: !isDefault ? String(result.splitA.fromRow) : undefined,
+        toRowA: !isDefault && result.splitA.toRow != null ? String(result.splitA.toRow) : undefined,
+        fromRowB: !isDefault ? String(result.splitB.fromRow) : undefined,
+        toRowB: !isDefault && result.splitB.toRow != null ? String(result.splitB.toRow) : undefined,
+      });
+    }
+
     (async () => {
-      setIsLoading(true);
       setError(null);
+      const isDefault = splitsAreDefaultRef.current;
+      const cacheKey = buildSplitsCacheKey({
+        minRunners, maxRunners, countries: [...selectedCountries], minIsp, maxIsp,
+        minRunnersInRange, maxRunnersInRange, isDefault, fromRowA, toRowA, fromRowB, toRowB,
+      });
+
+      // fetchTrigger only ever increments via Apply/Reset — anything else
+      // that re-runs this effect (fetchTrigger still 0) is a re-mount, not
+      // a user asking for fresh data: navigating to /isp/races and back via
+      // "← Filters", re-opening the split detail panel, etc. Reuse the last
+      // known-good result for this exact filter/split combination instead
+      // of re-fetching — this is what used to make "tap Filters" feel like
+      // it reloaded from scratch even though nothing had changed.
+      if (fetchTrigger === 0) {
+        const cached = readSplitsCache(cacheKey);
+        if (cached) {
+          applyResult(cached);
+          syncUrl(cached, isDefault);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      setIsLoading(true);
       try {
         // One request for the grand total + both splits — see
         // chatApi.getIndustrySpSplits / the backend's getSplitStats for
@@ -236,7 +299,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         // its own Lambda cold start / Atlas M0 connection contention) and
         // isn't anymore. Omitting fromRowA/toRowA/fromRowB/toRowB lets the
         // backend compute the even first-half/second-half default itself.
-        const isDefault = splitsAreDefaultRef.current;
         const result = await chatApi.getIndustrySpSplits(
           minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, minRunnersInRange, maxRunnersInRange,
           isDefault ? undefined : fromRowA,
@@ -245,31 +307,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           isDefault ? undefined : (toRowB ?? undefined)
         );
         if (cancelled) return;
-
-        setTotalRaces(result.totalRaces);
-        setTotalRunners(result.totalRunners);
-
-        setFromRowA(result.splitA.fromRow);
-        setToRowA(result.splitA.toRow);
-        setFromRowB(result.splitB.fromRow);
-        setToRowB(result.splitB.toRow);
-
-        // Keep the draft boxes in sync with whatever range was actually
-        // queried — including filling in an open-ended ("no cap") upper
-        // bound with the grand total, so a box never shows a stale
-        // placeholder value (e.g. when a bookmarked URL set fromRowA/
-        // fromRowB explicitly but left the upper bound uncapped).
-        setDraftFromA(String(result.splitA.fromRow));
-        setDraftToA(String(result.splitA.toRow ?? result.totalRaces));
-        setDraftFromB(String(result.splitB.fromRow));
-        setDraftToB(String(result.splitB.toRow ?? result.totalRaces));
-
-        setTotalRacesA(result.splitA.total);
-        setTotalRunnersA(result.splitA.totalRunners);
-        setPnlStatsA(result.splitA.pnlStats ?? EMPTY_PNL);
-        setTotalRacesB(result.splitB.total);
-        setTotalRunnersB(result.splitB.totalRunners);
-        setPnlStatsB(result.splitB.pnlStats ?? EMPTY_PNL);
+        applyResult(result);
+        syncUrl(result, isDefault);
+        writeSplitsCache(cacheKey, result);
       } catch {
         if (!cancelled) setError("Failed to load industry SP");
       } finally {

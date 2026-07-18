@@ -35,7 +35,21 @@ if (typeof window !== "undefined") {
 }
 
 const preview = {
-  loaders: [mswLoader],
+  loaders: [
+    mswLoader,
+    // IndustrySpScreen caches its /splits result in sessionStorage, keyed
+    // by filter params — since most stories share the same default filter
+    // args, a cache entry written by one story would otherwise leak into
+    // the next one's mount and mask whatever that story's own MSW handler
+    // returns. Clearing before every story keeps each one's mocked
+    // response the actual source of truth.
+    async () => {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.clear();
+      }
+      return {};
+    },
+  ],
   parameters: {
     actions: { argTypesRegex: "^on[A-Z].*" },
     controls: {

@@ -218,7 +218,9 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     await expect(page.getByTestId("split-detail-row-return-a")).toContainText("£");
     await expect(page.getByTestId("split-detail-pnl-a")).toContainText("£");
 
-    await page.getByTestId("split-detail-panel-close-a").click();
+    const filtersBtn = page.getByTestId("split-detail-panel-filters-a");
+    await expect(filtersBtn).toContainText("Filters");
+    await filtersBtn.click();
     await expect(panel).not.toBeVisible();
   });
 

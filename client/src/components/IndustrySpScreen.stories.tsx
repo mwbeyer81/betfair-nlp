@@ -161,6 +161,22 @@ export const ScreenLoaded: Story = {
   },
 };
 
+export const SuccessfulLoadPopulatesTheSessionCache: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+
+    // The actual "does returning to /isp reuse this?" behavior needs a
+    // real unmount/remount, which isn't practical within one Storybook
+    // story — that's covered by the MSW Playwright suite instead
+    // (tests-msw/industry-sp.spec.ts, "session cache across navigation").
+    // This just verifies the write side: a successful load leaves exactly
+    // one entry behind for a subsequent mount to find.
+    const cacheKeys = Object.keys(window.sessionStorage).filter(k => k.startsWith("isp-splits-cache:"));
+    await expect(cacheKeys.length).toBe(1);
+  },
+};
+
 export const DefaultSplitsAreFirstAndSecondHalf: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -250,7 +266,7 @@ export const DetailsButtonOpensFullBreakdown: Story = {
   },
 };
 
-export const DetailsPanelCloseButtonReturnsToSplitCards: Story = {
+export const DetailsPanelFiltersButtonReturnsToSplitCards: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-split-card-b");
@@ -258,7 +274,9 @@ export const DetailsPanelCloseButtonReturnsToSplitCards: Story = {
     await userEvent.click(canvas.getByTestId("industry-sp-split-details-button-b"));
     await canvas.findByTestId("split-detail-panel-b");
 
-    await userEvent.click(canvas.getByTestId("split-detail-panel-close-b"));
+    const filtersBtn = canvas.getByTestId("split-detail-panel-filters-b");
+    await expect(filtersBtn).toHaveTextContent("← Filters");
+    await userEvent.click(filtersBtn);
     await expect(canvas.queryByTestId("split-detail-panel-b")).not.toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-split-card-b")).toBeInTheDocument();
   },

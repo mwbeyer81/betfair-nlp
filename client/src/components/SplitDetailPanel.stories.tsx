@@ -43,10 +43,12 @@ export const ItemsRendered: Story = {
   },
 };
 
-export const CloseButton: Story = {
+export const FiltersButton: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByTestId("split-detail-panel-close-a"));
+    const btn = canvas.getByTestId("split-detail-panel-filters-a");
+    await expect(btn).toHaveTextContent("← Filters");
+    await userEvent.click(btn);
     await expect(args.onClose).toHaveBeenCalledTimes(1);
   },
 };
