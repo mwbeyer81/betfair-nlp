@@ -177,3 +177,66 @@ index-backed-sort fix from earlier. Didn't chase this further this round;
 flagging in case you're looking at the same page and want to pick it up
 (e.g. caching a "no filters applied" default response, or precomputing the
 grand total).
+
+---
+
+## 2026-07-18 06:25 UTC — same agent, /isp still slow after the caching pass
+
+User reported the home page still took ages to load even after the caching
+fix above. Root cause: caching `filter-bounds`/`countries` didn't touch the
+actual `industry-sp` data queries (grand total + Race A + Race B), which
+were still 3 separate concurrent requests. Two more fixes, both on
+`develop` now (`40cfbbc`, `4105c72`):
+
+1. **New `GET /api/industry-sp/splits` endpoint** (`IndustrySpService.
+   getSplitStats`) combines the grand-total + split A + split B requests
+   into one HTTP round trip. Under concurrent browser load, AWS Lambda was
+   spinning up a separate execution environment per concurrent request —
+   each paying its own cold start + fresh MongoDB connection against Atlas
+   M0's limited throughput — and the browser had to wait a full round trip
+   to learn the grand total before it even knew what split boundaries to
+   ask for. The endpoint now computes the default 50/50 split server-side
+   when the caller omits fromRowA/toRowA/fromRowB/toRowB, using
+   `Promise.all` over the three *existing, unmodified* DAO queries so the
+   index-backed-sort optimization from the earlier perf pass isn't lost
+   (that fix specifically needs `$sort` to be pipeline stage zero — merging
+   into one MongoDB `$facet` would have broken it; composed at the service
+   layer instead). `IndustrySpScreen.tsx` now calls
+   `chatApi.getIndustrySpSplits()` once instead of `chatApi.getIndustrySp()`
+   three times.
+2. **Cached `/api/industry-sp/splits` for 60s.** Even combined into one
+   request and fully warm (5 consecutive curl calls, no cold start), the
+   three aggregations inside `getSplitStats` consistently took ~2-2.5s —
+   genuine Atlas M0 query latency, not something request-combining or
+   indexing alone fixes. Since the dataset only changes on a manual reseed,
+   caching (like `filter-bounds`/`countries` already do, just a shorter TTL
+   since PnL figures read as more "live" to a user) smooths out repeat
+   loads of the same filter combination without real staleness risk.
+
+**Net result, confirmed live via Playwright:** first (cold) page load
+~7.4s → down from ~7.5s pre-fix (the 3-Mongo-query cost genuinely doesn't
+go away on a first load, cache or no cache), but the **second and later
+loads within a session dropped from ~3.1s to ~1.3s, then ~980ms** — the
+common case most users actually experience.
+
+**If you're touching `/isp` performance further:** the theoretical floor
+for a first/cold load is now `1 network round trip + grand-total query
+time + max(splitA, splitB query time)` — the sequential dependency (need
+the grand total before the default split boundaries are known) is
+inherent to the "50/50 split" feature, not an implementation shortcut, so
+it can't be removed without either (a) caching the grand total separately
+with its own short TTL so repeat *different-filter* loads can still skip
+re-deriving it, or (b) an Atlas cluster tier upgrade (M0 is genuinely
+throughput-constrained; that's the real ceiling now, not application code).
+
+**If you add new endpoints to `/isp`:** check whether they can reuse
+`getSplitStats`'s pattern (one combined round trip, `Promise.all` over
+independently-optimized DAO calls, short cache if the data doesn't change
+often) rather than adding more concurrent per-field requests — that's
+exactly the pattern that caused this in the first place.
+
+**Aside, unrelated to this fix:** the live e2e suite (`tests/industry-sp-
+e2e.spec.ts`) can't currently run locally — it targets `localhost:3000`,
+which is still down from the credential loss noted earlier in this file
+(MONGODB_URI/JWT_SECRET). All verification for these two commits was done
+directly against the deployed app.backbet.co.uk instead.
