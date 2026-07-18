@@ -155,18 +155,24 @@ test.describe("GET /api/industry-sp/splits (live server @ localhost:3000)", () =
     expect(body.splitA.total).toBe(0);
   });
 
-  test("an inverted range on the legacy /api/industry-sp endpoint also returns empty, not a 500", async ({ request }) => {
-    // getAllRacesByRace (shared by /api/industry-sp and getSplitStats) is
-    // the actual source of the bug above — cover it directly too.
+  test("an inverted range on the legacy /api/industry-sp endpoint doesn't 500 either", async ({ request }) => {
+    // This route already had its own (different) protection against the
+    // same crash: the router clamps toRow up to fromRow before it ever
+    // reaches getAllRacesByRace (see router.ts), so it returns a single
+    // row at `fromRow` rather than an empty result — unlike
+    // /api/industry-sp/splits, whose fromRowA/toRowA aren't clamped
+    // relative to each other, which is what let the inverted range reach
+    // the DAO unmodified and hit the negative-$limit crash in the first
+    // place. Documenting the actual (correct, pre-existing) behavior here
+    // rather than assuming both endpoints handle this identically.
     const token = await getBearerToken(request);
-    const res = await request.get(`${API_URL}/api/industry-sp?fromRow=100&toRow=5`, {
+    const res = await request.get(`${API_URL}/api/industry-sp?fromRow=100&toRow=5&limit=1`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
-    expect(body.total).toBe(0);
-    expect(body.data).toEqual([]);
+    expect(body.total).toBe(1);
   });
 });
 
