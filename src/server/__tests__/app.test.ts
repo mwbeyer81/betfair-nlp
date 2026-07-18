@@ -125,6 +125,8 @@ jest.mock("../../config/database", () => ({
                     raceTime: "2025-01-01T14:01:00.000Z",
                     raceName: "Cheltenham Chase",
                     raceType: "Hurdle",
+                    raceClass: "Class 3",
+                    going: "Good",
                     ran: 1,
                     meetingId: "Ascot|2025-01-01",
                     meetingName: "Ascot — 1 January 2025",
@@ -710,6 +712,37 @@ describe("API Endpoints", () => {
       expect(typeof response.body.pnlStats.returns).toBe("number");
       expect(typeof response.body.pnlStats.pnl).toBe("number");
     });
+
+    it("accepts courses/goings/raceClasses/raceTypes params and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?courses=Ascot&goings=Good&raceClasses=Class%203&raceTypes=Hurdle")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("accepts trainer/jockey search params and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?trainer=Smi&jockey=Jon")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("each race includes raceClass and going", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const race = response.body.data[0];
+      expect(race).toHaveProperty("raceClass");
+      expect(race).toHaveProperty("going");
+    });
   });
 
   describe("GET /api/industry-sp/filter-bounds", () => {
@@ -743,6 +776,70 @@ describe("API Endpoints", () => {
 
     it("returns 401 without auth", async () => {
       await request(app).get("/api/industry-sp/countries").expect(401);
+    });
+  });
+
+  describe("GET /api/industry-sp/courses", () => {
+    it("returns success with an array of courses", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/courses")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/industry-sp/courses").expect(401);
+    });
+  });
+
+  describe("GET /api/industry-sp/goings", () => {
+    it("returns success with an array of goings", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/goings")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/industry-sp/goings").expect(401);
+    });
+  });
+
+  describe("GET /api/industry-sp/race-classes", () => {
+    it("returns success with an array of race classes", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/race-classes")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/industry-sp/race-classes").expect(401);
+    });
+  });
+
+  describe("GET /api/industry-sp/race-types", () => {
+    it("returns success with an array of race types", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/race-types")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/industry-sp/race-types").expect(401);
     });
   });
 

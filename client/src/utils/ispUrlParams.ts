@@ -39,7 +39,13 @@ export function urlHasParam(name: string): boolean {
 }
 
 export function urlCountriesParam(): Set<string> {
-  const raw = getUrlSearchParams()?.get("countries");
+  return urlSetParam("countries");
+}
+
+// Generic version of urlCountriesParam for any other comma-joined,
+// multi-select filter (course, going, race class, race type, ...).
+export function urlSetParam(name: string): Set<string> {
+  const raw = getUrlSearchParams()?.get(name);
   if (!raw) return new Set();
   return new Set(raw.split(",").filter(Boolean));
 }

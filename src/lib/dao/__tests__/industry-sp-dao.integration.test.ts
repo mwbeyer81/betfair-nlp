@@ -179,4 +179,96 @@ describe("IndustrySpDAO (integration)", () => {
     const negativeFromRow = await dao.getAllRacesByRace(1, 5, 1, 100, [], 1, 100000, "asc", 1, 10000, -50);
     expect(negativeFromRow.total).toBe(explicitFromRowOne.total);
   });
+
+  it("getDistinctCourses/Goings/RaceClasses/RaceTypes return non-empty sorted lists", async () => {
+    const [courses, goings, raceClasses, raceTypes] = await Promise.all([
+      dao.getDistinctCourses(),
+      dao.getDistinctGoings(),
+      dao.getDistinctRaceClasses(),
+      dao.getDistinctRaceTypes(),
+    ]);
+    for (const values of [courses, goings, raceClasses, raceTypes]) {
+      expect(values.length).toBeGreaterThan(0);
+      expect(values).toEqual([...values].sort());
+      expect(values.every(v => typeof v === "string" && v.length > 0)).toBe(true);
+    }
+  });
+
+  it("filters by course", async () => {
+    const courses = await dao.getDistinctCourses();
+    const course = courses[0];
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [course]
+    );
+    for (const race of data) {
+      expect(race.course).toBe(course);
+    }
+  });
+
+  it("filters by going", async () => {
+    const goings = await dao.getDistinctGoings();
+    const going = goings[0];
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [going]
+    );
+    for (const race of data) {
+      expect(race.going).toBe(going);
+    }
+  });
+
+  it("filters by raceClass", async () => {
+    const raceClasses = await dao.getDistinctRaceClasses();
+    const raceClass = raceClasses[0];
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [], [raceClass]
+    );
+    for (const race of data) {
+      expect(race.raceClass).toBe(raceClass);
+    }
+  });
+
+  it("filters by raceType", async () => {
+    const raceTypes = await dao.getDistinctRaceTypes();
+    const raceType = raceTypes[0];
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [], [], [raceType]
+    );
+    for (const race of data) {
+      expect(race.raceType).toBe(raceType);
+    }
+  });
+
+  it("filters by trainer prefix (case-insensitive)", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const trainerName = sample[0]?.runners.find(r => r.trainer)?.trainer;
+    if (!trainerName) return; // no trainer data seeded in this environment
+    const prefix = trainerName.slice(0, 3);
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [], [], [], prefix.toUpperCase()
+    );
+    for (const race of data) {
+      expect(race.runners.some(r => r.trainer?.toLowerCase().startsWith(prefix.toLowerCase()))).toBe(true);
+    }
+  });
+
+  it("filters by jockey prefix (case-insensitive)", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const jockeyName = sample[0]?.runners.find(r => r.jockey)?.jockey;
+    if (!jockeyName) return; // no jockey data seeded in this environment
+    const prefix = jockeyName.slice(0, 3);
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [], [], [], null, prefix.toUpperCase()
+    );
+    for (const race of data) {
+      expect(race.runners.some(r => r.jockey?.toLowerCase().startsWith(prefix.toLowerCase()))).toBe(true);
+    }
+  });
+
+  it("returns empty results for an unknown course", async () => {
+    const { data, total } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, ["Nonexistent Course XYZ"]
+    );
+    expect(data).toHaveLength(0);
+    expect(total).toBe(0);
+  });
 });

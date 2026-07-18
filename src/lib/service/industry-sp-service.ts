@@ -31,7 +31,13 @@ export class IndustrySpService {
     fromRow = 1,
     toRow: number | null = null,
     minRaceTime: string | null = null,
-    maxRaceTime: string | null = null
+    maxRaceTime: string | null = null,
+    courses: string[] = [],
+    goings: string[] = [],
+    raceClasses: string[] = [],
+    raceTypes: string[] = [],
+    trainerSearch: string | null = null,
+    jockeySearch: string | null = null
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -52,7 +58,13 @@ export class IndustrySpService {
       fromRow,
       toRow,
       minRaceTime,
-      maxRaceTime
+      maxRaceTime,
+      courses,
+      goings,
+      raceClasses,
+      raceTypes,
+      trainerSearch,
+      jockeySearch
     );
   }
 
@@ -94,12 +106,22 @@ export class IndustrySpService {
     fromRowB: number | null = null,
     toRowB: number | null = null,
     minRaceTime: string | null = null,
-    maxRaceTime: string | null = null
+    maxRaceTime: string | null = null,
+    courses: string[] = [],
+    goings: string[] = [],
+    raceClasses: string[] = [],
+    raceTypes: string[] = [],
+    trainerSearch: string | null = null,
+    jockeySearch: string | null = null
   ): Promise<{
     totalRaces: number;
     totalRunners: number;
     filterBounds: IspFilterBounds;
     countries: string[];
+    courses: string[];
+    goings: string[];
+    raceClasses: string[];
+    raceTypes: string[];
     splitA: {
       fromRow: number;
       toRow: number | null;
@@ -118,19 +140,24 @@ export class IndustrySpService {
     // filterBounds/countryCodes are independent of every filter param and
     // of the grand total — run them alongside it rather than after, so
     // they don't add a sequential hop on top of the grand→splits dependency.
-    const [grand, filterBounds, countryCodes] = await Promise.all([
-      this.industrySpDAO.getAllRacesByRace(
-        1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null,
-        minRaceTime, maxRaceTime
-      ),
-      // Deliberately dataset-global, not date-scoped — these are slider/
-      // dropdown bounds (available countries, runner/ISP ranges), and
-      // narrowing them to the current date window would make e.g. a
-      // country only present outside that window silently disappear from
-      // the picker instead of just returning zero matches once selected.
-      this.industrySpDAO.getFilterBounds(),
-      this.industrySpDAO.getDistinctCountryCodes(),
-    ]);
+    const [grand, filterBounds, countryCodes, courseValues, goingValues, raceClassValues, raceTypeValues] =
+      await Promise.all([
+        this.industrySpDAO.getAllRacesByRace(
+          1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null,
+          minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch
+        ),
+        // Deliberately dataset-global, not date-scoped — these are slider/
+        // dropdown bounds (available countries, runner/ISP ranges), and
+        // narrowing them to the current date window would make e.g. a
+        // country only present outside that window silently disappear from
+        // the picker instead of just returning zero matches once selected.
+        this.industrySpDAO.getFilterBounds(),
+        this.industrySpDAO.getDistinctCountryCodes(),
+        this.industrySpDAO.getDistinctCourses(),
+        this.industrySpDAO.getDistinctGoings(),
+        this.industrySpDAO.getDistinctRaceClasses(),
+        this.industrySpDAO.getDistinctRaceTypes(),
+      ]);
 
     // Splits default to two fixed 1000-race windows (1-1000, 1001-2000)
     // whenever the caller doesn't pin down explicit boundaries (a fresh
@@ -156,11 +183,11 @@ export class IndustrySpService {
     const [resultA, resultB] = await Promise.all([
       this.industrySpDAO.getAllRacesByRace(
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromA, effToA,
-        minRaceTime, maxRaceTime
+        minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch
       ),
       this.industrySpDAO.getAllRacesByRace(
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromB, effToB,
-        minRaceTime, maxRaceTime
+        minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch
       ),
     ]);
 
@@ -169,6 +196,10 @@ export class IndustrySpService {
       totalRunners: grand.totalRunners,
       filterBounds,
       countries: countryCodes,
+      courses: courseValues,
+      goings: goingValues,
+      raceClasses: raceClassValues,
+      raceTypes: raceTypeValues,
       splitA: { fromRow: effFromA, toRow: effToA, total: resultA.total, totalRunners: resultA.totalRunners, pnlStats: resultA.pnlStats },
       splitB: { fromRow: effFromB, toRow: effToB, total: resultB.total, totalRunners: resultB.totalRunners, pnlStats: resultB.pnlStats },
     };
@@ -184,6 +215,22 @@ export class IndustrySpService {
 
   public async getDistinctCountryCodes(): Promise<string[]> {
     return this.industrySpDAO.getDistinctCountryCodes();
+  }
+
+  public async getDistinctCourses(): Promise<string[]> {
+    return this.industrySpDAO.getDistinctCourses();
+  }
+
+  public async getDistinctGoings(): Promise<string[]> {
+    return this.industrySpDAO.getDistinctGoings();
+  }
+
+  public async getDistinctRaceClasses(): Promise<string[]> {
+    return this.industrySpDAO.getDistinctRaceClasses();
+  }
+
+  public async getDistinctRaceTypes(): Promise<string[]> {
+    return this.industrySpDAO.getDistinctRaceTypes();
   }
 
   public async getPnlStats(): Promise<{ staked: number; returns: number; pnl: number }> {

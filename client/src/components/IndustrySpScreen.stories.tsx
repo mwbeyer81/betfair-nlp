@@ -115,6 +115,10 @@ function splitsHandler(opts?: {
       // standalone endpoints directly.
       filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
       countries: ["GB", "IE"],
+      courses: ["Ascot", "Cheltenham"],
+      goings: ["Good", "Soft"],
+      raceClasses: ["Class 1", "Class 2"],
+      raceTypes: ["Flat", "Hurdle"],
       splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: Math.round(effTotalRunners / 2), pnlStats: totalA > 0 ? effPnl : ZERO_PNL },
       splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: Math.round(effTotalRunners / 2), pnlStats: totalB > 0 ? effPnl : ZERO_PNL },
     });
@@ -522,6 +526,10 @@ export const IspFilterParamsPassedToApi: Story = {
             totalRunners: 4,
             filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
             countries: ["GB", "IE"],
+            courses: ["Ascot", "Cheltenham"],
+            goings: ["Good", "Soft"],
+            raceClasses: ["Class 1", "Class 2"],
+            raceTypes: ["Flat", "Hurdle"],
             splitA: { fromRow: 1, toRow: 1, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
             splitB: { fromRow: 2, toRow: null, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
           });
@@ -681,6 +689,10 @@ export const ApplyingACustomDateRangeSendsItToTheApi: Story = {
             totalRunners: 4,
             filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
             countries: ["GB", "IE"],
+            courses: ["Ascot", "Cheltenham"],
+            goings: ["Good", "Soft"],
+            raceClasses: ["Class 1", "Class 2"],
+            raceTypes: ["Flat", "Hurdle"],
             splitA: { fromRow: 1, toRow: 1, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
             splitB: { fromRow: 2, toRow: null, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
           });
@@ -702,6 +714,147 @@ export const ApplyingACustomDateRangeSendsItToTheApi: Story = {
     await waitFor(() => {
       expect(capturedDateParams.minDate).toBe("2023-01-01");
       expect(capturedDateParams.maxDate).toBe("2023-06-30");
+    }, { timeout: 3000 });
+  },
+};
+
+export const CourseGoingRaceClassRaceTypeChipsVisible: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+
+    await expect(canvas.findByTestId("industry-sp-course")).resolves.toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-course-Ascot")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-course-Cheltenham")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-going")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-going-Good")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-race-class")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-race-class-Class 1")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-race-type")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-race-type-Flat")).toBeInTheDocument();
+  },
+};
+
+let capturedChipParams: { courses: string | null } = { courses: null };
+
+export const CourseChipTogglesImmediatelyAndUpdatesUrl: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp/splits`, ({ request }) => {
+          const url = new URL(request.url);
+          capturedChipParams = { courses: url.searchParams.get("courses") };
+          return HttpResponse.json({
+            success: true,
+            totalRaces: 2,
+            totalRunners: 4,
+            filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+            countries: ["GB", "IE"],
+            courses: ["Ascot", "Cheltenham"],
+            goings: ["Good", "Soft"],
+            raceClasses: ["Class 1", "Class 2"],
+            raceTypes: ["Flat", "Hurdle"],
+            splitA: { fromRow: 1, toRow: 1, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+            splitB: { fromRow: 2, toRow: null, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+          });
+        }),
+        countriesHandler,
+        filterBoundsHandler,
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+    await canvas.findByTestId("industry-sp-course-Ascot");
+
+    // Chip filters (like country) apply immediately — no Apply click needed.
+    capturedChipParams = { courses: null };
+    await userEvent.click(canvas.getByTestId("industry-sp-course-Ascot"));
+
+    await waitFor(() => {
+      expect(capturedChipParams.courses).toBe("Ascot");
+      expect(window.location.search).toContain("courses=Ascot");
+    }, { timeout: 3000 });
+  },
+};
+
+let capturedTrainerJockeyParams: { trainer: string | null; jockey: string | null } = { trainer: null, jockey: null };
+
+export const TrainerJockeySearchParamsPassedToApi: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp/splits`, ({ request }) => {
+          const url = new URL(request.url);
+          capturedTrainerJockeyParams = {
+            trainer: url.searchParams.get("trainer"),
+            jockey: url.searchParams.get("jockey"),
+          };
+          return HttpResponse.json({
+            success: true,
+            totalRaces: 2,
+            totalRunners: 4,
+            filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+            countries: ["GB", "IE"],
+            courses: ["Ascot", "Cheltenham"],
+            goings: ["Good", "Soft"],
+            raceClasses: ["Class 1", "Class 2"],
+            raceTypes: ["Flat", "Hurdle"],
+            splitA: { fromRow: 1, toRow: 1, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+            splitB: { fromRow: 2, toRow: null, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+          });
+        }),
+        countriesHandler,
+        filterBoundsHandler,
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+
+    const trainerInput = canvas.getByTestId("industry-sp-trainer-search");
+    const jockeyInput = canvas.getByTestId("industry-sp-jockey-search");
+    await userEvent.type(trainerInput, "Smith");
+    await userEvent.type(jockeyInput, "Jones");
+
+    capturedTrainerJockeyParams = { trainer: null, jockey: null };
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
+
+    await waitFor(() => {
+      expect(capturedTrainerJockeyParams.trainer).toBe("Smith");
+      expect(capturedTrainerJockeyParams.jockey).toBe("Jones");
+      expect(window.location.search).toContain("trainer=Smith");
+      expect(window.location.search).toContain("jockey=Jones");
+    }, { timeout: 3000 });
+  },
+};
+
+export const ResetClearsCourseChipsAndTrainerJockeySearch: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+    await canvas.findByTestId("industry-sp-course-Ascot");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-course-Ascot"));
+    await waitFor(() => {
+      expect(window.location.search).toContain("courses=Ascot");
+    }, { timeout: 3000 });
+
+    const trainerInput = canvas.getByTestId("industry-sp-trainer-search");
+    await userEvent.type(trainerInput, "Smith");
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
+    await waitFor(() => {
+      expect(window.location.search).toContain("trainer=Smith");
+    }, { timeout: 3000 });
+
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-reset"));
+
+    await waitFor(() => {
+      expect(window.location.search).not.toContain("courses");
+      expect(window.location.search).not.toContain("trainer");
+      expect((canvas.getByTestId("industry-sp-trainer-search") as HTMLInputElement).value).toBe("");
     }, { timeout: 3000 });
   },
 };

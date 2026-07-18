@@ -30,6 +30,7 @@ import {
   urlStringParam,
   urlToRowParam,
   urlCountriesParam,
+  urlSetParam,
   urlHasParam,
   updateUrlParams,
 } from "../utils/ispUrlParams";
@@ -81,6 +82,12 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   date: "Only show races in this date range (YYYY-MM-DD). Defaults to 2024 to keep the default load fast — widen it any time.",
   raceA: "The first split of races — defaults to the first 1000 matching races, so you can test a filter combination here first.",
   raceB: "The second split — defaults to the next 1000 matching races. Check whether the same filters are still profitable here before trusting them.",
+  course: "Only show races run at the selected course(s) — course specialists and course bias are a classic handicapping factor.",
+  going: "Only show races run on the selected going (ground conditions) — ground suitability is one of the strongest form factors.",
+  raceClass: "Only show races of the selected class — lets you segment by competitiveness tier.",
+  raceType: "Only show races of the selected type (Flat, Hurdle, Chase, ...).",
+  trainer: "Only show races with a runner trained by a name starting with this text.",
+  jockey: "Only show races with a runner ridden by a name starting with this text.",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -120,6 +127,18 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [maxDate, setMaxDate] = useState(() => urlStringParam("maxDate", FILTER_DEFAULTS.maxDate));
   const [selectedCountries, setSelectedCountries] = useState<Set<string>>(() => urlCountriesParam());
   const [availableCountries, setAvailableCountries] = useState<string[]>([]);
+  const [selectedCourses, setSelectedCourses] = useState<Set<string>>(() => urlSetParam("courses"));
+  const [availableCourses, setAvailableCourses] = useState<string[]>([]);
+  const [selectedGoings, setSelectedGoings] = useState<Set<string>>(() => urlSetParam("goings"));
+  const [availableGoings, setAvailableGoings] = useState<string[]>([]);
+  const [selectedRaceClasses, setSelectedRaceClasses] = useState<Set<string>>(() => urlSetParam("raceClasses"));
+  const [availableRaceClasses, setAvailableRaceClasses] = useState<string[]>([]);
+  const [selectedRaceTypes, setSelectedRaceTypes] = useState<Set<string>>(() => urlSetParam("raceTypes"));
+  const [availableRaceTypes, setAvailableRaceTypes] = useState<string[]>([]);
+  const [draftTrainer, setDraftTrainer] = useState(() => urlStringParam("trainer", ""));
+  const [trainerSearch, setTrainerSearch] = useState(() => urlStringParam("trainer", ""));
+  const [draftJockey, setDraftJockey] = useState(() => urlStringParam("jockey", ""));
+  const [jockeySearch, setJockeySearch] = useState(() => urlStringParam("jockey", ""));
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
@@ -195,6 +214,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMinDate(dMin);
     setMaxDate(dMax);
 
+    const trimmedTrainer = draftTrainer.trim();
+    setDraftTrainer(trimmedTrainer);
+    setTrainerSearch(trimmedTrainer);
+
+    const trimmedJockey = draftJockey.trim();
+    setDraftJockey(trimmedJockey);
+    setJockeySearch(trimmedJockey);
+
     // Once the user applies filters explicitly, the two race splits are no
     // longer auto-derived from the total — whatever's in the two Race boxes
     // (even if it's still the auto-filled 50/50 default) becomes the
@@ -238,6 +265,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setDraftMinDate(FILTER_DEFAULTS.minDate);
     setDraftMaxDate(FILTER_DEFAULTS.maxDate);
     setSelectedCountries(new Set());
+    setSelectedCourses(new Set());
+    setSelectedGoings(new Set());
+    setSelectedRaceClasses(new Set());
+    setSelectedRaceTypes(new Set());
+    setDraftTrainer("");
+    setTrainerSearch("");
+    setDraftJockey("");
+    setJockeySearch("");
 
     // Hand the two race splits back to auto (fixed 1000-race window) mode
     // — the next fetch recomputes them from the fresh grand total.
@@ -262,6 +297,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       setTotalRunners(result.totalRunners);
       setFilterBounds(result.filterBounds);
       setAvailableCountries(result.countries);
+      setAvailableCourses(result.courses);
+      setAvailableGoings(result.goings);
+      setAvailableRaceClasses(result.raceClasses);
+      setAvailableRaceTypes(result.raceTypes);
 
       setFromRowA(result.splitA.fromRow);
       setToRowA(result.splitA.toRow);
@@ -310,6 +349,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         minDate: minDate !== FILTER_DEFAULTS.minDate ? minDate : undefined,
         maxDate: maxDate !== FILTER_DEFAULTS.maxDate ? maxDate : undefined,
         countries: selectedCountries.size > 0 ? [...selectedCountries].sort().join(",") : undefined,
+        courses: selectedCourses.size > 0 ? [...selectedCourses].sort().join(",") : undefined,
+        goings: selectedGoings.size > 0 ? [...selectedGoings].sort().join(",") : undefined,
+        raceClasses: selectedRaceClasses.size > 0 ? [...selectedRaceClasses].sort().join(",") : undefined,
+        raceTypes: selectedRaceTypes.size > 0 ? [...selectedRaceTypes].sort().join(",") : undefined,
+        trainer: trainerSearch ? trainerSearch : undefined,
+        jockey: jockeySearch ? jockeySearch : undefined,
         // Only write the split boundaries once the user has explicitly
         // applied a custom split — writing the auto-computed default here
         // too would make the *next* mount think a custom split was already
@@ -331,6 +376,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       const cacheKey = buildSplitsCacheKey({
         minRunners, maxRunners, countries: [...selectedCountries], minIsp, maxIsp,
         minRunnersInRange, maxRunnersInRange, minDate, maxDate, isDefault, fromRowA, toRowA, fromRowB, toRowB,
+        courses: [...selectedCourses], goings: [...selectedGoings],
+        raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
+        trainerSearch, jockeySearch,
       });
 
       // fetchTrigger only ever increments via Apply/Reset — anything else
@@ -375,7 +423,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           isDefault ? undefined : fromRowB,
           isDefault ? undefined : (toRowB ?? undefined),
           minDate,
-          maxDate
+          maxDate,
+          [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
+          trainerSearch || undefined, jockeySearch || undefined
         );
         if (cancelled) return;
         // An explicit (non-default) split's row numbers are only meaningful
@@ -487,6 +537,102 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         {renderTooltipText(filterKey)}
       </View>
     );
+  }
+
+  function renderTextFilterRow(opts: {
+    filterKey: string;
+    label: string;
+    value: string;
+    onChange: (v: string) => void;
+    testId: string;
+    placeholder?: string;
+  }) {
+    const { filterKey, label, value, onChange, testId, placeholder } = opts;
+    return (
+      <View
+        key={filterKey}
+        testID={`industry-sp-filter-row-${filterKey}`}
+        style={[styles.filterGridRow, openTooltip === filterKey && styles.filterGridRowElevated]}
+      >
+        <View style={styles.filterGridLabel}>
+          <Text style={styles.filterGridLabelText}>{label}</Text>
+          {renderTooltipToggle(filterKey)}
+        </View>
+        <RNTextInput
+          testID={testId}
+          style={styles.textFilterInput}
+          value={value}
+          onChangeText={onChange}
+          placeholder={placeholder}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {renderTooltipText(filterKey)}
+      </View>
+    );
+  }
+
+  function renderChipRow(opts: {
+    filterKey: string;
+    testId: string;
+    label: string;
+    values: string[];
+    selected: Set<string>;
+    onToggle: (value: string) => void;
+  }) {
+    const { filterKey, testId, label, values, selected, onToggle } = opts;
+    if (values.length === 0) return null;
+    return (
+      <View testID={`industry-sp-filter-row-${filterKey}`} style={styles.chipFilterRow}>
+        <Text style={styles.chipFilterLabel}>{label}</Text>
+        <ScrollView
+          horizontal
+          testID={testId}
+          style={styles.countryBar}
+          contentContainerStyle={styles.countryBarContent}
+          showsHorizontalScrollIndicator={false}
+        >
+          {values.map(value => {
+            const active = selected.has(value);
+            return (
+              <Chip
+                key={value}
+                testID={`${testId}-${value}`}
+                compact
+                mode={active ? "flat" : "outlined"}
+                selected={active}
+                onPress={() => onToggle(value)}
+                style={active ? styles.countryChipActive : styles.countryChip}
+                textStyle={active ? styles.countryChipTextActive : styles.countryChipText}
+              >
+                {value}
+              </Chip>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // Chip filters (course/going/raceClass/raceType, same as the existing
+  // country chips) apply immediately on tap rather than waiting for Apply —
+  // consistent with the country chip bar's existing behavior. The # in ISP
+  // range gets defensively re-clamped first, same reasoning as the country
+  // handler: a chip toggle can shrink the runner pool enough that the
+  // previous bound no longer makes sense.
+  function toggleChipFilter(setSelected: React.Dispatch<React.SetStateAction<Set<string>>>, value: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value); else next.add(value);
+      return next;
+    });
+    const minRIR = Math.max(1, parseInt(draftMinRIR) || 1);
+    const maxRIR = Math.max(minRIR, Math.min(filterBounds?.maxRunnersPerRace ?? 100, parseInt(draftMaxRIR) || 100));
+    setDraftMinRIR(String(minRIR));
+    setDraftMaxRIR(String(maxRIR));
+    setMinRunnersInRange(minRIR);
+    setMaxRunnersInRange(maxRIR);
+    setFetchTrigger(t => t + 1);
   }
 
   function renderSplitCard(opts: {
@@ -667,6 +813,22 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           />
           {renderTooltipText("date")}
         </View>
+        {renderTextFilterRow({
+          filterKey: "trainer",
+          label: "Trainer",
+          value: draftTrainer,
+          onChange: setDraftTrainer,
+          testId: "industry-sp-trainer-search",
+          placeholder: "Starts with...",
+        })}
+        {renderTextFilterRow({
+          filterKey: "jockey",
+          label: "Jockey",
+          value: draftJockey,
+          onChange: setDraftJockey,
+          testId: "industry-sp-jockey-search",
+          placeholder: "Starts with...",
+        })}
         {renderFilterRow({
           filterKey: "raceA",
           label: "Split A",
@@ -760,6 +922,39 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           })}
         </ScrollView>
       )}
+
+      {!isLoading && renderChipRow({
+        filterKey: "course",
+        testId: "industry-sp-course",
+        label: "Course",
+        values: availableCourses,
+        selected: selectedCourses,
+        onToggle: value => toggleChipFilter(setSelectedCourses, value),
+      })}
+      {!isLoading && renderChipRow({
+        filterKey: "going",
+        testId: "industry-sp-going",
+        label: "Going",
+        values: availableGoings,
+        selected: selectedGoings,
+        onToggle: value => toggleChipFilter(setSelectedGoings, value),
+      })}
+      {!isLoading && renderChipRow({
+        filterKey: "race-class",
+        testId: "industry-sp-race-class",
+        label: "Class",
+        values: availableRaceClasses,
+        selected: selectedRaceClasses,
+        onToggle: value => toggleChipFilter(setSelectedRaceClasses, value),
+      })}
+      {!isLoading && renderChipRow({
+        filterKey: "race-type",
+        testId: "industry-sp-race-type",
+        label: "Type",
+        values: availableRaceTypes,
+        selected: selectedRaceTypes,
+        onToggle: value => toggleChipFilter(setSelectedRaceTypes, value),
+      })}
 
       <View
         testID="industry-sp-split-cards"
@@ -969,6 +1164,32 @@ const styles = StyleSheet.create({
   filterGridDash: {
     fontSize: 16,
     color: colors.textSecondary,
+  },
+  textFilterInput: {
+    flex: 1,
+    height: 40,
+    fontSize: 14,
+    fontWeight: "500",
+    color: colors.text,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radii.sm,
+    paddingHorizontal: 10,
+  },
+  chipFilterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingLeft: spacing.md,
+  },
+  chipFilterLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.textSecondary,
+    width: 44,
   },
   filterGridHint: {
     fontSize: 11,

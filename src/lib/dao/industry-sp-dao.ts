@@ -18,6 +18,8 @@ export interface IspRunner {
   isp: number | null;
   ispFraction: string | null;
   isFavourite: boolean;
+  jockey?: string;
+  trainer?: string;
 }
 
 export interface IspRace {
@@ -29,8 +31,18 @@ export interface IspRace {
   raceTime: string;
   raceName: string;
   raceType: string;
+  raceClass: string | null;
+  going: string | null;
   ran: number;
   runners: IspRunner[];
+}
+
+// Escapes regex metacharacters so a raw trainer/jockey search string can't be
+// interpreted as a regex pattern (both a correctness issue — literal
+// characters like "O'Brien" or "St. Leger" would otherwise misbehave — and a
+// safety one, since an unescaped user-supplied pattern is a ReDoS vector).
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 interface IspRaceDocument extends IspRace {
@@ -65,7 +77,13 @@ export class IndustrySpDAO {
     fromRowRaw = 1,
     toRow: number | null = null,
     minRaceTime: string | null = null,
-    maxRaceTime: string | null = null
+    maxRaceTime: string | null = null,
+    courses: string[] = [],
+    goings: string[] = [],
+    raceClasses: string[] = [],
+    raceTypes: string[] = [],
+    trainerSearch: string | null = null,
+    jockeySearch: string | null = null
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -92,6 +110,27 @@ export class IndustrySpDAO {
     }
 
     const countryMatch = countries.length > 0 ? { countryCode: { $in: countries } } : {};
+    // Race-level scalar fields, same $in shape as countryMatch above.
+    const courseMatch = courses.length > 0 ? { course: { $in: courses } } : {};
+    const goingMatch = goings.length > 0 ? { going: { $in: goings } } : {};
+    const raceClassMatch = raceClasses.length > 0 ? { raceClass: { $in: raceClasses } } : {};
+    const raceTypeMatch = raceTypes.length > 0 ? { raceType: { $in: raceTypes } } : {};
+    // Runner-level: a race matches if ANY runner's trainer/jockey starts
+    // with the search text (case-insensitive prefix match — anchored so it
+    // can use the runners.trainer/runners.jockey indexes, unlike an
+    // unanchored substring search).
+    const runnerTextMatches: Record<string, unknown>[] = [];
+    if (trainerSearch) {
+      runnerTextMatches.push({
+        runners: { $elemMatch: { trainer: { $regex: `^${escapeRegex(trainerSearch)}`, $options: "i" } } },
+      });
+    }
+    if (jockeySearch) {
+      runnerTextMatches.push({
+        runners: { $elemMatch: { jockey: { $regex: `^${escapeRegex(jockeySearch)}`, $options: "i" } } },
+      });
+    }
+    const runnerTextMatch = runnerTextMatches.length > 0 ? { $and: runnerTextMatches } : {};
     const raceTimeSortDir = sortOrder === "desc" ? -1 : 1;
 
     // Narrows the matched set by calendar date *before* anything else in
@@ -200,6 +239,11 @@ export class IndustrySpDAO {
       {
         $match: {
           ...countryMatch,
+          ...courseMatch,
+          ...goingMatch,
+          ...raceClassMatch,
+          ...raceTypeMatch,
+          ...runnerTextMatch,
           runnersWithIspCount: { $gte: minRunners, $lte: maxRunners },
         },
       },
@@ -243,6 +287,8 @@ export class IndustrySpDAO {
           countryCode: "$_doc.countryCode",
           raceName: "$_doc.raceName",
           raceType: "$_doc.raceType",
+          raceClass: "$_doc.raceClass",
+          going: "$_doc.going",
           ran: "$_doc.ran",
           runners: {
             $sortArray: {
@@ -295,6 +341,8 @@ export class IndustrySpDAO {
                   raceTime: 1,
                   raceName: 1,
                   raceType: 1,
+                  raceClass: 1,
+                  going: 1,
                   ran: 1,
                   runners: 1,
                 },
@@ -397,6 +445,8 @@ export class IndustrySpDAO {
             raceTime: 1,
             raceName: 1,
             raceType: 1,
+            raceClass: 1,
+            going: 1,
             ran: 1,
             runners: 1,
           },
@@ -438,6 +488,8 @@ export class IndustrySpDAO {
             raceTime: 1,
             raceName: 1,
             raceType: 1,
+            raceClass: 1,
+            going: 1,
             ran: 1,
             runners: 1,
           },
@@ -478,6 +530,26 @@ export class IndustrySpDAO {
   public async getDistinctCountryCodes(): Promise<string[]> {
     const codes = await this.collection.distinct("countryCode", { countryCode: { $exists: true, $ne: "" } });
     return (codes as string[]).filter(Boolean).sort();
+  }
+
+  public async getDistinctCourses(): Promise<string[]> {
+    const values = await this.collection.distinct("course", { course: { $exists: true, $ne: "" } });
+    return (values as string[]).filter(Boolean).sort();
+  }
+
+  public async getDistinctGoings(): Promise<string[]> {
+    const values = await this.collection.distinct("going", { going: { $exists: true, $ne: null } });
+    return (values as string[]).filter(Boolean).sort();
+  }
+
+  public async getDistinctRaceClasses(): Promise<string[]> {
+    const values = await this.collection.distinct("raceClass", { raceClass: { $exists: true, $ne: null } });
+    return (values as string[]).filter(Boolean).sort();
+  }
+
+  public async getDistinctRaceTypes(): Promise<string[]> {
+    const values = await this.collection.distinct("raceType", { raceType: { $exists: true, $ne: "" } });
+    return (values as string[]).filter(Boolean).sort();
   }
 
   public async getFilterBounds(): Promise<IspFilterBounds> {
@@ -541,6 +613,12 @@ export class IndustrySpDAO {
       [{ raceTime: 1 }],
       [{ countryCode: 1 }],
       [{ runnersWithIspCount: 1 }],
+      [{ course: 1 }],
+      [{ going: 1 }],
+      [{ raceClass: 1 }],
+      [{ raceType: 1 }],
+      [{ "runners.trainer": 1 }],
+      [{ "runners.jockey": 1 }],
     ];
     for (const [keys, opts] of specs) {
       try {

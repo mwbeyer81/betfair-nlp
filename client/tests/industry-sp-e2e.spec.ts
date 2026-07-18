@@ -78,6 +78,50 @@ test.describe("GET /api/industry-sp (live server @ localhost:3000)", () => {
       expect(typeof runner.isp).toBe("number");
     }
   });
+
+  test("each race includes raceClass and going", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    const race = body.data[0];
+    expect(race).toHaveProperty("raceClass");
+    expect(race).toHaveProperty("going");
+  });
+
+  test("accepts courses/goings/raceClasses/raceTypes/trainer/jockey params without erroring", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(
+      `${API_URL}/api/industry-sp?courses=Ascot&goings=Good&raceClasses=Class%201&raceTypes=Flat&trainer=Smi&jockey=Jon`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(Array.isArray(body.data)).toBe(true);
+  });
+});
+
+test.describe("GET /api/industry-sp/courses, /goings, /race-classes, /race-types (live server @ localhost:3000)", () => {
+  for (const path of ["courses", "goings", "race-classes", "race-types"]) {
+    test(`GET /api/industry-sp/${path} returns a non-empty array`, async ({ request }) => {
+      const token = await getBearerToken(request);
+      const res = await request.get(`${API_URL}/api/industry-sp/${path}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(200);
+      const body = await res.json();
+      expect(body.success).toBe(true);
+      expect(Array.isArray(body.data)).toBe(true);
+      expect(body.data.length).toBeGreaterThan(0);
+    });
+
+    test(`GET /api/industry-sp/${path} returns 401 without auth`, async ({ request }) => {
+      const res = await request.get(`${API_URL}/api/industry-sp/${path}`);
+      expect(res.status()).toBe(401);
+    });
+  }
 });
 
 test.describe("GET /api/industry-sp/splits (live server @ localhost:3000)", () => {

@@ -114,6 +114,22 @@ async function setupApiMocks(page: Page) {
     route.fulfill({ json: { success: true, data: ["GB", "IE"] } })
   );
 
+  await page.route((url) => url.pathname === "/api/industry-sp/courses", (route) =>
+    route.fulfill({ json: { success: true, data: ["Cheltenham", "Ascot"] } })
+  );
+
+  await page.route((url) => url.pathname === "/api/industry-sp/goings", (route) =>
+    route.fulfill({ json: { success: true, data: ["Good", "Soft"] } })
+  );
+
+  await page.route((url) => url.pathname === "/api/industry-sp/race-classes", (route) =>
+    route.fulfill({ json: { success: true, data: ["Class 1", "Class 2"] } })
+  );
+
+  await page.route((url) => url.pathname === "/api/industry-sp/race-types", (route) =>
+    route.fulfill({ json: { success: true, data: ["Chase", "Hurdle"] } })
+  );
+
   await page.route((url) => url.pathname === "/api/industry-sp/pnl-stats", (route) =>
     route.fulfill({ json: { success: true, data: { staked: 1.6, returns: 2.6, pnl: 1.0 } } })
   );
@@ -247,6 +263,10 @@ async function setupApiMocks(page: Page) {
         // filter panel still populates without those separate requests.
         filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
         countries: ["GB", "IE"],
+        courses: ["Cheltenham", "Ascot"],
+        goings: ["Good", "Soft"],
+        raceClasses: ["Class 1", "Class 2"],
+        raceTypes: ["Chase", "Hurdle"],
         splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: totalA > 0 ? 3 : 0, pnlStats: totalA > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 } },
         splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: totalB > 0 ? 3 : 0, pnlStats: totalB > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 } },
       },

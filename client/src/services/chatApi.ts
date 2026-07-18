@@ -70,6 +70,8 @@ export interface IspRunner {
   isp: number | null;
   ispFraction: string | null;
   isFavourite: boolean;
+  jockey?: string;
+  trainer?: string;
 }
 
 export interface IspRace {
@@ -81,6 +83,8 @@ export interface IspRace {
   raceTime: string;
   raceName: string;
   raceType: string;
+  raceClass: string | null;
+  going: string | null;
   ran: number;
   runners: IspRunner[];
 }
@@ -117,6 +121,10 @@ export interface IspSplitsResponse {
   totalRunners: number;
   filterBounds: IspFilterBounds;
   countries: string[];
+  courses: string[];
+  goings: string[];
+  raceClasses: string[];
+  raceTypes: string[];
   splitA: IspSplitResult;
   splitB: IspSplitResult;
 }
@@ -274,7 +282,43 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string): Promise<IspPage> {
+  async getIspCourses(): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/courses`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch ISP courses");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIspGoings(): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/goings`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch ISP goings");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIspRaceClasses(): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/race-classes`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch ISP race classes");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIspRaceTypes(): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/race-types`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch ISP race types");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -291,6 +335,12 @@ class ChatApi {
     if (toRow != null) params.set("toRow", String(toRow));
     if (minDate) params.set("minDate", minDate);
     if (maxDate) params.set("maxDate", maxDate);
+    if (courses.length > 0) params.set("courses", courses.join(","));
+    if (goings.length > 0) params.set("goings", goings.join(","));
+    if (raceClasses.length > 0) params.set("raceClasses", raceClasses.join(","));
+    if (raceTypes.length > 0) params.set("raceTypes", raceTypes.join(","));
+    if (trainer) params.set("trainer", trainer);
+    if (jockey) params.set("jockey", jockey);
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp?${params}`,
       { headers: this.authHeader() }
@@ -326,7 +376,13 @@ class ChatApi {
     fromRowB?: number,
     toRowB?: number,
     minDate?: string,
-    maxDate?: string
+    maxDate?: string,
+    courses: string[] = [],
+    goings: string[] = [],
+    raceClasses: string[] = [],
+    raceTypes: string[] = [],
+    trainer?: string,
+    jockey?: string
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -343,6 +399,12 @@ class ChatApi {
     if (toRowB != null) params.set("toRowB", String(toRowB));
     if (minDate) params.set("minDate", minDate);
     if (maxDate) params.set("maxDate", maxDate);
+    if (courses.length > 0) params.set("courses", courses.join(","));
+    if (goings.length > 0) params.set("goings", goings.join(","));
+    if (raceClasses.length > 0) params.set("raceClasses", raceClasses.join(","));
+    if (raceTypes.length > 0) params.set("raceTypes", raceTypes.join(","));
+    if (trainer) params.set("trainer", trainer);
+    if (jockey) params.set("jockey", jockey);
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
       { headers: this.authHeader() }

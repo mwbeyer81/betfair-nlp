@@ -27,6 +27,10 @@ export interface CachedSplitsResult {
   // so there's no correctness cost to serving them straight from cache.
   filterBounds: IspFilterBounds;
   countries: string[];
+  courses: string[];
+  goings: string[];
+  raceClasses: string[];
+  raceTypes: string[];
   splitA: CachedSplitResult;
   splitB: CachedSplitResult;
 }
@@ -41,6 +45,12 @@ export interface SplitsCacheParams {
   maxRunnersInRange: number;
   minDate: string;
   maxDate: string;
+  courses: string[];
+  goings: string[];
+  raceClasses: string[];
+  raceTypes: string[];
+  trainerSearch: string;
+  jockeySearch: string;
   // Default-split mode is its own cache bucket, distinct from any explicit
   // range — the backend recomputes the default from whatever the current
   // grand total is, so caching it under a fixed fromRow/toRow would go
@@ -67,6 +77,12 @@ export function buildSplitsCacheKey(p: SplitsCacheParams): string {
       p.maxRunnersInRange,
       p.minDate,
       p.maxDate,
+      [...p.courses].sort(),
+      [...p.goings].sort(),
+      [...p.raceClasses].sort(),
+      [...p.raceTypes].sort(),
+      p.trainerSearch,
+      p.jockeySearch,
       p.isDefault ? "default" : [p.fromRowA, p.toRowA, p.fromRowB, p.toRowB],
     ])
   );

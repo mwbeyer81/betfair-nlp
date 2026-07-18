@@ -286,6 +286,13 @@ function parseDateRangeParams(
   };
 }
 
+// Same comma-joined-list convention already used for `countries`.
+function parseCsvListParam(raw: unknown): string[] {
+  return typeof raw === "string"
+    ? raw.split(",").map(v => v.trim()).filter(Boolean)
+    : [];
+}
+
 router.get("/api/industry-sp/pnl-stats", async (_req, res) => {
   try {
     if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
@@ -323,6 +330,50 @@ router.get("/api/industry-sp/countries", async (_req, res) => {
   }
 });
 
+router.get("/api/industry-sp/courses", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const courses = await industrySpService.getDistinctCourses();
+    res.set("Cache-Control", "public, max-age=3600");
+    res.status(200).json({ success: true, data: courses });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch courses" });
+  }
+});
+
+router.get("/api/industry-sp/goings", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const goings = await industrySpService.getDistinctGoings();
+    res.set("Cache-Control", "public, max-age=3600");
+    res.status(200).json({ success: true, data: goings });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch goings" });
+  }
+});
+
+router.get("/api/industry-sp/race-classes", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const raceClasses = await industrySpService.getDistinctRaceClasses();
+    res.set("Cache-Control", "public, max-age=3600");
+    res.status(200).json({ success: true, data: raceClasses });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch race classes" });
+  }
+});
+
+router.get("/api/industry-sp/race-types", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const raceTypes = await industrySpService.getDistinctRaceTypes();
+    res.set("Cache-Control", "public, max-age=3600");
+    res.status(200).json({ success: true, data: raceTypes });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch race types" });
+  }
+});
+
 router.get("/api/industry-sp/splits", async (req, res) => {
   try {
     if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
@@ -350,10 +401,16 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const fromRowB = isNaN(fromRowBRaw) ? null : Math.max(1, fromRowBRaw);
     const toRowB = isNaN(toRowBRaw) ? null : Math.max(1, toRowBRaw);
     const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
+    const courses = parseCsvListParam(req.query.courses);
+    const goings = parseCsvListParam(req.query.goings);
+    const raceClasses = parseCsvListParam(req.query.raceClasses);
+    const raceTypes = parseCsvListParam(req.query.raceTypes);
+    const trainerSearch = typeof req.query.trainer === "string" && req.query.trainer.trim() ? req.query.trainer.trim() : null;
+    const jockeySearch = typeof req.query.jockey === "string" && req.query.jockey.trim() ? req.query.jockey.trim() : null;
 
     const result = await industrySpService.getSplitStats(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
-      minRaceTime, maxRaceTime
+      minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch
     );
     // Smoke-tested live: combined into one request and warm (no cold
     // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
@@ -391,7 +448,13 @@ router.get("/api/industry-sp", async (req, res) => {
     const toRowRaw = parseInt(req.query.toRow as string);
     const toRow: number | null = isNaN(toRowRaw) ? null : Math.max(fromRow, toRowRaw);
     const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
-    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime);
+    const courses = parseCsvListParam(req.query.courses);
+    const goings = parseCsvListParam(req.query.goings);
+    const raceClasses = parseCsvListParam(req.query.raceClasses);
+    const raceTypes = parseCsvListParam(req.query.raceTypes);
+    const trainerSearch = typeof req.query.trainer === "string" && req.query.trainer.trim() ? req.query.trainer.trim() : null;
+    const jockeySearch = typeof req.query.jockey === "string" && req.query.jockey.trim() ? req.query.jockey.trim() : null;
+    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch);
     res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
   } catch (error) {
     console.error("getAllRacesByRace error:", error);

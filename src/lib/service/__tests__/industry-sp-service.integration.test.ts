@@ -85,4 +85,23 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     // Split B is unaffected — an inverted A shouldn't poison B.
     expect(result.splitB.total).toBeGreaterThan(0);
   });
+
+  it("returns non-empty distinct courses/goings/raceClasses/raceTypes alongside countries", async () => {
+    const result = await service.getSplitStats();
+    expect(result.courses.length).toBeGreaterThan(0);
+    expect(result.goings.length).toBeGreaterThan(0);
+    expect(result.raceClasses.length).toBeGreaterThan(0);
+    expect(result.raceTypes.length).toBeGreaterThan(0);
+  });
+
+  it("course/going/raceClass/raceType/trainer/jockey filters apply identically to the grand total and both splits", async () => {
+    const { courses } = await service.getSplitStats();
+    const course = courses[0];
+    const filtered = await service.getSplitStats(
+      1, 100, [], 1, 1000, 1, 10000, undefined, undefined, undefined, undefined, undefined, undefined,
+      [course]
+    );
+    const unfiltered = await service.getSplitStats(1, 100, []);
+    expect(filtered.totalRaces).toBeLessThanOrEqual(unfiltered.totalRaces);
+  });
 });

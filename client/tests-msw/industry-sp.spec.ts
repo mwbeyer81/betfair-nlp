@@ -95,6 +95,52 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await page.getByTestId("industry-sp-filters-toggle").click();
     await expect(page.getByTestId("industry-sp-filter-bar")).toBeVisible();
   });
+
+  test("course/going/race class/race type chips and trainer/jockey inputs are present", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-course-Cheltenham")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-going-Good")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-race-class-Class 1")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-race-type-Chase")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-trainer-search")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-jockey-search")).toBeVisible();
+  });
+
+  test("clicking a course chip applies immediately (no Apply click needed) and updates the URL", async ({ page }) => {
+    await page.getByTestId("industry-sp-course-Cheltenham").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("courses=Cheltenham");
+  });
+
+  test("typing a trainer search and applying writes it to the URL and the /splits request", async ({ page }) => {
+    const splitsRequests: string[] = [];
+    page.on("request", req => {
+      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
+    });
+
+    await page.getByTestId("industry-sp-trainer-search").fill("Smith");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    expect(page.url()).toContain("trainer=Smith");
+    expect(splitsRequests.some(u => u.includes("trainer=Smith"))).toBe(true);
+  });
+
+  test("Reset clears course chip selection and trainer/jockey text from the URL", async ({ page }) => {
+    await page.getByTestId("industry-sp-course-Cheltenham").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    await page.getByTestId("industry-sp-trainer-search").fill("Smith");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("courses=Cheltenham");
+    expect(page.url()).toContain("trainer=Smith");
+
+    await page.getByTestId("industry-sp-filter-reset").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    expect(page.url()).not.toContain("courses");
+    expect(page.url()).not.toContain("trainer");
+    await expect(page.getByTestId("industry-sp-trainer-search")).toHaveValue("");
+  });
 });
 
 test.describe("Industry SP filters screen - session cache across navigation (MSW mocked)", () => {
@@ -310,6 +356,10 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
           totalRunners: totalRaces * 2,
           filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
           countries: ["GB", "IE"],
+          courses: ["Cheltenham", "Ascot"],
+          goings: ["Good", "Soft"],
+          raceClasses: ["Class 1", "Class 2"],
+          raceTypes: ["Chase", "Hurdle"],
           splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: totalA * 2, pnlStats: totalA > 0 ? pnl : { staked: 0, returns: 0, pnl: 0, count: 0 } },
           splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: totalB * 2, pnlStats: totalB > 0 ? pnl : { staked: 0, returns: 0, pnl: 0, count: 0 } },
         },

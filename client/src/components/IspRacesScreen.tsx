@@ -22,6 +22,7 @@ import {
   urlStringParam,
   urlToRowParam,
   urlCountriesParam,
+  urlSetParam,
   urlSortParam,
   updateUrlParams,
 } from "../utils/ispUrlParams";
@@ -63,6 +64,12 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const minDate = urlStringParam("minDate", "");
   const maxDate = urlStringParam("maxDate", "");
   const countries = [...urlCountriesParam()];
+  const courses = [...urlSetParam("courses")];
+  const goings = [...urlSetParam("goings")];
+  const raceClasses = [...urlSetParam("raceClasses")];
+  const raceTypes = [...urlSetParam("raceTypes")];
+  const trainer = urlStringParam("trainer", "") || undefined;
+  const jockey = urlStringParam("jockey", "") || undefined;
 
   useEffect(() => {
     updateUrlParams({ sort: sortOrder !== "asc" ? sortOrder : undefined });
@@ -75,7 +82,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       setError(null);
       setRaces([]);
       try {
-        const result = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined);
+        const result = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey);
         if (cancelled) return;
         setRaces(result.data);
         setPage(1);
@@ -101,7 +108,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     setIsLoadingMore(true);
     try {
       const next = page + 1;
-      const result = await chatApi.getIndustrySp(next, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined);
+      const result = await chatApi.getIndustrySp(next, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey);
       setRaces(prev => [...prev, ...result.data]);
       setPage(next);
       setTotalPages(result.totalPages);
