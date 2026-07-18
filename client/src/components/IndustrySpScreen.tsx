@@ -14,6 +14,7 @@ import {
   Button,
   Chip,
   ActivityIndicator,
+  Icon,
 } from "react-native-paper";
 import { chatApi, IspFilterBounds, PnlStats } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
@@ -543,9 +544,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     <SafeAreaView testID="industry-sp-screen" style={styles.screen}>
       <Appbar.Header style={styles.appbar}>
         <Appbar.Content
-          title="Industry Starting Price"
+          title={
+            <View testID="industry-sp-title" style={styles.appbarTitleRow}>
+              <Text style={styles.appbarTitle}>BackBet</Text>
+              <Icon source="sync" size={16} color="white" />
+            </View>
+          }
           subtitle={!isLoading ? `${totalRunners} runners · ${totalRaces} races` : undefined}
-          titleStyle={styles.appbarTitle}
           subtitleStyle={styles.appbarSubtitle}
         />
         <Button
@@ -829,6 +834,11 @@ const styles = StyleSheet.create({
   appbar: {
     backgroundColor: colors.primary,
     elevation: 4,
+  },
+  appbarTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   appbarTitle: {
     color: "white",

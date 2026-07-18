@@ -196,7 +196,7 @@ export const ScreenLoaded: Story = {
     await expect(canvas.getByTestId("industry-sp-screen")).toBeInTheDocument();
     await expect(canvas.findByTestId("industry-sp-split-card-a")).resolves.toBeInTheDocument();
     await expect(canvas.findByTestId("industry-sp-split-card-b")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("Industry Starting Price")).resolves.toBeInTheDocument();
+    await expect(canvas.findByText("BackBet")).resolves.toBeInTheDocument();
     await expect(canvas.findByTestId("industry-sp-pnl-a")).resolves.toHaveTextContent("+£1.58");
     await expect(canvas.findByTestId("industry-sp-pnl-b")).resolves.toHaveTextContent("+£1.58");
   },
