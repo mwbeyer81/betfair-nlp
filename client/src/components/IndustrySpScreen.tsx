@@ -17,6 +17,7 @@ import {
 } from "react-native-paper";
 import { chatApi, IspFilterBounds, PnlStats } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
+import { DateRangePicker } from "./DateRangePicker";
 import { buildSplitsCacheKey, readSplitsCache, writeSplitsCache, CachedSplitsResult } from "../utils/ispSplitsCache";
 import { colors, radii, spacing } from "../theme";
 import { formatPnl, formatPct } from "../utils/ispFormat";
@@ -82,6 +83,14 @@ const FILTER_TOOLTIPS: Record<string, string> = {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const EMPTY_PNL: PnlStats = { staked: 0, returns: 0, pnl: 0 };
+
+// An explicit split's fromRowB can only be valid if the matched set is
+// actually that large — anything beyond totalRaces is unambiguously stale
+// (computed against a different, larger total than the one currently in
+// effect), never a legitimate "empty split" the user asked for on purpose.
+function isStaleSplit(splitBFromRow: number, totalRaces: number): boolean {
+  return splitBFromRow > totalRaces && totalRaces > 0;
+}
 
 export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   onNavigateToEvents,
@@ -327,7 +336,11 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       // it reloaded from scratch even though nothing had changed.
       if (fetchTrigger === 0) {
         const cached = readSplitsCache(cacheKey);
-        if (cached) {
+        // A cached entry whose split starts beyond the total it was cached
+        // under is already known-broken (see the isStaleSplit check below)
+        // — treat exactly like a cache miss so it falls through to a fresh,
+        // self-correcting fetch instead of replaying the broken values.
+        if (cached && !isStaleSplit(cached.splitB.fromRow, cached.totalRaces)) {
           applyResult(cached);
           syncUrl(cached, isDefault);
           setIsLoading(false);
@@ -353,6 +366,24 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           maxDate
         );
         if (cancelled) return;
+        // An explicit (non-default) split's row numbers are only meaningful
+        // relative to the total they were computed against. They go stale
+        // whenever some *other* filter narrows that total afterward without
+        // the split being recomputed — e.g. a bookmarked URL from before
+        // the date filter existed (fromRowA/fromRowB from the full ~110k
+        // dataset) landing on today's 2024-scoped default, or applying a
+        // narrower date/country/runner filter without also touching the
+        // split boxes. Detected here (fromRowB beyond the actual total)
+        // rather than guessed at ahead of time, since the true total isn't
+        // known until the fetch returns. Self-heals by falling back to the
+        // auto-computed default split and refetching once — this is the
+        // one legitimate case where fetchTrigger advances without a direct
+        // Apply/Reset click.
+        if (!isDefault && isStaleSplit(result.splitB.fromRow, result.totalRaces)) {
+          splitsAreDefaultRef.current = true;
+          setFetchTrigger(t => t + 1);
+          return;
+        }
         applyResult(result);
         syncUrl(result, isDefault);
         writeSplitsCache(cacheKey, result);
@@ -404,15 +435,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     maxLength: number;
     hint?: string | null;
     hintTestId?: string;
-    inputWidth?: number;
   }) {
     const {
       filterKey, label, labelTestId,
       minValue, onMinChange, minTestId,
       maxValue, onMaxChange, maxTestId,
-      keyboardType, maxLength, hint, hintTestId, inputWidth,
+      keyboardType, maxLength, hint, hintTestId,
     } = opts;
-    const inputStyle = inputWidth != null ? [styles.gridInput, { width: inputWidth }] : styles.gridInput;
     return (
       <View
         key={filterKey}
@@ -425,7 +454,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </View>
         <RNTextInput
           testID={minTestId}
-          style={inputStyle}
+          style={styles.gridInput}
           value={minValue}
           onChangeText={onMinChange}
           keyboardType={keyboardType}
@@ -434,7 +463,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         <Text style={styles.filterGridDash}>–</Text>
         <RNTextInput
           testID={maxTestId}
-          style={inputStyle}
+          style={styles.gridInput}
           value={maxValue}
           onChangeText={onMaxChange}
           keyboardType={keyboardType}
@@ -598,19 +627,27 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           hint: filterBounds != null ? `/${filterBounds.maxRunnersPerRace}` : null,
           hintTestId: "industry-sp-max-rir-bound",
         })}
-        {renderFilterRow({
-          filterKey: "date",
-          label: "Date",
-          minValue: draftMinDate,
-          onMinChange: setDraftMinDate,
-          minTestId: "industry-sp-min-date",
-          maxValue: draftMaxDate,
-          onMaxChange: setDraftMaxDate,
-          maxTestId: "industry-sp-max-date",
-          keyboardType: "default",
-          maxLength: 10,
-          inputWidth: 100,
-        })}
+        <View
+          testID="industry-sp-filter-row-date"
+          style={[styles.filterGridRow, openTooltip === "date" && styles.filterGridRowElevated]}
+        >
+          <View style={styles.filterGridLabel}>
+            <Text style={styles.filterGridLabelText}>Date</Text>
+            {renderTooltipToggle("date")}
+          </View>
+          <DateRangePicker
+            testID="industry-sp-date-range-picker"
+            fromDate={draftMinDate}
+            toDate={draftMaxDate}
+            minDate={ABSOLUTE_MIN_DATE}
+            maxDate={ABSOLUTE_MAX_DATE}
+            onChange={(from, to) => {
+              setDraftMinDate(from);
+              setDraftMaxDate(to);
+            }}
+          />
+          {renderTooltipText("date")}
+        </View>
         {renderFilterRow({
           filterKey: "raceA",
           label: "Race A",

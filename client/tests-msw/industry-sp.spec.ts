@@ -1,9 +1,35 @@
 import { test, expect } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 // fixtures.ts mocks 1 race (914592 Cheltenham Chase) with 3 runners (ISP 4.5, 9.2, 2.1).
 // Default ISP range 1-1000 means all 3 runners are in range. Default maxRIR=30 shows the race.
 // /isp is the filters + PnL screen (no race list of its own); /isp/races is the
 // dedicated races-list screen that reads whatever filters are in the URL.
+
+// Drives the DateRangePicker (see DateRangePicker.tsx): open the picker,
+// jump straight to a year via the header's year-grid (selecting a year
+// always resets the visible month to January, making month navigation
+// from there fully deterministic regardless of whatever month happened to
+// be showing beforehand), step forward to the target month, tap the day,
+// repeat for the second date, then Apply.
+async function pickDateRange(page: Page, fromDate: string, toDate: string) {
+  const prefix = "industry-sp-date-range-picker";
+  await page.getByTestId(prefix).click();
+  await expect(page.getByTestId(`${prefix}-modal`)).toBeVisible();
+
+  for (const dateStr of [fromDate, toDate]) {
+    const [year, month] = dateStr.split("-").map(Number);
+    await page.getByTestId(`${prefix}-header-title`).click();
+    await expect(page.getByTestId(`${prefix}-year-grid`)).toBeVisible();
+    await page.getByTestId(`${prefix}-year-${year}`).click();
+    for (let i = 0; i < month - 1; i++) {
+      await page.getByTestId(`${prefix}-next-month`).click();
+    }
+    await page.getByTestId(`${prefix}-day-${dateStr}`).click();
+  }
+
+  await page.getByTestId(`${prefix}-apply`).click();
+}
 
 test.describe("Industry SP filters screen (MSW mocked)", () => {
   test.beforeEach(async ({ page }) => {
@@ -212,8 +238,8 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
   });
 
   test("date filter defaults to 2024-01-01 – 2024-12-31 and stays out of the URL at that default", async ({ page }) => {
-    await expect(page.getByTestId("industry-sp-min-date")).toHaveValue("2024-01-01");
-    await expect(page.getByTestId("industry-sp-max-date")).toHaveValue("2024-12-31");
+    await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Jan 1, 2024");
+    await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Dec 31, 2024");
     expect(page.url()).not.toContain("minDate");
     expect(page.url()).not.toContain("maxDate");
   });
@@ -224,8 +250,7 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
       if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
     });
 
-    await page.getByTestId("industry-sp-min-date").fill("2023-01-01");
-    await page.getByTestId("industry-sp-max-date").fill("2023-06-30");
+    await pickDateRange(page, "2023-01-01", "2023-06-30");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
@@ -237,8 +262,7 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
   });
 
   test("Reset restores the date range to the 2024 default and clears it from the URL", async ({ page }) => {
-    await page.getByTestId("industry-sp-min-date").fill("2023-01-01");
-    await page.getByTestId("industry-sp-max-date").fill("2023-06-30");
+    await pickDateRange(page, "2023-01-01", "2023-06-30");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("minDate=2023-01-01");
@@ -246,10 +270,28 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     await page.getByTestId("industry-sp-filter-reset").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-    await expect(page.getByTestId("industry-sp-min-date")).toHaveValue("2024-01-01");
-    await expect(page.getByTestId("industry-sp-max-date")).toHaveValue("2024-12-31");
+    await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Jan 1, 2024");
+    await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Dec 31, 2024");
     expect(page.url()).not.toContain("minDate");
     expect(page.url()).not.toContain("maxDate");
+  });
+
+  test("a stale explicit split beyond the current total self-heals back to the default split", async ({ page }) => {
+    // Reproduces a bookmarked/old URL carrying fromRowA/fromRowB row numbers
+    // computed against a much larger total (e.g. from before the date
+    // filter existed) landing on today's smaller default — Split B should
+    // never render as a broken, permanently-empty "races 54622-9800/9800"
+    // split; it should self-correct back to an even default split.
+    await page.goto("/isp?fromRowA=1&toRowA=54621&fromRowB=54622");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    // The self-heal fires a second fetch, so isLoading briefly cycles
+    // false→true→false again — poll on the split card's own text settling
+    // rather than the loading indicator's timing, which could otherwise
+    // catch the transient gap between the two fetches.
+    await expect(page.getByTestId("industry-sp-split-card-a")).not.toContainText("54621", { timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-split-empty-b")).not.toBeVisible();
   });
 });
 

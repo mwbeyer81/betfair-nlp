@@ -17,6 +17,33 @@ const countriesHandler = http.get(`${BASE}/api/industry-sp/countries`, () =>
 const DEFAULT_PNL = { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 };
 const ZERO_PNL = { staked: 0, returns: 0, pnl: 0, count: 0 };
 
+// Drives DateRangePicker.tsx the same way the MSW Playwright suite does
+// (see pickDateRange in tests-msw/industry-sp.spec.ts) — jump to the year
+// via the header's year-grid (always resets to January), step forward to
+// the target month, tap the day, repeat for the second date, then Apply.
+async function pickDateRangeInCanvas(
+  canvas: ReturnType<typeof within>,
+  fromDate: string,
+  toDate: string
+) {
+  const prefix = "industry-sp-date-range-picker";
+  await userEvent.click(canvas.getByTestId(prefix));
+  await canvas.findByTestId(`${prefix}-modal`);
+
+  for (const dateStr of [fromDate, toDate]) {
+    const [year, month] = dateStr.split("-").map(Number);
+    await userEvent.click(canvas.getByTestId(`${prefix}-header-title`));
+    await canvas.findByTestId(`${prefix}-year-grid`);
+    await userEvent.click(canvas.getByTestId(`${prefix}-year-${year}`));
+    for (let i = 0; i < month - 1; i++) {
+      await userEvent.click(canvas.getByTestId(`${prefix}-next-month`));
+    }
+    await userEvent.click(canvas.getByTestId(`${prefix}-day-${dateStr}`));
+  }
+
+  await userEvent.click(canvas.getByTestId(`${prefix}-apply`));
+}
+
 // This screen fetches the grand total + both splits in a single request to
 // /api/industry-sp/splits (see chatApi.getIndustrySpSplits) — this handler
 // mirrors the real backend's own default-split behavior: when the caller
@@ -625,10 +652,9 @@ export const DateFilterDefaultsToCurrentYear: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-split-card-a");
-    const minDate = canvas.getByTestId("industry-sp-min-date");
-    const maxDate = canvas.getByTestId("industry-sp-max-date");
-    await expect(minDate).toHaveValue("2024-01-01");
-    await expect(maxDate).toHaveValue("2024-12-31");
+    const trigger = canvas.getByTestId("industry-sp-date-range-picker");
+    await expect(trigger).toHaveTextContent("Jan 1, 2024");
+    await expect(trigger).toHaveTextContent("Dec 31, 2024");
   },
 };
 
@@ -661,12 +687,7 @@ export const ApplyingACustomDateRangeSendsItToTheApi: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-split-card-a");
 
-    const minDate = canvas.getByTestId("industry-sp-min-date");
-    const maxDate = canvas.getByTestId("industry-sp-max-date");
-    await userEvent.clear(minDate);
-    await userEvent.type(minDate, "2023-01-01");
-    await userEvent.clear(maxDate);
-    await userEvent.type(maxDate, "2023-06-30");
+    await pickDateRangeInCanvas(canvas, "2023-01-01", "2023-06-30");
 
     capturedDateParams = { minDate: null, maxDate: null };
     await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
