@@ -21,9 +21,5 @@
   },
   "jwt": {
     "secret": ""
-  },
-  "auth": {
-    "username": "matthew",
-    "password": "beyer"
   }
 }

@@ -1,12 +1,20 @@
 import request from "supertest";
+import bcrypt from "bcryptjs";
+import { ObjectId } from "mongodb";
 import app from "../app";
 
 let authToken: string;
 
+const TEST_USER_EMAIL = "matthew@backbet.co.uk";
+const TEST_USER_PASSWORD = "beyer";
+// Hashed once, synchronously, at module load — every mocked "users" findOne
+// below returns this so login() can bcrypt.compare against a real hash.
+const TEST_USER_PASSWORD_HASH = bcrypt.hashSync(TEST_USER_PASSWORD, 10);
+
 beforeAll(async () => {
   const res = await request(app)
     .post("/api/auth/login")
-    .send({ username: "matthew", password: "beyer" });
+    .send({ email: TEST_USER_EMAIL, password: TEST_USER_PASSWORD });
   authToken = res.body.token;
 });
 
@@ -28,8 +36,26 @@ jest.mock("../../config/database", () => ({
     getInstance: jest.fn().mockReturnValue({
       connect: jest.fn().mockResolvedValue(undefined),
       getDb: jest.fn().mockReturnValue({
-        collection: jest.fn().mockReturnValue({
-          distinct: jest.fn().mockResolvedValue(["GB", "IE"]),
+        collection: jest.fn().mockImplementation((name: string) => {
+          if (name === "users") {
+            return {
+              createIndex: jest.fn().mockResolvedValue(undefined),
+              findOne: jest.fn().mockImplementation(async (query: { email?: string }) => {
+                if (query?.email === TEST_USER_EMAIL) {
+                  return {
+                    _id: new ObjectId(),
+                    email: TEST_USER_EMAIL,
+                    passwordHash: TEST_USER_PASSWORD_HASH,
+                    createdAt: new Date(),
+                  };
+                }
+                return null;
+              }),
+              insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
+            };
+          }
+          return {
+            distinct: jest.fn().mockResolvedValue(["GB", "IE"]),
           find: jest.fn().mockReturnValue({
             sort: jest.fn().mockReturnThis(),
             limit: jest.fn().mockReturnThis(),
@@ -111,6 +137,7 @@ jest.mock("../../config/database", () => ({
               },
             ]),
           }),
+          };
         }),
       }),
       isConnected: jest.fn().mockReturnValue(true),
@@ -127,6 +154,87 @@ describe("API Endpoints", () => {
       expect(response.body).toHaveProperty("timestamp");
       expect(response.body).toHaveProperty("service", "Betfair NLP API");
       expect(response.body).toHaveProperty("database");
+    });
+  });
+
+  describe("POST /api/auth/signup", () => {
+    it("creates a new account and returns a token for a fresh email", async () => {
+      const response = await request(app)
+        .post("/api/auth/signup")
+        .send({ email: "new.user@backbet.co.uk", password: "correct-horse-battery" })
+        .expect(201);
+
+      expect(response.body).toHaveProperty("token");
+      expect(typeof response.body.token).toBe("string");
+    });
+
+    it("returns 409 when the email is already registered", async () => {
+      const response = await request(app)
+        .post("/api/auth/signup")
+        .send({ email: TEST_USER_EMAIL, password: "correct-horse-battery" })
+        .expect(409);
+
+      expect(response.body).toHaveProperty("error");
+    });
+
+    it("returns 400 for an invalid email", async () => {
+      const response = await request(app)
+        .post("/api/auth/signup")
+        .send({ email: "not-an-email", password: "correct-horse-battery" })
+        .expect(400);
+
+      expect(response.body).toHaveProperty("error");
+    });
+
+    it("returns 400 for a too-short password", async () => {
+      const response = await request(app)
+        .post("/api/auth/signup")
+        .send({ email: "short.pw@backbet.co.uk", password: "abcd" })
+        .expect(400);
+
+      expect(response.body).toHaveProperty("error");
+    });
+  });
+
+  describe("POST /api/auth/login", () => {
+    it("returns a token for valid email/password", async () => {
+      const response = await request(app)
+        .post("/api/auth/login")
+        .send({ email: TEST_USER_EMAIL, password: TEST_USER_PASSWORD })
+        .expect(200);
+
+      expect(response.body).toHaveProperty("token");
+      expect(typeof response.body.token).toBe("string");
+    });
+
+    it("returns 401 for a wrong password", async () => {
+      const response = await request(app)
+        .post("/api/auth/login")
+        .send({ email: TEST_USER_EMAIL, password: "wrong-password" })
+        .expect(401);
+
+      expect(response.body).toHaveProperty("error");
+    });
+
+    // The backbet.co.uk (main branch) bundle isn't updated by this change and
+    // still posts {username, password} — the router aliases username:"matthew"
+    // onto the seeded TEST_USER_EMAIL so that old bundle keeps working.
+    it("accepts the legacy {username, password} shape for the matthew account", async () => {
+      const response = await request(app)
+        .post("/api/auth/login")
+        .send({ username: "matthew", password: TEST_USER_PASSWORD })
+        .expect(200);
+
+      expect(response.body).toHaveProperty("token");
+    });
+
+    it("returns 401 for an unknown email", async () => {
+      const response = await request(app)
+        .post("/api/auth/login")
+        .send({ email: "nobody@backbet.co.uk", password: "whatever123" })
+        .expect(401);
+
+      expect(response.body).toHaveProperty("error");
     });
   });
 

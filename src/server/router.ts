@@ -1,9 +1,8 @@
 import express from "express";
-import jwt from "jsonwebtoken";
-import config from "config";
 import { NaturalLanguageService } from "../lib/service/natural-language-service";
 import { BetfairService } from "../lib/service/betfair-service";
 import { IndustrySpService } from "../lib/service/industry-sp-service";
+import { AuthService, AuthError } from "../lib/service/auth-service";
 import { DatabaseConnection } from "../config/database";
 import { jwtAuth } from "./middleware";
 
@@ -15,6 +14,7 @@ let dbConnection: DatabaseConnection | null = null;
 let naturalLanguageService: NaturalLanguageService | null = null;
 let betfairService: BetfairService | null = null;
 let industrySpService: IndustrySpService | null = null;
+let authService: AuthService | null = null;
 
 export const initializeServices = async () => {
   try {
@@ -34,6 +34,12 @@ export const initializeServices = async () => {
       await industrySpService.createIndexes();
     } catch (indexError) {
       console.warn("industry-sp createIndexes failed (non-fatal, queries may be slower):", indexError);
+    }
+    authService = new AuthService(dbConnection.getDb());
+    try {
+      await authService.createIndexes();
+    } catch (indexError) {
+      console.warn("auth createIndexes failed (non-fatal, unique email check may hit the DB):", indexError);
     }
     try {
       naturalLanguageService = new NaturalLanguageService(null as any, dbConnection.getDb());
@@ -77,16 +83,44 @@ router.get("/hello-world", (_req, res) => {
 </html>`);
 });
 
-router.post("/api/auth/login", (req, res) => {
-  const { username, password } = req.body || {};
-  const validUsername = config.get<string>("auth.username");
-  const validPassword = config.get<string>("auth.password");
-  if (username !== validUsername || password !== validPassword) {
-    return res.status(401).json({ error: "Invalid credentials" });
+router.post("/api/auth/signup", async (req, res) => {
+  const { email, password } = req.body || {};
+  try {
+    const token = await authService!.signup(email, password);
+    return res.status(201).json({ token });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Signup failed:", error);
+    return res.status(500).json({ error: "Signup failed" });
   }
-  const secret = config.get<string>("jwt.secret");
-  const token = jwt.sign({ sub: username }, secret, { expiresIn: "7d" });
-  return res.status(200).json({ token });
+});
+
+// The Lambda API backing this router is shared with the still-deployed
+// `main`/backbet.co.uk frontend bundle, whose login form is hardcoded to
+// POST {username: "matthew", password: "beyer"} rather than {email, password}.
+// Alias that legacy shape onto the seeded test account's real email so that
+// old bundle keeps working without a redeploy of its own.
+const LEGACY_TEST_USERNAME = "matthew";
+const LEGACY_TEST_EMAIL = "matthew@backbet.co.uk";
+
+router.post("/api/auth/login", async (req, res) => {
+  const { username, password } = req.body || {};
+  let { email } = req.body || {};
+  if (!email && username === LEGACY_TEST_USERNAME) {
+    email = LEGACY_TEST_EMAIL;
+  }
+  try {
+    const token = await authService!.login(email, password);
+    return res.status(200).json({ token });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Login failed:", error);
+    return res.status(500).json({ error: "Login failed" });
+  }
 });
 
 // All routes below require auth

@@ -158,13 +158,30 @@ class ChatApi {
     return { Authorization: `Bearer ${this.token}` };
   }
 
-  async login(username: string, password: string): Promise<string> {
+  async login(email: string, password: string): Promise<string> {
     const response = await fetch(`${this.baseUrl}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ email, password }),
     });
-    if (!response.ok) throw new Error("Invalid credentials");
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Invalid credentials");
+    }
+    const result = await response.json();
+    return result.token as string;
+  }
+
+  async signup(email: string, password: string): Promise<string> {
+    const response = await fetch(`${this.baseUrl}/api/auth/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Sign up failed");
+    }
     const result = await response.json();
     return result.token as string;
   }

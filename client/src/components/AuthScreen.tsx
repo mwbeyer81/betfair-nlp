@@ -22,13 +22,17 @@ interface AuthScreenProps {
   testCredentialsFromUrl?: boolean;
 }
 
+type AuthMode = "login" | "signup";
+
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   onAuthenticated,
   testCredentialsFromUrl = false,
 }) => {
-  const [username, setUsername] = useState("");
+  const [mode, setMode] = useState<AuthMode>("login");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [autoLoginAttempted, setAutoLoginAttempted] = useState(false);
   const [credentialsFromUrl, setCredentialsFromUrl] = useState(
     testCredentialsFromUrl
@@ -54,17 +58,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               credentials = authString;
             }
 
-            const [urlUsername, urlPassword] = credentials.split(":");
+            const [urlEmail, urlPassword] = credentials.split(":");
 
-            if (urlUsername && urlPassword) {
-              setUsername(urlUsername);
+            if (urlEmail && urlPassword) {
+              setEmail(urlEmail);
               setPassword(urlPassword);
               setCredentialsFromUrl(true);
 
               if (!autoLoginAttempted) {
                 setAutoLoginAttempted(true);
                 setIsLoading(true);
-                chatApi.login(urlUsername, urlPassword).then((token) => {
+                chatApi.login(urlEmail, urlPassword).then((token) => {
                   if (typeof window !== "undefined") {
                     localStorage.setItem("auth_token", token);
                   }
@@ -85,23 +89,32 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     parseUrlParams();
   }, [autoLoginAttempted]);
 
-  const handleLogin = async () => {
+  const handleSubmit = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      const token = await chatApi.login(username, password);
+      const token =
+        mode === "login"
+          ? await chatApi.login(email, password)
+          : await chatApi.signup(email, password);
       if (typeof window !== "undefined") {
         localStorage.setItem("auth_token", token);
       }
       chatApi.setToken(token);
       onAuthenticated();
-    } catch {
-      // noop — tests verify the loading state
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const isFormValid = username.trim() !== "" && password.trim() !== "";
+  const toggleMode = () => {
+    setMode(m => (m === "login" ? "signup" : "login"));
+    setError(null);
+  };
+
+  const isFormValid = email.trim() !== "" && password.trim() !== "";
 
   return (
     <SafeAreaView style={styles.container}>
@@ -112,23 +125,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         <View style={styles.content}>
           <View style={styles.header}>
             <Text variant="displaySmall" style={styles.title}>
-              Betfair NLP
+              BackBet
             </Text>
             <Text variant="bodyLarge" style={styles.subtitle}>
-              Authentication Required
+              {mode === "login" ? "Log in to continue" : "Create your account"}
             </Text>
           </View>
 
           <Surface style={styles.form} elevation={1}>
             <TextInput
-              testID="auth-username-input"
+              testID="auth-email-input"
               mode="outlined"
-              label="Username"
-              value={username}
-              onChangeText={setUsername}
-              placeholder="Enter username"
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@example.com"
               autoCapitalize="none"
               autoCorrect={false}
+              keyboardType="email-address"
               editable={!isLoading}
               style={styles.input}
             />
@@ -139,31 +153,57 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               label="Password"
               value={password}
               onChangeText={setPassword}
-              placeholder="Enter password"
+              placeholder={
+                mode === "signup" ? "At least 5 characters" : "Enter password"
+              }
               secureTextEntry
               autoCapitalize="none"
               autoCorrect={false}
               editable={!isLoading}
-              onSubmitEditing={handleLogin}
+              onSubmitEditing={handleSubmit}
               returnKeyType="done"
               style={styles.input}
             />
 
+            {error && (
+              <Text testID="auth-error" style={styles.errorText}>
+                {error}
+              </Text>
+            )}
+
             <Button
-              testID="auth-login-button"
+              testID={mode === "login" ? "auth-login-button" : "auth-signup-button"}
               mode="contained"
-              onPress={handleLogin}
+              onPress={handleSubmit}
               disabled={!isFormValid || isLoading}
               style={styles.loginButton}
               contentStyle={styles.loginButtonContent}
               labelStyle={styles.loginButtonLabel}
             >
-              {isLoading ? "Authenticating…" : "Login"}
+              {isLoading
+                ? mode === "login"
+                  ? "Logging in…"
+                  : "Creating account…"
+                : mode === "login"
+                  ? "Log In"
+                  : "Sign Up"}
             </Button>
 
             {isLoading && (
               <ActivityIndicator animating style={styles.spinner} />
             )}
+
+            <Button
+              testID="auth-mode-toggle"
+              mode="text"
+              onPress={toggleMode}
+              disabled={isLoading}
+              compact
+            >
+              {mode === "login"
+                ? "Need an account? Sign up"
+                : "Already have an account? Log in"}
+            </Button>
           </Surface>
 
           {credentialsFromUrl && (
@@ -172,19 +212,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 Credentials loaded from URL parameters
               </Text>
               <Text variant="bodySmall" style={styles.urlCredentialsSubtext}>
-                Press Enter or tap Login to continue
+                Press Enter or tap Log In to continue
               </Text>
             </Surface>
           )}
 
           <View style={styles.footer}>
             <Text variant="bodySmall" style={styles.footerText}>
-              Please enter your credentials to access the chat assistant.
-            </Text>
-            <Text variant="bodySmall" style={styles.urlInfoText}>
-              Tip: Use{" "}
-              <Text style={styles.urlExample}>?auth=base64(user:pass)</Text> in
-              the URL for quick access.
+              {mode === "login"
+                ? "Please enter your email and password to access BackBet."
+                : "Sign up with your email — you'll be logged in immediately."}
             </Text>
           </View>
         </View>
@@ -233,6 +270,9 @@ const styles = StyleSheet.create({
   input: {
     backgroundColor: colors.surface,
   },
+  errorText: {
+    color: colors.pnlNegative,
+  },
   loginButton: {
     marginTop: 4,
     borderRadius: radii.md,
@@ -271,15 +311,5 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: "center",
     lineHeight: 20,
-  },
-  urlInfoText: {
-    color: colors.textTertiary,
-    textAlign: "center",
-    lineHeight: 16,
-  },
-  urlExample: {
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-    backgroundColor: colors.background,
-    color: colors.textSecondary,
   },
 });

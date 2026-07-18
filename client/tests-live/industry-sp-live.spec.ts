@@ -11,7 +11,7 @@ test.describe("app.backbet.co.uk — /isp session cache + Details Filters button
       if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
     });
 
-    await page.goto(`${BASE_URL}/isp?u=matthew&p=beyer`);
+    await page.goto(`${BASE_URL}/isp?email=matthew%40backbet.co.uk&password=beyer`);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 60000 });
     await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 15000 });
@@ -32,7 +32,7 @@ test.describe("app.backbet.co.uk — /isp session cache + Details Filters button
   });
 
   test("Details panel shows a ← Filters button that returns to the split cards", async ({ page }) => {
-    await page.goto(`${BASE_URL}/isp?u=matthew&p=beyer`);
+    await page.goto(`${BASE_URL}/isp?email=matthew%40backbet.co.uk&password=beyer`);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 60000 });
     await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 15000 });
@@ -56,7 +56,7 @@ test.describe("app.backbet.co.uk — /isp session cache + Details Filters button
       if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
     });
 
-    await page.goto(`${BASE_URL}/isp?u=matthew&p=beyer`);
+    await page.goto(`${BASE_URL}/isp?email=matthew%40backbet.co.uk&password=beyer`);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 60000 });
     await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 15000 });

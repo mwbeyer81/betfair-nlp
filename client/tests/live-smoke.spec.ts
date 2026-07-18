@@ -8,7 +8,7 @@ test.describe("Live site smoke tests — cf.backbet.co.uk", () => {
     page.on("pageerror", (err) => jsErrors.push(err.message));
 
     // Use ?u=&p= query param to auto-login without touching the UI
-    await page.goto(`${LIVE_URL}/?u=matthew&p=beyer`);
+    await page.goto(`${LIVE_URL}/?email=matthew%40backbet.co.uk&password=beyer`);
 
     // Should be authenticated and on the events screen
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 15000 });

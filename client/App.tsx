@@ -48,18 +48,18 @@ export default function App() {
       localStorage.removeItem(TOKEN_KEY);
     }
 
-    // Support ?u=<username>&p=<password> in the URL for bookmarked access.
+    // Support ?email=<email>&password=<password> in the URL for bookmarked access.
     const params = new URLSearchParams(window.location.search);
-    const u = params.get("u");
-    const p = params.get("p");
-    if (u && p) {
-      // Only strip u/p, not the whole query string — /isp's filter params
-      // (minRunners, sort, etc.) can ride along in the same bookmarked URL.
-      params.delete("u");
-      params.delete("p");
+    const email = params.get("email");
+    const password = params.get("password");
+    if (email && password) {
+      // Only strip email/password, not the whole query string — /isp's filter
+      // params (minRunners, sort, etc.) can ride along in the same bookmarked URL.
+      params.delete("email");
+      params.delete("password");
       const clean = window.location.pathname + (params.toString() ? `?${params}` : "");
       window.history.replaceState({}, "", clean);
-      chatApi.login(u, p).then((token) => {
+      chatApi.login(email, password).then((token) => {
         localStorage.setItem(TOKEN_KEY, token);
         chatApi.setToken(token);
         setIsAuthenticated(true);

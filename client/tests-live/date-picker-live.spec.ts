@@ -4,7 +4,7 @@ const BASE_URL = "https://app.backbet.co.uk";
 
 test.describe("app.backbet.co.uk — date range picker + stale-split self-heal", () => {
   test("date picker trigger shows the 2024 default and looks correct", async ({ page }) => {
-    await page.goto(`${BASE_URL}/isp?u=matthew&p=beyer`);
+    await page.goto(`${BASE_URL}/isp?email=matthew%40backbet.co.uk&password=beyer`);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 60000 });
     await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 15000 });
@@ -18,7 +18,7 @@ test.describe("app.backbet.co.uk — date range picker + stale-split self-heal",
     // This is the exact scenario from the screenshot: an old bookmark with
     // fromRowA/fromRowB computed against the ~110k full dataset (before
     // the date filter existed), now landing on the new 2024-scoped default.
-    await page.goto(`${BASE_URL}/isp?u=matthew&p=beyer&fromRowA=1&toRowA=54621&fromRowB=54622`);
+    await page.goto(`${BASE_URL}/isp?email=matthew%40backbet.co.uk&password=beyer&fromRowA=1&toRowA=54621&fromRowB=54622`);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 60000 });
 
@@ -29,7 +29,7 @@ test.describe("app.backbet.co.uk — date range picker + stale-split self-heal",
   });
 
   test("picker opens, jumps to a year via the header, and picks a day", async ({ page }) => {
-    await page.goto(`${BASE_URL}/isp?u=matthew&p=beyer`);
+    await page.goto(`${BASE_URL}/isp?email=matthew%40backbet.co.uk&password=beyer`);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 60000 });
     await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 15000 });

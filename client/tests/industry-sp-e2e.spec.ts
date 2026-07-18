@@ -5,31 +5,31 @@ const API_URL = "http://localhost:3000";
 
 async function getBearerToken(request: import("@playwright/test").APIRequestContext): Promise<string> {
   const res = await request.post(`${API_URL}/api/auth/login`, {
-    data: { username: "matthew", password: "beyer" },
+    data: { email: "matthew@backbet.co.uk", password: "beyer" },
   });
   const body = await res.json();
   return body.token as string;
 }
 
 async function goToEvents(page: import("@playwright/test").Page) {
-  // ?u=&p= triggers a real login (POST /api/auth/login) and stores the Bearer
-  // JWT the app actually needs — plain navigation lands on the login screen.
+  // ?email=&password= triggers a real login (POST /api/auth/login) and stores
+  // the Bearer JWT the app actually needs — plain navigation lands on the login screen.
   // /isp is the home page ("/"), so Events must be requested explicitly.
-  await page.goto(`${APP_URL}events?u=matthew&p=beyer`);
+  await page.goto(`${APP_URL}events?email=matthew%40backbet.co.uk&password=beyer`);
   await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
   await expect(page.getByTestId("event-group-loading")).not.toBeVisible({ timeout: 90000 });
 }
 
 // /isp is the filters + PnL screen — it renders no race list of its own.
 async function gotoIsp(page: import("@playwright/test").Page) {
-  await page.goto(`${APP_URL}isp?u=matthew&p=beyer`);
+  await page.goto(`${APP_URL}isp?email=matthew%40backbet.co.uk&password=beyer`);
   await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 }
 
 // /isp/races is the dedicated races-list screen (meetings/races/runners,
 // sort, odds mode) — it reads whatever filters are in the URL query string.
 async function gotoIspRaces(page: import("@playwright/test").Page, query = "") {
-  await page.goto(`${APP_URL}isp/races?u=matthew&p=beyer${query ? `&${query}` : ""}`);
+  await page.goto(`${APP_URL}isp/races?email=matthew%40backbet.co.uk&password=beyer${query ? `&${query}` : ""}`);
   await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 }
 
@@ -193,7 +193,7 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
   });
 
   test("/ (home page) shows Industry SP filters screen directly", async ({ page }) => {
-    await page.goto(`${APP_URL}?u=matthew&p=beyer`);
+    await page.goto(`${APP_URL}?email=matthew%40backbet.co.uk&password=beyer`);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("events-screen")).not.toBeVisible();
   });
