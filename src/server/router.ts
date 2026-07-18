@@ -269,6 +269,39 @@ router.get("/api/industry-sp/countries", async (_req, res) => {
   }
 });
 
+router.get("/api/industry-sp/splits", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
+    const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
+    const countries = req.query.countries ? (req.query.countries as string).split(",").map(c => c.trim()).filter(Boolean) : [];
+    const minIsp = Math.max(1, parseFloat(req.query.minIsp as string) || 1);
+    const maxIsp = Math.min(100000, parseFloat(req.query.maxIsp as string) || 1000);
+    const minInIspRange = Math.max(1, parseInt(req.query.minInIspRange as string) || 1);
+    const maxInIspRange = Math.min(10000, Math.max(1, parseInt(req.query.maxInIspRange as string) || 10000));
+
+    // Omitting fromRowA/toRowA/fromRowB/toRowB entirely (not just leaving
+    // them at "1"/unset) is what tells the service to compute the default
+    // 50/50 split itself — see getSplitStats.
+    const fromRowARaw = parseInt(req.query.fromRowA as string);
+    const toRowARaw = parseInt(req.query.toRowA as string);
+    const fromRowBRaw = parseInt(req.query.fromRowB as string);
+    const toRowBRaw = parseInt(req.query.toRowB as string);
+    const fromRowA = isNaN(fromRowARaw) ? null : fromRowARaw;
+    const toRowA = isNaN(toRowARaw) ? null : toRowARaw;
+    const fromRowB = isNaN(fromRowBRaw) ? null : fromRowBRaw;
+    const toRowB = isNaN(toRowBRaw) ? null : toRowBRaw;
+
+    const result = await industrySpService.getSplitStats(
+      minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB
+    );
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error("getSplitStats error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch split stats" });
+  }
+});
+
 router.get("/api/industry-sp", async (req, res) => {
   try {
     if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });

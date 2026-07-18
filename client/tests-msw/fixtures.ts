@@ -203,6 +203,49 @@ async function setupApiMocks(page: Page) {
     });
   });
 
+  await page.route((url) => url.pathname === "/api/industry-sp/splits", (route) => {
+    // Mirrors the /api/industry-sp handler above: the mocked dataset has 1
+    // race with 3 runners in ISP range, so maxInIspRange < 3 zeroes it out.
+    const reqUrl = new URL(route.request().url());
+    const maxInIspRange = parseInt(reqUrl.searchParams.get("maxInIspRange") ?? "30");
+    const matches = maxInIspRange >= 3;
+    const totalRaces = matches ? 1 : 0;
+    const pnlStats = matches ? { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 } : { staked: 0, returns: 0, pnl: 0, count: 0 };
+
+    const fromRowARaw = reqUrl.searchParams.get("fromRowA");
+    const toRowARaw = reqUrl.searchParams.get("toRowA");
+    const fromRowBRaw = reqUrl.searchParams.get("fromRowB");
+    const toRowBRaw = reqUrl.searchParams.get("toRowB");
+    let fromRowA: number, toRowA: number | null, fromRowB: number, toRowB: number | null;
+    if (fromRowARaw == null && toRowARaw == null && fromRowBRaw == null && toRowBRaw == null) {
+      const half = Math.floor(totalRaces / 2);
+      fromRowA = 1;
+      toRowA = half;
+      fromRowB = half + 1;
+      toRowB = null;
+    } else {
+      fromRowA = fromRowARaw != null ? parseInt(fromRowARaw, 10) : 1;
+      toRowA = toRowARaw != null ? parseInt(toRowARaw, 10) : null;
+      fromRowB = fromRowBRaw != null ? parseInt(fromRowBRaw, 10) : 1;
+      toRowB = toRowBRaw != null ? parseInt(toRowBRaw, 10) : null;
+    }
+    // A row range only means something relative to an actually-matching
+    // dataset — if the filters zero it out, both splits must be 0
+    // regardless of which explicit fromRow/toRow values are requested.
+    const totalA = totalRaces === 0 ? 0 : Math.max(0, (toRowA ?? totalRaces) - fromRowA + 1);
+    const totalB = totalRaces === 0 ? 0 : Math.max(0, (toRowB ?? totalRaces) - fromRowB + 1);
+
+    route.fulfill({
+      json: {
+        success: true,
+        totalRaces,
+        totalRunners: matches ? 3 : 0,
+        splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: totalA > 0 ? 3 : 0, pnlStats: totalA > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 } },
+        splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: totalB > 0 ? 3 : 0, pnlStats: totalB > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 } },
+      },
+    });
+  });
+
   await page.route("**/health", (route) =>
     route.fulfill({ json: { status: "OK", service: "Betfair NLP API", database: "connected" } })
   );

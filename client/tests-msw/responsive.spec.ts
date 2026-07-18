@@ -196,16 +196,20 @@ test.describe("Responsive layout — /isp filters screen on a short viewport (MS
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
   });
 
-  test("split A's PnL headline and its View Races button don't overlap", async ({ page }) => {
+  test("split B's PnL headline and its View Races button don't overlap", async ({ page }) => {
     // Regression test: the split card used to cram Races/Horses/Staked/
     // Return/PnL into one flex-wrapped row, which wrapped onto the View
     // Races button on narrow phones. That detail moved to a dedicated
     // SplitDetailPanel; the card itself now shows only a single-line PnL
     // headline, but this guards against a future regression reintroducing
     // overlap between the headline and the button row below it.
-    const pnlHeadline = page.getByTestId("industry-sp-pnl-a");
-    const card = page.getByTestId("industry-sp-split-card-a");
-    const button = page.getByTestId("industry-sp-view-races-button-a");
+    //
+    // Uses split B specifically: this fixture's mocked dataset has exactly
+    // 1 matching race, so the default even split gives split A 0 races
+    // (no PnL headline to check) and split B the 1 race.
+    const pnlHeadline = page.getByTestId("industry-sp-pnl-b");
+    const card = page.getByTestId("industry-sp-split-card-b");
+    const button = page.getByTestId("industry-sp-view-races-button-b");
     await expect(pnlHeadline).toBeVisible();
     await expect(card).toBeVisible();
 

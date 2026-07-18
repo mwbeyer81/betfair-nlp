@@ -80,6 +80,62 @@ test.describe("GET /api/industry-sp (live server @ localhost:3000)", () => {
   });
 });
 
+test.describe("GET /api/industry-sp/splits (live server @ localhost:3000)", () => {
+  test("returns totalRaces/totalRunners and both splits with correct shape", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp/splits`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(typeof body.totalRaces).toBe("number");
+    expect(typeof body.totalRunners).toBe("number");
+    for (const split of ["splitA", "splitB"]) {
+      expect(typeof body[split].fromRow).toBe("number");
+      expect(typeof body[split].total).toBe("number");
+      expect(typeof body[split].totalRunners).toBe("number");
+      expect(typeof body[split].pnlStats.staked).toBe("number");
+      expect(typeof body[split].pnlStats.returns).toBe("number");
+      expect(typeof body[split].pnlStats.pnl).toBe("number");
+    }
+  });
+
+  test("defaults to an even first-half/second-half split of the real dataset", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp/splits`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    const half = Math.floor(body.totalRaces / 2);
+    expect(body.splitA.fromRow).toBe(1);
+    expect(body.splitA.toRow).toBe(half);
+    expect(body.splitB.fromRow).toBe(half + 1);
+    expect(body.splitB.toRow).toBeNull();
+    // splitA + splitB together cover every matching race exactly once.
+    expect(body.splitA.total + body.splitB.total).toBe(body.totalRaces);
+  });
+
+  test("respects explicit fromRowA/toRowA/fromRowB/toRowB", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp/splits?fromRowA=1&toRowA=100&fromRowB=101&toRowB=200`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(body.splitA.fromRow).toBe(1);
+    expect(body.splitA.toRow).toBe(100);
+    expect(body.splitA.total).toBe(100);
+    expect(body.splitB.fromRow).toBe(101);
+    expect(body.splitB.toRow).toBe(200);
+    expect(body.splitB.total).toBe(100);
+  });
+
+  test("returns 401 without auth", async ({ request }) => {
+    const res = await request.get(`${API_URL}/api/industry-sp/splits`);
+    expect(res.status()).toBe(401);
+  });
+});
+
 test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
   test("nav link on Events screen navigates to /isp full-screen view", async ({ page }) => {
     await goToEvents(page);
@@ -149,6 +205,29 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
 
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
+  });
+
+  test("the grand total and both splits load from a single combined request, not three separate ones", async ({ page }) => {
+    // Regression guard for the perf fix: this used to be 3 separate
+    // concurrent /api/industry-sp requests (grand total, split A, split B),
+    // each risking its own Lambda cold start / Atlas M0 connection
+    // contention — smoke-tested live at up to ~4.5s just for the slowest
+    // of the three. Collapsing them into one /api/industry-sp/splits
+    // request cut real page-load time roughly in half; this test exists so
+    // a future change can't silently reintroduce the 3-request pattern.
+    const splitsRequests: string[] = [];
+    const legacyRequests: string[] = [];
+    page.on("request", req => {
+      const url = req.url();
+      if (url.includes("/api/industry-sp/splits")) splitsRequests.push(url);
+      else if (/\/api\/industry-sp\?/.test(url)) legacyRequests.push(url);
+    });
+
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+
+    expect(splitsRequests.length).toBe(1);
+    expect(legacyRequests.length).toBe(0);
   });
 
   test("View Races button navigates to /isp/races and shows runner rows", async ({ page }) => {

@@ -14,31 +14,73 @@ const countriesHandler = http.get(`${BASE}/api/industry-sp/countries`, () =>
   HttpResponse.json({ success: true, data: ["GB", "IE"] })
 );
 
-// This screen only ever asks the API for aggregate totals (it renders no
-// race list of its own), so the mock response's `data` array is irrelevant —
-// only total/totalRunners/pnlStats matter here. Every fetch cycle issues
-// three requests to this endpoint (a grand total, then split A and split B
-// in parallel) — the flat handler below ignores fromRow/toRow and returns
-// the same shape for all three, so split A and split B render identically
-// in most stories unless a test needs otherwise (see
-// RestrictiveFilterZeroesOutMatches for a param-aware handler).
-const defaultHandlers = [
-  http.get(`${BASE}/api/industry-sp`, () =>
-    HttpResponse.json({
+const DEFAULT_PNL = { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 };
+const ZERO_PNL = { staked: 0, returns: 0, pnl: 0, count: 0 };
+
+// This screen fetches the grand total + both splits in a single request to
+// /api/industry-sp/splits (see chatApi.getIndustrySpSplits) — this handler
+// mirrors the real backend's own default-split behavior: when the caller
+// omits fromRowA/toRowA/fromRowB/toRowB entirely, it computes an even
+// first-half/second-half split of totalRaces itself; when explicit values
+// are passed (Apply, a bookmarked URL), it honors them instead. Most
+// stories don't care about the exact split boundaries, but a few
+// (DefaultSplitsAreFirstAndSecondHalf, ApplyingCustomSplitUpdatesUrl...)
+// specifically exercise this, so it's worth getting right in the mock
+// rather than returning a flat, param-blind response.
+function splitsHandler(opts?: {
+  totalRaces?: number;
+  totalRunners?: number;
+  pnlStats?: typeof DEFAULT_PNL;
+  matchesFilter?: (url: URL) => boolean;
+}) {
+  const totalRaces = opts?.totalRaces ?? 2;
+  const totalRunners = opts?.totalRunners ?? 4;
+  const pnlStats = opts?.pnlStats ?? DEFAULT_PNL;
+  return http.get(`${BASE}/api/industry-sp/splits`, ({ request }) => {
+    const url = new URL(request.url);
+    const matches = opts?.matchesFilter ? opts.matchesFilter(url) : true;
+    const effTotalRaces = matches ? totalRaces : 0;
+    const effTotalRunners = matches ? totalRunners : 0;
+    const effPnl = matches ? pnlStats : ZERO_PNL;
+
+    const fromRowARaw = url.searchParams.get("fromRowA");
+    const toRowARaw = url.searchParams.get("toRowA");
+    const fromRowBRaw = url.searchParams.get("fromRowB");
+    const toRowBRaw = url.searchParams.get("toRowB");
+
+    let fromRowA: number, toRowA: number | null, fromRowB: number, toRowB: number | null;
+    if (fromRowARaw == null && toRowARaw == null && fromRowBRaw == null && toRowBRaw == null) {
+      const half = Math.floor(effTotalRaces / 2);
+      fromRowA = 1;
+      toRowA = half;
+      fromRowB = half + 1;
+      toRowB = null;
+    } else {
+      fromRowA = fromRowARaw != null ? parseInt(fromRowARaw, 10) : 1;
+      toRowA = toRowARaw != null ? parseInt(toRowARaw, 10) : null;
+      fromRowB = fromRowBRaw != null ? parseInt(fromRowBRaw, 10) : 1;
+      toRowB = toRowBRaw != null ? parseInt(toRowBRaw, 10) : null;
+    }
+
+    // A row range is only meaningful relative to an actually-matching
+    // dataset — if the filters zero out every race, both splits must be 0
+    // regardless of which explicit fromRow/toRow values are requested
+    // (mirrors real MongoDB: a row-range query against an empty matched
+    // set returns nothing, no matter the range).
+    const totalA = effTotalRaces === 0 ? 0 : Math.max(0, (toRowA ?? effTotalRaces) - fromRowA + 1);
+    const totalB = effTotalRaces === 0 ? 0 : Math.max(0, (toRowB ?? effTotalRaces) - fromRowB + 1);
+
+    return HttpResponse.json({
       success: true,
-      data: [],
-      count: 0,
-      total: 2,
-      page: 1,
-      limit: 1,
-      totalPages: 2,
-      totalRunners: 4,
-      pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 },
-    })
-  ),
-  countriesHandler,
-  filterBoundsHandler,
-];
+      totalRaces: effTotalRaces,
+      totalRunners: effTotalRunners,
+      splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: Math.round(effTotalRunners / 2), pnlStats: totalA > 0 ? effPnl : ZERO_PNL },
+      splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: Math.round(effTotalRunners / 2), pnlStats: totalB > 0 ? effPnl : ZERO_PNL },
+    });
+  });
+}
+
+const defaultHandlers = [splitsHandler(), countriesHandler, filterBoundsHandler];
 
 const meta: Meta<typeof IndustrySpScreen> = {
   title: "Components/IndustrySpScreen",
@@ -62,9 +104,9 @@ export const Loading: Story = {
   parameters: {
     msw: {
       handlers: [
-        http.get(`${BASE}/api/industry-sp`, async () => {
+        http.get(`${BASE}/api/industry-sp/splits`, async () => {
           await new Promise(r => setTimeout(r, 99999));
-          return HttpResponse.json({ success: true, data: [], count: 0 });
+          return HttpResponse.json({ success: true });
         }),
         countriesHandler,
         filterBoundsHandler,
@@ -81,7 +123,7 @@ export const Loading: Story = {
 
 export const WithError: Story = {
   parameters: {
-    msw: { handlers: [http.get(`${BASE}/api/industry-sp`, () => HttpResponse.error()), countriesHandler, filterBoundsHandler] },
+    msw: { handlers: [http.get(`${BASE}/api/industry-sp/splits`, () => HttpResponse.error()), countriesHandler, filterBoundsHandler] },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -92,25 +134,7 @@ export const WithError: Story = {
 
 export const ZeroMatchesShowsZeroCount: Story = {
   parameters: {
-    msw: {
-      handlers: [
-        http.get(`${BASE}/api/industry-sp`, () =>
-          HttpResponse.json({
-            success: true,
-            data: [],
-            count: 0,
-            total: 0,
-            page: 1,
-            limit: 1,
-            totalPages: 0,
-            totalRunners: 0,
-            pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
-          })
-        ),
-        countriesHandler,
-        filterBoundsHandler,
-      ],
-    },
+    msw: { handlers: [splitsHandler({ totalRaces: 0, totalRunners: 0, pnlStats: ZERO_PNL }), countriesHandler, filterBoundsHandler] },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -217,7 +241,8 @@ export const DetailsButtonOpensFullBreakdown: Story = {
 
     const panel = await canvas.findByTestId("split-detail-panel-a");
     await expect(panel).toBeInTheDocument();
-    await expect(canvas.getByTestId("split-detail-row-races-a")).toHaveTextContent("2");
+    // Grand total is 2, so split A's own range (races 1-1) covers 1 race.
+    await expect(canvas.getByTestId("split-detail-row-races-a")).toHaveTextContent("1");
     await expect(canvas.getByTestId("split-detail-row-horses-a")).toHaveTextContent("4");
     await expect(canvas.getByTestId("split-detail-row-staked-a")).toHaveTextContent("£3.97");
     await expect(canvas.getByTestId("split-detail-row-return-a")).toHaveTextContent("£5.55");
@@ -271,21 +296,8 @@ export const RestrictiveFilterZeroesOutMatches: Story = {
       // Real filtering by maxInIspRange, mirroring server behavior — the flat
       // defaultHandlers ignore query params entirely, which isn't enough here.
       handlers: [
-        http.get(`${BASE}/api/industry-sp`, ({ request }) => {
-          const url = new URL(request.url);
-          const maxInIspRange = parseInt(url.searchParams.get("maxInIspRange") ?? "30");
-          const matches = maxInIspRange >= 2;
-          return HttpResponse.json({
-            success: true,
-            data: [],
-            count: 0,
-            total: matches ? 2 : 0,
-            page: 1,
-            limit: 1,
-            totalPages: matches ? 2 : 0,
-            totalRunners: matches ? 4 : 0,
-            pnlStats: matches ? { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } : { staked: 0, returns: 0, pnl: 0, count: 0 },
-          });
+        splitsHandler({
+          matchesFilter: url => parseInt(url.searchParams.get("maxInIspRange") ?? "30") >= 2,
         }),
         countriesHandler,
         filterBoundsHandler,
@@ -439,7 +451,7 @@ export const IspFilterParamsPassedToApi: Story = {
   parameters: {
     msw: {
       handlers: [
-        http.get(`${BASE}/api/industry-sp`, ({ request }) => {
+        http.get(`${BASE}/api/industry-sp/splits`, ({ request }) => {
           const url = new URL(request.url);
           capturedIspParams = {
             minIsp: url.searchParams.get("minIsp"),
@@ -447,14 +459,10 @@ export const IspFilterParamsPassedToApi: Story = {
           };
           return HttpResponse.json({
             success: true,
-            data: [],
-            count: 0,
-            total: 2,
-            page: 1,
-            limit: 1,
-            totalPages: 2,
+            totalRaces: 2,
             totalRunners: 4,
-            pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 },
+            splitA: { fromRow: 1, toRow: 1, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+            splitB: { fromRow: 2, toRow: null, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
           });
         }),
         countriesHandler,

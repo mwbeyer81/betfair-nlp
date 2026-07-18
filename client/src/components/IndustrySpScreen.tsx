@@ -55,12 +55,6 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   raceB: "The second split — defaults to the later half. Check whether the same filters are still profitable here before trusting them.",
 };
 
-// This screen only needs the aggregate totals (totalRaces/totalRunners/
-// pnlStats) for the PnL cards and the Race filters' bound hints — it no
-// longer renders the race list itself, so there's no need to fetch a full
-// page of race data on every filter change.
-const AGGREGATE_ONLY_LIMIT = 1;
-
 const EMPTY_PNL: PnlStats = { staked: 0, returns: 0, pnl: 0 };
 
 export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
@@ -236,55 +230,46 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       setIsLoading(true);
       setError(null);
       try {
-        // Phase 1: the grand total matching every filter except the row
-        // range — needed both for the bound hints and (the first time
-        // through, or after Reset) to compute an even 50/50 split.
-        const totalResult = await chatApi.getIndustrySp(1, AGGREGATE_ONLY_LIMIT, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, "asc", minRunnersInRange, maxRunnersInRange, 1, undefined);
+        // One request for the grand total + both splits — see
+        // chatApi.getIndustrySpSplits / the backend's getSplitStats for
+        // why this used to be 3 separate concurrent requests (each risking
+        // its own Lambda cold start / Atlas M0 connection contention) and
+        // isn't anymore. Omitting fromRowA/toRowA/fromRowB/toRowB lets the
+        // backend compute the even first-half/second-half default itself.
+        const isDefault = splitsAreDefaultRef.current;
+        const result = await chatApi.getIndustrySpSplits(
+          minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, minRunnersInRange, maxRunnersInRange,
+          isDefault ? undefined : fromRowA,
+          isDefault ? undefined : (toRowA ?? undefined),
+          isDefault ? undefined : fromRowB,
+          isDefault ? undefined : (toRowB ?? undefined)
+        );
         if (cancelled) return;
-        const grandTotal = totalResult.total;
-        setTotalRaces(grandTotal);
-        setTotalRunners(totalResult.totalRunners);
 
-        let effFromA = fromRowA;
-        let effToA = toRowA;
-        let effFromB = fromRowB;
-        let effToB = toRowB;
+        setTotalRaces(result.totalRaces);
+        setTotalRunners(result.totalRunners);
 
-        if (splitsAreDefaultRef.current) {
-          const half = Math.floor(grandTotal / 2);
-          effFromA = 1;
-          effToA = half;
-          effFromB = half + 1;
-          effToB = null;
-          setFromRowA(effFromA);
-          setToRowA(effToA);
-          setFromRowB(effFromB);
-          setToRowB(effToB);
-        }
+        setFromRowA(result.splitA.fromRow);
+        setToRowA(result.splitA.toRow);
+        setFromRowB(result.splitB.fromRow);
+        setToRowB(result.splitB.toRow);
 
-        // Keep the draft boxes in sync with whatever range is actually being
+        // Keep the draft boxes in sync with whatever range was actually
         // queried — including filling in an open-ended ("no cap") upper
-        // bound with the current grand total, so a box never shows a stale
-        // placeholder value (e.g. when a bookmarked URL set fromRowA/fromRowB
-        // explicitly but left the upper bound uncapped).
-        setDraftFromA(String(effFromA));
-        setDraftToA(String(effToA ?? grandTotal));
-        setDraftFromB(String(effFromB));
-        setDraftToB(String(effToB ?? grandTotal));
+        // bound with the grand total, so a box never shows a stale
+        // placeholder value (e.g. when a bookmarked URL set fromRowA/
+        // fromRowB explicitly but left the upper bound uncapped).
+        setDraftFromA(String(result.splitA.fromRow));
+        setDraftToA(String(result.splitA.toRow ?? result.totalRaces));
+        setDraftFromB(String(result.splitB.fromRow));
+        setDraftToB(String(result.splitB.toRow ?? result.totalRaces));
 
-        // Phase 2: each split's own aggregate — fetched in parallel since
-        // they're independent of each other.
-        const [resultA, resultB] = await Promise.all([
-          chatApi.getIndustrySp(1, AGGREGATE_ONLY_LIMIT, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, "asc", minRunnersInRange, maxRunnersInRange, effFromA, effToA ?? undefined),
-          chatApi.getIndustrySp(1, AGGREGATE_ONLY_LIMIT, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, "asc", minRunnersInRange, maxRunnersInRange, effFromB, effToB ?? undefined),
-        ]);
-        if (cancelled) return;
-        setTotalRacesA(resultA.total);
-        setTotalRunnersA(resultA.totalRunners);
-        setPnlStatsA(resultA.pnlStats ?? EMPTY_PNL);
-        setTotalRacesB(resultB.total);
-        setTotalRunnersB(resultB.totalRunners);
-        setPnlStatsB(resultB.pnlStats ?? EMPTY_PNL);
+        setTotalRacesA(result.splitA.total);
+        setTotalRunnersA(result.splitA.totalRunners);
+        setPnlStatsA(result.splitA.pnlStats ?? EMPTY_PNL);
+        setTotalRacesB(result.splitB.total);
+        setTotalRunnersB(result.splitB.totalRunners);
+        setPnlStatsB(result.splitB.pnlStats ?? EMPTY_PNL);
       } catch {
         if (!cancelled) setError("Failed to load industry SP");
       } finally {

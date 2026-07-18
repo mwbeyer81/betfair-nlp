@@ -103,6 +103,22 @@ export interface IspPage {
   pnlStats: PnlStats;
 }
 
+export interface IspSplitResult {
+  fromRow: number;
+  toRow: number | null;
+  total: number;
+  totalRunners: number;
+  pnlStats: PnlStats;
+}
+
+export interface IspSplitsResponse {
+  success: boolean;
+  totalRaces: number;
+  totalRunners: number;
+  splitA: IspSplitResult;
+  splitB: IspSplitResult;
+}
+
 export interface MarketDefinitionDoc {
   _id: string;
   changeId: string;
@@ -259,6 +275,50 @@ class ChatApi {
       { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch industry SP");
+    return response.json();
+  }
+
+  // Combines the grand-total + Race A + Race B requests the /isp home page
+  // always needs into one round trip — see getSplitStats on the backend
+  // for why (was 3 separate concurrent requests, each risking its own
+  // Lambda cold start / Atlas M0 connection contention, plus the browser
+  // had to wait a full round trip to learn the grand total before it even
+  // knew what split boundaries to ask for).
+  //
+  // fromRowA/toRowA/fromRowB/toRowB are all optional — omit all four to
+  // let the backend compute an even first-half/second-half default split
+  // from the grand total.
+  async getIndustrySpSplits(
+    minRunners = 1,
+    maxRunners = 30,
+    countries: string[] = [],
+    minIsp = 1,
+    maxIsp = 1000,
+    minInIspRange = 1,
+    maxInIspRange = 10000,
+    fromRowA?: number,
+    toRowA?: number,
+    fromRowB?: number,
+    toRowB?: number
+  ): Promise<IspSplitsResponse> {
+    const params = new URLSearchParams({
+      minRunners: String(minRunners),
+      maxRunners: String(maxRunners),
+      minIsp: String(minIsp),
+      maxIsp: String(maxIsp),
+      minInIspRange: String(minInIspRange),
+      maxInIspRange: String(maxInIspRange),
+    });
+    if (countries.length > 0) params.set("countries", countries.join(","));
+    if (fromRowA != null) params.set("fromRowA", String(fromRowA));
+    if (toRowA != null) params.set("toRowA", String(toRowA));
+    if (fromRowB != null) params.set("fromRowB", String(fromRowB));
+    if (toRowB != null) params.set("toRowB", String(toRowB));
+    const response = await fetch(
+      `${this.baseUrl}/api/industry-sp/splits?${params}`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch industry SP splits");
     return response.json();
   }
 

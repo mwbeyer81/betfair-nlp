@@ -629,6 +629,53 @@ describe("API Endpoints", () => {
     });
   });
 
+  describe("GET /api/industry-sp/splits", () => {
+    it("returns success with totalRaces/totalRunners and both splits", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body).toHaveProperty("totalRaces");
+      expect(response.body).toHaveProperty("totalRunners");
+      for (const split of ["splitA", "splitB"]) {
+        expect(response.body[split]).toHaveProperty("fromRow");
+        expect(response.body[split]).toHaveProperty("toRow");
+        expect(response.body[split]).toHaveProperty("total");
+        expect(response.body[split]).toHaveProperty("totalRunners");
+        expect(response.body[split].pnlStats).toHaveProperty("staked");
+        expect(response.body[split].pnlStats).toHaveProperty("returns");
+        expect(response.body[split].pnlStats).toHaveProperty("pnl");
+      }
+    });
+
+    it("splitA defaults to fromRow 1 when no explicit range is given", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.splitA.fromRow).toBe(1);
+    });
+
+    it("accepts explicit fromRowA/toRowA/fromRowB/toRowB", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?fromRowA=1&toRowA=5&fromRowB=6")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.splitA.fromRow).toBe(1);
+      expect(response.body.splitA.toRow).toBe(5);
+      expect(response.body.splitB.fromRow).toBe(6);
+      expect(response.body.splitB.toRow).toBeNull();
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/industry-sp/splits").expect(401);
+    });
+  });
+
   describe("GET /api/industry-sp/pnl-stats", () => {
     it("returns success with staked, returns, pnl", async () => {
       const response = await request(app)
