@@ -257,7 +257,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number): Promise<IspPage> {
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -272,6 +272,8 @@ class ChatApi {
     });
     if (countries.length > 0) params.set("countries", countries.join(","));
     if (toRow != null) params.set("toRow", String(toRow));
+    if (minDate) params.set("minDate", minDate);
+    if (maxDate) params.set("maxDate", maxDate);
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp?${params}`,
       { headers: this.authHeader() }
@@ -305,7 +307,9 @@ class ChatApi {
     fromRowA?: number,
     toRowA?: number,
     fromRowB?: number,
-    toRowB?: number
+    toRowB?: number,
+    minDate?: string,
+    maxDate?: string
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -320,6 +324,8 @@ class ChatApi {
     if (toRowA != null) params.set("toRowA", String(toRowA));
     if (fromRowB != null) params.set("fromRowB", String(fromRowB));
     if (toRowB != null) params.set("toRowB", String(toRowB));
+    if (minDate) params.set("minDate", minDate);
+    if (maxDate) params.set("maxDate", maxDate);
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
       { headers: this.authHeader() }

@@ -22,6 +22,11 @@ export function urlFloatParam(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+export function urlStringParam(name: string, fallback: string): string {
+  const raw = getUrlSearchParams()?.get(name);
+  return raw != null && raw !== "" ? raw : fallback;
+}
+
 export function urlToRowParam(paramName: string = "toRow"): number | null {
   const raw = getUrlSearchParams()?.get(paramName);
   if (raw == null) return null;

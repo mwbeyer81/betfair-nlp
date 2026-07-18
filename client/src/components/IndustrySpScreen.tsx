@@ -23,6 +23,7 @@ import { formatPnl, formatPct } from "../utils/ispFormat";
 import {
   urlIntParam,
   urlFloatParam,
+  urlStringParam,
   urlToRowParam,
   urlCountriesParam,
   urlHasParam,
@@ -39,6 +40,16 @@ interface IndustrySpScreenProps {
 // carried over to the races screen, or survive a refresh. Only non-default
 // values are written, so the URL stays clean (just "/isp") until the user
 // actually changes something.
+// minDate/maxDate default to calendar year 2024 rather than the full
+// dataset (races go back to 2015) — the full dataset's aggregations are
+// expensive enough on Atlas M0's shared, throughput-throttled free tier
+// that even a single warm, uncontended query costs ~2.5s server-side, and
+// that's before accounting for the extra latency variance under
+// concurrent load. Restricting the *default* view to a much smaller date
+// window (one year instead of eleven) directly shrinks the matched-race
+// count for the query MongoDB actually has to run, rather than just
+// avoiding self-inflicted request concurrency the way the /splits
+// combining fix did. Widen or move the window any time via Apply.
 const FILTER_DEFAULTS = {
   minRunners: 1,
   maxRunners: 20,
@@ -46,15 +57,29 @@ const FILTER_DEFAULTS = {
   maxIsp: 1000,
   minInIspRange: 1,
   maxInIspRange: 30,
+  minDate: "2024-01-01",
+  maxDate: "2024-12-31",
 };
+
+// Loose client-side guardrails for the date inputs — not round-tripped
+// from the backend (unlike filterBounds' numeric limits) to avoid adding
+// another query to the already-optimized /splits critical path for a
+// slow-changing value. The real dataset's earliest date may be later than
+// this; an overly generous lower bound just means a query that matches
+// nothing, not an error.
+const ABSOLUTE_MIN_DATE = "2015-01-01";
+const ABSOLUTE_MAX_DATE = "2026-12-31";
 
 const FILTER_TOOLTIPS: Record<string, string> = {
   isp: "Only show races where the runner's official starting price (ISP) falls in this range.",
   runners: "Only show races with this many total runners taking part.",
   inIsp: "Only show races with this many runners priced inside the ISP range above, out of the full field.",
+  date: "Only show races in this date range (YYYY-MM-DD). Defaults to 2024 to keep the default load fast — widen it any time.",
   raceA: "The first split of races — defaults to the earlier half of the matching races, so you can test a filter combination here first.",
   raceB: "The second split — defaults to the later half. Check whether the same filters are still profitable here before trusting them.",
 };
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const EMPTY_PNL: PnlStats = { staked: 0, returns: 0, pnl: 0 };
 
@@ -70,12 +95,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [draftMaxIsp, setDraftMaxIsp] = useState(() => String(urlFloatParam("maxIsp", FILTER_DEFAULTS.maxIsp)));
   const [draftMinRIR, setDraftMinRIR] = useState(() => String(urlIntParam("minInIspRange", FILTER_DEFAULTS.minInIspRange)));
   const [draftMaxRIR, setDraftMaxRIR] = useState(() => String(urlIntParam("maxInIspRange", FILTER_DEFAULTS.maxInIspRange)));
+  const [draftMinDate, setDraftMinDate] = useState(() => urlStringParam("minDate", FILTER_DEFAULTS.minDate));
+  const [draftMaxDate, setDraftMaxDate] = useState(() => urlStringParam("maxDate", FILTER_DEFAULTS.maxDate));
   const [minRunners, setMinRunners] = useState(() => urlIntParam("minRunners", FILTER_DEFAULTS.minRunners));
   const [maxRunners, setMaxRunners] = useState(() => urlIntParam("maxRunners", FILTER_DEFAULTS.maxRunners));
   const [minIsp, setMinIsp] = useState(() => urlFloatParam("minIsp", FILTER_DEFAULTS.minIsp));
   const [maxIsp, setMaxIsp] = useState(() => urlFloatParam("maxIsp", FILTER_DEFAULTS.maxIsp));
   const [minRunnersInRange, setMinRunnersInRange] = useState(() => urlIntParam("minInIspRange", FILTER_DEFAULTS.minInIspRange));
   const [maxRunnersInRange, setMaxRunnersInRange] = useState(() => urlIntParam("maxInIspRange", FILTER_DEFAULTS.maxInIspRange));
+  const [minDate, setMinDate] = useState(() => urlStringParam("minDate", FILTER_DEFAULTS.minDate));
+  const [maxDate, setMaxDate] = useState(() => urlStringParam("maxDate", FILTER_DEFAULTS.maxDate));
   const [selectedCountries, setSelectedCountries] = useState<Set<string>>(() => urlCountriesParam());
   const [availableCountries, setAvailableCountries] = useState<string[]>([]);
   const [fetchTrigger, setFetchTrigger] = useState(0);
@@ -139,6 +168,18 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMinRunnersInRange(minRIR);
     setMaxRunnersInRange(maxRIR);
 
+    // Malformed input (wrong shape, or min after max) falls back to the
+    // full absolute range rather than silently keeping the last-applied
+    // value — clearer to the user than a filter that looks applied but
+    // quietly didn't change.
+    const dMin = DATE_RE.test(draftMinDate) ? draftMinDate : ABSOLUTE_MIN_DATE;
+    const dMaxRaw = DATE_RE.test(draftMaxDate) ? draftMaxDate : ABSOLUTE_MAX_DATE;
+    const dMax = dMaxRaw < dMin ? dMin : dMaxRaw;
+    setDraftMinDate(dMin);
+    setDraftMaxDate(dMax);
+    setMinDate(dMin);
+    setMaxDate(dMax);
+
     // Once the user applies filters explicitly, the two race splits are no
     // longer auto-derived from the total — whatever's in the two Race boxes
     // (even if it's still the auto-filled 50/50 default) becomes the
@@ -177,6 +218,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMaxRunnersInRange(FILTER_DEFAULTS.maxInIspRange);
     setDraftMinRIR(String(FILTER_DEFAULTS.minInIspRange));
     setDraftMaxRIR(String(FILTER_DEFAULTS.maxInIspRange));
+    setMinDate(FILTER_DEFAULTS.minDate);
+    setMaxDate(FILTER_DEFAULTS.maxDate);
+    setDraftMinDate(FILTER_DEFAULTS.minDate);
+    setDraftMaxDate(FILTER_DEFAULTS.maxDate);
     setSelectedCountries(new Set());
 
     // Hand the two race splits back to auto (even first-half/second-half)
@@ -247,6 +292,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         maxIsp: maxIsp !== FILTER_DEFAULTS.maxIsp ? String(maxIsp) : undefined,
         minInIspRange: minRunnersInRange !== FILTER_DEFAULTS.minInIspRange ? String(minRunnersInRange) : undefined,
         maxInIspRange: maxRunnersInRange !== FILTER_DEFAULTS.maxInIspRange ? String(maxRunnersInRange) : undefined,
+        minDate: minDate !== FILTER_DEFAULTS.minDate ? minDate : undefined,
+        maxDate: maxDate !== FILTER_DEFAULTS.maxDate ? maxDate : undefined,
         countries: selectedCountries.size > 0 ? [...selectedCountries].sort().join(",") : undefined,
         // Only write the split boundaries once the user has explicitly
         // applied a custom split — writing the auto-computed default here
@@ -268,7 +315,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       const isDefault = splitsAreDefaultRef.current;
       const cacheKey = buildSplitsCacheKey({
         minRunners, maxRunners, countries: [...selectedCountries], minIsp, maxIsp,
-        minRunnersInRange, maxRunnersInRange, isDefault, fromRowA, toRowA, fromRowB, toRowB,
+        minRunnersInRange, maxRunnersInRange, minDate, maxDate, isDefault, fromRowA, toRowA, fromRowB, toRowB,
       });
 
       // fetchTrigger only ever increments via Apply/Reset — anything else
@@ -301,7 +348,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           isDefault ? undefined : fromRowA,
           isDefault ? undefined : (toRowA ?? undefined),
           isDefault ? undefined : fromRowB,
-          isDefault ? undefined : (toRowB ?? undefined)
+          isDefault ? undefined : (toRowB ?? undefined),
+          minDate,
+          maxDate
         );
         if (cancelled) return;
         applyResult(result);
@@ -355,13 +404,15 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     maxLength: number;
     hint?: string | null;
     hintTestId?: string;
+    inputWidth?: number;
   }) {
     const {
       filterKey, label, labelTestId,
       minValue, onMinChange, minTestId,
       maxValue, onMaxChange, maxTestId,
-      keyboardType, maxLength, hint, hintTestId,
+      keyboardType, maxLength, hint, hintTestId, inputWidth,
     } = opts;
+    const inputStyle = inputWidth != null ? [styles.gridInput, { width: inputWidth }] : styles.gridInput;
     return (
       <View
         key={filterKey}
@@ -374,7 +425,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </View>
         <RNTextInput
           testID={minTestId}
-          style={styles.gridInput}
+          style={inputStyle}
           value={minValue}
           onChangeText={onMinChange}
           keyboardType={keyboardType}
@@ -383,7 +434,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         <Text style={styles.filterGridDash}>–</Text>
         <RNTextInput
           testID={maxTestId}
-          style={styles.gridInput}
+          style={inputStyle}
           value={maxValue}
           onChangeText={onMaxChange}
           keyboardType={keyboardType}
@@ -546,6 +597,19 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           maxLength: 3,
           hint: filterBounds != null ? `/${filterBounds.maxRunnersPerRace}` : null,
           hintTestId: "industry-sp-max-rir-bound",
+        })}
+        {renderFilterRow({
+          filterKey: "date",
+          label: "Date",
+          minValue: draftMinDate,
+          onMinChange: setDraftMinDate,
+          minTestId: "industry-sp-min-date",
+          maxValue: draftMaxDate,
+          onMaxChange: setDraftMaxDate,
+          maxTestId: "industry-sp-max-date",
+          keyboardType: "default",
+          maxLength: 10,
+          inputWidth: 100,
         })}
         {renderFilterRow({
           filterKey: "raceA",

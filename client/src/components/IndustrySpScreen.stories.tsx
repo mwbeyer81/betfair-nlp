@@ -343,6 +343,7 @@ export const RestrictiveFilterZeroesOutMatches: Story = {
 };
 
 let capturedIspParams: { minIsp: string | null; maxIsp: string | null } = { minIsp: null, maxIsp: null };
+let capturedDateParams: { minDate: string | null; maxDate: string | null } = { minDate: null, maxDate: null };
 
 export const FilterRowsAreGridAligned: Story = {
   play: async ({ canvasElement }) => {
@@ -617,5 +618,62 @@ export const RaceBoundsDisplayedForBothSplits: Story = {
     const boundB = await canvas.findByTestId("industry-sp-race-bound-b");
     await expect(boundA).toHaveTextContent("/2");
     await expect(boundB).toHaveTextContent("/2");
+  },
+};
+
+export const DateFilterDefaultsToCurrentYear: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+    const minDate = canvas.getByTestId("industry-sp-min-date");
+    const maxDate = canvas.getByTestId("industry-sp-max-date");
+    await expect(minDate).toHaveValue("2024-01-01");
+    await expect(maxDate).toHaveValue("2024-12-31");
+  },
+};
+
+export const ApplyingACustomDateRangeSendsItToTheApi: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp/splits`, ({ request }) => {
+          const url = new URL(request.url);
+          capturedDateParams = {
+            minDate: url.searchParams.get("minDate"),
+            maxDate: url.searchParams.get("maxDate"),
+          };
+          return HttpResponse.json({
+            success: true,
+            totalRaces: 2,
+            totalRunners: 4,
+            filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+            countries: ["GB", "IE"],
+            splitA: { fromRow: 1, toRow: 1, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+            splitB: { fromRow: 2, toRow: null, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+          });
+        }),
+        countriesHandler,
+        filterBoundsHandler,
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+
+    const minDate = canvas.getByTestId("industry-sp-min-date");
+    const maxDate = canvas.getByTestId("industry-sp-max-date");
+    await userEvent.clear(minDate);
+    await userEvent.type(minDate, "2023-01-01");
+    await userEvent.clear(maxDate);
+    await userEvent.type(maxDate, "2023-06-30");
+
+    capturedDateParams = { minDate: null, maxDate: null };
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
+
+    await waitFor(() => {
+      expect(capturedDateParams.minDate).toBe("2023-01-01");
+      expect(capturedDateParams.maxDate).toBe("2023-06-30");
+    }, { timeout: 3000 });
   },
 };

@@ -210,6 +210,47 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     // filters when navigating to the races screen.
     expect(page.url()).toContain("maxInIspRange=2");
   });
+
+  test("date filter defaults to 2024-01-01 – 2024-12-31 and stays out of the URL at that default", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-min-date")).toHaveValue("2024-01-01");
+    await expect(page.getByTestId("industry-sp-max-date")).toHaveValue("2024-12-31");
+    expect(page.url()).not.toContain("minDate");
+    expect(page.url()).not.toContain("maxDate");
+  });
+
+  test("applying a custom date range writes minDate/maxDate to the URL and the /splits request", async ({ page }) => {
+    const splitsRequests: string[] = [];
+    page.on("request", (req) => {
+      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
+    });
+
+    await page.getByTestId("industry-sp-min-date").fill("2023-01-01");
+    await page.getByTestId("industry-sp-max-date").fill("2023-06-30");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    expect(page.url()).toContain("minDate=2023-01-01");
+    expect(page.url()).toContain("maxDate=2023-06-30");
+    const lastRequest = splitsRequests[splitsRequests.length - 1];
+    expect(lastRequest).toContain("minDate=2023-01-01");
+    expect(lastRequest).toContain("maxDate=2023-06-30");
+  });
+
+  test("Reset restores the date range to the 2024 default and clears it from the URL", async ({ page }) => {
+    await page.getByTestId("industry-sp-min-date").fill("2023-01-01");
+    await page.getByTestId("industry-sp-max-date").fill("2023-06-30");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("minDate=2023-01-01");
+
+    await page.getByTestId("industry-sp-filter-reset").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("industry-sp-min-date")).toHaveValue("2024-01-01");
+    await expect(page.getByTestId("industry-sp-max-date")).toHaveValue("2024-12-31");
+    expect(page.url()).not.toContain("minDate");
+    expect(page.url()).not.toContain("maxDate");
+  });
 });
 
 test.describe("Industry SP races screen (MSW mocked)", () => {
