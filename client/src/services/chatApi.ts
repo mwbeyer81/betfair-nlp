@@ -115,6 +115,8 @@ export interface IspSplitsResponse {
   success: boolean;
   totalRaces: number;
   totalRunners: number;
+  filterBounds: IspFilterBounds;
+  countries: string[];
   splitA: IspSplitResult;
   splitB: IspSplitResult;
 }
@@ -278,12 +280,16 @@ class ChatApi {
     return response.json();
   }
 
-  // Combines the grand-total + Race A + Race B requests the /isp home page
-  // always needs into one round trip — see getSplitStats on the backend
-  // for why (was 3 separate concurrent requests, each risking its own
-  // Lambda cold start / Atlas M0 connection contention, plus the browser
-  // had to wait a full round trip to learn the grand total before it even
-  // knew what split boundaries to ask for).
+  // Combines every request the /isp home page needs on first load — grand
+  // total, Race A + Race B splits, filter bounds, country list — into one
+  // round trip. See getSplitStats on the backend for why: up to 5 separate
+  // concurrent requests each risked their own Lambda cold start, and worse,
+  // all hammered Atlas M0's limited concurrent-connection throughput at
+  // once (confirmed via CloudWatch: individual invocations spiking to
+  // 20-30s, some hitting the hard 30s timeout, specifically under
+  // concurrent load). Collapsing to one invocation also means the browser
+  // no longer waits a full round trip to learn the grand total before it
+  // even knows what split boundaries to ask for.
   //
   // fromRowA/toRowA/fromRowB/toRowB are all optional — omit all four to
   // let the backend compute an even first-half/second-half default split

@@ -195,16 +195,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   }
 
   useEffect(() => {
-    chatApi.getIspCountries().then(setAvailableCountries).catch(() => {});
-    chatApi.getIspFilterBounds().then(setFilterBounds).catch(() => {});
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
 
     function applyResult(result: CachedSplitsResult) {
       setTotalRaces(result.totalRaces);
       setTotalRunners(result.totalRunners);
+      setFilterBounds(result.filterBounds);
+      setAvailableCountries(result.countries);
 
       setFromRowA(result.splitA.fromRow);
       setToRowA(result.splitA.toRow);

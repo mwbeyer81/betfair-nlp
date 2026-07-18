@@ -74,6 +74,12 @@ function splitsHandler(opts?: {
       success: true,
       totalRaces: effTotalRaces,
       totalRunners: effTotalRunners,
+      // Rides along on this same response now (see getSplitStats on the
+      // backend) — mirrors filterBoundsHandler/countriesHandler below,
+      // which stay defined for the few stories/tests that still hit those
+      // standalone endpoints directly.
+      filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+      countries: ["GB", "IE"],
       splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: Math.round(effTotalRunners / 2), pnlStats: totalA > 0 ? effPnl : ZERO_PNL },
       splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: Math.round(effTotalRunners / 2), pnlStats: totalB > 0 ? effPnl : ZERO_PNL },
     });
@@ -479,6 +485,8 @@ export const IspFilterParamsPassedToApi: Story = {
             success: true,
             totalRaces: 2,
             totalRunners: 4,
+            filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+            countries: ["GB", "IE"],
             splitA: { fromRow: 1, toRow: 1, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
             splitB: { fromRow: 2, toRow: null, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
           });

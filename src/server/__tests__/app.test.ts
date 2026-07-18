@@ -639,6 +639,13 @@ describe("API Endpoints", () => {
       expect(response.body).toHaveProperty("success", true);
       expect(response.body).toHaveProperty("totalRaces");
       expect(response.body).toHaveProperty("totalRunners");
+      // filterBounds/countries ride along on this same response now — see
+      // getSplitStats — so /isp's first load only needs one Lambda
+      // invocation instead of up to three concurrent ones.
+      expect(response.body.filterBounds).toHaveProperty("maxRunnersPerRace");
+      expect(response.body.filterBounds).toHaveProperty("minIsp");
+      expect(response.body.filterBounds).toHaveProperty("maxIsp");
+      expect(Array.isArray(response.body.countries)).toBe(true);
       for (const split of ["splitA", "splitB"]) {
         expect(response.body[split]).toHaveProperty("fromRow");
         expect(response.body[split]).toHaveProperty("toRow");

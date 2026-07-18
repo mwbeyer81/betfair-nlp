@@ -56,20 +56,27 @@ export class IndustrySpService {
     return this.industrySpDAO.getFilterBounds();
   }
 
-  // Combines the three requests the /isp home page always needs (grand
-  // total, Race A split, Race B split) into one backend round trip. These
-  // used to be three separate HTTP requests fired concurrently from the
-  // browser — under real load that meant AWS Lambda spinning up multiple
-  // separate execution environments (each paying its own cold-start +
-  // fresh MongoDB connection setup against Atlas M0's already-limited
-  // throughput) to serve them in parallel, plus the browser had to wait
-  // for the grand-total round trip to finish before it even knew the
-  // default split boundaries to ask for. Smoke-tested live: Lambda
-  // `Duration` for these queries varied wildly (500ms-2.7s) in a pattern
-  // consistent with connection/throughput contention, not query cost.
-  // Running all three from one already-warm Lambda invocation, over the
-  // one already-open MongoDB connection, removes both the extra
-  // cold-starts and the extra round trip.
+  // Combines every request the /isp home page always needs on first load
+  // (grand total, Race A split, Race B split, filter bounds, country list)
+  // into one backend round trip. The three split-related queries used to
+  // be their own HTTP requests, and filter-bounds/countries were (and
+  // still can be, via their own standalone endpoints below) two more on
+  // top — five separate concurrent Lambda invocations on a cold page load
+  // in the worst case. Under real concurrent load that meant AWS Lambda
+  // spinning up multiple separate execution environments (each paying its
+  // own cold-start + fresh MongoDB connection setup) all hammering Atlas
+  // M0's already-limited throughput at once — confirmed via CloudWatch:
+  // individual `getSplitStats` invocations spiking to 20-30s (some hitting
+  // the hard 30s Lambda timeout outright) specifically during bursts of
+  // concurrent requests against the cluster, not in isolation (a single
+  // warm, uncontended call consistently lands in ~2-2.5s). Running
+  // everything from one already-warm Lambda invocation, over the one
+  // already-open MongoDB connection, removes the extra cold-starts *and*
+  // collapses concurrent-connection pressure on Atlas M0 down to a single
+  // client per page load — the actual lever here, since M0's ceiling is
+  // concurrent throughput, not any single query's cost (more `Promise.all`
+  // parallelism without reducing invocation count would only add to that
+  // pressure, not relieve it).
   public async getSplitStats(
     minRunners = 1,
     maxRunners = 30,
@@ -85,6 +92,8 @@ export class IndustrySpService {
   ): Promise<{
     totalRaces: number;
     totalRunners: number;
+    filterBounds: IspFilterBounds;
+    countries: string[];
     splitA: {
       fromRow: number;
       toRow: number | null;
@@ -100,9 +109,16 @@ export class IndustrySpService {
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
     };
   }> {
-    const grand = await this.industrySpDAO.getAllRacesByRace(
-      1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null
-    );
+    // filterBounds/countryCodes are independent of every filter param and
+    // of the grand total — run them alongside it rather than after, so
+    // they don't add a sequential hop on top of the grand→splits dependency.
+    const [grand, filterBounds, countryCodes] = await Promise.all([
+      this.industrySpDAO.getAllRacesByRace(
+        1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null
+      ),
+      this.industrySpDAO.getFilterBounds(),
+      this.industrySpDAO.getDistinctCountryCodes(),
+    ]);
 
     // Splits default to an even first-half/second-half of the grand total
     // whenever the caller doesn't pin down explicit boundaries (a fresh
@@ -134,6 +150,8 @@ export class IndustrySpService {
     return {
       totalRaces: grand.total,
       totalRunners: grand.totalRunners,
+      filterBounds,
+      countries: countryCodes,
       splitA: { fromRow: effFromA, toRow: effToA, total: resultA.total, totalRunners: resultA.totalRunners, pnlStats: resultA.pnlStats },
       splitB: { fromRow: effFromB, toRow: effToB, total: resultB.total, totalRunners: resultB.totalRunners, pnlStats: resultB.pnlStats },
     };

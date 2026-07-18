@@ -299,9 +299,9 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const result = await industrySpService.getSplitStats(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB
     );
-    // Smoke-tested live: even combined into one request and warm (no cold
+    // Smoke-tested live: combined into one request and warm (no cold
     // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
-    // query latency for the three underlying aggregations, not something
+    // query latency for the underlying aggregations, not something
     // combining requests or indexing can shave further without a cluster
     // tier change. The dataset only changes on a manual reseed, so a short
     // cache still meaningfully helps the common case (reloading /isp, or

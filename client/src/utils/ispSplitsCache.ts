@@ -1,4 +1,4 @@
-import { PnlStats } from "../services/chatApi";
+import { PnlStats, IspFilterBounds } from "../services/chatApi";
 
 // Caches the /isp home page's aggregate result (grand total + both splits)
 // in sessionStorage, keyed by the exact filter/split combination that
@@ -20,6 +20,13 @@ export interface CachedSplitResult {
 export interface CachedSplitsResult {
   totalRaces: number;
   totalRunners: number;
+  // filterBounds/countries ride along on the same /splits response (see
+  // getSplitStats on the backend) so a cache hit can populate the whole
+  // screen — including the filter panel's controls — without a second
+  // request. They're effectively static (only change on a manual reseed),
+  // so there's no correctness cost to serving them straight from cache.
+  filterBounds: IspFilterBounds;
+  countries: string[];
   splitA: CachedSplitResult;
   splitB: CachedSplitResult;
 }

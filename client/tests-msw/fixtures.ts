@@ -240,6 +240,12 @@ async function setupApiMocks(page: Page) {
         success: true,
         totalRaces,
         totalRunners: matches ? 3 : 0,
+        // filterBounds/countries ride along on this response now (see
+        // getSplitStats on the backend) — mirrors the standalone
+        // /filter-bounds and /countries mocks above so IndustrySpScreen's
+        // filter panel still populates without those separate requests.
+        filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+        countries: ["GB", "IE"],
         splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: totalA > 0 ? 3 : 0, pnlStats: totalA > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 } },
         splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: totalB > 0 ? 3 : 0, pnlStats: totalB > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 } },
       },
