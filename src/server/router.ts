@@ -295,6 +295,18 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const result = await industrySpService.getSplitStats(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB
     );
+    // Smoke-tested live: even combined into one request and warm (no cold
+    // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
+    // query latency for the three underlying aggregations, not something
+    // combining requests or indexing can shave further without a cluster
+    // tier change. The dataset only changes on a manual reseed, so a short
+    // cache still meaningfully helps the common case (reloading /isp, or
+    // returning to the default view after tweaking filters back) without
+    // risking real staleness. Shorter than filter-bounds/countries' 1hr
+    // cache since split PnL figures feel more like "live" numbers to a
+    // user than a static bound — 60s is enough to smooth out a browsing
+    // session's repeat loads of the same filter combination.
+    res.set("Cache-Control", "public, max-age=60");
     res.status(200).json({ success: true, ...result });
   } catch (error) {
     console.error("getSplitStats error:", error);
