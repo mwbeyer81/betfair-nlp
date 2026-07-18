@@ -278,3 +278,65 @@ which route calls in). Verified: DAO/service integration tests, 2 new live
 e2e regression tests, and confirmed live in an actual browser via the
 exact triggering URL shape (screenshot-verified: split card renders "No
 races match this split" instead of the error state).
+
+---
+
+## 2026-07-18 — Agent in `/home/ubuntu/betfair-nlp` (branch `develop`) — session cache for `/isp`, Details "← Filters" button
+
+User report: tapping "Filters" (navigating `/isp/races` → `/isp` via the
+back button) re-ran the full `/api/industry-sp/splits` fetch every time,
+which is slow. Root cause and fix, shipped as `06dabf8`:
+
+**Fix 1 — sessionStorage cache for the `/isp` aggregate.** New
+`client/src/utils/ispSplitsCache.ts` caches the splits result (grand total
++ both A/B splits) in `sessionStorage`, keyed by the full filter/split
+combination (`buildSplitsCacheKey`) with an `isDefault` sentinel so an
+auto-computed default split gets its own cache bucket rather than being
+pinned to a row range that goes stale as the dataset grows. `fetchTrigger`
+(a monotonic counter, 0 at mount, incremented only by Apply/Reset) gates
+the cache check — `fetchTrigger === 0` means "this is a remount, not an
+explicit user action," so only mounts/remounts read the cache; Apply and
+Reset always bypass it and fetch fresh. This is deliberately scoped to
+just the `/isp` home page's aggregate — the paginated races list on
+`/isp/races` still always fetches fresh, unchanged.
+
+**Fix 2 — a real (if narrow) race condition, found while testing Fix 1.**
+`IndustrySpScreen.tsx` used to have two separate effects: one that fetched
+and set state, and a second reactive `useEffect` that watched that state
+and wrote it to the URL via `history.replaceState`. These don't
+necessarily land in the same commit — a fast click on "View Races"
+(trivial for Playwright, and not impossible for a fast human click) could
+read `window.location.search` in the gap between "loading became false"
+and "the URL-sync effect actually ran," silently dropping the just-applied
+split row params from the URL. Fixed by deleting that second effect and
+writing the URL synchronously (`syncUrl()`) right inside the fetch
+effect's own cache-hit/network-success branches, off the just-fetched
+`result` object rather than React state. **If you touch this fetch effect
+again: keep state-setting and URL-writing in the same synchronous block —
+splitting them back into separate effects reopens this exact race.**
+
+**Fix 3 — `SplitDetailPanel` had no "← Filters" affordance,** only a
+generic "X" close icon — inconsistent with the "← Filters" pattern already
+used on `IspRacesScreen`. Replaced with an explicit `← Filters` button
+(`testID="split-detail-panel-filters-{id}"`); the `onClose` prop is
+unchanged, just relabeled at the call site.
+
+**Storybook gotcha:** stories that mount `IndustrySpScreen` mostly share
+the same default filter args, so a cache entry written by one story leaked
+into the next one's mount via Storybook's preview iframe retaining
+`sessionStorage` across story navigations (not a fresh page load per
+story). Fixed with a global `loaders` entry in `.storybook/preview.tsx`
+that clears `sessionStorage` before every story — needed for any future
+`sessionStorage`/`localStorage`-caching feature in this app too, not just
+this one.
+
+**Verification:** MSW suite (`tests-msw/industry-sp.spec.ts`, 33/34 pass —
+the 1 failure is the pre-existing unrelated "sort=asc on initial load"
+flake), Storybook interaction tests (`IndustrySpScreen.stories.tsx` +
+`SplitDetailPanel.stories.tsx` both fully pass), and a new
+`tests-live/industry-sp-live.spec.ts` run directly against
+`app.backbet.co.uk` (local dev backend on :3000 is still down per the
+credential loss noted earlier in this file) — confirms live that
+returning via "← Filters" fires zero new `/splits` requests and completes
+in under 2s, the Details panel's "← Filters" button works, and Apply still
+always fetches fresh.
