@@ -240,3 +240,41 @@ e2e.spec.ts`) can't currently run locally — it targets `localhost:3000`,
 which is still down from the credential loss noted earlier in this file
 (MONGODB_URI/JWT_SECRET). All verification for these two commits was done
 directly against the deployed app.backbet.co.uk instead.
+
+---
+
+## 2026-07-18 07:20 UTC — same agent, "Failed to load industry SP" crash
+
+User hit this live shortly after the perf work above shipped. Root cause:
+an inverted row range (`fromRow > toRow`) makes `rowLimit = toRow - fromRow
++ 1` go negative in `getAllRacesByRace` — MongoDB's `$limit` stage throws
+outright on a negative argument (`MongoServerError` code 5107201) rather
+than just matching nothing. Confirmed via CloudWatch and reproduced with
+`/api/industry-sp/splits?fromRowA=100&toRowA=5&fromRowB=1`.
+
+**Reachable from a stale/hand-edited/bookmarked URL** — `fromRowA`/
+`toRowA`/`fromRowB`/`toRowB` (and the legacy endpoint's `fromRow`/`toRow`)
+come straight from query params. `/api/industry-sp` already had its own
+protection (router clamps `toRow` up to `fromRow` before it reaches the
+DAO) — `/api/industry-sp/splits` didn't replicate that clamp, which is why
+this was reachable there specifically. Fixed on `develop` (`ccf2dc4`):
+
+- `getAllRacesByRace` (shared by both endpoints) now short-circuits an
+  inverted range to an empty result instead of ever building the negative
+  `$limit`, and clamps `fromRow < 1` too (same crash class, via `$skip`).
+- Router-level clamp added to `/splits`' fromRowA/toRowA/fromRowB/toRowB
+  as a first line of defense, matching `/api/industry-sp`'s existing
+  pattern (though the two endpoints now handle the edge case differently —
+  `/api/industry-sp` clamps toRow *up* to fromRow, `/splits` treats it as
+  *empty* — both are crash-free, this wasn't worth reconciling into one
+  behavior since neither is "more correct" and changing the legacy
+  endpoint's longstanding behavior was the riskier option).
+
+**If you're adding query-param-driven endpoints:** don't assume
+`Math.max(1, x)` alone is enough sanitization for a from/to pair — validate
+`to >= from` too (or, like `getAllRacesByRace` now does, treat an inverted
+pair as legitimately empty at the DAO level so it's covered regardless of
+which route calls in). Verified: DAO/service integration tests, 2 new live
+e2e regression tests, and confirmed live in an actual browser via the
+exact triggering URL shape (screenshot-verified: split card renders "No
+races match this split" instead of the error state).
