@@ -68,4 +68,17 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     expect(filtered.totalRaces).toBeLessThanOrEqual(unfiltered.totalRaces);
     expect(filtered.splitA.total + filtered.splitB.total).toBe(filtered.totalRaces);
   });
+
+  it("an inverted split range (toRowA < fromRowA) returns an empty split instead of throwing", async () => {
+    // Regression test: reported live as "Failed to load industry SP" on
+    // the /isp home page — a stale/hand-edited URL with fromRowA > toRowA
+    // used to 500 the whole request (MongoServerError on a negative
+    // $limit). Verifies the fix holds through the service composition
+    // layer, not just the underlying DAO call directly.
+    const result = await service.getSplitStats(1, 100, [], 1, 1000, 1, 10000, 100, 5, 1, null);
+    expect(result.splitA.total).toBe(0);
+    expect(result.splitA.pnlStats).toEqual({ staked: 0, returns: 0, pnl: 0, count: 0 });
+    // Split B is unaffected — an inverted A shouldn't poison B.
+    expect(result.splitB.total).toBeGreaterThan(0);
+  });
 });

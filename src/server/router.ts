@@ -283,14 +283,18 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     // Omitting fromRowA/toRowA/fromRowB/toRowB entirely (not just leaving
     // them at "1"/unset) is what tells the service to compute the default
     // 50/50 split itself — see getSplitStats.
+    // Clamped to >= 1 here (matching /api/industry-sp's fromRow handling)
+    // as the first line of defense against a stale/hand-edited URL; the
+    // DAO also clamps independently since it's the shared source of truth
+    // for both this endpoint and /api/industry-sp — see getAllRacesByRace.
     const fromRowARaw = parseInt(req.query.fromRowA as string);
     const toRowARaw = parseInt(req.query.toRowA as string);
     const fromRowBRaw = parseInt(req.query.fromRowB as string);
     const toRowBRaw = parseInt(req.query.toRowB as string);
-    const fromRowA = isNaN(fromRowARaw) ? null : fromRowARaw;
-    const toRowA = isNaN(toRowARaw) ? null : toRowARaw;
-    const fromRowB = isNaN(fromRowBRaw) ? null : fromRowBRaw;
-    const toRowB = isNaN(toRowBRaw) ? null : toRowBRaw;
+    const fromRowA = isNaN(fromRowARaw) ? null : Math.max(1, fromRowARaw);
+    const toRowA = isNaN(toRowARaw) ? null : Math.max(1, toRowARaw);
+    const fromRowB = isNaN(fromRowBRaw) ? null : Math.max(1, fromRowBRaw);
+    const toRowB = isNaN(toRowBRaw) ? null : Math.max(1, toRowBRaw);
 
     const result = await industrySpService.getSplitStats(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB

@@ -62,7 +62,7 @@ export class IndustrySpDAO {
     sortOrder: "asc" | "desc" = "asc",
     minInIspRange = 1,
     maxInIspRange = 1000,
-    fromRow = 1,
+    fromRowRaw = 1,
     toRow: number | null = null
   ): Promise<{
     data: IspRace[];
@@ -70,6 +70,25 @@ export class IndustrySpDAO {
     totalRunners: number;
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
   }> {
+    // fromRow < 1 would make rowSkip negative below — another shape
+    // MongoDB's $skip rejects outright, same class of bug as the inverted
+    // range guard just below. Clamping here (rather than trusting every
+    // caller to have already validated it) is defense in depth: this
+    // method's fromRow/toRow can originate from raw, unvalidated query
+    // params (see the router) or a stale/hand-edited URL.
+    const fromRow = Math.max(1, fromRowRaw);
+
+    // An inverted range (toRow < fromRow) has no matching rows by
+    // definition — short-circuit to an empty result instead of letting
+    // rowLimit go negative below. A negative $limit isn't just "wrong",
+    // it's a hard MongoDB error (code 5107201, "invalid argument to
+    // $limit stage"), which surfaced live as a 500 / "Failed to load
+    // industry SP" whenever a stale or hand-edited fromRow/toRow (or
+    // fromRowA/toRowA — see getSplitStats, which calls this) reached here.
+    if (toRow !== null && toRow < fromRow) {
+      return { data: [], total: 0, totalRunners: 0, pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 } };
+    }
+
     const countryMatch = countries.length > 0 ? { countryCode: { $in: countries } } : {};
     const raceTimeSortDir = sortOrder === "desc" ? -1 : 1;
 

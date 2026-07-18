@@ -155,4 +155,28 @@ describe("IndustrySpDAO (integration)", () => {
     expect(bounds.minIsp).toBeGreaterThan(1);
     expect(bounds.maxIsp).toBeGreaterThan(bounds.minIsp);
   });
+
+  it("an inverted range (toRow < fromRow) returns an empty result instead of throwing", async () => {
+    // Regression test: reported live as "Failed to load industry SP".
+    // rowLimit = toRow - fromRow + 1 goes negative for an inverted range,
+    // and MongoDB's $limit stage throws outright on a negative argument
+    // (MongoServerError code 5107201) rather than just returning nothing.
+    // Reachable from a stale/hand-edited URL — fromRow/toRow (and
+    // fromRowA/toRowA via getSplitStats) come straight from query params.
+    const result = await dao.getAllRacesByRace(1, 20, 1, 100, [], 1, 100000, "asc", 1, 10000, 100, 5);
+    expect(result.total).toBe(0);
+    expect(result.totalRunners).toBe(0);
+    expect(result.data).toEqual([]);
+    expect(result.pnlStats).toEqual({ staked: 0, returns: 0, pnl: 0, count: 0 });
+  });
+
+  it("fromRow=0 or negative is clamped to 1 instead of producing a negative $skip", async () => {
+    const zeroFromRow = await dao.getAllRacesByRace(1, 5, 1, 100, [], 1, 100000, "asc", 1, 10000, 0);
+    const explicitFromRowOne = await dao.getAllRacesByRace(1, 5, 1, 100, [], 1, 100000, "asc", 1, 10000, 1);
+    expect(zeroFromRow.total).toBe(explicitFromRowOne.total);
+    expect(zeroFromRow.data.map(r => r.raceId)).toEqual(explicitFromRowOne.data.map(r => r.raceId));
+
+    const negativeFromRow = await dao.getAllRacesByRace(1, 5, 1, 100, [], 1, 100000, "asc", 1, 10000, -50);
+    expect(negativeFromRow.total).toBe(explicitFromRowOne.total);
+  });
 });

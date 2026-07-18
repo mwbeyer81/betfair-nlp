@@ -134,6 +134,40 @@ test.describe("GET /api/industry-sp/splits (live server @ localhost:3000)", () =
     const res = await request.get(`${API_URL}/api/industry-sp/splits`);
     expect(res.status()).toBe(401);
   });
+
+  test("an inverted range (fromRow > toRow) returns an empty split instead of a 500", async ({ request }) => {
+    // Regression test: reported live as "Failed to load industry SP" on
+    // the home page. Root cause: rowLimit = toRow - fromRow + 1 goes
+    // negative for an inverted range, and MongoDB's $limit stage rejects
+    // negative arguments outright (MongoServerError code 5107201) — this
+    // reached prod via a URL with fromRowA=100&toRowA=5, but the same
+    // shape is reachable any time a stale/hand-edited/bookmarked URL
+    // carries a fromRow bigger than its toRow. An inverted range has no
+    // matching rows by definition, so the correct behavior is an empty
+    // result, not a crash.
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp/splits?fromRowA=100&toRowA=5&fromRowB=1`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.splitA.total).toBe(0);
+  });
+
+  test("an inverted range on the legacy /api/industry-sp endpoint also returns empty, not a 500", async ({ request }) => {
+    // getAllRacesByRace (shared by /api/industry-sp and getSplitStats) is
+    // the actual source of the bug above — cover it directly too.
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp?fromRow=100&toRow=5`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.total).toBe(0);
+    expect(body.data).toEqual([]);
+  });
 });
 
 test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
