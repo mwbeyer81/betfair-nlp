@@ -232,6 +232,26 @@ router.get("/api/runners", async (req, res) => {
   }
 });
 
+// minDate/maxDate arrive as plain "YYYY-MM-DD" strings; raceTime is a
+// full ISO datetime string ("2024-03-05T14:01:00"). Lexicographic
+// comparison means a bare date already behaves as an inclusive
+// start-of-day lower bound ("2024-03-05" sorts before any same-day
+// datetime), but the same trick makes it an *exclusive* upper bound (any
+// same-day datetime sorts after the bare date) — so maxDate needs an
+// end-of-day time appended to actually include that whole day.
+function parseDateRangeParams(
+  minDateRaw: unknown,
+  maxDateRaw: unknown
+): { minRaceTime: string | null; maxRaceTime: string | null } {
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const minDate = typeof minDateRaw === "string" && DATE_RE.test(minDateRaw) ? minDateRaw : null;
+  const maxDate = typeof maxDateRaw === "string" && DATE_RE.test(maxDateRaw) ? maxDateRaw : null;
+  return {
+    minRaceTime: minDate,
+    maxRaceTime: maxDate ? `${maxDate}T23:59:59.999` : null,
+  };
+}
+
 router.get("/api/industry-sp/pnl-stats", async (_req, res) => {
   try {
     if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
@@ -295,9 +315,11 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const toRowA = isNaN(toRowARaw) ? null : Math.max(1, toRowARaw);
     const fromRowB = isNaN(fromRowBRaw) ? null : Math.max(1, fromRowBRaw);
     const toRowB = isNaN(toRowBRaw) ? null : Math.max(1, toRowBRaw);
+    const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
 
     const result = await industrySpService.getSplitStats(
-      minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB
+      minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
+      minRaceTime, maxRaceTime
     );
     // Smoke-tested live: combined into one request and warm (no cold
     // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
@@ -334,7 +356,8 @@ router.get("/api/industry-sp", async (req, res) => {
     const fromRow = Math.max(1, parseInt(req.query.fromRow as string) || 1);
     const toRowRaw = parseInt(req.query.toRow as string);
     const toRow: number | null = isNaN(toRowRaw) ? null : Math.max(fromRow, toRowRaw);
-    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow);
+    const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
+    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime);
     res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
   } catch (error) {
     console.error("getAllRacesByRace error:", error);

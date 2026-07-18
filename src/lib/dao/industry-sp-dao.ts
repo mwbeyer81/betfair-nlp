@@ -63,7 +63,9 @@ export class IndustrySpDAO {
     minInIspRange = 1,
     maxInIspRange = 1000,
     fromRowRaw = 1,
-    toRow: number | null = null
+    toRow: number | null = null,
+    minRaceTime: string | null = null,
+    maxRaceTime: string | null = null
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -91,6 +93,29 @@ export class IndustrySpDAO {
 
     const countryMatch = countries.length > 0 ? { countryCode: { $in: countries } } : {};
     const raceTimeSortDir = sortOrder === "desc" ? -1 : 1;
+
+    // Narrows the matched set by calendar date *before* anything else in
+    // the pipeline (including the row-range $sort below) — raceTime is a
+    // plain ISO string, so lexicographic $gte/$lte comparison matches
+    // chronological order. Leading with this on the same field the
+    // row-range $sort also uses lets MongoDB serve both from one bounded
+    // walk of the {raceTime:1} index (the same shape as
+    // find({raceTime:{$gte,$lte}}).sort({raceTime:1})) instead of two
+    // separate operations — so this doesn't reintroduce the blocking-sort
+    // risk the leading-$sort-must-be-first fix above was written to avoid.
+    const dateMatchStage: Record<string, unknown>[] =
+      minRaceTime != null || maxRaceTime != null
+        ? [
+            {
+              $match: {
+                raceTime: {
+                  ...(minRaceTime != null ? { $gte: minRaceTime } : {}),
+                  ...(maxRaceTime != null ? { $lte: maxRaceTime } : {}),
+                },
+              },
+            },
+          ]
+        : [];
 
     const rowSkip = fromRow - 1;
     const rowLimit = toRow !== null ? toRow - fromRow + 1 : null;
@@ -170,6 +195,7 @@ export class IndustrySpDAO {
     // what used to be a $filter/$size scan over every race's embedded
     // runners array on every single request.
     const basePipeline = [
+      ...dateMatchStage,
       ...leadingSortStage,
       {
         $match: {

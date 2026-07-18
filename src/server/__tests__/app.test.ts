@@ -552,6 +552,15 @@ describe("API Endpoints", () => {
       await request(app).get("/api/industry-sp").expect(401);
     });
 
+    it("accepts minDate/maxDate without erroring", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?minDate=2024-01-01&maxDate=2024-12-31")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+    });
+
     it("count equals data.length", async () => {
       const response = await request(app)
         .get("/api/industry-sp")
@@ -676,6 +685,24 @@ describe("API Endpoints", () => {
       expect(response.body.splitA.toRow).toBe(5);
       expect(response.body.splitB.fromRow).toBe(6);
       expect(response.body.splitB.toRow).toBeNull();
+    });
+
+    it("accepts minDate/maxDate without erroring", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?minDate=2024-01-01&maxDate=2024-12-31")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+    });
+
+    it("ignores a malformed minDate/maxDate instead of erroring", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?minDate=not-a-date&maxDate=2024/12/31")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
     });
 
     it("returns 401 without auth", async () => {

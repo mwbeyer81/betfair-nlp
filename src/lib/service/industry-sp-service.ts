@@ -29,7 +29,9 @@ export class IndustrySpService {
     minInIspRange = 1,
     maxInIspRange = 1000,
     fromRow = 1,
-    toRow: number | null = null
+    toRow: number | null = null,
+    minRaceTime: string | null = null,
+    maxRaceTime: string | null = null
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -48,7 +50,9 @@ export class IndustrySpService {
       minInIspRange,
       maxInIspRange,
       fromRow,
-      toRow
+      toRow,
+      minRaceTime,
+      maxRaceTime
     );
   }
 
@@ -88,7 +92,9 @@ export class IndustrySpService {
     fromRowA: number | null = null,
     toRowA: number | null = null,
     fromRowB: number | null = null,
-    toRowB: number | null = null
+    toRowB: number | null = null,
+    minRaceTime: string | null = null,
+    maxRaceTime: string | null = null
   ): Promise<{
     totalRaces: number;
     totalRunners: number;
@@ -114,8 +120,14 @@ export class IndustrySpService {
     // they don't add a sequential hop on top of the grand→splits dependency.
     const [grand, filterBounds, countryCodes] = await Promise.all([
       this.industrySpDAO.getAllRacesByRace(
-        1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null
+        1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null,
+        minRaceTime, maxRaceTime
       ),
+      // Deliberately dataset-global, not date-scoped — these are slider/
+      // dropdown bounds (available countries, runner/ISP ranges), and
+      // narrowing them to the current date window would make e.g. a
+      // country only present outside that window silently disappear from
+      // the picker instead of just returning zero matches once selected.
       this.industrySpDAO.getFilterBounds(),
       this.industrySpDAO.getDistinctCountryCodes(),
     ]);
@@ -140,10 +152,12 @@ export class IndustrySpService {
 
     const [resultA, resultB] = await Promise.all([
       this.industrySpDAO.getAllRacesByRace(
-        1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromA, effToA
+        1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromA, effToA,
+        minRaceTime, maxRaceTime
       ),
       this.industrySpDAO.getAllRacesByRace(
-        1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromB, effToB
+        1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromB, effToB,
+        minRaceTime, maxRaceTime
       ),
     ]);
 
