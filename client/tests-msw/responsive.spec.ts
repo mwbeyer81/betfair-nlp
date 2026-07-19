@@ -192,12 +192,12 @@ test.describe("Responsive layout — /isp filters screen (MSW mocked, iPhone 12 
     await expect(page.getByTestId("industry-sp-filter-apply")).toBeVisible();
   });
 
-  test("header buttons ('← Events') fit within the viewport", async ({ page }) => {
-    const eventsBtn = page.getByTestId("industry-sp-screen-events-button");
-    await expect(eventsBtn).toBeVisible();
+  test("header buttons ('Log Out') fit within the viewport", async ({ page }) => {
+    const logoutBtn = page.getByTestId("industry-sp-logout-button");
+    await expect(logoutBtn).toBeVisible();
 
-    const eventsBox = await eventsBtn.boundingBox();
-    expect(eventsBox!.x + eventsBox!.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
+    const logoutBox = await logoutBtn.boundingBox();
+    expect(logoutBox!.x + logoutBox!.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
   });
 });
 

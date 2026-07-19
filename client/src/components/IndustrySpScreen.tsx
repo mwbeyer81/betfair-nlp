@@ -37,7 +37,9 @@ import {
 } from "../utils/ispUrlParams";
 
 interface IndustrySpScreenProps {
-  onNavigateToEvents: () => void;
+  isAuthenticated: boolean;
+  onRequestAuth: () => void;
+  onLogout: () => void;
   onViewRaces: (fromRow: number, toRow: number | null) => void;
 }
 
@@ -109,6 +111,12 @@ function addOneMonth(dateStr: string): string {
 
 const EMPTY_PNL: PnlStats = { staked: 0, returns: 0, pnl: 0 };
 
+// Mirrors the authenticated cap enforced server-side in
+// IndustrySpService.getSplitStats — used only for the cap banner's copy,
+// not for any request logic (the actual cap always comes from the
+// response's own `raceCap` field).
+const AUTHENTICATED_RACE_CAP = 1000;
+
 // An explicit split's fromRowB can only be valid if the matched set is
 // actually that large — anything beyond totalRaces is unambiguously stale
 // (computed against a different, larger total than the one currently in
@@ -118,7 +126,9 @@ function isStaleSplit(splitBFromRow: number, totalRaces: number): boolean {
 }
 
 export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
-  onNavigateToEvents,
+  isAuthenticated,
+  onRequestAuth,
+  onLogout,
   onViewRaces,
 }) => {
   const { isDesktop } = useResponsive();
@@ -180,6 +190,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
+  // 100 for an anonymous caller, 1000 once logged in — see
+  // IndustrySpService.getSplitStats. Drives the cap banner below.
+  const [raceCap, setRaceCap] = useState(1000);
   const [filterBounds, setFilterBounds] = useState<IspFilterBounds | null>(null);
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
@@ -369,6 +382,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       setHasLoadedOnce(true);
       setTotalRaces(result.totalRaces);
       setTotalRunners(result.totalRunners);
+      setRaceCap(result.raceCap);
       setFilterBounds(result.filterBounds);
       setAvailableCountries(result.countries);
       setAvailableCourses(result.courses);
@@ -460,7 +474,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         minRunnersInRange, maxRunnersInRange, minDate, maxDate, isDefault, fromRowA, toRowA, fromRowB, toRowB,
         courses: [...selectedCourses], goings: [...selectedGoings],
         raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
-        trainerSearch, jockeySearch,
+        trainerSearch, jockeySearch, isAuthenticated,
       });
 
       // fetchTrigger only ever increments via Apply/Reset — anything else
@@ -833,17 +847,43 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         >
           {filtersVisible ? "Hide filters ▾" : "Show filters ▸"}
         </Button>
-        <Button
-          testID="industry-sp-screen-events-button"
-          mode="contained"
-          compact
-          buttonColor={colors.accent}
-          onPress={onNavigateToEvents}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          ← Events
-        </Button>
+        {isAuthenticated ? (
+          <Button
+            testID="industry-sp-logout-button"
+            mode="contained"
+            compact
+            buttonColor={colors.accent}
+            onPress={onLogout}
+            style={styles.headerButton}
+            labelStyle={styles.headerButtonLabel}
+          >
+            Log Out
+          </Button>
+        ) : (
+          <>
+            <Button
+              testID="industry-sp-login-button"
+              mode="outlined"
+              compact
+              onPress={onRequestAuth}
+              style={styles.headerToggleButton}
+              labelStyle={styles.headerToggleButtonLabel}
+            >
+              Log In
+            </Button>
+            <Button
+              testID="industry-sp-signup-button"
+              mode="contained"
+              compact
+              buttonColor={colors.accent}
+              onPress={onRequestAuth}
+              style={styles.headerButton}
+              labelStyle={styles.headerButtonLabel}
+            >
+              Sign Up
+            </Button>
+          </>
+        )}
       </Appbar.Header>
 
       {/*
@@ -1038,6 +1078,24 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           </Button>
         </View>
       </View>
+      )}
+
+      {!isAuthenticated && hasLoadedOnce && totalRaces > raceCap && (
+        <View testID="industry-sp-cap-banner" style={styles.capBanner}>
+          <Text variant="bodyMedium" style={styles.capBannerText}>
+            Showing {raceCap} of {totalRaces} races — Sign up to unlock {AUTHENTICATED_RACE_CAP}
+          </Text>
+          <Button
+            testID="industry-sp-cap-banner-signup"
+            mode="contained"
+            compact
+            buttonColor={colors.accent}
+            onPress={onRequestAuth}
+            labelStyle={styles.headerButtonLabel}
+          >
+            Sign Up
+          </Button>
+        </View>
       )}
 
       <View
@@ -1468,5 +1526,22 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.danger,
     fontSize: 16,
+  },
+  capBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    backgroundColor: "#FEF3C7",
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+  },
+  capBannerText: {
+    color: colors.warning,
+    fontWeight: "600",
+    flexShrink: 1,
   },
 });

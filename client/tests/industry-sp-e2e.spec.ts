@@ -320,14 +320,12 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     expect(parseInt(fromA, 10)).toBe(1);
   });
 
-  test("← Events button navigates back to /events", async ({ page }) => {
+  test("logged-in home page shows Log Out, not a link to /events", async ({ page }) => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-sp-screen-events-button").click();
-
-    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-logout-button")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-screen-events-button")).not.toBeVisible();
   });
 
   test("the grand total and both splits load from a single combined request, not three separate ones", async ({ page }) => {
@@ -947,5 +945,47 @@ test.describe("Filters visibility toggle (real app at localhost:80)", () => {
     await page.getByTestId("industry-sp-filters-toggle").click();
     await expect(page.getByTestId("industry-sp-filter-bar")).toBeVisible();
     await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Hide filters ▾");
+  });
+});
+
+test.describe("Anonymous access (real app at localhost:80, no login)", () => {
+  test("/isp loads and Apply works with no login at all", async ({ page }) => {
+    await page.goto(`${APP_URL}isp`);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    // No auth params on this URL, so this is a genuinely anonymous session.
+    await expect(page.getByTestId("auth-email-input")).not.toBeVisible();
+
+    await expect(page.getByTestId("industry-sp-signup-button")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-login-button")).toBeVisible();
+
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible();
+  });
+
+  test("Sign Up button opens a dismissible auth overlay without losing the page", async ({ page }) => {
+    await page.goto(`${APP_URL}isp`);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-signup-button").click();
+    await expect(page.getByTestId("auth-email-input")).toBeVisible();
+
+    await page.getByTestId("auth-cancel-button").click();
+    await expect(page.getByTestId("auth-email-input")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible();
+  });
+
+  test("/events, /chat, /runners still require login when anonymous", async ({ page }) => {
+    for (const path of ["events", "chat", "runners"]) {
+      await page.goto(`${APP_URL}${path}`);
+      await expect(page.getByTestId("auth-email-input")).toBeVisible({ timeout: 10000 });
+    }
+  });
+
+  test("GET /api/industry-sp/splits succeeds with no Authorization header and reports a 100-race cap", async ({ request }) => {
+    const res = await request.get(`${API_URL}/api/industry-sp/splits`);
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.raceCap).toBe(100);
   });
 });

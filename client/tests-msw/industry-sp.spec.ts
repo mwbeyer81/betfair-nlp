@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, anonTest } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 // fixtures.ts mocks 1 race (914592 Cheltenham Chase) with 3 runners (ISP 4.5, 9.2, 2.1).
@@ -176,10 +176,15 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
   });
 
-  test("← Events button navigates back to /events", async ({ page }) => {
-    await page.getByTestId("industry-sp-screen-events-button").click();
-    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
+  test("Log Out button clears the session without leaving /isp (it's public)", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-logout-button")).toBeVisible();
+    await page.getByTestId("industry-sp-logout-button").click();
+    // /isp is public — logging out doesn't navigate anywhere, it just
+    // swaps the header buttons back to Sign Up / Log In.
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-signup-button")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-login-button")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-logout-button")).not.toBeVisible();
   });
 
   test("/ (home page) shows Industry SP screen directly", async ({ page }) => {
@@ -709,5 +714,70 @@ test.describe("Odds display mode (MSW mocked, on the races screen)", () => {
     await expect(page.getByTestId("industry-race-isp-12345")).toHaveText("ISP 7/2");
     await page.getByTestId("industry-race-odds-mode-toggle").click();
     await expect(page.getByTestId("industry-race-isp-12345")).toHaveText("ISP 4.50");
+  });
+});
+
+// /isp is public — anonTest (see fixtures.ts) deliberately doesn't inject
+// an auth token, unlike every other describe block in this file.
+anonTest.describe("Industry SP filters screen — anonymous access (MSW mocked)", () => {
+  anonTest("/isp loads with no token and shows Sign Up/Log In, not a login wall", async ({ page }) => {
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("auth-email-input")).not.toBeVisible();
+
+    await expect(page.getByTestId("industry-sp-signup-button")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-login-button")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-logout-button")).not.toBeVisible();
+  });
+
+  anonTest("Sign Up button opens a dismissible auth overlay", async ({ page }) => {
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-signup-button").click();
+    await expect(page.getByTestId("auth-email-input")).toBeVisible();
+
+    await page.getByTestId("auth-cancel-button").click();
+    await expect(page.getByTestId("auth-email-input")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible();
+  });
+
+  anonTest("cap banner appears when the matched total exceeds the anonymous raceCap", async ({ page }) => {
+    await page.route((url) => url.pathname === "/api/industry-sp/splits", (route) =>
+      route.fulfill({
+        json: {
+          success: true,
+          totalRaces: 500,
+          totalRunners: 1500,
+          raceCap: 100,
+          filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+          countries: ["GB", "IE"],
+          courses: ["Cheltenham", "Ascot"],
+          goings: ["Good", "Soft"],
+          raceClasses: ["Class 1", "Class 2"],
+          raceTypes: ["Chase", "Hurdle"],
+          splitA: { fromRow: 1, toRow: 100, total: 100, totalRunners: 300, pnlStats: { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 } },
+          splitB: { fromRow: 101, toRow: 200, total: 100, totalRunners: 300, pnlStats: { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 } },
+        },
+      })
+    );
+
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    const banner = page.getByTestId("industry-sp-cap-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText("Showing 100 of 500 races");
+
+    await page.getByTestId("industry-sp-cap-banner-signup").click();
+    await expect(page.getByTestId("auth-email-input")).toBeVisible();
+  });
+
+  anonTest("/events still requires login even though /isp doesn't", async ({ page }) => {
+    await page.goto("/events");
+    await expect(page.getByTestId("auth-email-input")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("events-screen")).not.toBeVisible();
   });
 });

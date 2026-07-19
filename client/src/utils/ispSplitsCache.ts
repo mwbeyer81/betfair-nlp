@@ -20,6 +20,7 @@ export interface CachedSplitResult {
 export interface CachedSplitsResult {
   totalRaces: number;
   totalRunners: number;
+  raceCap: number;
   // filterBounds/countries ride along on the same /splits response (see
   // getSplitStats on the backend) so a cache hit can populate the whole
   // screen — including the filter panel's controls — without a second
@@ -60,6 +61,11 @@ export interface SplitsCacheParams {
   toRowA: number | null;
   fromRowB: number;
   toRowB: number | null;
+  // The anon/authenticated race cap changes what the backend actually
+  // returns for the exact same filter/split combination — without this,
+  // signing up (or logging out) mid-session could silently serve the
+  // other tier's cached result instead of re-fetching under the new cap.
+  isAuthenticated: boolean;
 }
 
 const CACHE_PREFIX = "isp-splits-cache:";
@@ -84,6 +90,7 @@ export function buildSplitsCacheKey(p: SplitsCacheParams): string {
       p.trainerSearch,
       p.jockeySearch,
       p.isDefault ? "default" : [p.fromRowA, p.toRowA, p.fromRowB, p.toRowB],
+      p.isAuthenticated,
     ])
   );
 }

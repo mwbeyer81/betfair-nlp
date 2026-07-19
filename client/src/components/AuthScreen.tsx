@@ -20,6 +20,12 @@ import { colors, radii, spacing } from "../theme";
 interface AuthScreenProps {
   onAuthenticated: () => void;
   testCredentialsFromUrl?: boolean;
+  // When set, this screen is a dismissible overlay (e.g. an anonymous user
+  // on the public /isp page opted into signing up) rather than the
+  // unconditional first screen — render a way to back out without
+  // authenticating. Omitted entirely on the routes that still require
+  // login (/events, /chat, /runners), where dismissing isn't meaningful.
+  onCancel?: () => void;
 }
 
 type AuthMode = "login" | "signup";
@@ -27,6 +33,7 @@ type AuthMode = "login" | "signup";
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   onAuthenticated,
   testCredentialsFromUrl = false,
+  onCancel,
 }) => {
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
@@ -123,6 +130,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <View style={styles.content}>
+          {onCancel && (
+            <Button
+              testID="auth-cancel-button"
+              mode="text"
+              onPress={onCancel}
+              compact
+              style={styles.cancelButton}
+            >
+              ← Continue browsing without signing up
+            </Button>
+          )}
           <View style={styles.header}>
             <Text variant="displaySmall" style={styles.title}>
               BackBet
@@ -245,6 +263,10 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     justifyContent: "center",
     paddingHorizontal: spacing.xl,
+  },
+  cancelButton: {
+    alignSelf: "flex-start",
+    marginBottom: spacing.md,
   },
   header: {
     alignItems: "center",

@@ -401,3 +401,141 @@ concurrent load is unchanged for whatever window IS queried. The Atlas
 tier upgrade (M10+) recommended in the entry above this one is still the
 only fix for that; this entry's change is strictly a "make the common
 path cheaper" complement to it, not a replacement.
+
+---
+
+## 2026-07-19 — Agent in `~/betfair-nlp-anon-isp-home` (branch `anon-isp-home`)
+
+**Task (starting):** Make `/isp` work without signup/login and become the
+app's de-facto home page (it's already the router's default/fallback —
+see `useRouter.ts` — but today `App.tsx` blocks *everything*, including
+`/isp`, behind a mandatory `AuthScreen` until authenticated). Plan:
+- New `optionalJwtAuth` middleware (`src/server/middleware.ts`) that sets
+  `res.locals.isAuthenticated` without ever 401ing.
+- Move all `/api/industry-sp*` routes in `src/server/router.ts` to run
+  *before* the blanket `router.use(jwtAuth)` gate, scoped under
+  `optionalJwtAuth` instead. Every other route (`/api/events/*`,
+  `/api/runners/*`, `/api/query`, `/api/stats`) stays gated exactly as
+  today — Events/Chat/Runners intentionally remain login-only, just
+  unlinked from the UI.
+- Cap Split A / Split B (the race-range backtest windows in
+  `IndustrySpService.getSplitStats`) at 100 races when anonymous, 1000
+  when authenticated — enforced server-side against *both* the
+  auto-computed default window and any explicit `fromRowA/toRowA/
+  fromRowB/toRowB` the caller supplies (today there's no clamp at all on
+  explicit values).
+- `App.tsx`'s auth gate becomes route-scoped (only forces `AuthScreen` for
+  `/events`, `/chat`, `/runners`); `/isp*` renders unauthenticated, with a
+  dismissible `AuthScreen` overlay reachable via new Sign Up/Log In
+  buttons on `IndustrySpScreen`'s header, plus a cap banner when
+  anonymous and the matched set exceeds 100.
+
+**Touching (per the warning at the top of this file):**
+`client/src/components/IndustrySpScreen.tsx` (props/header/banner only —
+not the filter/split-fetching logic itself), `src/server/router.ts`,
+`src/server/middleware.ts`, `src/lib/service/industry-sp-service.ts`
+(`getSplitStats` signature + default-window clamp only),
+`client/App.tsx`, `client/src/components/AuthScreen.tsx`. **Not**
+touching `src/lib/dao/industry-sp-dao.ts` or `client/src/utils/
+ispUrlParams.ts` at all — no changes needed there for this feature.
+
+Will append a completion entry below once shipped/verified.
+
+**Done — shipped, not yet merged/deployed (still on `anon-isp-home`, not
+pushed).** Plan above landed as designed, plus a few things found along
+the way:
+
+- **A behavior change beyond "add a cap":** `getSplitStats`'s default
+  split window is (since the last entry above) an even half/half divide
+  of the current total with `effToB` deliberately left `null`
+  ("unlimited, through the end"). The new `raceCap` clamp is applied as a
+  *ceiling on top of* that half/half computation (not a replacement for
+  it) — so a small filtered total still gets both splits populated the
+  way the half/half fix intended, but a large total (or an explicit
+  caller-supplied range) is now bounded to raceCap. This also closes a
+  real hole: previously an *authenticated* caller passing an explicit
+  `toRowB` of `null`/omitted got a truly unbounded window — that's now
+  capped at 1000 too, and a matching existing test
+  (`splitB.toRow` expected `null`) was updated to expect `1005`
+  (`fromRowB=6, raceCap=1000`).
+- **`/api/industry-sp` (the plain race-list endpoint used by "View
+  Races"/drill-down)** got the same `clampRowSpan` treatment for defense
+  in depth — an anonymous caller hitting it directly with a huge
+  `toRow` (bypassing `/splits` entirely) is capped the same way.
+- **`chatApi.authHeader()` bug fixed in passing:** it always sent
+  `Authorization: Bearer ${this.token}` even with no token, producing a
+  literal `"Bearer null"` string. Harmless with the old all-or-nothing
+  gate (every route needed a *real* token anyway), but with
+  `/api/industry-sp*` now public, that malformed header was landing on
+  `optionalJwtAuth` and (harmlessly, but sloppily) failing verification
+  every single anonymous request. Now returns `{}` when there's no token.
+- **sessionStorage splits cache (`ispSplitsCache.ts`) now includes
+  `isAuthenticated` in its cache key** — without this, an anonymous
+  100-race result cached under a given filter/split combo would get
+  served back after the user signs up (or vice versa) on any remount
+  that reuses the cache, since the key was otherwise identical. Known
+  remaining gap, judged acceptable: signing up via the new overlay
+  updates the header buttons/banner instantly (prop-driven), but doesn't
+  itself trigger a fresh `/splits` fetch — the user needs to hit Apply
+  (or reload) to actually see the upgraded 1000-race data. Flagging in
+  case someone wants to wire an auto-refetch on auth-transition later;
+  didn't do it here because distinguishing "just signed up" from "a
+  stored session resolving on page load" cleanly (without extra
+  unwanted fetches on every normal logged-in page load) needs a bit more
+  plumbing than seemed worth it for this pass.
+- **Storybook gotcha (new one, not the sessionStorage one from the
+  2026-07-18 entry above):** `meta.args`' `fn()` mocks are created once
+  at module load and shared by every story that doesn't override them —
+  stories asserting an exact `toHaveBeenCalledTimes(N)` on a shared arg
+  (my new `onRequestAuth`/`onLogout` stories) picked up call counts left
+  over from whichever story ran before them in file order. Fixed by
+  giving each such story its own `args: { onRequestAuth: fn() }`
+  override. **If you add a story that asserts an exact call count on a
+  meta-level `fn()` arg, give it its own fresh `fn()` in that story's own
+  `args`** — `toHaveBeenLastCalledWith` (as the existing
+  `onViewRaces` assertions already do) doesn't have this problem, only
+  exact-count assertions do.
+
+**Verified:**
+- `cd client && yarn build` — clean, no TS errors.
+- Supertest (`src/server/__tests__/app.test.ts`): 78 passed (added ~13
+  new cases for the public routes + raceCap clamping).
+- Storybook interaction tests (`IndustrySpScreen.stories.tsx`): 43/45
+  pass — the 2 failures (`ApplyingAPendingCourseChipQueriesApiAndUpdatesUrl`,
+  `ResetClearsCourseChipsSelection`) are **pre-existing and unrelated**:
+  confirmed by `git stash`-ing every file this entry touches and
+  re-running against the original code, which fails the exact same two
+  tests with the exact same error (a `[object Set]` URL-serialization bug
+  in the course chip filter, nothing to do with auth/raceCap).
+- MSW Playwright (`tests-msw/industry-sp.spec.ts`,
+  `tests-msw/navigation.spec.ts`, `tests-msw/responsive.spec.ts`, against
+  `yarn build:web`'s static `dist/`): 102/103 pass — the 1 failure
+  (`sort=asc is sent on initial load`) is the same pre-existing flake
+  already noted in this repo's CLAUDE.md/earlier entries, unrelated.
+  Added a new `anonTest` fixture (no token injected) alongside the
+  existing `test` fixture for the anonymous-access coverage.
+- Full non-integration Jest suite: same 8-suites-already-failing/35-tests
+  baseline confirmed via the same stash-and-compare approach (missing
+  `OPENAI_API_KEY`-type / `getHorsesByOdds`-not-implemented issues,
+  nothing to do with this change).
+- **Not run — no local MongoDB available in this sandbox** (no
+  `docker`/`mongod` binary, port 27019 unreachable): the DAO integration
+  tests (`industry-sp-dao.integration.test.ts`) and the service
+  integration test (`industry-sp-service.integration.test.ts`, which
+  exercises `getSplitStats` against real data). The service-layer change
+  is a new *optional trailing* `raceCap` parameter defaulting to 1000, so
+  every existing call in that integration test (none of which pass a
+  6th-from-last-ish `raceCap` arg) should behave identically to before —
+  but this is reasoning about the diff, not a real run. **Whoever next
+  has DB access should run
+  `npx jest --testPathPattern="integration" --no-coverage --runInBand`
+  before this merges.**
+- **Not run — no live server/real e2e environment in this sandbox**
+  (same `localhost:3000`/credential-loss situation noted in the
+  2026-07-18 entries above): `client/tests/industry-sp-e2e.spec.ts`. Added
+  a new "Anonymous access" describe block there (no-login `/isp` load,
+  Sign Up overlay, `/events`+`/chat`+`/runners` still gated, a live
+  `/api/industry-sp/splits` raceCap check) and fixed the one test that
+  referenced the now-removed `industry-sp-screen-events-button` testID —
+  worth a real run against `app.backbet.co.uk` or a working local
+  `localhost:3000`/`:80` before merging.

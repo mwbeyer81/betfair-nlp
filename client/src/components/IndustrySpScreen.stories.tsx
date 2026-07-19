@@ -82,10 +82,14 @@ function splitsHandler(opts?: {
   totalRunners?: number;
   pnlStats?: typeof DEFAULT_PNL;
   matchesFilter?: (url: URL) => boolean;
+  // 1000 (authenticated) by default — pass 100 to simulate the anonymous
+  // cap for stories covering the cap banner.
+  raceCap?: number;
 }) {
   const totalRaces = opts?.totalRaces ?? 2500;
   const totalRunners = opts?.totalRunners ?? 4;
   const pnlStats = opts?.pnlStats ?? DEFAULT_PNL;
+  const raceCap = opts?.raceCap ?? 1000;
   return http.get(`${BASE}/api/industry-sp/splits`, ({ request }) => {
     const url = new URL(request.url);
     const matches = opts?.matchesFilter ? opts.matchesFilter(url) : true;
@@ -127,6 +131,7 @@ function splitsHandler(opts?: {
       success: true,
       totalRaces: effTotalRaces,
       totalRunners: effTotalRunners,
+      raceCap,
       // Rides along on this same response now (see getSplitStats on the
       // backend) — mirrors filterBoundsHandler/countriesHandler below,
       // which stay defined for the few stories/tests that still hit those
@@ -153,7 +158,13 @@ const meta: Meta<typeof IndustrySpScreen> = {
     msw: { handlers: defaultHandlers },
   },
   args: {
-    onNavigateToEvents: fn(),
+    // Authenticated by default so existing stories (written before the
+    // anonymous-access cap existed) keep seeing the same "no banner, Log
+    // Out button" chrome they always have — stories specifically about
+    // the anonymous state override isAuthenticated: false below.
+    isAuthenticated: true,
+    onRequestAuth: fn(),
+    onLogout: fn(),
     onViewRaces: fn(),
   },
 };
@@ -311,14 +322,67 @@ export const DefaultSplitsAreHalfAndHalf: Story = {
   },
 };
 
-export const EventsButtonNavigates: Story = {
+export const LogOutButtonCallsOnLogout: Story = {
+  // A fresh mock, not meta.args' shared instance — args objects (and the
+  // fn() they hold) aren't re-created per story, so asserting an exact
+  // call count against the shared instance would pick up clicks from
+  // whichever other story happened to run first.
+  args: { onLogout: fn() },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
 
-    const btn = canvas.getByTestId("industry-sp-screen-events-button");
+    const btn = canvas.getByTestId("industry-sp-logout-button");
     await expect(btn).toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-signup-button")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-login-button")).not.toBeInTheDocument();
     await userEvent.click(btn);
-    await expect(args.onNavigateToEvents).toHaveBeenCalledTimes(1);
+    await expect(args.onLogout).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const AnonymousShowsSignUpAndLoginButtons: Story = {
+  args: { isAuthenticated: false, onRequestAuth: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+
+    const signUpBtn = canvas.getByTestId("industry-sp-signup-button");
+    const loginBtn = canvas.getByTestId("industry-sp-login-button");
+    await expect(signUpBtn).toBeInTheDocument();
+    await expect(loginBtn).toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-logout-button")).not.toBeInTheDocument();
+
+    await userEvent.click(signUpBtn);
+    await expect(args.onRequestAuth).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(loginBtn);
+    await expect(args.onRequestAuth).toHaveBeenCalledTimes(2);
+  },
+};
+
+export const AnonymousOverCapShowsBanner: Story = {
+  args: { isAuthenticated: false, onRequestAuth: fn() },
+  parameters: {
+    msw: { handlers: [splitsHandler({ totalRaces: 2500, raceCap: 100 }), countriesHandler, filterBoundsHandler] },
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await waitForLoaded(canvas);
+
+    const banner = await canvas.findByTestId("industry-sp-cap-banner");
+    await expect(banner).toHaveTextContent("Showing 100 of 2500 races");
+    await userEvent.click(canvas.getByTestId("industry-sp-cap-banner-signup"));
+    await expect(args.onRequestAuth).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const AuthenticatedNeverShowsBanner: Story = {
+  // isAuthenticated: true comes from meta.args — the banner is gated on
+  // !isAuthenticated first, so an authenticated view never shows it
+  // regardless of totalRaces vs raceCap.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitForLoaded(canvas);
+    await expect(canvas.queryByTestId("industry-sp-cap-banner")).not.toBeInTheDocument();
   },
 };
 

@@ -258,6 +258,9 @@ async function setupApiMocks(page: Page) {
         success: true,
         totalRaces,
         totalRunners: matches ? 3 : 0,
+        // 1000 — this fixture always mocks an authenticated session (see
+        // FAKE_JWT below), matching the real backend's authenticated cap.
+        raceCap: 1000,
         // filterBounds/countries ride along on this response now (see
         // getSplitStats on the backend) — mirrors the standalone
         // /filter-bounds and /countries mocks above so IndustrySpScreen's
@@ -291,6 +294,16 @@ export const test = base.extend({
     await page.addInitScript((token) => {
       localStorage.setItem("auth_token", token);
     }, FAKE_JWT);
+    await setupApiMocks(page);
+    await use(page);
+  },
+});
+
+// /isp is public now — this variant deliberately does NOT inject a token,
+// for tests covering the anonymous experience (cap banner, Sign Up/Log In
+// buttons, Events/Chat/Runners staying behind the login wall).
+export const anonTest = base.extend({
+  page: async ({ page }, use) => {
     await setupApiMocks(page);
     await use(page);
   },

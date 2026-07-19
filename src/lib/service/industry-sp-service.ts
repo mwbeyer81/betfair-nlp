@@ -112,10 +112,18 @@ export class IndustrySpService {
     raceClasses: string[] = [],
     raceTypes: string[] = [],
     trainerSearch: string | null = null,
-    jockeySearch: string | null = null
+    jockeySearch: string | null = null,
+    // Per-window race cap: 1000 for an authenticated caller (the
+    // longstanding default), 100 for an anonymous one. Applied to both the
+    // auto-computed default window below and any explicit
+    // fromRowA/toRowA/fromRowB/toRowB the caller supplies — an anonymous
+    // caller can't just ask for a bigger window directly, since the whole
+    // point of the cap is that it's enforced server-side.
+    raceCap = 1000
   ): Promise<{
     totalRaces: number;
     totalRunners: number;
+    raceCap: number;
     filterBounds: IspFilterBounds;
     countries: string[];
     courses: string[];
@@ -184,6 +192,20 @@ export class IndustrySpService {
       effToB = null;
     }
 
+    // raceCap is a hard ceiling on each split's window span (100 races for
+    // an anonymous caller, 1000 for an authenticated one — see the router,
+    // which decides raceCap from the request's auth state). Applied on top
+    // of the half/half default above (not instead of it), so a small
+    // filtered total still gets the "both splits populated" behavior that
+    // default computes, while a large total (or an explicit caller-supplied
+    // range) gets bounded to raceCap rather than the previous unbounded
+    // "through the end" window. An open-ended toRow (null) becomes
+    // "exactly raceCap races", not "unlimited".
+    const maxToA = effFromA + raceCap - 1;
+    effToA = effToA == null ? maxToA : Math.min(effToA, maxToA);
+    const maxToB = effFromB + raceCap - 1;
+    effToB = effToB == null ? maxToB : Math.min(effToB, maxToB);
+
     const [resultA, resultB] = await Promise.all([
       this.industrySpDAO.getAllRacesByRace(
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromA, effToA,
@@ -198,6 +220,7 @@ export class IndustrySpService {
     return {
       totalRaces: grand.total,
       totalRunners: grand.totalRunners,
+      raceCap,
       filterBounds,
       countries: countryCodes,
       courses: courseValues,

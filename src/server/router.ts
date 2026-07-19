@@ -4,7 +4,7 @@ import { BetfairService } from "../lib/service/betfair-service";
 import { IndustrySpService } from "../lib/service/industry-sp-service";
 import { AuthService, AuthError } from "../lib/service/auth-service";
 import { DatabaseConnection } from "../config/database";
-import { jwtAuth } from "./middleware";
+import { jwtAuth, optionalJwtAuth } from "./middleware";
 
 export { jwtAuth };
 
@@ -120,6 +120,257 @@ router.post("/api/auth/login", async (req, res) => {
     }
     console.error("Login failed:", error);
     return res.status(500).json({ error: "Login failed" });
+  }
+});
+
+// /api/industry-sp* is public — it's the app's anonymous-accessible home
+// page. optionalJwtAuth never blocks; it just records whether the caller
+// is authenticated (res.locals.isAuthenticated) so the route handlers
+// below can pick a 100-race (anon) vs 1000-race (authenticated) cap on
+// the Split A/Split B windows. Every other route stays behind the hard
+// `router.use(jwtAuth)` gate further down, unchanged.
+router.use("/api/industry-sp", optionalJwtAuth);
+
+// minDate/maxDate arrive as plain "YYYY-MM-DD" strings; raceTime is a
+// full ISO datetime string ("2024-03-05T14:01:00"). Lexicographic
+// comparison means a bare date already behaves as an inclusive
+// start-of-day lower bound ("2024-03-05" sorts before any same-day
+// datetime), but the same trick makes it an *exclusive* upper bound (any
+// same-day datetime sorts after the bare date) — so maxDate needs an
+// end-of-day time appended to actually include that whole day.
+function parseDateRangeParams(
+  minDateRaw: unknown,
+  maxDateRaw: unknown
+): { minRaceTime: string | null; maxRaceTime: string | null } {
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const minDate = typeof minDateRaw === "string" && DATE_RE.test(minDateRaw) ? minDateRaw : null;
+  const maxDate = typeof maxDateRaw === "string" && DATE_RE.test(maxDateRaw) ? maxDateRaw : null;
+  return {
+    minRaceTime: minDate,
+    maxRaceTime: maxDate ? `${maxDate}T23:59:59.999` : null,
+  };
+}
+
+// Same comma-joined-list convention already used for `countries`.
+function parseCsvListParam(raw: unknown): string[] {
+  return typeof raw === "string"
+    ? raw.split(",").map(v => v.trim()).filter(Boolean)
+    : [];
+}
+
+// Anonymous callers get a 100-race window on /api/industry-sp*, a
+// logged-in caller gets 1000 (see getSplitStats for the Split A/Split B
+// version of this same cap) — enforced here too since this is the plain
+// list endpoint "View Races" and the meeting/race drill-down flow hit
+// directly, with its own fromRow/toRow independent of /splits. An
+// open-ended toRow (null, "through the end") is treated as "exactly the
+// cap", not "unlimited", so the cap can't be bypassed by simply omitting
+// toRow.
+function clampRowSpan(fromRow: number, toRow: number | null, isAuth: boolean): number {
+  const cap = isAuth ? 1000 : 100;
+  const maxTo = fromRow + cap - 1;
+  return toRow == null ? maxTo : Math.min(toRow, maxTo);
+}
+
+router.get("/api/industry-sp/pnl-stats", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const pnlStats = await industrySpService.getPnlStats();
+    res.status(200).json({ success: true, data: pnlStats });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch P&L stats" });
+  }
+});
+
+router.get("/api/industry-sp/filter-bounds", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const bounds = await industrySpService.getFilterBounds();
+    // Same reasoning as /api/runners/filter-bounds above: this is one of
+    // the slowest requests on the /isp home page (smoke-tested live at
+    // ~1.5-4.5s even after removing the $unwind that used to make it much
+    // worse) and its result is identical for every caller until the next
+    // reseed — cache it so repeat page loads skip the round trip.
+    res.set("Cache-Control", "public, max-age=3600");
+    res.status(200).json({ success: true, data: bounds });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch filter bounds" });
+  }
+});
+
+router.get("/api/industry-sp/countries", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const countries = await industrySpService.getDistinctCountryCodes();
+    res.set("Cache-Control", "public, max-age=3600");
+    res.status(200).json({ success: true, data: countries });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch countries" });
+  }
+});
+
+router.get("/api/industry-sp/courses", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const courses = await industrySpService.getDistinctCourses();
+    res.set("Cache-Control", "public, max-age=3600");
+    res.status(200).json({ success: true, data: courses });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch courses" });
+  }
+});
+
+router.get("/api/industry-sp/goings", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const goings = await industrySpService.getDistinctGoings();
+    res.set("Cache-Control", "public, max-age=3600");
+    res.status(200).json({ success: true, data: goings });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch goings" });
+  }
+});
+
+router.get("/api/industry-sp/race-classes", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const raceClasses = await industrySpService.getDistinctRaceClasses();
+    res.set("Cache-Control", "public, max-age=3600");
+    res.status(200).json({ success: true, data: raceClasses });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch race classes" });
+  }
+});
+
+router.get("/api/industry-sp/race-types", async (_req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const raceTypes = await industrySpService.getDistinctRaceTypes();
+    res.set("Cache-Control", "public, max-age=3600");
+    res.status(200).json({ success: true, data: raceTypes });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch race types" });
+  }
+});
+
+router.get("/api/industry-sp/splits", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
+    const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
+    const countries = req.query.countries ? (req.query.countries as string).split(",").map(c => c.trim()).filter(Boolean) : [];
+    const minIsp = Math.max(1, parseFloat(req.query.minIsp as string) || 1);
+    const maxIsp = Math.min(100000, parseFloat(req.query.maxIsp as string) || 1000);
+    const minInIspRange = Math.max(1, parseInt(req.query.minInIspRange as string) || 1);
+    const maxInIspRange = Math.min(10000, Math.max(1, parseInt(req.query.maxInIspRange as string) || 10000));
+
+    // Omitting fromRowA/toRowA/fromRowB/toRowB entirely (not just leaving
+    // them at "1"/unset) is what tells the service to compute the default
+    // 50/50 split itself — see getSplitStats.
+    // Clamped to >= 1 here (matching /api/industry-sp's fromRow handling)
+    // as the first line of defense against a stale/hand-edited URL; the
+    // DAO also clamps independently since it's the shared source of truth
+    // for both this endpoint and /api/industry-sp — see getAllRacesByRace.
+    const fromRowARaw = parseInt(req.query.fromRowA as string);
+    const toRowARaw = parseInt(req.query.toRowA as string);
+    const fromRowBRaw = parseInt(req.query.fromRowB as string);
+    const toRowBRaw = parseInt(req.query.toRowB as string);
+    const fromRowA = isNaN(fromRowARaw) ? null : Math.max(1, fromRowARaw);
+    const toRowA = isNaN(toRowARaw) ? null : Math.max(1, toRowARaw);
+    const fromRowB = isNaN(fromRowBRaw) ? null : Math.max(1, fromRowBRaw);
+    const toRowB = isNaN(toRowBRaw) ? null : Math.max(1, toRowBRaw);
+    const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
+    const courses = parseCsvListParam(req.query.courses);
+    const goings = parseCsvListParam(req.query.goings);
+    const raceClasses = parseCsvListParam(req.query.raceClasses);
+    const raceTypes = parseCsvListParam(req.query.raceTypes);
+    const trainerSearch = typeof req.query.trainer === "string" && req.query.trainer.trim() ? req.query.trainer.trim() : null;
+    const jockeySearch = typeof req.query.jockey === "string" && req.query.jockey.trim() ? req.query.jockey.trim() : null;
+
+    // Set by optionalJwtAuth (registered on /api/industry-sp above) —
+    // decides the Split A/Split B race cap: 100 anonymous, 1000 logged in.
+    const isAuth = res.locals.isAuthenticated === true;
+    const raceCap = isAuth ? 1000 : 100;
+
+    const result = await industrySpService.getSplitStats(
+      minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
+      minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, raceCap
+    );
+    // Smoke-tested live: combined into one request and warm (no cold
+    // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
+    // query latency for the underlying aggregations, not something
+    // combining requests or indexing can shave further without a cluster
+    // tier change. The dataset only changes on a manual reseed, so a short
+    // cache still meaningfully helps the common case (reloading /isp, or
+    // returning to the default view after tweaking filters back) without
+    // risking real staleness. Shorter than filter-bounds/countries' 1hr
+    // cache since split PnL figures feel more like "live" numbers to a
+    // user than a static bound — 60s is enough to smooth out a browsing
+    // session's repeat loads of the same filter combination.
+    res.set("Cache-Control", "public, max-age=60");
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error("getSplitStats error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch split stats" });
+  }
+});
+
+router.get("/api/industry-sp", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(10000, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
+    const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
+    const countries = req.query.countries ? (req.query.countries as string).split(",").map(c => c.trim()).filter(Boolean) : [];
+    const minIsp = Math.max(1, parseFloat(req.query.minIsp as string) || 1);
+    const maxIsp = Math.min(100000, parseFloat(req.query.maxIsp as string) || 1000);
+    const sortOrder = req.query.sort === "desc" ? "desc" : "asc";
+    const minInIspRange = Math.max(1, parseInt(req.query.minInIspRange as string) || 1);
+    const maxInIspRange = Math.min(10000, Math.max(1, parseInt(req.query.maxInIspRange as string) || 10000));
+    const fromRow = Math.max(1, parseInt(req.query.fromRow as string) || 1);
+    const toRowRaw = parseInt(req.query.toRow as string);
+    const toRowRequested: number | null = isNaN(toRowRaw) ? null : Math.max(fromRow, toRowRaw);
+    // Set by optionalJwtAuth (registered on /api/industry-sp above).
+    const isAuth = res.locals.isAuthenticated === true;
+    const toRow: number | null = clampRowSpan(fromRow, toRowRequested, isAuth);
+    const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
+    const courses = parseCsvListParam(req.query.courses);
+    const goings = parseCsvListParam(req.query.goings);
+    const raceClasses = parseCsvListParam(req.query.raceClasses);
+    const raceTypes = parseCsvListParam(req.query.raceTypes);
+    const trainerSearch = typeof req.query.trainer === "string" && req.query.trainer.trim() ? req.query.trainer.trim() : null;
+    const jockeySearch = typeof req.query.jockey === "string" && req.query.jockey.trim() ? req.query.jockey.trim() : null;
+    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch);
+    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
+  } catch (error) {
+    console.error("getAllRacesByRace error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch industry SP" });
+  }
+});
+
+router.get("/api/industry-sp/meeting/:meetingId", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const data = await industrySpService.getRacesByMeetingId(req.params.meetingId);
+    res.status(200).json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error("getRacesByMeetingId error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch meeting" });
+  }
+});
+
+router.get("/api/industry-sp/race/:raceId", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const raceId = parseInt(req.params.raceId, 10);
+    if (isNaN(raceId)) return res.status(400).json({ success: false, error: "Invalid raceId" });
+    const race = await industrySpService.getRaceById(raceId);
+    if (!race) return res.status(404).json({ success: false, error: "Race not found" });
+    res.status(200).json({ success: true, data: race });
+  } catch (error) {
+    console.error("getRaceById error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch race" });
   }
 });
 
@@ -266,226 +517,6 @@ router.get("/api/runners", async (req, res) => {
   }
 });
 
-// minDate/maxDate arrive as plain "YYYY-MM-DD" strings; raceTime is a
-// full ISO datetime string ("2024-03-05T14:01:00"). Lexicographic
-// comparison means a bare date already behaves as an inclusive
-// start-of-day lower bound ("2024-03-05" sorts before any same-day
-// datetime), but the same trick makes it an *exclusive* upper bound (any
-// same-day datetime sorts after the bare date) — so maxDate needs an
-// end-of-day time appended to actually include that whole day.
-function parseDateRangeParams(
-  minDateRaw: unknown,
-  maxDateRaw: unknown
-): { minRaceTime: string | null; maxRaceTime: string | null } {
-  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-  const minDate = typeof minDateRaw === "string" && DATE_RE.test(minDateRaw) ? minDateRaw : null;
-  const maxDate = typeof maxDateRaw === "string" && DATE_RE.test(maxDateRaw) ? maxDateRaw : null;
-  return {
-    minRaceTime: minDate,
-    maxRaceTime: maxDate ? `${maxDate}T23:59:59.999` : null,
-  };
-}
-
-// Same comma-joined-list convention already used for `countries`.
-function parseCsvListParam(raw: unknown): string[] {
-  return typeof raw === "string"
-    ? raw.split(",").map(v => v.trim()).filter(Boolean)
-    : [];
-}
-
-router.get("/api/industry-sp/pnl-stats", async (_req, res) => {
-  try {
-    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const pnlStats = await industrySpService.getPnlStats();
-    res.status(200).json({ success: true, data: pnlStats });
-  } catch (error) {
-    res.status(500).json({ success: false, error: "Failed to fetch P&L stats" });
-  }
-});
-
-router.get("/api/industry-sp/filter-bounds", async (_req, res) => {
-  try {
-    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const bounds = await industrySpService.getFilterBounds();
-    // Same reasoning as /api/runners/filter-bounds above: this is one of
-    // the slowest requests on the /isp home page (smoke-tested live at
-    // ~1.5-4.5s even after removing the $unwind that used to make it much
-    // worse) and its result is identical for every caller until the next
-    // reseed — cache it so repeat page loads skip the round trip.
-    res.set("Cache-Control", "public, max-age=3600");
-    res.status(200).json({ success: true, data: bounds });
-  } catch (error) {
-    res.status(500).json({ success: false, error: "Failed to fetch filter bounds" });
-  }
-});
-
-router.get("/api/industry-sp/countries", async (_req, res) => {
-  try {
-    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const countries = await industrySpService.getDistinctCountryCodes();
-    res.set("Cache-Control", "public, max-age=3600");
-    res.status(200).json({ success: true, data: countries });
-  } catch (error) {
-    res.status(500).json({ success: false, error: "Failed to fetch countries" });
-  }
-});
-
-router.get("/api/industry-sp/courses", async (_req, res) => {
-  try {
-    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const courses = await industrySpService.getDistinctCourses();
-    res.set("Cache-Control", "public, max-age=3600");
-    res.status(200).json({ success: true, data: courses });
-  } catch (error) {
-    res.status(500).json({ success: false, error: "Failed to fetch courses" });
-  }
-});
-
-router.get("/api/industry-sp/goings", async (_req, res) => {
-  try {
-    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const goings = await industrySpService.getDistinctGoings();
-    res.set("Cache-Control", "public, max-age=3600");
-    res.status(200).json({ success: true, data: goings });
-  } catch (error) {
-    res.status(500).json({ success: false, error: "Failed to fetch goings" });
-  }
-});
-
-router.get("/api/industry-sp/race-classes", async (_req, res) => {
-  try {
-    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const raceClasses = await industrySpService.getDistinctRaceClasses();
-    res.set("Cache-Control", "public, max-age=3600");
-    res.status(200).json({ success: true, data: raceClasses });
-  } catch (error) {
-    res.status(500).json({ success: false, error: "Failed to fetch race classes" });
-  }
-});
-
-router.get("/api/industry-sp/race-types", async (_req, res) => {
-  try {
-    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const raceTypes = await industrySpService.getDistinctRaceTypes();
-    res.set("Cache-Control", "public, max-age=3600");
-    res.status(200).json({ success: true, data: raceTypes });
-  } catch (error) {
-    res.status(500).json({ success: false, error: "Failed to fetch race types" });
-  }
-});
-
-router.get("/api/industry-sp/splits", async (req, res) => {
-  try {
-    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
-    const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
-    const countries = req.query.countries ? (req.query.countries as string).split(",").map(c => c.trim()).filter(Boolean) : [];
-    const minIsp = Math.max(1, parseFloat(req.query.minIsp as string) || 1);
-    const maxIsp = Math.min(100000, parseFloat(req.query.maxIsp as string) || 1000);
-    const minInIspRange = Math.max(1, parseInt(req.query.minInIspRange as string) || 1);
-    const maxInIspRange = Math.min(10000, Math.max(1, parseInt(req.query.maxInIspRange as string) || 10000));
-
-    // Omitting fromRowA/toRowA/fromRowB/toRowB entirely (not just leaving
-    // them at "1"/unset) is what tells the service to compute the default
-    // 50/50 split itself — see getSplitStats.
-    // Clamped to >= 1 here (matching /api/industry-sp's fromRow handling)
-    // as the first line of defense against a stale/hand-edited URL; the
-    // DAO also clamps independently since it's the shared source of truth
-    // for both this endpoint and /api/industry-sp — see getAllRacesByRace.
-    const fromRowARaw = parseInt(req.query.fromRowA as string);
-    const toRowARaw = parseInt(req.query.toRowA as string);
-    const fromRowBRaw = parseInt(req.query.fromRowB as string);
-    const toRowBRaw = parseInt(req.query.toRowB as string);
-    const fromRowA = isNaN(fromRowARaw) ? null : Math.max(1, fromRowARaw);
-    const toRowA = isNaN(toRowARaw) ? null : Math.max(1, toRowARaw);
-    const fromRowB = isNaN(fromRowBRaw) ? null : Math.max(1, fromRowBRaw);
-    const toRowB = isNaN(toRowBRaw) ? null : Math.max(1, toRowBRaw);
-    const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
-    const courses = parseCsvListParam(req.query.courses);
-    const goings = parseCsvListParam(req.query.goings);
-    const raceClasses = parseCsvListParam(req.query.raceClasses);
-    const raceTypes = parseCsvListParam(req.query.raceTypes);
-    const trainerSearch = typeof req.query.trainer === "string" && req.query.trainer.trim() ? req.query.trainer.trim() : null;
-    const jockeySearch = typeof req.query.jockey === "string" && req.query.jockey.trim() ? req.query.jockey.trim() : null;
-
-    const result = await industrySpService.getSplitStats(
-      minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
-      minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch
-    );
-    // Smoke-tested live: combined into one request and warm (no cold
-    // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
-    // query latency for the underlying aggregations, not something
-    // combining requests or indexing can shave further without a cluster
-    // tier change. The dataset only changes on a manual reseed, so a short
-    // cache still meaningfully helps the common case (reloading /isp, or
-    // returning to the default view after tweaking filters back) without
-    // risking real staleness. Shorter than filter-bounds/countries' 1hr
-    // cache since split PnL figures feel more like "live" numbers to a
-    // user than a static bound — 60s is enough to smooth out a browsing
-    // session's repeat loads of the same filter combination.
-    res.set("Cache-Control", "public, max-age=60");
-    res.status(200).json({ success: true, ...result });
-  } catch (error) {
-    console.error("getSplitStats error:", error);
-    res.status(500).json({ success: false, error: "Failed to fetch split stats" });
-  }
-});
-
-router.get("/api/industry-sp", async (req, res) => {
-  try {
-    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(10000, Math.max(1, parseInt(req.query.limit as string) || 20));
-    const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
-    const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
-    const countries = req.query.countries ? (req.query.countries as string).split(",").map(c => c.trim()).filter(Boolean) : [];
-    const minIsp = Math.max(1, parseFloat(req.query.minIsp as string) || 1);
-    const maxIsp = Math.min(100000, parseFloat(req.query.maxIsp as string) || 1000);
-    const sortOrder = req.query.sort === "desc" ? "desc" : "asc";
-    const minInIspRange = Math.max(1, parseInt(req.query.minInIspRange as string) || 1);
-    const maxInIspRange = Math.min(10000, Math.max(1, parseInt(req.query.maxInIspRange as string) || 10000));
-    const fromRow = Math.max(1, parseInt(req.query.fromRow as string) || 1);
-    const toRowRaw = parseInt(req.query.toRow as string);
-    const toRow: number | null = isNaN(toRowRaw) ? null : Math.max(fromRow, toRowRaw);
-    const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
-    const courses = parseCsvListParam(req.query.courses);
-    const goings = parseCsvListParam(req.query.goings);
-    const raceClasses = parseCsvListParam(req.query.raceClasses);
-    const raceTypes = parseCsvListParam(req.query.raceTypes);
-    const trainerSearch = typeof req.query.trainer === "string" && req.query.trainer.trim() ? req.query.trainer.trim() : null;
-    const jockeySearch = typeof req.query.jockey === "string" && req.query.jockey.trim() ? req.query.jockey.trim() : null;
-    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch);
-    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
-  } catch (error) {
-    console.error("getAllRacesByRace error:", error);
-    res.status(500).json({ success: false, error: "Failed to fetch industry SP" });
-  }
-});
-
-router.get("/api/industry-sp/meeting/:meetingId", async (req, res) => {
-  try {
-    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const data = await industrySpService.getRacesByMeetingId(req.params.meetingId);
-    res.status(200).json({ success: true, data, count: data.length });
-  } catch (error) {
-    console.error("getRacesByMeetingId error:", error);
-    res.status(500).json({ success: false, error: "Failed to fetch meeting" });
-  }
-});
-
-router.get("/api/industry-sp/race/:raceId", async (req, res) => {
-  try {
-    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
-    const raceId = parseInt(req.params.raceId, 10);
-    if (isNaN(raceId)) return res.status(400).json({ success: false, error: "Invalid raceId" });
-    const race = await industrySpService.getRaceById(raceId);
-    if (!race) return res.status(404).json({ success: false, error: "Race not found" });
-    res.status(200).json({ success: true, data: race });
-  } catch (error) {
-    console.error("getRaceById error:", error);
-    res.status(500).json({ success: false, error: "Failed to fetch race" });
-  }
-});
 
 // 404 and error handlers
 router.use((req, res) => {

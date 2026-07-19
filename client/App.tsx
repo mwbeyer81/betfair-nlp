@@ -1,6 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import { useState, useEffect } from "react";
-import { View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { Provider as PaperProvider } from "react-native-paper";
 import { useFonts } from "@expo-google-fonts/inter/useFonts";
 import { Inter_400Regular } from "@expo-google-fonts/inter/400Regular";
@@ -34,7 +34,12 @@ export default function App() {
     Inter_500Medium,
   });
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  // The /isp family is public — an anonymous user can browse it freely and
+  // opt into signing up via this dismissible overlay (from a button on
+  // IndustrySpScreen) rather than being forced through AuthScreen first.
+  const [showAuthOverlay, setShowAuthOverlay] = useState(false);
   const { route, navigate, queryParams } = useRouter();
+  const isIspRoute = route === "/isp" || route.startsWith("/isp/");
 
   // Restore token from localStorage on mount, then check for ?u=&p= URL params.
   useEffect(() => {
@@ -78,7 +83,10 @@ export default function App() {
   }
 
   const content = (() => {
-    if (!isAuthenticated) {
+    // Events/Chat/Runners stay behind the login wall exactly as before.
+    // The /isp family is public — it renders below regardless of
+    // isAuthenticated (see isIspRoute).
+    if (!isAuthenticated && !isIspRoute) {
       return <AuthScreen onAuthenticated={() => setIsAuthenticated(true)} />;
     }
     if (route === "/chat") {
@@ -95,7 +103,9 @@ export default function App() {
     if (route === "/isp") {
       return (
         <IndustrySpScreen
-          onNavigateToEvents={() => navigate("/events")}
+          isAuthenticated={isAuthenticated}
+          onRequestAuth={() => setShowAuthOverlay(true)}
+          onLogout={() => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); }}
           // Filter Apply/Reset update the URL directly via history.replaceState
           // (see updateUrlParams), which doesn't flow back through this hook's
           // `queryParams` state — read window.location.search directly here so
@@ -159,6 +169,14 @@ export default function App() {
   return (
     <PaperProvider theme={theme}>
       {content}
+      {showAuthOverlay && (
+        <View style={StyleSheet.absoluteFill}>
+          <AuthScreen
+            onAuthenticated={() => { setIsAuthenticated(true); setShowAuthOverlay(false); }}
+            onCancel={() => setShowAuthOverlay(false)}
+          />
+        </View>
+      )}
       <StatusBar style="light" />
     </PaperProvider>
   );

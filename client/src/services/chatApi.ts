@@ -119,6 +119,10 @@ export interface IspSplitsResponse {
   success: boolean;
   totalRaces: number;
   totalRunners: number;
+  // 100 for an anonymous caller, 1000 for a logged-in one — see
+  // IndustrySpService.getSplitStats. Lets the frontend show "capped" UI
+  // without hardcoding the two tier numbers itself.
+  raceCap: number;
   filterBounds: IspFilterBounds;
   countries: string[];
   courses: string[];
@@ -162,8 +166,12 @@ class ChatApi {
     return this.token;
   }
 
-  private authHeader(): { Authorization: string } {
-    return { Authorization: `Bearer ${this.token}` };
+  // Returns {} (no header at all) when there's no token, rather than a
+  // literal "Bearer null"/"Bearer undefined" string — the industry-sp
+  // endpoints are public and treat a missing header as anonymous, but an
+  // actually-malformed header is the wrong way to signal that.
+  private authHeader(): Record<string, string> {
+    return this.token ? { Authorization: `Bearer ${this.token}` } : {};
   }
 
   async login(email: string, password: string): Promise<string> {

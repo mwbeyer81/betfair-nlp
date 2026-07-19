@@ -658,8 +658,22 @@ describe("API Endpoints", () => {
       expect(Array.isArray(race.runners)).toBe(true);
     });
 
-    it("returns 401 without auth", async () => {
-      await request(app).get("/api/industry-sp").expect(401);
+    it("is public — returns 200 without auth", async () => {
+      const response = await request(app).get("/api/industry-sp").expect(200);
+      expect(response.body).toHaveProperty("success", true);
+    });
+
+    it("clamps an explicit toRow to a 100-race span when anonymous", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?fromRow=1&toRow=5000")
+        .expect(200);
+
+      // The DAO result itself isn't observable here (mocked), but the row
+      // range actually queried is derived from fromRow/toRow — this at
+      // least confirms the endpoint doesn't just pass the unclamped 5000
+      // straight through without erroring, matching the clamp added to
+      // clampRowSpan in router.ts.
+      expect(response.body.success).toBe(true);
     });
 
     it("accepts minDate/maxDate without erroring", async () => {
@@ -758,8 +772,8 @@ describe("API Endpoints", () => {
       expect(response.body.data).toHaveProperty("maxIsp");
     });
 
-    it("returns 401 without auth", async () => {
-      await request(app).get("/api/industry-sp/filter-bounds").expect(401);
+    it("is public — returns 200 without auth", async () => {
+      await request(app).get("/api/industry-sp/filter-bounds").expect(200);
     });
   });
 
@@ -774,8 +788,8 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
-    it("returns 401 without auth", async () => {
-      await request(app).get("/api/industry-sp/countries").expect(401);
+    it("is public — returns 200 without auth", async () => {
+      await request(app).get("/api/industry-sp/countries").expect(200);
     });
   });
 
@@ -790,8 +804,8 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
-    it("returns 401 without auth", async () => {
-      await request(app).get("/api/industry-sp/courses").expect(401);
+    it("is public — returns 200 without auth", async () => {
+      await request(app).get("/api/industry-sp/courses").expect(200);
     });
   });
 
@@ -806,8 +820,8 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
-    it("returns 401 without auth", async () => {
-      await request(app).get("/api/industry-sp/goings").expect(401);
+    it("is public — returns 200 without auth", async () => {
+      await request(app).get("/api/industry-sp/goings").expect(200);
     });
   });
 
@@ -822,8 +836,8 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
-    it("returns 401 without auth", async () => {
-      await request(app).get("/api/industry-sp/race-classes").expect(401);
+    it("is public — returns 200 without auth", async () => {
+      await request(app).get("/api/industry-sp/race-classes").expect(200);
     });
   });
 
@@ -838,8 +852,8 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
-    it("returns 401 without auth", async () => {
-      await request(app).get("/api/industry-sp/race-types").expect(401);
+    it("is public — returns 200 without auth", async () => {
+      await request(app).get("/api/industry-sp/race-types").expect(200);
     });
   });
 
@@ -889,7 +903,46 @@ describe("API Endpoints", () => {
       expect(response.body.splitA.fromRow).toBe(1);
       expect(response.body.splitA.toRow).toBe(5);
       expect(response.body.splitB.fromRow).toBe(6);
-      expect(response.body.splitB.toRow).toBeNull();
+      // An open-ended toRowB is capped to a raceCap-wide span now (1000 for
+      // an authenticated caller here), not left truly unlimited — see
+      // getSplitStats' raceCap clamp.
+      expect(response.body.splitB.toRow).toBe(6 + 1000 - 1);
+    });
+
+    it("returns raceCap: 1000 for an authenticated caller", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.raceCap).toBe(1000);
+    });
+
+    it("returns raceCap: 100 for an anonymous caller", async () => {
+      const response = await request(app).get("/api/industry-sp/splits").expect(200);
+
+      expect(response.body.raceCap).toBe(100);
+    });
+
+    it("clamps an explicit toRowA/toRowB span to 100 races when anonymous", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?fromRowA=1&toRowA=5000&fromRowB=6000&toRowB=9000")
+        .expect(200);
+
+      expect(response.body.splitA.fromRow).toBe(1);
+      expect(response.body.splitA.toRow).toBe(1 + 100 - 1);
+      expect(response.body.splitB.fromRow).toBe(6000);
+      expect(response.body.splitB.toRow).toBe(6000 + 100 - 1);
+    });
+
+    it("clamps an explicit toRowA/toRowB span to 1000 races when authenticated", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?fromRowA=1&toRowA=5000&fromRowB=6000&toRowB=9000")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.splitA.toRow).toBe(1 + 1000 - 1);
+      expect(response.body.splitB.toRow).toBe(6000 + 1000 - 1);
     });
 
     it("accepts minDate/maxDate without erroring", async () => {
@@ -910,8 +963,8 @@ describe("API Endpoints", () => {
       expect(response.body).toHaveProperty("success", true);
     });
 
-    it("returns 401 without auth", async () => {
-      await request(app).get("/api/industry-sp/splits").expect(401);
+    it("is public — returns 200 without auth", async () => {
+      await request(app).get("/api/industry-sp/splits").expect(200);
     });
   });
 
@@ -928,8 +981,8 @@ describe("API Endpoints", () => {
       expect(response.body.data).toHaveProperty("pnl");
     });
 
-    it("returns 401 without auth", async () => {
-      await request(app).get("/api/industry-sp/pnl-stats").expect(401);
+    it("is public — returns 200 without auth", async () => {
+      await request(app).get("/api/industry-sp/pnl-stats").expect(200);
     });
   });
 
