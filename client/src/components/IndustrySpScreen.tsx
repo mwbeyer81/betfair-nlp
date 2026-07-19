@@ -883,6 +883,50 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           hint: totalRaces > 0 ? `/${totalRaces}` : null,
           hintTestId: "industry-sp-race-bound-b",
         })}
+        {/*
+          Country filter is intentionally not rendered — every race in this
+          dataset is GB, so a country chip bar would only ever offer one
+          no-op option. selectedCountries/draftSelectedCountries stay wired
+          up (default empty = no filter = same result as "GB only") so this
+          is a pure UI hide, not a functional removal — trivial to re-show
+          if non-UK data is ever seeded.
+        */}
+        {!isLoading && renderChipRow({
+          filterKey: "course",
+          testId: "industry-sp-course",
+          label: "Course",
+          values: availableCourses,
+          draftSelected: draftSelectedCourses,
+          appliedSelected: selectedCourses,
+          onToggle: value => toggleChipFilter(setDraftSelectedCourses, value),
+        })}
+        {!isLoading && renderChipRow({
+          filterKey: "going",
+          testId: "industry-sp-going",
+          label: "Going",
+          values: availableGoings,
+          draftSelected: draftSelectedGoings,
+          appliedSelected: selectedGoings,
+          onToggle: value => toggleChipFilter(setDraftSelectedGoings, value),
+        })}
+        {!isLoading && renderChipRow({
+          filterKey: "race-class",
+          testId: "industry-sp-race-class",
+          label: "Class",
+          values: availableRaceClasses,
+          draftSelected: draftSelectedRaceClasses,
+          appliedSelected: selectedRaceClasses,
+          onToggle: value => toggleChipFilter(setDraftSelectedRaceClasses, value),
+        })}
+        {!isLoading && renderChipRow({
+          filterKey: "race-type",
+          testId: "industry-sp-race-type",
+          label: "Type",
+          values: availableRaceTypes,
+          draftSelected: draftSelectedRaceTypes,
+          appliedSelected: selectedRaceTypes,
+          onToggle: value => toggleChipFilter(setDraftSelectedRaceTypes, value),
+        })}
         <View style={styles.filterActions}>
           <Button
             testID="industry-sp-filter-apply"
@@ -907,52 +951,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </View>
       </View>
       )}
-
-      {/*
-        Country filter is intentionally not rendered — every race in this
-        dataset is GB, so a country chip bar would only ever offer one
-        no-op option. selectedCountries/draftSelectedCountries stay wired
-        up (default empty = no filter = same result as "GB only") so this
-        is a pure UI hide, not a functional removal — trivial to re-show if
-        non-UK data is ever seeded.
-      */}
-
-      {!isLoading && renderChipRow({
-        filterKey: "course",
-        testId: "industry-sp-course",
-        label: "Course",
-        values: availableCourses,
-        draftSelected: draftSelectedCourses,
-        appliedSelected: selectedCourses,
-        onToggle: value => toggleChipFilter(setDraftSelectedCourses, value),
-      })}
-      {!isLoading && renderChipRow({
-        filterKey: "going",
-        testId: "industry-sp-going",
-        label: "Going",
-        values: availableGoings,
-        draftSelected: draftSelectedGoings,
-        appliedSelected: selectedGoings,
-        onToggle: value => toggleChipFilter(setDraftSelectedGoings, value),
-      })}
-      {!isLoading && renderChipRow({
-        filterKey: "race-class",
-        testId: "industry-sp-race-class",
-        label: "Class",
-        values: availableRaceClasses,
-        draftSelected: draftSelectedRaceClasses,
-        appliedSelected: selectedRaceClasses,
-        onToggle: value => toggleChipFilter(setDraftSelectedRaceClasses, value),
-      })}
-      {!isLoading && renderChipRow({
-        filterKey: "race-type",
-        testId: "industry-sp-race-type",
-        label: "Type",
-        values: availableRaceTypes,
-        draftSelected: draftSelectedRaceTypes,
-        appliedSelected: selectedRaceTypes,
-        onToggle: value => toggleChipFilter(setDraftSelectedRaceTypes, value),
-      })}
 
       <View
         testID="industry-sp-split-cards"
