@@ -1047,17 +1047,17 @@ const styles = StyleSheet.create({
   },
   appbarTitleRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     gap: 3,
   },
-  // Bottom-aligned against the text's own box (alignItems: "flex-end"
-  // above) isn't quite enough on its own — the glyph's circular body sits
-  // a couple px above the icon's box bottom, so this nudges the whole
-  // icon down until the circle's bottom lines up with the text baseline
-  // and the arrow tip pokes just past it, rather than floating level with
-  // mid-text the way center-alignment did.
+  // Row is center-aligned (appbarTitleRow), which already puts the icon
+  // very close to the text's vertical center — this nudges it down just a
+  // few px more so only the arrow's lower tip dips past the text baseline,
+  // not the whole glyph. Previous attempt used flex-end (aligns to the
+  // bottom of the full line box, well below the visible glyph) plus a
+  // further negative offset, which pushed the icon much too low.
   appbarSyncIcon: {
-    marginBottom: -3,
+    marginTop: 5,
   },
   appbarTitle: {
     color: "white",
