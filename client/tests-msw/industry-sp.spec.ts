@@ -193,6 +193,20 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await expect(page.getByTestId("events-screen")).not.toBeVisible();
   });
 
+  test("Account button toggles a panel showing the signed-in email and verification status", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-account-panel")).not.toBeVisible();
+
+    await page.getByTestId("industry-sp-account-button").click();
+    const panel = page.getByTestId("industry-sp-account-panel");
+    await expect(panel).toBeVisible();
+    // fixtures.ts's default /api/auth/me mock (see setupApiMocks).
+    await expect(panel).toContainText("matthew@backbet.co.uk");
+    await expect(panel).toContainText("Email verified");
+
+    await page.getByTestId("industry-sp-account-panel-close").click();
+    await expect(page.getByTestId("industry-sp-account-panel")).not.toBeVisible();
+  });
+
   test("View Races button navigates to /isp/races", async ({ page }) => {
     await page.getByTestId("industry-sp-view-races-button-a").click();
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });

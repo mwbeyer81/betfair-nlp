@@ -199,6 +199,11 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // AuthResult in chatApi.ts for why verification status lives outside it.
   const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
   const [resendStatus, setResendStatus] = useState<"idle" | "sending" | "sent" | "already-verified" | "error">("idle");
+  // Which email is actually signed in — surfaced via the Account button/
+  // panel below. Fetched alongside emailVerified (same chatApi.getMe()
+  // call), since there's no other reason to hit that endpoint separately.
+  const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const [showAccountPanel, setShowAccountPanel] = useState(false);
   const [filterBounds, setFilterBounds] = useState<IspFilterBounds | null>(null);
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
@@ -244,12 +249,17 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     if (!isAuthenticated) {
       setEmailVerified(null);
       setResendStatus("idle");
+      setAccountEmail(null);
+      setShowAccountPanel(false);
       return;
     }
     // Never left uncaught — a network hiccup here must not crash the page,
     // just leave verification status unknown (no banner) until it succeeds.
     chatApi.getMe().then(me => {
-      if (!cancelled) setEmailVerified(me?.emailVerified ?? null);
+      if (!cancelled) {
+        setEmailVerified(me?.emailVerified ?? null);
+        setAccountEmail(me?.email ?? null);
+      }
     }).catch(() => {
       if (!cancelled) setEmailVerified(null);
     });
@@ -900,17 +910,29 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           {filtersVisible ? "Hide filters ▾" : "Show filters ▸"}
         </Button>
         {isAuthenticated ? (
-          <Button
-            testID="industry-sp-logout-button"
-            mode="contained"
-            compact
-            buttonColor={colors.accent}
-            onPress={onLogout}
-            style={styles.headerButton}
-            labelStyle={styles.headerButtonLabel}
-          >
-            Log Out
-          </Button>
+          <>
+            <Button
+              testID="industry-sp-account-button"
+              mode="outlined"
+              compact
+              onPress={() => setShowAccountPanel(v => !v)}
+              style={styles.headerToggleButton}
+              labelStyle={styles.headerToggleButtonLabel}
+            >
+              Account
+            </Button>
+            <Button
+              testID="industry-sp-logout-button"
+              mode="contained"
+              compact
+              buttonColor={colors.accent}
+              onPress={onLogout}
+              style={styles.headerButton}
+              labelStyle={styles.headerButtonLabel}
+            >
+              Log Out
+            </Button>
+          </>
         ) : (
           <>
             <Button
@@ -937,6 +959,29 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           </>
         )}
       </Appbar.Header>
+
+      {isAuthenticated && showAccountPanel && (
+        <View testID="industry-sp-account-panel" style={styles.accountPanel}>
+          <Text style={styles.accountPanelText}>
+            Signed in as {accountEmail ?? "…"}
+          </Text>
+          <Text style={styles.accountPanelStatus}>
+            {emailVerified === true
+              ? "Email verified"
+              : emailVerified === false
+                ? "Email not verified"
+                : ""}
+          </Text>
+          <Button
+            testID="industry-sp-account-panel-close"
+            mode="text"
+            compact
+            onPress={() => setShowAccountPanel(false)}
+          >
+            Close
+          </Button>
+        </View>
+      )}
 
       {/*
         Deliberately outside the ScrollView below (like the Appbar) so it's
@@ -1691,5 +1736,28 @@ const styles = StyleSheet.create({
   verifyBannerActions: {
     flexDirection: "row",
     gap: spacing.sm,
+  },
+  accountPanel: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  accountPanelText: {
+    color: colors.primary,
+    fontWeight: "600",
+    flexShrink: 1,
+    fontSize: 13,
+  },
+  accountPanelStatus: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    flexShrink: 1,
   },
 });

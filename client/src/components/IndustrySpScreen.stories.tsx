@@ -450,6 +450,47 @@ export const VerifyEmailBannerHiddenWhenVerified: Story = {
   },
 };
 
+export const AccountButtonOnlyWhenAuthenticated: Story = {
+  args: { isAuthenticated: false },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByTestId("industry-sp-account-button")).not.toBeInTheDocument();
+  },
+};
+
+export const AccountButtonTogglesPanelWithSignedInEmail: Story = {
+  // isAuthenticated: true + authMeHandler(true) (email: "test@backbet.co.uk")
+  // both come from meta.args/defaultHandlers.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByTestId("industry-sp-account-panel")).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId("industry-sp-account-button"));
+    const panel = await canvas.findByTestId("industry-sp-account-panel");
+    // The panel renders immediately on click, but the email itself comes
+    // from an independent chatApi.getMe() fetch (the isAuthenticated
+    // effect) that may not have resolved yet — wait for the real value
+    // rather than the "…" not-yet-loaded placeholder.
+    await waitFor(() => expect(panel).toHaveTextContent("test@backbet.co.uk"));
+    await expect(panel).toHaveTextContent("Email verified");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-account-panel-close"));
+    await expect(canvas.queryByTestId("industry-sp-account-panel")).not.toBeInTheDocument();
+  },
+};
+
+export const AccountPanelShowsUnverifiedStatus: Story = {
+  parameters: {
+    msw: { handlers: [splitsHandler(), countriesHandler, filterBoundsHandler, authMeHandler(false), resendVerificationHandler] },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByTestId("industry-sp-account-button"));
+    const panel = await canvas.findByTestId("industry-sp-account-panel");
+    await waitFor(() => expect(panel).toHaveTextContent("Email not verified"));
+  },
+};
+
 export const ViewRacesButtonsNavigateWithTheirOwnSplit: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);

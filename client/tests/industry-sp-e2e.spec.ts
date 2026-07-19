@@ -328,6 +328,16 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     await expect(page.getByTestId("industry-sp-screen-events-button")).not.toBeVisible();
   });
 
+  test("Account button shows the signed-in email", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-account-button").click();
+    const panel = page.getByTestId("industry-sp-account-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("matthew@backbet.co.uk");
+  });
+
   test("the grand total and both splits load from a single combined request, not three separate ones", async ({ page }) => {
     // Regression guard for the perf fix: this used to be 3 separate
     // concurrent /api/industry-sp requests (grand total, split A, split B),

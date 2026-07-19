@@ -741,3 +741,68 @@ two banners), plus:
   Whoever next has a working `localhost:3000`/`:80` (or runs against
   `app.backbet.co.uk`) should still eyeball the full signup → resend →
   verify-link flow manually at least once before this ships broadly.
+
+---
+
+## 2026-07-19 (later still) — Agent in `~/betfair-nlp-account-panel` (branch `account-panel`)
+
+**Task:** Small addition on top of the auth-hardening work above — an
+"Account" button on `IndustrySpScreen`'s header (visible only when
+`isAuthenticated`) that toggles a small panel showing which email is
+currently signed in, plus verification status. Reuses the `email`/
+`emailVerified` already fetched via `chatApi.getMe()` in the existing
+`isAuthenticated` effect (that effect previously discarded `email`,
+keeping only `emailVerified` — now keeps both). Does not touch or
+replace the existing "Log Out" button or the verify-email reminder
+banner from the entry above — this is an additive, separate UI element,
+not a refactor of either.
+
+**Touching:** `client/src/components/IndustrySpScreen.tsx` only (plus
+its `.stories.tsx` and the MSW spec file for test coverage). **Not**
+touching any backend route, `AuthScreen.tsx`, `chatApi.ts`, or the
+verify-banner/benefits-banner logic from the previous entry.
+
+Will append a completion entry below once shipped/verified.
+
+**Done — shipped and deployed (web only, no backend changes this time).**
+New `industry-sp-account-button` (Appbar, visible only when
+`isAuthenticated`) toggles `industry-sp-account-panel`, which shows
+"Signed in as {email}" + verified/not-verified status, plus a Close
+button. Reused the existing `isAuthenticated`-triggered `chatApi.getMe()`
+effect — just captured `email` alongside `emailVerified` this time
+instead of discarding it.
+
+One test gotcha worth flagging: the two new Storybook stories initially
+asserted on the panel's text content **immediately** after clicking the
+Account button and awaiting `findByTestId` for the panel itself — the
+panel renders synchronously (it's just local `showAccountPanel` state),
+but the email text inside it comes from the separate async
+`chatApi.getMe()` fetch, so the assertion sometimes ran while the panel
+still showed its "…" not-yet-loaded placeholder. Fixed by wrapping the
+text-content assertion in `waitFor(...)` instead of asserting directly.
+**If you add another story/test for something inside this panel (or any
+other UI driven by that same effect), wait for the real value, don't
+assume the panel appearing means the fetch it depends on has resolved
+too — they're on different render passes.**
+
+**Verified:**
+- `cd client && yarn build` / `npx tsc --noEmit` (backend, no changes
+  expected — confirmed clean anyway) — both clean.
+- Supertest: 88 passed, unchanged from the previous entry (no backend
+  touched this round).
+- Storybook `IndustrySpScreen.stories.tsx`: 50/52 pass — the 2 failures
+  are the same pre-existing, unrelated course-chip bug documented in
+  both previous entries.
+- MSW Playwright (industry-sp/navigation/responsive specs, against
+  `yarn build:web`'s static `dist/`): 104/105 pass — the 1 failure is
+  the same pre-existing `sort=asc is sent on initial load` flake noted
+  in every entry above.
+- Live: merged to `develop`, deployed via `apps/web/deploy.sh` only (no
+  Lambda deploy — nothing backend changed). Confirmed live via a
+  throwaway Playwright script against `app.backbet.co.uk`: clicking
+  Account shows "Signed in as matthew@backbet.co.uk" for a real
+  logged-in session.
+- **Not run** — same live-e2e/integration-test gaps as every previous
+  entry, same reasons (no local MongoDB, no persistent live server in
+  this sandbox). Added a live-suite test for the Account button/panel
+  alongside the existing logged-in-home-page test, unverified here.
