@@ -806,3 +806,114 @@ too — they're on different render passes.**
   entry, same reasons (no local MongoDB, no persistent live server in
   this sandbox). Added a live-suite test for the Account button/panel
   alongside the existing logged-in-home-page test, unverified here.
+
+---
+
+## 2026-07-19 (much later) — Agent in `~/betfair-nlp-email-debug` (branch `email-debug`)
+
+**Task:** User reported no verification email arrived at
+`matthewbeyer@hotmail.com`. Root-caused and fully resolved end to end —
+this ended up being a real debugging session, not a code task, so most
+of the value here is diagnostic trail + one small logging fix + one new
+committed test. Sequence, in case anyone hits similar symptoms:
+
+1. **Root cause #1 (confirmed via CloudWatch, `filter-pattern
+   "EmailService"` on `/aws/lambda/hello-api`):** no `RESEND_API_KEY` was
+   ever set on the Lambda — `config/local.json` never existed in this
+   sandbox (see multiple earlier entries), so `apps/lambda/build.sh`'s
+   secrets block always skipped, and every deploy left the env var
+   unset. `EmailService` was correctly no-op'ing exactly as designed
+   (`WARN ... skipping verification email ... non-fatal`) — not a bug,
+   just literally never configured.
+2. **Fix:** user provided a Resend API key. Patched the *live* Lambda
+   environment directly (`aws lambda update-function-configuration
+   --environment`) rather than via `config/local.json` + a full
+   `build.sh` run — fetched the existing env vars to a file first
+   (never printed to a transcript/tool-output) and merged in
+   `RESEND_API_KEY`/`EMAIL_FROM_ADDRESS`/`API_URL` on top, since
+   `update-function-configuration --environment` *replaces* the whole
+   map rather than patching it — sending only the new keys would have
+   wiped `MONGODB_URI`/`JWT_SECRET` entirely. **Anyone doing this again:
+   always fetch-merge-reapply, never construct the `--environment` value
+   from scratch.** This patch is not persisted anywhere in
+   `config/local.json` (still doesn't exist) — it only lives in the live
+   Lambda's env vars. `apps/lambda/build.sh`'s secrets block already
+   defaults these three to safe fallbacks (`''`/the Lambda URL) if
+   `config/local.json` exists without an `email`/`app.apiUrl` section
+   (see the auth-hardening entry above), so a future `config/local.json`
+   being created for unrelated reasons (e.g. rotating `JWT_SECRET`)
+   won't silently wipe these — but *will* silently reset them to the
+   fallback values, which for `RESEND_API_KEY` means back to disabled.
+   **If you ever create `config/local.json` on a dev machine, populate
+   its `email.apiKey`/`email.fromAddress` too, matching what's live, or
+   the next full deploy will quietly turn email back off.**
+3. **Root cause #2 (found via `curl .../emails/{id}` against Resend's
+   own API once a message ID was captured):** Resend accounts without a
+   verified sending domain are restricted to sending only to the
+   account-owner's own registered email — confirmed identically for
+   `matthewbeyer@hotmail.com` (blocked, 403) and a `@mailinator.com` test
+   address (also blocked, same 403), while `mattbeyer81@gmail.com` (the
+   Resend account owner) and Resend's own `delivered@resend.dev` test
+   address both succeeded silently. This is a Resend account policy, not
+   anything wrong with our integration — `EmailService`'s original
+   `sendVerificationEmail` only logs on failure, so a *successful* send
+   was completely invisible in logs (this is what led to fix #4 below).
+   Confirmed a real send to `mattbeyer81@gmail.com` was accepted with
+   `last_event: "delivered"` via Resend's status API — proving delivery
+   worked even before domain verification, for the one allowed
+   recipient.
+4. **Small code fix, committed (`e6658a2`):** `EmailService.
+   sendVerificationEmail` now also logs Resend's returned message `id`
+   on success (previously silent) — `console.log`, not `console.error`,
+   so it doesn't read as a failure. Needed this to look up delivery
+   status for a specific send via `GET https://api.resend.com/emails/
+   {id}` — impossible to correlate anything without it.
+5. **Domain verification:** user added `backbet.co.uk` to Resend
+   (`resend.com/domains`). `backbet.co.uk`'s nameservers are Cloudflare
+   (confirmed via `dig NS backbet.co.uk`) — Resend appears to have a
+   native Cloudflare integration that auto-pushed the required SPF/DKIM
+   records without anyone touching DNS manually (2 of 3 records were
+   already `"verified"` within ~7 minutes of adding the domain in
+   Resend's UI, the third — DKIM — finished within another ~90 seconds).
+   **This agent has no DNS-write access at all** (the Cloudflare MCP
+   tools available are read-only for zones — `zones_list`/`zones_get`,
+   no record-management tool), so if the auto-integration hadn't worked,
+   the user would have had to add records manually; flagging in case a
+   future domain (a different TLD, or moving off Cloudflare) doesn't get
+   the same auto-push treatment.
+6. **Once verified:** switched `EMAIL_FROM_ADDRESS` to
+   `BackBet <noreply@backbet.co.uk>` (same fetch-merge-reapply Lambda env
+   pattern as step 2) and the user's new "full access" Resend API key
+   (the original key the user first provided was **send-only scoped** —
+   `GET /emails/{id}` 401'd with `"restricted_api_key"` until the new key
+   was swapped in; if you need to query delivery status, you need a
+   Full Access key, Sending-only isn't enough).
+7. **New committed test, not just a one-off manual check:**
+   `client/tests-live/email-verification-live.spec.ts` — signs up with a
+   fresh `@mailinator.com` address (Mailinator has a public, no-auth
+   read API for exactly this kind of testing), polls for the real
+   delivered message, extracts the verify token from the actual email
+   body, hits the verify link, and confirms `GET /api/auth/me` reflects
+   `emailVerified: true` afterward. Fully automated, no human needs to
+   check any inbox, safe to run repeatedly (fresh timestamped address
+   each run, no collision risk with real users). **Run this after any
+   future change to `EmailService`, the verify-token flow, or a Resend
+   account/domain change** — it's the fastest way to confirm the whole
+   pipe still works end to end.
+
+**Byproduct:** several throwaway accounts now exist in the real
+production `users` collection from this debugging session
+(`claude-agent-test-*@example.com`, `delivered@resend.dev`, a couple
+`@mailinator.com` addresses, and one legitimate resend to
+`mattbeyer81@gmail.com`'s real pre-existing account). Harmless, but
+there's no admin/delete endpoint to clean these up — matches the
+"don't run live signup tests routinely" caution from the auth-hardening
+entry above; this was a deliberate exception for live debugging, not a
+new habit.
+
+**Verified (all real, no mocks, this whole entry):** `yarn build` /
+`npx tsc --noEmit` clean, Supertest 88/88 (unaffected by the logging-only
+change), and — the actual point of this entry —
+`email-verification-live.spec.ts` passes against production, proving
+signup → real Resend delivery → real inbox → real verify link → real
+`emailVerified: true` all work end to end as of this commit.
