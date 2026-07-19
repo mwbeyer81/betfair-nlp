@@ -278,9 +278,23 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
     // Once the user applies filters explicitly, the two race splits are no
     // longer auto-derived from the total — whatever's in the two Race boxes
-    // (even if it's still the auto-filled 50/50 default) becomes the
+    // (even if it's still the auto-filled half/half default) becomes the
     // committed split from here on.
-    splitsAreDefaultRef.current = false;
+    //
+    // Exception: the very first Apply from a bare, never-loaded screen
+    // (see hadUrlParamsOnMount/hasLoadedOnce) can't trust those boxes yet —
+    // they still hold their pre-fetch placeholder values ("1"/"0", see
+    // draftFromA/draftToA's initializers below), not a real total. Reading
+    // them here as if they were meaningful computed a bogus split A of
+    // "races 1-<end>" (toA null, since totalRaces is still 0) and split B
+    // identical to it — both showing the same full range instead of two
+    // actual halves. Staying on the auto-compute path for this one fetch
+    // lets the backend derive the real half/half split from the total it
+    // returns, same as a fresh mount would; only an edit *after* a real
+    // load has happened is genuine explicit user intent.
+    if (hasLoadedOnce) {
+      splitsAreDefaultRef.current = false;
+    }
 
     const fromA = Math.max(1, parseInt(draftFromA) || 1);
     const toARaw = Math.min(totalRaces || 1, Math.max(fromA, parseInt(draftToA) || totalRaces));

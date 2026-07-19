@@ -100,6 +100,58 @@ test.describe("Industry SP filters screen — bare load applies nothing (MSW moc
     await expect(page.getByTestId("industry-sp-course-Cheltenham")).toBeVisible();
   });
 
+  test("pressing Apply for the first time splits into two distinct halves, not the same full range twice", async ({ page }) => {
+    // Regression test: the first-ever Apply (from the idle, bare-load
+    // state) read the Split A/B row-range boxes as if they already held a
+    // real computed split, but they were still at their pre-fetch
+    // placeholder values ("1"/"0") with totalRaces still 0 — this computed
+    // Split A as "races 1-<end>" (toA null, since 1 >= totalRaces(0)) and
+    // Split B as the exact same "1-<end>", instead of two actual halves.
+    // Overrides the fixture's normal 1-race mock with a fixed totalRaces
+    // of 2500 so a genuine half/half split has distinguishable boundaries.
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const url = new URL(route.request().url());
+      const totalRaces = 2500;
+      const fromRowARaw = url.searchParams.get("fromRowA");
+      let fromRowA: number, toRowA: number, fromRowB: number, toRowB: number;
+      if (fromRowARaw == null) {
+        const half = Math.floor(totalRaces / 2);
+        fromRowA = 1; toRowA = half; fromRowB = half + 1; toRowB = totalRaces;
+      } else {
+        fromRowA = parseInt(fromRowARaw, 10);
+        toRowA = parseInt(url.searchParams.get("toRowA") ?? String(totalRaces), 10);
+        fromRowB = parseInt(url.searchParams.get("fromRowB") ?? "1", 10);
+        toRowB = totalRaces;
+      }
+      const pnl = { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 };
+      await route.fulfill({
+        json: {
+          success: true,
+          totalRaces,
+          totalRunners: totalRaces * 2,
+          filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+          countries: ["GB", "IE"],
+          courses: ["Cheltenham", "Ascot"],
+          goings: ["Good", "Soft"],
+          raceClasses: ["Class 1", "Class 2"],
+          raceTypes: ["Chase", "Hurdle"],
+          splitA: { fromRow: fromRowA, toRow: toRowA, total: toRowA - fromRowA + 1, totalRunners: 2, pnlStats: pnl },
+          splitB: { fromRow: fromRowB, toRow: toRowB, total: toRowB - fromRowB + 1, totalRunners: 2, pnlStats: pnl },
+        },
+      });
+    });
+
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-split-idle-a")).toBeVisible();
+
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    await expect(page.getByTestId("industry-sp-split-card-a")).toContainText("races 1–1250");
+    await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("races 1251–2500");
+  });
+
   test("a URL that already carries filter params fetches immediately, without an extra Apply", async ({ page }) => {
     // Distinguishes a genuinely bare load from one arriving via a
     // bookmark/shared link/back-navigation, which already represents
