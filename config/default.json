@@ -26,5 +26,13 @@
   "email": {
     "apiKey": "",
     "fromAddress": "BackBet <onboarding@resend.dev>"
+  },
+  "google": {
+    "clientId": ""
+  },
+  "twilio": {
+    "accountSid": "",
+    "authToken": "",
+    "verifyServiceSid": ""
   }
 }

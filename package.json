@@ -63,11 +63,13 @@
     "cors": "^2.8.5",
     "csv-parse": "^7.0.1",
     "express": "^5.1.0",
+    "google-auth-library": "^10.9.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^6.3.0",
     "morgan": "^1.10.1",
-    "openai": "^5.16.0"
+    "openai": "^5.16.0",
+    "twilio": "^6.0.2"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

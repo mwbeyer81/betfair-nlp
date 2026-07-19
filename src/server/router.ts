@@ -169,6 +169,48 @@ router.get("/api/auth/verify", async (req, res) => {
   }
 });
 
+router.post("/api/auth/google", async (req, res) => {
+  const { idToken } = req.body || {};
+  try {
+    const { token, emailVerified } = await authService!.signInWithGoogle(idToken);
+    return res.status(200).json({ token, emailVerified });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Google sign-in failed:", error);
+    return res.status(500).json({ error: "Google sign-in failed" });
+  }
+});
+
+router.post("/api/auth/sms/send", async (req, res) => {
+  const { phone } = req.body || {};
+  try {
+    await authService!.sendSmsCode(phone);
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Sending SMS code failed:", error);
+    return res.status(500).json({ error: "Failed to send verification code" });
+  }
+});
+
+router.post("/api/auth/sms/verify", async (req, res) => {
+  const { phone, code } = req.body || {};
+  try {
+    const { token, emailVerified } = await authService!.verifySmsCode(phone, code);
+    return res.status(200).json({ token, emailVerified });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("SMS verification failed:", error);
+    return res.status(500).json({ error: "SMS verification failed" });
+  }
+});
+
 // /api/industry-sp* is public — it's the app's anonymous-accessible home
 // page. optionalJwtAuth never blocks; it just records whether the caller
 // is authenticated (res.locals.isAuthenticated) so the route handlers
@@ -424,26 +466,29 @@ router.get("/api/industry-sp/race/:raceId", async (req, res) => {
 router.use(jwtAuth);
 
 // jwtAuth (above) already verified the Bearer token exists and is valid —
-// this just re-decodes it to read the `email` claim back out. Not
-// attached to `req` by jwtAuth itself (that middleware only gates), so
-// each route that needs the caller's identity decodes independently
-// rather than everything depending on a shared req.user convention.
-function emailFromAuthHeader(req: express.Request): string | null {
+// this just re-decodes it to read the `sub` claim (the user's id) back
+// out. Keyed by id rather than email — a phone-only or some Google
+// accounts have no email at all, so email can't be the universal
+// identity claim anymore. Not attached to `req` by jwtAuth itself (that
+// middleware only gates), so each route that needs the caller's identity
+// decodes independently rather than everything depending on a shared
+// req.user convention.
+function userIdFromAuthHeader(req: express.Request): string | null {
   try {
     const token = (req.headers.authorization || "").slice(7);
     const secret = config.get<string>("jwt.secret");
-    const payload = jwt.verify(token, secret) as { email?: string };
-    return payload.email ?? null;
+    const payload = jwt.verify(token, secret) as { sub?: string };
+    return payload.sub ?? null;
   } catch {
     return null;
   }
 }
 
 router.get("/api/auth/me", async (req, res) => {
-  const email = emailFromAuthHeader(req);
-  if (!email) return res.status(401).json({ error: "Invalid or expired token" });
+  const userId = userIdFromAuthHeader(req);
+  if (!userId) return res.status(401).json({ error: "Invalid or expired token" });
   try {
-    const me = await authService!.getMe(email);
+    const me = await authService!.getMe(userId);
     if (!me) return res.status(404).json({ error: "Account not found" });
     return res.status(200).json({ success: true, ...me });
   } catch (error) {
@@ -453,10 +498,10 @@ router.get("/api/auth/me", async (req, res) => {
 });
 
 router.post("/api/auth/resend-verification", async (req, res) => {
-  const email = emailFromAuthHeader(req);
-  if (!email) return res.status(401).json({ error: "Invalid or expired token" });
+  const userId = userIdFromAuthHeader(req);
+  if (!userId) return res.status(401).json({ error: "Invalid or expired token" });
   try {
-    const result = await authService!.resendVerification(email);
+    const result = await authService!.resendVerification(userId);
     return res.status(200).json({ success: true, ...result });
   } catch (error) {
     if (error instanceof AuthError) {

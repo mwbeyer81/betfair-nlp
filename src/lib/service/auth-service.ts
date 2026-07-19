@@ -2,9 +2,11 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import config from "config";
-import { Db } from "mongodb";
+import { Db, ObjectId } from "mongodb";
 import { UserDAO, UserDocument } from "../dao/user-dao";
 import { EmailService } from "./email-service";
+import { GoogleAuthService } from "./google-auth-service";
+import { SmsService } from "./sms-service";
 
 const SALT_ROUNDS = 10;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -32,10 +34,19 @@ export interface AuthResult {
 export class AuthService {
   private userDao: UserDAO;
   private emailService: EmailService;
+  private googleAuthService: GoogleAuthService;
+  private smsService: SmsService;
 
-  constructor(db: Db, emailService?: EmailService) {
+  constructor(
+    db: Db,
+    emailService?: EmailService,
+    googleAuthService?: GoogleAuthService,
+    smsService?: SmsService
+  ) {
     this.userDao = new UserDAO(db);
     this.emailService = emailService ?? new EmailService();
+    this.googleAuthService = googleAuthService ?? new GoogleAuthService();
+    this.smsService = smsService ?? new SmsService();
   }
 
   public async createIndexes(): Promise<void> {
@@ -53,7 +64,10 @@ export class AuthService {
     const verificationTokenExpiresAt = new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS);
     const user = await this.userDao.createUser(email, passwordHash, verificationToken, verificationTokenExpiresAt);
     // Best-effort — never blocks signup (see EmailService.sendVerificationEmail).
-    await this.emailService.sendVerificationEmail(user.email, verificationToken);
+    // Uses the validated `email` param directly rather than `user.email`
+    // (now optional on UserDocument for Google/phone-only accounts) —
+    // this specific creation path always has one.
+    await this.emailService.sendVerificationEmail(email, verificationToken);
     return { token: this.issueToken(user), emailVerified: false };
   }
 
@@ -62,7 +76,10 @@ export class AuthService {
       throw new AuthError("Email and password are required", 400);
     }
     const user = await this.userDao.findByEmail(email);
-    if (!user) {
+    // No passwordHash means this account was created via Google or phone
+    // sign-in — it has no password to check against, same as "not found"
+    // from the caller's perspective.
+    if (!user || !user.passwordHash) {
       throw new AuthError("Invalid email or password", 401);
     }
     const valid = await bcrypt.compare(password, user.passwordHash);
@@ -83,20 +100,36 @@ export class AuthService {
     if (user.verificationTokenExpiresAt && user.verificationTokenExpiresAt.getTime() < Date.now()) {
       throw new AuthError("This verification link has expired — request a new one", 400);
     }
+    if (!user.email) {
+      // Shouldn't happen — verificationToken is only ever set on
+      // email-based accounts — but a corrupted/manually-edited record
+      // shouldn't crash this with a confusing type error.
+      throw new AuthError("This account has no email address", 400);
+    }
     await this.userDao.markEmailVerified(user._id);
     return { email: user.email };
   }
 
-  public async getMe(email: string): Promise<{ email: string; emailVerified: boolean } | null> {
-    const user = await this.userDao.findByEmail(email);
+  // Keyed by user id (from the JWT's `sub` claim), not email — a phone-only
+  // or some Google accounts have no email at all, so email can't be the
+  // universal lookup key the way it used to be when every account had one.
+  public async getMe(
+    userId: string
+  ): Promise<{ email: string | null; phone: string | null; emailVerified: boolean } | null> {
+    const user = await this.userDao.findById(new ObjectId(userId));
     if (!user) return null;
-    return { email: user.email, emailVerified: user.emailVerified };
+    return { email: user.email ?? null, phone: user.phone ?? null, emailVerified: user.emailVerified };
   }
 
-  public async resendVerification(email: string): Promise<{ alreadyVerified: boolean }> {
-    const user = await this.userDao.findByEmail(email);
+  public async resendVerification(userId: string): Promise<{ alreadyVerified: boolean }> {
+    const user = await this.userDao.findById(new ObjectId(userId));
     if (!user) {
       throw new AuthError("Account not found", 404);
+    }
+    if (!user.email) {
+      // Nothing to verify — this account signed up with a phone number
+      // and/or Google, neither of which need the email verification flow.
+      throw new AuthError("This account has no email address to verify", 400);
     }
     if (user.emailVerified) {
       return { alreadyVerified: true };
@@ -106,6 +139,48 @@ export class AuthService {
     await this.userDao.setVerificationToken(user._id, verificationToken, verificationTokenExpiresAt);
     await this.emailService.sendVerificationEmail(user.email, verificationToken);
     return { alreadyVerified: false };
+  }
+
+  // Verifies the Google-issued ID token, then finds-or-creates a user by
+  // email. If an email/password account with the same email already
+  // exists, this signs into *that* account (linking the googleId onto it)
+  // rather than creating a duplicate — same person, same email, one
+  // account regardless of which method they used this time.
+  public async signInWithGoogle(idToken: string): Promise<AuthResult> {
+    const payload = await this.googleAuthService.verifyIdToken(idToken);
+    if (!payload.email && !payload.sub) {
+      throw new AuthError("Google did not return an email or account id", 400);
+    }
+    let user = payload.email ? await this.userDao.findByEmail(payload.email) : null;
+    if (!user && payload.sub) {
+      user = await this.userDao.findByGoogleId(payload.sub);
+    }
+    if (user) {
+      if (payload.sub && !user.googleId) {
+        await this.userDao.linkGoogleId(user._id, payload.sub);
+      }
+      return { token: this.issueToken(user), emailVerified: user.emailVerified || !!payload.emailVerified };
+    }
+    const created = await this.userDao.createUserWithGoogle(payload.email ?? null, payload.sub);
+    return { token: this.issueToken(created), emailVerified: created.emailVerified };
+  }
+
+  public async sendSmsCode(phone: string): Promise<void> {
+    await this.smsService.sendCode(phone);
+  }
+
+  // Checks the code via Twilio Verify, then finds-or-creates a user by
+  // phone and issues our own token — no password/email involved at all.
+  public async verifySmsCode(phone: string, code: string): Promise<AuthResult> {
+    const approved = await this.smsService.checkCode(phone, code);
+    if (!approved) {
+      throw new AuthError("Invalid or expired verification code", 401);
+    }
+    let user = await this.userDao.findByPhone(phone);
+    if (!user) {
+      user = await this.userDao.createUserWithPhone(phone);
+    }
+    return { token: this.issueToken(user), emailVerified: user.emailVerified };
   }
 
   private generateVerificationToken(): string {

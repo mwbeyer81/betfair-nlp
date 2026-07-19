@@ -211,13 +211,53 @@ class ChatApi {
     return { token: result.token as string, emailVerified: result.emailVerified === true };
   }
 
-  async getMe(): Promise<{ email: string; emailVerified: boolean } | null> {
+  async getMe(): Promise<{ email: string | null; phone: string | null; emailVerified: boolean } | null> {
     const response = await fetch(`${this.baseUrl}/api/auth/me`, {
       headers: this.authHeader(),
     });
     if (!response.ok) return null;
     const result = await response.json();
-    return { email: result.email, emailVerified: result.emailVerified === true };
+    return { email: result.email ?? null, phone: result.phone ?? null, emailVerified: result.emailVerified === true };
+  }
+
+  async signInWithGoogle(idToken: string): Promise<AuthResult> {
+    const response = await fetch(`${this.baseUrl}/api/auth/google`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Google sign-in failed");
+    }
+    const result = await response.json();
+    return { token: result.token as string, emailVerified: result.emailVerified === true };
+  }
+
+  async sendSmsCode(phone: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/auth/sms/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Failed to send verification code");
+    }
+  }
+
+  async verifySmsCode(phone: string, code: string): Promise<AuthResult> {
+    const response = await fetch(`${this.baseUrl}/api/auth/sms/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone, code }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Invalid or expired verification code");
+    }
+    const result = await response.json();
+    return { token: result.token as string, emailVerified: result.emailVerified === true };
   }
 
   async resendVerification(): Promise<{ alreadyVerified: boolean }> {

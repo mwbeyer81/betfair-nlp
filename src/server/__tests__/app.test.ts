@@ -19,12 +19,15 @@ const TEST_USER_PASSWORD_HASH = bcrypt.hashSync(TEST_USER_PASSWORD, 10);
 // click a link from).
 interface MockUserDoc {
   _id: InstanceType<typeof ObjectId>;
-  email: string;
-  passwordHash: string;
+  email?: string;
+  passwordHash?: string;
   createdAt: Date;
   emailVerified: boolean;
   verificationToken: string | null;
   verificationTokenExpiresAt: Date | null;
+  googleId?: string;
+  phone?: string;
+  phoneVerified?: boolean;
 }
 const mockUsers: MockUserDoc[] = [
   {
@@ -57,6 +60,61 @@ jest.mock("../../lib/service/openai-client", () => ({
   })),
 }));
 
+// Mock Google's ID token verification — config/test.json sets a non-empty
+// google.clientId so GoogleAuthService actually constructs an OAuth2Client
+// (and thus calls this mock) rather than short-circuiting to its own
+// "not configured" 503 the way it would with the real empty default.
+const GOOGLE_VALID_TOKEN = "valid-google-token";
+const GOOGLE_VALID_TOKEN_NO_EMAIL = "valid-google-token-no-email";
+const GOOGLE_VALID_TOKEN_EXISTING_EMAIL = "valid-google-token-existing-email";
+// AuthService (and the GoogleAuthService/OAuth2Client instance inside it) is
+// constructed once at server startup, not per-request — mockImplementationOnce
+// on the OAuth2Client constructor wouldn't affect the already-built instance.
+// Every distinct scenario needs its own fixed token mapped here instead.
+jest.mock("google-auth-library", () => ({
+  OAuth2Client: jest.fn().mockImplementation(() => ({
+    verifyIdToken: jest.fn().mockImplementation(async ({ idToken }: { idToken: string }) => {
+      if (idToken === GOOGLE_VALID_TOKEN) {
+        return { getPayload: () => ({ sub: "google-uid-123", email: "googleuser@gmail.com", email_verified: true }) };
+      }
+      if (idToken === GOOGLE_VALID_TOKEN_NO_EMAIL) {
+        return { getPayload: () => ({ sub: "google-uid-456", email: undefined, email_verified: false }) };
+      }
+      if (idToken === GOOGLE_VALID_TOKEN_EXISTING_EMAIL) {
+        return { getPayload: () => ({ sub: "google-uid-789", email: "googleuser2@gmail.com", email_verified: true }) };
+      }
+      throw new Error("Token used too early or expired");
+    }),
+  })),
+}));
+
+// Mock Twilio's Verify API — same reasoning as above, config/test.json
+// gives SmsService non-empty twilio.* values so it actually calls this
+// mock instead of short-circuiting to "not configured".
+const TWILIO_FAILING_PHONE = "+10000000000";
+const TWILIO_CORRECT_CODE = "123456";
+jest.mock("twilio", () =>
+  jest.fn().mockImplementation(() => ({
+    verify: {
+      v2: {
+        services: jest.fn().mockImplementation(() => ({
+          verifications: {
+            create: jest.fn().mockImplementation(async ({ to }: { to: string }) => {
+              if (to === TWILIO_FAILING_PHONE) throw new Error("Twilio send failed");
+              return { status: "pending" };
+            }),
+          },
+          verificationChecks: {
+            create: jest.fn().mockImplementation(async ({ code }: { to: string; code: string }) => {
+              return { status: code === TWILIO_CORRECT_CODE ? "approved" : "pending" };
+            }),
+          },
+        })),
+      },
+    },
+  }))
+);
+
 // Mock the database connection
 jest.mock("../../config/database", () => ({
   DatabaseConnection: {
@@ -67,12 +125,21 @@ jest.mock("../../config/database", () => ({
           if (name === "users") {
             return {
               createIndex: jest.fn().mockResolvedValue(undefined),
-              findOne: jest.fn().mockImplementation(async (query: { email?: string; verificationToken?: string }) => {
+              findOne: jest.fn().mockImplementation(async (query: { email?: string; verificationToken?: string; _id?: unknown; phone?: string; googleId?: string }) => {
                 if (query?.email) {
                   return mockUsers.find(u => u.email === query.email) ?? null;
                 }
                 if (query?.verificationToken) {
                   return mockUsers.find(u => u.verificationToken === query.verificationToken) ?? null;
+                }
+                if (query?._id) {
+                  return mockUsers.find(u => String(u._id) === String(query._id)) ?? null;
+                }
+                if (query?.phone) {
+                  return mockUsers.find(u => u.phone === query.phone) ?? null;
+                }
+                if (query?.googleId) {
+                  return mockUsers.find(u => u.googleId === query.googleId) ?? null;
                 }
                 return null;
               }),
@@ -372,6 +439,132 @@ describe("API Endpoints", () => {
         .expect(200);
 
       expect(response.body).toMatchObject({ success: true, alreadyVerified: true });
+    });
+  });
+
+  describe("POST /api/auth/google", () => {
+    it("creates a new account for a first-time Google sign-in", async () => {
+      const response = await request(app)
+        .post("/api/auth/google")
+        .send({ idToken: GOOGLE_VALID_TOKEN })
+        .expect(200);
+
+      expect(response.body).toHaveProperty("token");
+      expect(response.body.emailVerified).toBe(true);
+      const user = mockUsers.find(u => u.googleId === "google-uid-123");
+      expect(user).toBeTruthy();
+      expect(user?.email).toBe("googleuser@gmail.com");
+      expect(user?.passwordHash).toBeUndefined();
+    });
+
+    it("logs into the same account on a repeat sign-in rather than duplicating it", async () => {
+      const before = mockUsers.length;
+      const response = await request(app)
+        .post("/api/auth/google")
+        .send({ idToken: GOOGLE_VALID_TOKEN })
+        .expect(200);
+
+      expect(response.body).toHaveProperty("token");
+      expect(mockUsers.length).toBe(before);
+    });
+
+    it("links googleId onto an existing email/password account with the same email", async () => {
+      await request(app)
+        .post("/api/auth/signup")
+        .send({ email: "googleuser2@gmail.com", password: "correct-horse-battery" })
+        .expect(201);
+
+      const response = await request(app)
+        .post("/api/auth/google")
+        .send({ idToken: GOOGLE_VALID_TOKEN_EXISTING_EMAIL })
+        .expect(200);
+
+      expect(response.body).toHaveProperty("token");
+      const user = mockUsers.find(u => u.email === "googleuser2@gmail.com");
+      expect(user?.googleId).toBe("google-uid-789");
+    });
+
+    it("returns 401 for an invalid Google ID token", async () => {
+      const response = await request(app)
+        .post("/api/auth/google")
+        .send({ idToken: "not-a-real-token" })
+        .expect(401);
+
+      expect(response.body).toHaveProperty("error");
+    });
+
+    it("creates an account with no email when Google doesn't provide one", async () => {
+      const response = await request(app)
+        .post("/api/auth/google")
+        .send({ idToken: GOOGLE_VALID_TOKEN_NO_EMAIL })
+        .expect(200);
+
+      expect(response.body).toHaveProperty("token");
+      const user = mockUsers.find(u => u.googleId === "google-uid-456");
+      expect(user?.email).toBeUndefined();
+    });
+  });
+
+  describe("POST /api/auth/sms/send", () => {
+    it("returns success for a valid E.164 phone number", async () => {
+      const response = await request(app)
+        .post("/api/auth/sms/send")
+        .send({ phone: "+14155551234" })
+        .expect(200);
+
+      expect(response.body).toEqual({ success: true });
+    });
+
+    it("returns 400 for a malformed phone number", async () => {
+      const response = await request(app)
+        .post("/api/auth/sms/send")
+        .send({ phone: "07911123456" })
+        .expect(400);
+
+      expect(response.body).toHaveProperty("error");
+    });
+
+    it("returns 502 when Twilio fails to send", async () => {
+      const response = await request(app)
+        .post("/api/auth/sms/send")
+        .send({ phone: TWILIO_FAILING_PHONE })
+        .expect(502);
+
+      expect(response.body).toHaveProperty("error");
+    });
+  });
+
+  describe("POST /api/auth/sms/verify", () => {
+    it("creates a new account and returns a token for a correct code", async () => {
+      const response = await request(app)
+        .post("/api/auth/sms/verify")
+        .send({ phone: "+14155559999", code: TWILIO_CORRECT_CODE })
+        .expect(200);
+
+      expect(response.body).toHaveProperty("token");
+      const user = mockUsers.find(u => u.phone === "+14155559999");
+      expect(user?.phoneVerified).toBe(true);
+      expect(user?.passwordHash).toBeUndefined();
+    });
+
+    it("logs into the same account on a repeat verify rather than duplicating it", async () => {
+      const before = mockUsers.length;
+      const response = await request(app)
+        .post("/api/auth/sms/verify")
+        .send({ phone: "+14155559999", code: TWILIO_CORRECT_CODE })
+        .expect(200);
+
+      expect(response.body).toHaveProperty("token");
+      expect(mockUsers.length).toBe(before);
+    });
+
+    it("returns 401 for an incorrect code", async () => {
+      const response = await request(app)
+        .post("/api/auth/sms/verify")
+        .send({ phone: "+14155551111", code: "999999" })
+        .expect(401);
+
+      expect(response.body).toHaveProperty("error");
     });
   });
 

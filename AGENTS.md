@@ -917,3 +917,163 @@ change), and — the actual point of this entry —
 `email-verification-live.spec.ts` passes against production, proving
 signup → real Resend delivery → real inbox → real verify link → real
 `emailVerified: true` all work end to end as of this commit.
+
+---
+
+## 2026-07-19 (even later) — Agent in `~/betfair-nlp-social-auth` (branch `social-auth`)
+
+**Task (starting):** Sign in with Google + SMS (Twilio Verify) as
+additional signup/login methods, alongside the existing email/password
+flow. **Apple explicitly out of scope this round** (user chose to skip —
+needs a paid Apple Developer Program enrollment + domain verification
+file + Services ID + private key, none of which exist yet).
+
+**Design decisions (confirmed with user):**
+- Google: web-only "Sign In With Google" via Google Identity Services
+  (GIS) — the frontend gets a signed ID token directly from Google's own
+  JS, no authorization-code exchange, no client secret needed anywhere
+  (only `GOOGLE_CLIENT_ID`, which is not secret, needed server-side to
+  verify the ID token's signature via `google-auth-library`). Simpler
+  than a redirect-based OAuth flow and fits this app's current
+  web-only deployment.
+- SMS: Twilio **Verify** API specifically (not raw SNS) — Twilio owns
+  code generation, expiry, and retry-limiting for us; our backend just
+  calls "start" and "check" against a Verify Service SID.
+- **Schema change:** `UserDocument.email` becomes optional — a
+  phone-only signup has no email at all. Both `email` and `phone` get
+  sparse unique indexes; a user must have at least one of
+  email/phone/googleId.
+- A Google sign-in auto-creates the account as `emailVerified: true`
+  immediately (Google already proved ownership) — skips our own
+  token/Resend email-verification flow entirely for that account.
+- No credentials provided yet for either provider — user is creating a
+  Google Cloud project and a Twilio account. Following the same pattern
+  as `RESEND_API_KEY`: code is being written to safely no-op/error
+  clearly if `GOOGLE_CLIENT_ID`/`TWILIO_*` aren't configured, not to
+  block on having them to write and test the non-provider-specific
+  logic (schema, routing, existing-flow regressions).
+
+**Touching:** `src/lib/dao/user-dao.ts`, `src/lib/service/auth-service.ts`
+(new methods, not touching `signup`/`login`/`verifyEmail`/
+`resendVerification` behavior), `src/server/router.ts` (new routes only),
+`client/src/components/AuthScreen.tsx`, `client/src/services/chatApi.ts`,
+`config/default.json`, `config/custom-environment-variables.json`,
+`apps/lambda/build.sh` (secrets block only). New files:
+`src/lib/service/google-auth-service.ts`,
+`src/lib/service/sms-service.ts`. **Not** touching
+`src/lib/service/email-service.ts`, the verify/resend-verification
+endpoints, or anything from the industry-sp/raceCap work at all.
+
+Will append a completion entry below once shipped/verified.
+
+**Done — committed on `social-auth`, merged to `develop`, NOT deployed
+yet.** All planned pieces landed: Google Sign-In (ID-token verification,
+no client secret anywhere), Twilio Verify SMS sign-in, and the schema
+migration to support both (optional `email`, new `phone`/`googleId`
+fields).
+
+**Turned out bigger than "add two buttons" — a few things worth knowing:**
+
+- **`resendVerification`/`getMe` had to be re-keyed from email to user id**
+  (the JWT's `sub` claim) — a phone-only or emailless-Google account has
+  no email at all, so email couldn't stay the universal lookup key for
+  routes that only ever had a Bearer token to go on. Renamed the
+  router's `emailFromAuthHeader` helper to `userIdFromAuthHeader`
+  accordingly. This is the one place this entry touches
+  `getMe`/`resendVerification`'s *signature* (not their behavior) despite
+  the "not touching" note above — flagging the contradiction in case it
+  matters to whoever reads these entries later.
+- **The existing `email` unique index was not sparse** — fine when
+  every account had an email, but a non-sparse unique index only
+  tolerates *one* document with the field entirely missing before every
+  subsequent phone-only/emailless-Google signup collides on "missing
+  email" as if it were a duplicate value. `UserDAO.createIndexes()` now
+  detects and drops the old non-sparse `email_1` index before recreating
+  it sparse — self-healing on next deploy, no manual migration step
+  needed. **The critical detail if you touch this again: MongoDB sparse
+  indexes still index a field explicitly set to `null`** — only a
+  genuinely *missing* key is excluded. `createUserWithGoogle`/
+  `createUserWithPhone` build their insert docs with conditional spreads
+  (`...(email ? {email} : {})`) specifically to omit the key entirely
+  rather than set it to `null`, or the sparse unique index wouldn't
+  actually help.
+- **New npm packages (`google-auth-library`, `twilio`) needed a real
+  `npm install`, not the symlinked shared `node_modules`** this session's
+  worktrees otherwise use for speed. Installing them **also
+  regenerated the root `yarn.lock` with worktree-absolute file: paths**
+  (`resolved "file:/home/ubuntu/betfair-nlp-social-auth/apps/express"` etc.
+  — this repo has both `package-lock.json` and `yarn.lock` at the root,
+  apparently already drifting pre-existing per the "mixed package
+  managers" warning `yarn build` already printed before this session).
+  **Caught before committing** — `git checkout -- yarn.lock` reverted it,
+  keeping only `package-lock.json`'s clean addition. **If you add a new
+  npm dependency in this repo: check `git diff yarn.lock` before
+  committing — an absolute worktree path baked into a lockfile breaks
+  for literally everyone else who checks the repo out anywhere else.**
+- **Config test-env quirk:** `GoogleAuthService`/`SmsService` both
+  short-circuit to a "not configured" error when their config values are
+  blank — which they are by default (`config/default.json`), including
+  under Jest. To actually exercise the mocked `google-auth-library`/
+  `twilio` packages in Supertest, `config/test.json` needed *dummy*
+  (non-blank) `google.clientId`/`twilio.*` values added — otherwise the
+  real request never reaches the mock at all, it just 503s immediately
+  from the config gate. Not secrets (test.json is committed, these are
+  fake placeholder strings), just needed to get past the "is this
+  configured" check.
+- **Singleton gotcha for anyone testing Google sign-in:** `AuthService`
+  (and the `OAuth2Client` instance inside `GoogleAuthService`) is
+  constructed once at server/Lambda cold start, not per-request.
+  `jest.fn().mockImplementationOnce()` on the `OAuth2Client` *constructor*
+  does nothing useful here — the already-built instance from cold start
+  keeps using whatever the constructor returned the first time. Testing
+  a second/different Google identity requires a distinct fixed token
+  string mapped inside the *same* static mock implementation, not a
+  per-test constructor override (see `GOOGLE_VALID_TOKEN_EXISTING_EMAIL`
+  in `app.test.ts`).
+- **Apple: still explicitly out of scope**, per the "starting" note
+  above — nothing changed on that front this round.
+
+**Not yet deployed — waiting on credentials from the user:**
+- `GOOGLE_CLIENT_ID` (public/non-secret — a Google Cloud project +
+  OAuth consent screen + Web application Client ID need creating first).
+  `apps/common.sh` has a `GOOGLE_CLIENT_ID=""` placeholder wired through
+  `apps/web/deploy.sh` (`EXPO_PUBLIC_GOOGLE_CLIENT_ID`); the Sign In With
+  Google button simply doesn't render until this is filled in — verified
+  via the `GoogleButtonHiddenWhenNotConfigured` Storybook story.
+- `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_VERIFY_SERVICE_SID`
+  (secret — need a Twilio account + a Verify Service created in their
+  console). Same fetch-merge-reapply Lambda-env pattern as
+  `RESEND_API_KEY` applies once these arrive (see the email-verification
+  entry above for the exact procedure and the "always merge, never
+  replace" warning). `apps/lambda/build.sh`'s `config/local.json` secrets
+  block already has safe blank fallbacks for both providers, matching
+  the existing `RESEND_API_KEY` pattern (503 "not configured" rather
+  than a crash).
+
+**Verified (everything short of an actual deploy):**
+- `cd client && yarn build` / `npx tsc --noEmit` (backend) both clean.
+- Supertest: 99 passed (up from 88 — added Google sign-in create/link/
+  invalid-token/no-email cases and SMS send/verify create/repeat/
+  wrong-code cases, all against mocked `google-auth-library`/`twilio`).
+- Storybook `AuthScreen.stories.tsx`: 18/18 pass (was 12) — added Google-
+  button-hidden-when-unconfigured plus the full phone entry → send code
+  → enter code → verify flow, both success and wrong-code paths.
+  `IndustrySpScreen.stories.tsx` still 50/52 (same 2 pre-existing,
+  unrelated course-chip failures noted in every entry above).
+- MSW Playwright (industry-sp + navigation specs): 66/67 pass — the 1
+  failure is the same pre-existing `sort=asc` flake.
+- Full non-integration Jest suite: same ~8-pre-existing-failing-suites
+  shape as every previous entry (checked the actual failing test names
+  this time to be sure — all OpenAI-key/MongoDB-connection/route-
+  registration issues, nothing auth-related).
+- **Not deployed, not tested live** — genuinely can't be until the user
+  supplies the four credentials above. Whoever picks this up next:
+  patch the Lambda env (fetch-merge-reapply, see the email entry above),
+  redeploy, then a real end-to-end check should cover: Google button
+  appears and completes a real sign-in, phone send/verify completes a
+  real Twilio SMS round trip, and — easy to miss — that `/api/auth/me`
+  and the account panel (`IndustrySpScreen`'s Account button, from the
+  session before this one) render sensibly for a phone-only account with
+  no email at all (that UI was built assuming every account has an
+  email; it should degrade to showing the phone number instead, worth
+  eyeballing once real credentials make this testable).

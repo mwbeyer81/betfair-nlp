@@ -203,6 +203,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // panel below. Fetched alongside emailVerified (same chatApi.getMe()
   // call), since there's no other reason to hit that endpoint separately.
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const [accountPhone, setAccountPhone] = useState<string | null>(null);
   const [showAccountPanel, setShowAccountPanel] = useState(false);
   const [filterBounds, setFilterBounds] = useState<IspFilterBounds | null>(null);
   const [filtersVisible, setFiltersVisible] = useState(true);
@@ -250,6 +251,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       setEmailVerified(null);
       setResendStatus("idle");
       setAccountEmail(null);
+      setAccountPhone(null);
       setShowAccountPanel(false);
       return;
     }
@@ -259,6 +261,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       if (!cancelled) {
         setEmailVerified(me?.emailVerified ?? null);
         setAccountEmail(me?.email ?? null);
+        setAccountPhone(me?.phone ?? null);
       }
     }).catch(() => {
       if (!cancelled) setEmailVerified(null);
@@ -963,14 +966,19 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       {isAuthenticated && showAccountPanel && (
         <View testID="industry-sp-account-panel" style={styles.accountPanel}>
           <Text style={styles.accountPanelText}>
-            Signed in as {accountEmail ?? "…"}
+            {/* A phone-only or emailless-Google account has no email at
+                all — fall back to the phone number rather than showing
+                the "…" not-yet-loaded placeholder forever. */}
+            Signed in as {accountEmail ?? accountPhone ?? "…"}
           </Text>
           <Text style={styles.accountPanelStatus}>
-            {emailVerified === true
-              ? "Email verified"
-              : emailVerified === false
-                ? "Email not verified"
-                : ""}
+            {!accountEmail
+              ? ""
+              : emailVerified === true
+                ? "Email verified"
+                : emailVerified === false
+                  ? "Email not verified"
+                  : ""}
           </Text>
           <Button
             testID="industry-sp-account-panel-close"
@@ -1009,7 +1017,11 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </View>
       )}
 
-      {isAuthenticated && emailVerified === false && (
+      {/* accountEmail must be present — a phone-only or emailless-Google
+          account has emailVerified: false by default (nothing to
+          verify), and would otherwise see a permanent, un-actionable
+          "verify your email" banner it can never satisfy. */}
+      {isAuthenticated && !!accountEmail && emailVerified === false && (
         <View testID="industry-sp-verify-banner" style={styles.verifyBanner}>
           <Text style={styles.verifyBannerText}>
             {resendStatus === "sent"

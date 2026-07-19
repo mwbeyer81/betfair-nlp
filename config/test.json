@@ -9,5 +9,13 @@
   "logging": {
     "level": "error",
     "enableConsole": false
+  },
+  "google": {
+    "clientId": "test-google-client-id.apps.googleusercontent.com"
+  },
+  "twilio": {
+    "accountSid": "ACtest0000000000000000000000000000",
+    "authToken": "test-auth-token",
+    "verifyServiceSid": "VAtest0000000000000000000000000000"
   }
 }

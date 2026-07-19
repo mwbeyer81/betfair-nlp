@@ -19,5 +19,13 @@
   "email": {
     "apiKey": "RESEND_API_KEY",
     "fromAddress": "EMAIL_FROM_ADDRESS"
+  },
+  "google": {
+    "clientId": "GOOGLE_CLIENT_ID"
+  },
+  "twilio": {
+    "accountSid": "TWILIO_ACCOUNT_SID",
+    "authToken": "TWILIO_AUTH_TOKEN",
+    "verifyServiceSid": "TWILIO_VERIFY_SERVICE_SID"
   }
 }

@@ -71,9 +71,20 @@ if [ -f "$LOCAL_CONFIG" ]; then
   RESEND_API_KEY=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.email && c.email.apiKey) || '')")
   EMAIL_FROM_ADDRESS=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.email && c.email.fromAddress) || '')")
   API_URL=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.app && c.app.apiUrl) || 'https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com')")
+  # google.*/twilio.* are optional too — Google/SMS sign-in return a clear
+  # 503 ("not configured") rather than crashing if these are blank, same
+  # non-fatal-by-default pattern as email.*. Same footgun as email.* also
+  # applies here: since update-function-configuration replaces the whole
+  # Variables map, if config/local.json exists but omits a google/twilio
+  # section, these silently reset to blank (disabling Google/SMS sign-in)
+  # on the next full deploy that goes through this branch.
+  GOOGLE_CLIENT_ID=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.google && c.google.clientId) || '')")
+  TWILIO_ACCOUNT_SID=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.twilio && c.twilio.accountSid) || '')")
+  TWILIO_AUTH_TOKEN=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.twilio && c.twilio.authToken) || '')")
+  TWILIO_VERIFY_SERVICE_SID=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.twilio && c.twilio.verifyServiceSid) || '')")
   aws lambda update-function-configuration \
     --function-name hello-api \
-    --environment "Variables={MONGODB_URI=$MONGODB_URI,MONGODB_DB_NAME=$MONGODB_DB_NAME,OPENAI_API_KEY=$OPENAI_API_KEY,JWT_SECRET=$JWT_SECRET,RESEND_API_KEY=$RESEND_API_KEY,EMAIL_FROM_ADDRESS=$EMAIL_FROM_ADDRESS,API_URL=$API_URL}" \
+    --environment "Variables={MONGODB_URI=$MONGODB_URI,MONGODB_DB_NAME=$MONGODB_DB_NAME,OPENAI_API_KEY=$OPENAI_API_KEY,JWT_SECRET=$JWT_SECRET,RESEND_API_KEY=$RESEND_API_KEY,EMAIL_FROM_ADDRESS=$EMAIL_FROM_ADDRESS,API_URL=$API_URL,GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID,TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID,TWILIO_AUTH_TOKEN=$TWILIO_AUTH_TOKEN,TWILIO_VERIFY_SERVICE_SID=$TWILIO_VERIFY_SERVICE_SID}" \
     --region eu-north-1 \
     --output text --query FunctionName
 else

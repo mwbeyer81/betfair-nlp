@@ -22,7 +22,7 @@ echo "  -> $COMMIT_SHA"
 echo "Building Expo web client (pointing at Lambda API)..."
 cd "$WORKTREE_DIR/client"
 yarn install --frozen-lockfile
-EXPO_PUBLIC_API_URL="$LAMBDA_URL" yarn build:web:production
+EXPO_PUBLIC_API_URL="$LAMBDA_URL" EXPO_PUBLIC_GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" yarn build:web:production
 
 echo "Stamping build metadata into index.html..."
 sed -i "s#<meta charset=\"utf-8\" />#<meta charset=\"utf-8\" /><meta name=\"build-branch\" content=\"$BRANCH\" /><meta name=\"build-commit\" content=\"$COMMIT_SHA\" />#" dist/index.html
