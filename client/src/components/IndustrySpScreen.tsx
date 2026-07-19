@@ -1046,7 +1046,7 @@ const styles = StyleSheet.create({
   appbarTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 3,
   },
   appbarTitle: {
     color: "white",
