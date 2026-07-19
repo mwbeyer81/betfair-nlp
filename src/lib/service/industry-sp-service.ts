@@ -159,25 +159,29 @@ export class IndustrySpService {
         this.industrySpDAO.getDistinctRaceTypes(),
       ]);
 
-    // Splits default to two fixed 1000-race windows (1-1000, 1001-2000)
-    // whenever the caller doesn't pin down explicit boundaries (a fresh
-    // page load, or after Reset) — a fixed-size backtest sample regardless
-    // of how large the current total is, rather than an even half/half
-    // divide that would shrink or grow with every filter/date-range
-    // change. Clamped to the actual total so a dataset smaller than 2000
-    // races doesn't request rows that don't exist (the DAO already
-    // returns an empty result for an inverted/out-of-range request rather
-    // than erroring, so a total under 1000 just leaves Split B empty).
+    // Splits default to an even first-half/second-half divide of whatever
+    // the current total is, whenever the caller doesn't pin down explicit
+    // boundaries (a fresh page load, or after Reset) — this used to be a
+    // fixed 1000/1000-race window instead, but that assumed a total in the
+    // thousands; now that the date filter caps the default view to one
+    // month (see FILTER_DEFAULTS in IndustrySpScreen.tsx), a fixed
+    // 1000/1000 window routinely left Split B empty (fromRowB=1001 beyond
+    // a total that's often well under 1000 for a single month). Half/half
+    // guarantees both splits are populated regardless of how small the
+    // total is. effToB is left open-ended (null, "through the end") rather
+    // than an explicit number so it never needs reclamping as the total
+    // changes with the filters.
     const splitsAreDefault = fromRowA == null && toRowA == null && fromRowB == null && toRowB == null;
     let effFromA = fromRowA ?? 1;
     let effToA = toRowA;
     let effFromB = fromRowB ?? 1;
     let effToB = toRowB;
     if (splitsAreDefault) {
+      const half = Math.floor(grand.total / 2);
       effFromA = 1;
-      effToA = Math.min(1000, grand.total);
-      effFromB = 1001;
-      effToB = Math.min(2000, grand.total);
+      effToA = half;
+      effFromB = half + 1;
+      effToB = null;
     }
 
     const [resultA, resultB] = await Promise.all([

@@ -174,10 +174,11 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // Two independent race-row splits, so a filter combination can be tested
   // on one slice of the historical data and checked for profit on another.
   // Until the user has applied an explicit split (or one arrived via a
-  // bookmarked URL), the splits auto-compute to two fixed 1000-race
-  // windows (1-1000, 1001-2000) once the grand total is known — a
-  // consistent-size backtest sample regardless of how large the current
-  // total is, rather than one that shrinks/grows with every filter change.
+  // bookmarked URL), the splits auto-compute to an even first-half/
+  // second-half divide of the grand total once it's known — this
+  // guarantees both splits are populated even for a small total (the date
+  // filter caps the default view to one month, see FILTER_DEFAULTS above),
+  // unlike a fixed-size window that could leave split B empty.
   const splitsAreDefaultRef = useRef(!urlHasParam("fromRowA"));
   const [fromRowA, setFromRowA] = useState(() => urlIntParam("fromRowA", 1));
   const [toRowA, setToRowA] = useState<number | null>(() => urlToRowParam("toRowA"));
@@ -318,8 +319,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setDraftJockey("");
     setJockeySearch("");
 
-    // Hand the two race splits back to auto (fixed 1000-race window) mode
-    // — the next fetch recomputes them from the fresh grand total.
+    // Hand the two race splits back to auto (half/half) mode — the next
+    // fetch recomputes them from the fresh grand total.
     splitsAreDefaultRef.current = true;
     setFromRowA(1);
     setToRowA(null);
@@ -459,7 +460,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         // why this used to be 3 separate concurrent requests (each risking
         // its own Lambda cold start / Atlas M0 connection contention) and
         // isn't anymore. Omitting fromRowA/toRowA/fromRowB/toRowB lets the
-        // backend compute the fixed 1000-race-window default itself.
+        // backend compute the half/half default itself.
         const result = await chatApi.getIndustrySpSplits(
           minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, minRunnersInRange, maxRunnersInRange,
           isDefault ? undefined : fromRowA,

@@ -359,16 +359,17 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     // split; it should self-correct back to an even default split.
     //
     // Overrides the fixture's normal 1-race mock with a fixed totalRaces
-    // of 2500 — large enough that the corrected 1000/1000-window default
-    // (see getSplitStats) has real, non-empty content in both splits,
-    // which the standard 1-race mock can never demonstrate.
+    // of 2500 — large enough that the corrected half/half default (see
+    // getSplitStats) has real, non-empty content in both splits, which
+    // the standard 1-race mock can never demonstrate.
     await page.route("**/api/industry-sp/splits*", async (route) => {
       const url = new URL(route.request().url());
       const totalRaces = 2500;
       const fromRowARaw = url.searchParams.get("fromRowA");
       let fromRowA: number, toRowA: number, fromRowB: number, toRowB: number;
       if (fromRowARaw == null) {
-        fromRowA = 1; toRowA = 1000; fromRowB = 1001; toRowB = 2000;
+        const half = Math.floor(totalRaces / 2);
+        fromRowA = 1; toRowA = half; fromRowB = half + 1; toRowB = totalRaces;
       } else {
         fromRowA = parseInt(fromRowARaw, 10);
         toRowA = parseInt(url.searchParams.get("toRowA") ?? String(totalRaces), 10);

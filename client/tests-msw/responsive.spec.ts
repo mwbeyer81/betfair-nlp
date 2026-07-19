@@ -208,14 +208,14 @@ test.describe("Responsive layout — /isp filters screen on a short viewport (MS
     // headline, but this guards against a future regression reintroducing
     // overlap between the headline and the button row below it.
     //
-    // Uses split A specifically: this fixture's mocked dataset has exactly
-    // 1 matching race, and the default split is now two fixed 1000-race
-    // windows (1-1000, 1001-2000) rather than an even half/half divide —
-    // split A's window (1-1000) covers the single race, split B's
-    // (1001-2000) doesn't, so A is the one with a PnL headline to check.
-    const pnlHeadline = page.getByTestId("industry-sp-pnl-a");
-    const card = page.getByTestId("industry-sp-split-card-a");
-    const button = page.getByTestId("industry-sp-view-races-button-a");
+    // Uses split B specifically: this fixture's mocked dataset has exactly
+    // 1 matching race, and the default split is an even half/half divide
+    // of the total — with a total of 1, split A's window (1-0) is empty
+    // and split B's (1-<end>) is the one that covers the single race, so
+    // B is the one with a PnL headline to check.
+    const pnlHeadline = page.getByTestId("industry-sp-pnl-b");
+    const card = page.getByTestId("industry-sp-split-card-b");
+    const button = page.getByTestId("industry-sp-view-races-button-b");
     await expect(pnlHeadline).toBeVisible();
     await expect(card).toBeVisible();
 
