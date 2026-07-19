@@ -44,6 +44,18 @@ async function pickDateRangeInCanvas(
   await userEvent.click(canvas.getByTestId(`${prefix}-apply`));
 }
 
+// Split cards (and the filter bar's chip rows) now render immediately on
+// mount, in a "pending" placeholder state (see renderSplitCard/
+// renderChipRow in IndustrySpScreen.tsx) — so `findByTestId("industry-sp-
+// split-card-a")` alone no longer signals "real data has loaded" the way
+// it used to (it resolves on the very first render). This is the
+// replacement wait condition: the loading banner disappearing.
+async function waitForLoaded(canvas: ReturnType<typeof within>) {
+  await waitFor(() => {
+    expect(canvas.queryByTestId("industry-sp-loading")).not.toBeInTheDocument();
+  }, { timeout: 5000 });
+}
+
 // This screen fetches the grand total + both splits in a single request to
 // /api/industry-sp/splits (see chatApi.getIndustrySpSplits) — this handler
 // mirrors the real backend's own default-split behavior: when the caller
@@ -156,8 +168,18 @@ export const Loading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByTestId("industry-sp-loading")).toBeInTheDocument();
-    await expect(canvas.queryByTestId("industry-sp-split-card-a")).not.toBeInTheDocument();
-    await expect(canvas.queryByTestId("industry-sp-split-card-b")).not.toBeInTheDocument();
+    // Split cards render immediately (not hidden behind the loading
+    // banner) — each shows an "awaiting results" placeholder instead of
+    // real numbers until the fetch resolves.
+    await expect(canvas.getByTestId("industry-sp-split-card-a")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-split-card-b")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-split-pending-a")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-split-pending-b")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-pnl-a")).not.toBeInTheDocument();
+    // The filter bar (including chip rows, shown with their own
+    // "Loading…" placeholder) is visible from first paint too.
+    await expect(canvas.getByTestId("industry-sp-filter-bar")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-course-loading")).toBeInTheDocument();
   },
 };
 
@@ -178,7 +200,8 @@ export const ZeroMatchesShowsZeroCount: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const cardA = await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
+    const cardA = canvas.getByTestId("industry-sp-split-card-a");
     const cardB = canvas.getByTestId("industry-sp-split-card-b");
     await expect(cardA).toHaveTextContent("View 0 Races");
     await expect(cardB).toHaveTextContent("View 0 Races");
@@ -193,8 +216,9 @@ export const ScreenLoaded: Story = {
     const canvas = within(canvasElement);
 
     await expect(canvas.getByTestId("industry-sp-screen")).toBeInTheDocument();
-    await expect(canvas.findByTestId("industry-sp-split-card-a")).resolves.toBeInTheDocument();
-    await expect(canvas.findByTestId("industry-sp-split-card-b")).resolves.toBeInTheDocument();
+    await waitForLoaded(canvas);
+    await expect(canvas.getByTestId("industry-sp-split-card-a")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-split-card-b")).toBeInTheDocument();
     await expect(canvas.findByText("BackBet")).resolves.toBeInTheDocument();
     await expect(canvas.findByTestId("industry-sp-pnl-a")).resolves.toHaveTextContent("+£1.58");
     await expect(canvas.findByTestId("industry-sp-pnl-b")).resolves.toHaveTextContent("+£1.58");
@@ -204,7 +228,7 @@ export const ScreenLoaded: Story = {
 export const SuccessfulLoadPopulatesTheSessionCache: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     // The actual "does returning to /isp reuse this?" behavior needs a
     // real unmount/remount, which isn't practical within one Storybook
@@ -220,7 +244,7 @@ export const SuccessfulLoadPopulatesTheSessionCache: Story = {
 export const DefaultSplitsAreHalfAndHalf: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     // Mock total is 2500 (see splitsHandler's default) — half/half is
     // 1-1250 / 1251-<end>. The "to" box shows the grand total (2500) as
@@ -246,7 +270,7 @@ export const EventsButtonNavigates: Story = {
 export const ViewRacesButtonsNavigateWithTheirOwnSplit: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     const btnA = canvas.getByTestId("industry-sp-view-races-button-a");
     await expect(btnA).toHaveTextContent(/View \d+ Races/);
@@ -264,7 +288,7 @@ export const ViewRacesButtonsNavigateWithTheirOwnSplit: Story = {
 export const FiltersToggleHidesAndShowsFilterBar: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     await expect(canvas.getByTestId("industry-sp-filter-bar")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-filters-toggle")).toHaveTextContent("Hide filters");
@@ -292,7 +316,7 @@ export const PnlHeadlinesShowIndependentStats: Story = {
 export const DetailsButtonOpensFullBreakdown: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     await expect(canvas.queryByTestId("split-detail-panel-a")).not.toBeInTheDocument();
     await userEvent.click(canvas.getByTestId("industry-sp-split-details-button-a"));
@@ -311,7 +335,7 @@ export const DetailsButtonOpensFullBreakdown: Story = {
 export const DetailsPanelFiltersButtonReturnsToSplitCards: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-b");
+    await waitForLoaded(canvas);
 
     await userEvent.click(canvas.getByTestId("industry-sp-split-details-button-b"));
     await canvas.findByTestId("split-detail-panel-b");
@@ -327,7 +351,7 @@ export const DetailsPanelFiltersButtonReturnsToSplitCards: Story = {
 export const DetailsPanelViewRacesButtonNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     await userEvent.click(canvas.getByTestId("industry-sp-split-details-button-a"));
     await canvas.findByTestId("split-detail-panel-a");
@@ -342,7 +366,7 @@ export const DetailsPanelViewRacesButtonNavigates: Story = {
 export const RunnersInRangeFilterVisible: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
     await expect(canvas.getByTestId("industry-sp-min-rir-value")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-max-rir-value")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-in-isp-label")).toBeInTheDocument();
@@ -366,7 +390,7 @@ export const RestrictiveFilterZeroesOutMatches: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
     const maxInput = canvas.getByTestId("industry-sp-max-rir-value");
     await userEvent.clear(maxInput);
     await userEvent.type(maxInput, "1");
@@ -384,7 +408,7 @@ let capturedDateParams: { minDate: string | null; maxDate: string | null } = { m
 export const FilterRowsAreGridAligned: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     // The whole point of the grid redesign: every row's min-input starts at
     // the same x position, so columns read as aligned rather than each row
@@ -401,7 +425,7 @@ export const FilterRowsAreGridAligned: Story = {
 export const GridInputsAreLargeEnoughToType: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     for (const testId of [
       "industry-sp-min-isp", "industry-sp-max-isp",
@@ -420,7 +444,7 @@ export const GridInputsAreLargeEnoughToType: Story = {
 export const RunnersHeadingGroupedWithInputs: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     // The "Runners" heading must live in the same row as its own Min/Max
     // inputs, not float off as an unrelated sibling elsewhere in the filter
@@ -435,7 +459,7 @@ export const RunnersHeadingGroupedWithInputs: Story = {
 export const TooltipTogglesShowAndHideExplanation: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     await expect(canvas.queryByTestId("industry-sp-tooltip-text-runners")).not.toBeInTheDocument();
 
@@ -463,7 +487,7 @@ export const TooltipTogglesShowAndHideExplanation: Story = {
 export const TooltipDoesNotShiftFilterLayout: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     const applyButton = canvas.getByTestId("industry-sp-filter-apply");
     const raceLabelBefore = canvas.getByTestId("industry-sp-from-row-a").getBoundingClientRect().top;
@@ -485,7 +509,7 @@ export const TooltipDoesNotShiftFilterLayout: Story = {
 export const ApplyAndResetShareTheSameLine: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     const applyBox = canvas.getByTestId("industry-sp-filter-apply").getBoundingClientRect();
     const resetBox = canvas.getByTestId("industry-sp-filter-reset").getBoundingClientRect();
@@ -497,7 +521,7 @@ export const ApplyAndResetShareTheSameLine: Story = {
 export const TooltipToggleHasAdequateTapTarget: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     for (const key of ["isp", "runners", "inIsp", "raceA", "raceB"]) {
       const toggle = canvas.getByTestId(`industry-sp-tooltip-toggle-${key}`);
@@ -539,7 +563,7 @@ export const IspFilterParamsPassedToApi: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     const minInput = canvas.getByTestId("industry-sp-min-isp");
     const maxInput = canvas.getByTestId("industry-sp-max-isp");
@@ -561,7 +585,7 @@ export const IspFilterParamsPassedToApi: Story = {
 export const IspInputsAcceptDecimals: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     const minInput = canvas.getByTestId("industry-sp-min-isp");
     const maxInput = canvas.getByTestId("industry-sp-max-isp");
@@ -580,7 +604,7 @@ export const IspInputsAcceptDecimals: Story = {
 export const ApplyingFilterUpdatesUrl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     const maxRirInput = canvas.getByTestId("industry-sp-max-rir-value");
     await userEvent.clear(maxRirInput);
@@ -596,7 +620,7 @@ export const ApplyingFilterUpdatesUrl: Story = {
 export const ApplyingCustomSplitUpdatesUrlWithBothRanges: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     const toRowA = canvas.getByTestId("industry-sp-to-row-a");
     await userEvent.clear(toRowA);
@@ -614,7 +638,7 @@ export const ApplyingCustomSplitUpdatesUrlWithBothRanges: Story = {
 export const ResetButtonRestoresDefaultsAndClearsUrl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     const maxRirInput = canvas.getByTestId("industry-sp-max-rir-value");
     await userEvent.clear(maxRirInput);
@@ -643,7 +667,7 @@ export const ResetButtonRestoresDefaultsAndClearsUrl: Story = {
 export const InIspBoundDisplayed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
     const bound = await canvas.findByTestId("industry-sp-max-rir-bound");
     await expect(bound).toBeInTheDocument();
     await expect(bound).toHaveTextContent("/29");
@@ -653,7 +677,7 @@ export const InIspBoundDisplayed: Story = {
 export const RaceBoundsDisplayedForBothSplits: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
     const boundA = await canvas.findByTestId("industry-sp-race-bound-a");
     const boundB = await canvas.findByTestId("industry-sp-race-bound-b");
     await expect(boundA).toHaveTextContent("/2500");
@@ -664,7 +688,7 @@ export const RaceBoundsDisplayedForBothSplits: Story = {
 export const DateFilterDefaultsToOneMonth: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
     const trigger = canvas.getByTestId("industry-sp-date-range-picker");
     await expect(trigger).toHaveTextContent("Jan 1, 2024");
     await expect(trigger).toHaveTextContent("Jan 31, 2024");
@@ -702,7 +726,7 @@ export const ApplyingACustomDateRangeSendsItToTheApi: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     // Within the one-month cap, so it applies exactly as picked.
     await pickDateRangeInCanvas(canvas, "2023-01-01", "2023-01-20");
@@ -748,7 +772,7 @@ export const DateRangeWiderThanOneMonthIsClampedOnApply: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     // A 6-month pick gets silently pulled back to minDate + 1 month on
     // Apply, same as every other range filter self-correcting instead of
@@ -771,7 +795,7 @@ export const DateRangeWiderThanOneMonthIsClampedOnApply: Story = {
 export const CourseGoingRaceClassRaceTypeChipsVisible: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     await expect(canvas.findByTestId("industry-sp-course")).resolves.toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-course-Ascot")).toBeInTheDocument();
@@ -822,7 +846,7 @@ export const ClickingACourseChipShowsPendingWithoutQueryingApi: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
     const chip = await canvas.findByTestId("industry-sp-course-Ascot");
 
     await expect(chip).not.toHaveTextContent("•");
@@ -862,7 +886,7 @@ export const ApplyingAPendingCourseChipQueriesApiAndUpdatesUrl: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
     const chip = await canvas.findByTestId("industry-sp-course-Ascot");
 
     capturedChipParams = { courses: null };
@@ -883,7 +907,7 @@ export const ApplyingAPendingCourseChipQueriesApiAndUpdatesUrl: Story = {
 export const TrainerJockeySearchIsHidden: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
 
     // Little practical use as a filter (free-text prefix match over
     // thousands of names) — hidden, though the underlying state/query
@@ -897,7 +921,7 @@ export const TrainerJockeySearchIsHidden: Story = {
 export const ResetClearsCourseChipsSelection: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
     const chip = await canvas.findByTestId("industry-sp-course-Ascot");
 
     await userEvent.click(chip);
@@ -924,7 +948,7 @@ export const RendersAtIphone12: Story = {
   parameters: { viewport: { defaultViewport: "iphone12" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
     await expect(canvas.getByTestId("industry-sp-screen")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-split-card-a")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-split-card-b")).toBeInTheDocument();
@@ -935,7 +959,7 @@ export const RendersAtIpad: Story = {
   parameters: { viewport: { defaultViewport: "ipad" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
     await expect(canvas.getByTestId("industry-sp-filter-bar")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-split-card-b")).toBeInTheDocument();
   },
@@ -949,7 +973,7 @@ export const RendersAtLaptop: Story = {
   parameters: { viewport: { defaultViewport: "laptop" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-split-card-a");
+    await waitForLoaded(canvas);
     await expect(canvas.getByTestId("industry-sp-pnl-a")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-pnl-b")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-view-races-button-a")).toBeInTheDocument();

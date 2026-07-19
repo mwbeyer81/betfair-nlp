@@ -631,12 +631,21 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     draftSelected: Set<string>;
     appliedSelected: Set<string>;
     onToggle: (value: string) => void;
+    loading: boolean;
   }) {
-    const { filterKey, testId, label, values, draftSelected, appliedSelected, onToggle } = opts;
-    if (values.length === 0) return null;
+    const { filterKey, testId, label, values, draftSelected, appliedSelected, onToggle, loading } = opts;
+    // Renders the row (label + a "Loading…" placeholder) even before its
+    // options have arrived, rather than being entirely absent until then —
+    // so it appears alongside the rest of the filter bar on first paint
+    // instead of popping in once the background fetch resolves. Only a
+    // truly optionless row (shouldn't happen in practice) stays hidden.
+    if (values.length === 0 && !loading) return null;
     return (
       <View testID={`industry-sp-filter-row-${filterKey}`} style={styles.chipFilterRow}>
         <Text style={styles.chipFilterLabel}>{label}</Text>
+        {values.length === 0 ? (
+          <Text testID={`${testId}-loading`} style={styles.chipFilterLoadingText}>Loading…</Text>
+        ) : (
         <ScrollView
           horizontal
           testID={testId}
@@ -667,6 +676,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             );
           })}
         </ScrollView>
+        )}
       </View>
     );
   }
@@ -690,15 +700,25 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     totalRaces: number;
     totalRunners: number;
     pnl: PnlStats;
+    pending: boolean;
   }) {
-    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl } = opts;
+    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl, pending } = opts;
     const effectiveTo = toRow ?? totalRaces;
     return (
-      <View testID={`industry-sp-split-card-${id}`} style={[styles.splitCard, isDesktop && styles.splitCardFlex]}>
+      <View testID={`industry-sp-split-card-${id}`} style={[styles.splitCard, isDesktop && styles.splitCardFlex, pending && styles.splitCardPending]}>
         <Text style={styles.splitCardLabel}>
           {label} — races {fromRow}–{effectiveTo}
         </Text>
-        {pnl.staked > 0 ? (
+        {pending ? (
+          // Shown from the very first render (before any fetch has ever
+          // resolved, and again while Apply/Reset are refetching) — makes
+          // clear this card is awaiting real numbers rather than looking
+          // like a genuine "no matches" result.
+          <View testID={`industry-sp-split-pending-${id}`} style={styles.splitPendingRow}>
+            <ActivityIndicator size="small" color="rgba(255,255,255,0.7)" />
+            <Text style={styles.splitPendingText}>Awaiting results…</Text>
+          </View>
+        ) : pnl.staked > 0 ? (
           <Text testID={`industry-sp-pnl-${id}`} style={[styles.pnlHeadline, pnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]} numberOfLines={1}>
             {formatPnl(pnl.pnl)}{" "}
             <Text style={[styles.pnlPct, pnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
@@ -715,6 +735,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             testID={`industry-sp-split-details-button-${id}`}
             mode="outlined"
             compact
+            disabled={pending}
             onPress={() => setDetailSplit(id)}
             style={styles.splitDetailsButton}
             labelStyle={styles.splitDetailsButtonLabel}
@@ -725,11 +746,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             testID={`industry-sp-view-races-button-${id}`}
             mode="contained"
             compact
+            disabled={pending}
             onPress={() => onViewRaces(fromRow, toRow)}
             style={styles.splitViewButton}
             labelStyle={styles.splitViewButtonLabel}
           >
-            View {splitTotalRaces} Races →
+            {pending ? "View Races →" : `View ${splitTotalRaces} Races →`}
           </Button>
         </View>
       </View>
@@ -903,7 +925,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           is a pure UI hide, not a functional removal — trivial to re-show
           if non-UK data is ever seeded.
         */}
-        {!isLoading && renderChipRow({
+        {renderChipRow({
           filterKey: "course",
           testId: "industry-sp-course",
           label: "Course",
@@ -911,8 +933,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           draftSelected: draftSelectedCourses,
           appliedSelected: selectedCourses,
           onToggle: value => toggleChipFilter(setDraftSelectedCourses, value),
+          loading: isLoading,
         })}
-        {!isLoading && renderChipRow({
+        {renderChipRow({
           filterKey: "going",
           testId: "industry-sp-going",
           label: "Going",
@@ -920,8 +943,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           draftSelected: draftSelectedGoings,
           appliedSelected: selectedGoings,
           onToggle: value => toggleChipFilter(setDraftSelectedGoings, value),
+          loading: isLoading,
         })}
-        {!isLoading && renderChipRow({
+        {renderChipRow({
           filterKey: "race-class",
           testId: "industry-sp-race-class",
           label: "Class",
@@ -929,8 +953,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           draftSelected: draftSelectedRaceClasses,
           appliedSelected: selectedRaceClasses,
           onToggle: value => toggleChipFilter(setDraftSelectedRaceClasses, value),
+          loading: isLoading,
         })}
-        {!isLoading && renderChipRow({
+        {renderChipRow({
           filterKey: "race-type",
           testId: "industry-sp-race-type",
           label: "Type",
@@ -938,6 +963,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           draftSelected: draftSelectedRaceTypes,
           appliedSelected: selectedRaceTypes,
           onToggle: value => toggleChipFilter(setDraftSelectedRaceTypes, value),
+          loading: isLoading,
         })}
         <View style={styles.filterActions}>
           <Button
@@ -968,10 +994,19 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         testID="industry-sp-split-cards"
         style={[styles.splitCards, isDesktop && styles.splitCardsRow]}
       >
+        {/*
+          The split cards themselves are no longer hidden behind this —
+          they render from first paint (see renderSplitCard's `pending`
+          state) so the page never looks empty/blocked while the user
+          hasn't done anything yet. This stays purely as a small in-flight
+          marker: present (and still gates other actions/tests) exactly
+          when isLoading is true, on both the very first load and every
+          subsequent Apply/Reset refetch.
+        */}
         {isLoading && (
-          <View testID="industry-sp-loading" style={styles.centered}>
-            <ActivityIndicator size="large" animating color={colors.primary} />
-            <Text variant="bodyMedium" style={styles.loadingText}>
+          <View testID="industry-sp-loading" style={styles.loadingBanner}>
+            <ActivityIndicator size="small" animating color={colors.primary} />
+            <Text variant="bodyMedium" style={styles.loadingBannerText}>
               Loading industry SP…
             </Text>
           </View>
@@ -983,7 +1018,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           </View>
         )}
 
-        {!isLoading && !error && (
+        {!error && (
           <>
             {renderSplitCard({
               id: "a",
@@ -993,6 +1028,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               totalRaces: totalRacesA,
               totalRunners: totalRunnersA,
               pnl: pnlStatsA,
+              pending: isLoading,
             })}
             {renderSplitCard({
               id: "b",
@@ -1002,6 +1038,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               totalRaces: totalRacesB,
               totalRunners: totalRunnersB,
               pnl: pnlStatsB,
+              pending: isLoading,
             })}
           </>
         )}
@@ -1203,6 +1240,12 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     width: 44,
   },
+  chipFilterLoadingText: {
+    fontSize: 12,
+    color: colors.textTertiary,
+    fontStyle: "italic",
+    paddingVertical: spacing.sm,
+  },
   filterGridHint: {
     fontSize: 11,
     color: colors.textTertiary,
@@ -1289,6 +1332,13 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
   },
+  // Slightly dimmed vs. the normal solid card — still fully visible/laid
+  // out (not a skeleton/spinner replacing it), just visually reads as "not
+  // settled yet" while awaiting the first-ever fetch or an Apply/Reset
+  // refetch.
+  splitCardPending: {
+    opacity: 0.7,
+  },
   splitCardLabel: {
     fontSize: 12,
     fontWeight: "700",
@@ -1297,6 +1347,16 @@ const styles = StyleSheet.create({
   splitEmptyText: {
     fontSize: 12,
     color: "rgba(255,255,255,0.5)",
+  },
+  splitPendingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  splitPendingText: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.7)",
+    fontStyle: "italic",
   },
   pnlHeadline: {
     fontSize: 18,
@@ -1340,8 +1400,19 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.sm,
   },
-  loadingText: {
+  // Small in-flight banner above the (always-rendered) split cards —
+  // replaces what used to be a full-page centered spinner that hid the
+  // cards outright.
+  loadingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.xs,
+  },
+  loadingBannerText: {
     color: colors.textSecondary,
+    fontSize: 12,
   },
   errorText: {
     color: colors.danger,
