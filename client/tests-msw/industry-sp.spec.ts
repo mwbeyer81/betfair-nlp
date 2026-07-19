@@ -105,10 +105,39 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-jockey-search")).toBeVisible();
   });
 
-  test("clicking a course chip applies immediately (no Apply click needed) and updates the URL", async ({ page }) => {
-    await page.getByTestId("industry-sp-course-Cheltenham").click();
+  test("clicking a course chip shows a pending state and does NOT query the API or update the URL until Apply", async ({ page }) => {
+    const splitsRequests: string[] = [];
+    page.on("request", req => {
+      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
+    });
+
+    const chip = page.getByTestId("industry-sp-course-Cheltenham");
+    await expect(chip).not.toContainText("•");
+
+    await chip.click();
+    // Pending: selected in the draft, marked with a trailing "•", but not
+    // yet sent to the backend or reflected in the URL.
+    await expect(chip).toContainText("Cheltenham •");
+    expect(page.url()).not.toContain("courses=Cheltenham");
+    expect(splitsRequests.some(u => u.includes("courses=Cheltenham"))).toBe(false);
+  });
+
+  test("Apply commits a pending course chip to the URL and the /splits request; chip loses its pending marker", async ({ page }) => {
+    const splitsRequests: string[] = [];
+    page.on("request", req => {
+      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
+    });
+
+    const chip = page.getByTestId("industry-sp-course-Cheltenham");
+    await chip.click();
+    await expect(chip).toContainText("Cheltenham •");
+
+    await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
     expect(page.url()).toContain("courses=Cheltenham");
+    expect(splitsRequests.some(u => u.includes("courses=Cheltenham"))).toBe(true);
+    await expect(chip).not.toContainText("•");
   });
 
   test("typing a trainer search and applying writes it to the URL and the /splits request", async ({ page }) => {
@@ -125,14 +154,16 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     expect(splitsRequests.some(u => u.includes("trainer=Smith"))).toBe(true);
   });
 
-  test("Reset clears course chip selection and trainer/jockey text from the URL", async ({ page }) => {
-    await page.getByTestId("industry-sp-course-Cheltenham").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+  test("Reset clears course chip selection (draft and applied) and trainer/jockey text from the URL", async ({ page }) => {
+    const chip = page.getByTestId("industry-sp-course-Cheltenham");
+    await chip.click();
+    await expect(chip).toContainText("Cheltenham •");
     await page.getByTestId("industry-sp-trainer-search").fill("Smith");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("courses=Cheltenham");
     expect(page.url()).toContain("trainer=Smith");
+    await expect(chip).not.toContainText("•");
 
     await page.getByTestId("industry-sp-filter-reset").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
@@ -140,6 +171,11 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     expect(page.url()).not.toContain("courses");
     expect(page.url()).not.toContain("trainer");
     await expect(page.getByTestId("industry-sp-trainer-search")).toHaveValue("");
+    await expect(chip).not.toContainText("•");
+  });
+
+  test("country filter bar is not shown — the dataset is UK-only", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-country-bar")).not.toBeVisible();
   });
 });
 

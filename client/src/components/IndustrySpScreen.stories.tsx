@@ -737,7 +737,54 @@ export const CourseGoingRaceClassRaceTypeChipsVisible: Story = {
 
 let capturedChipParams: { courses: string | null } = { courses: null };
 
-export const CourseChipTogglesImmediatelyAndUpdatesUrl: Story = {
+// Clicking a chip must NOT query the backend by itself — it only updates
+// the draft (shown as a "pending" gray chip with a trailing "•"). The
+// /splits handler below intentionally throws if hit with courses=Ascot
+// before Apply, so this test fails loudly if a regression reintroduces
+// the old "chips apply immediately" behavior instead of silently passing.
+export const ClickingACourseChipShowsPendingWithoutQueryingApi: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp/splits`, ({ request }) => {
+          const url = new URL(request.url);
+          if (url.searchParams.get("courses") === "Ascot") {
+            throw new Error("Regression: chip click queried the API before Apply was pressed");
+          }
+          return HttpResponse.json({
+            success: true,
+            totalRaces: 2,
+            totalRunners: 4,
+            filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+            countries: ["GB", "IE"],
+            courses: ["Ascot", "Cheltenham"],
+            goings: ["Good", "Soft"],
+            raceClasses: ["Class 1", "Class 2"],
+            raceTypes: ["Flat", "Hurdle"],
+            splitA: { fromRow: 1, toRow: 1, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+            splitB: { fromRow: 2, toRow: null, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+          });
+        }),
+        countriesHandler,
+        filterBoundsHandler,
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+    const chip = await canvas.findByTestId("industry-sp-course-Ascot");
+
+    await expect(chip).not.toHaveTextContent("•");
+    await userEvent.click(chip);
+    // Pending state — selected, but visually distinct (trailing "•") and
+    // not yet reflected in the URL, since Apply hasn't been pressed.
+    await expect(chip).toHaveTextContent("Ascot •");
+    await expect(window.location.search).not.toContain("courses=Ascot");
+  },
+};
+
+export const ApplyingAPendingCourseChipQueriesApiAndUpdatesUrl: Story = {
   parameters: {
     msw: {
       handlers: [
@@ -766,16 +813,20 @@ export const CourseChipTogglesImmediatelyAndUpdatesUrl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-split-card-a");
-    await canvas.findByTestId("industry-sp-course-Ascot");
+    const chip = await canvas.findByTestId("industry-sp-course-Ascot");
 
-    // Chip filters (like country) apply immediately — no Apply click needed.
     capturedChipParams = { courses: null };
-    await userEvent.click(canvas.getByTestId("industry-sp-course-Ascot"));
+    await userEvent.click(chip);
+    await expect(chip).toHaveTextContent("Ascot •");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
 
     await waitFor(() => {
       expect(capturedChipParams.courses).toBe("Ascot");
       expect(window.location.search).toContain("courses=Ascot");
     }, { timeout: 3000 });
+    // Applied — solid, no more pending marker.
+    await expect(chip).not.toHaveTextContent("•");
   },
 };
 
@@ -835,19 +886,20 @@ export const ResetClearsCourseChipsAndTrainerJockeySearch: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-split-card-a");
-    await canvas.findByTestId("industry-sp-course-Ascot");
+    const chip = await canvas.findByTestId("industry-sp-course-Ascot");
 
-    await userEvent.click(canvas.getByTestId("industry-sp-course-Ascot"));
-    await waitFor(() => {
-      expect(window.location.search).toContain("courses=Ascot");
-    }, { timeout: 3000 });
+    await userEvent.click(chip);
+    await expect(chip).toHaveTextContent("Ascot •");
 
     const trainerInput = canvas.getByTestId("industry-sp-trainer-search");
     await userEvent.type(trainerInput, "Smith");
     await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
     await waitFor(() => {
+      expect(window.location.search).toContain("courses=Ascot");
       expect(window.location.search).toContain("trainer=Smith");
     }, { timeout: 3000 });
+    // Applied — solid, no pending marker anymore.
+    await expect(chip).not.toHaveTextContent("•");
 
     await userEvent.click(canvas.getByTestId("industry-sp-filter-reset"));
 
@@ -856,6 +908,8 @@ export const ResetClearsCourseChipsAndTrainerJockeySearch: Story = {
       expect(window.location.search).not.toContain("trainer");
       expect((canvas.getByTestId("industry-sp-trainer-search") as HTMLInputElement).value).toBe("");
     }, { timeout: 3000 });
+    // The chip itself is no longer selected at all post-Reset.
+    await expect(canvas.getByTestId("industry-sp-course-Ascot")).not.toHaveTextContent("•");
   },
 };
 

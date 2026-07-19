@@ -125,15 +125,25 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [maxRunnersInRange, setMaxRunnersInRange] = useState(() => urlIntParam("maxInIspRange", FILTER_DEFAULTS.maxInIspRange));
   const [minDate, setMinDate] = useState(() => urlStringParam("minDate", FILTER_DEFAULTS.minDate));
   const [maxDate, setMaxDate] = useState(() => urlStringParam("maxDate", FILTER_DEFAULTS.maxDate));
+  // Chip filters follow the same draft/committed split as the numeric
+  // filters (draftMinIsp/minIsp etc.) — tapping a chip only updates the
+  // draft set (and its "pending" visual), the committed set (used for
+  // fetching + URL sync) only changes when Apply is pressed. See
+  // renderChipRow for the 3-state visual (unselected / pending / applied).
   const [selectedCountries, setSelectedCountries] = useState<Set<string>>(() => urlCountriesParam());
+  const [draftSelectedCountries, setDraftSelectedCountries] = useState<Set<string>>(() => urlCountriesParam());
   const [availableCountries, setAvailableCountries] = useState<string[]>([]);
   const [selectedCourses, setSelectedCourses] = useState<Set<string>>(() => urlSetParam("courses"));
+  const [draftSelectedCourses, setDraftSelectedCourses] = useState<Set<string>>(() => urlSetParam("courses"));
   const [availableCourses, setAvailableCourses] = useState<string[]>([]);
   const [selectedGoings, setSelectedGoings] = useState<Set<string>>(() => urlSetParam("goings"));
+  const [draftSelectedGoings, setDraftSelectedGoings] = useState<Set<string>>(() => urlSetParam("goings"));
   const [availableGoings, setAvailableGoings] = useState<string[]>([]);
   const [selectedRaceClasses, setSelectedRaceClasses] = useState<Set<string>>(() => urlSetParam("raceClasses"));
+  const [draftSelectedRaceClasses, setDraftSelectedRaceClasses] = useState<Set<string>>(() => urlSetParam("raceClasses"));
   const [availableRaceClasses, setAvailableRaceClasses] = useState<string[]>([]);
   const [selectedRaceTypes, setSelectedRaceTypes] = useState<Set<string>>(() => urlSetParam("raceTypes"));
+  const [draftSelectedRaceTypes, setDraftSelectedRaceTypes] = useState<Set<string>>(() => urlSetParam("raceTypes"));
   const [availableRaceTypes, setAvailableRaceTypes] = useState<string[]>([]);
   const [draftTrainer, setDraftTrainer] = useState(() => urlStringParam("trainer", ""));
   const [trainerSearch, setTrainerSearch] = useState(() => urlStringParam("trainer", ""));
@@ -222,6 +232,15 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setDraftJockey(trimmedJockey);
     setJockeySearch(trimmedJockey);
 
+    // Commit every chip filter's draft (pending) selection to the applied
+    // set actually used for fetching — this is the point where a chip's
+    // visual flips from "pending" (gray) to "applied" (solid).
+    setSelectedCountries(new Set(draftSelectedCountries));
+    setSelectedCourses(new Set(draftSelectedCourses));
+    setSelectedGoings(new Set(draftSelectedGoings));
+    setSelectedRaceClasses(new Set(draftSelectedRaceClasses));
+    setSelectedRaceTypes(new Set(draftSelectedRaceTypes));
+
     // Once the user applies filters explicitly, the two race splits are no
     // longer auto-derived from the total — whatever's in the two Race boxes
     // (even if it's still the auto-filled 50/50 default) becomes the
@@ -265,10 +284,15 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setDraftMinDate(FILTER_DEFAULTS.minDate);
     setDraftMaxDate(FILTER_DEFAULTS.maxDate);
     setSelectedCountries(new Set());
+    setDraftSelectedCountries(new Set());
     setSelectedCourses(new Set());
+    setDraftSelectedCourses(new Set());
     setSelectedGoings(new Set());
+    setDraftSelectedGoings(new Set());
     setSelectedRaceClasses(new Set());
+    setDraftSelectedRaceClasses(new Set());
     setSelectedRaceTypes(new Set());
+    setDraftSelectedRaceTypes(new Set());
     setDraftTrainer("");
     setTrainerSearch("");
     setDraftJockey("");
@@ -572,15 +596,22 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     );
   }
 
+  // 3-state chip: unselected (outlined) / pending (selected in the draft
+  // but not yet Applied — grayed) / applied (selected and committed —
+  // solid/assertive). Mirrors how the numeric filters show a draft value
+  // in the input box that only takes effect once Apply is pressed; chips
+  // just need their own visual for "changed but not applied yet" since
+  // there's no text box to look "unsaved" in.
   function renderChipRow(opts: {
     filterKey: string;
     testId: string;
     label: string;
     values: string[];
-    selected: Set<string>;
+    draftSelected: Set<string>;
+    appliedSelected: Set<string>;
     onToggle: (value: string) => void;
   }) {
-    const { filterKey, testId, label, values, selected, onToggle } = opts;
+    const { filterKey, testId, label, values, draftSelected, appliedSelected, onToggle } = opts;
     if (values.length === 0) return null;
     return (
       <View testID={`industry-sp-filter-row-${filterKey}`} style={styles.chipFilterRow}>
@@ -593,19 +624,24 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           showsHorizontalScrollIndicator={false}
         >
           {values.map(value => {
-            const active = selected.has(value);
+            const inDraft = draftSelected.has(value);
+            const applied = inDraft && appliedSelected.has(value);
+            const pending = inDraft && !applied;
+            const chipStyle = applied ? styles.countryChipActive : pending ? styles.countryChipPending : styles.countryChip;
+            const textStyle = applied ? styles.countryChipTextActive : pending ? styles.countryChipTextPending : styles.countryChipText;
             return (
               <Chip
                 key={value}
                 testID={`${testId}-${value}`}
+                accessibilityState={{ selected: inDraft, busy: pending }}
                 compact
-                mode={active ? "flat" : "outlined"}
-                selected={active}
+                mode={inDraft ? "flat" : "outlined"}
+                selected={inDraft}
                 onPress={() => onToggle(value)}
-                style={active ? styles.countryChipActive : styles.countryChip}
-                textStyle={active ? styles.countryChipTextActive : styles.countryChipText}
+                style={chipStyle}
+                textStyle={textStyle}
               >
-                {value}
+                {pending ? `${value} •` : value}
               </Chip>
             );
           })}
@@ -614,25 +650,15 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     );
   }
 
-  // Chip filters (course/going/raceClass/raceType, same as the existing
-  // country chips) apply immediately on tap rather than waiting for Apply —
-  // consistent with the country chip bar's existing behavior. The # in ISP
-  // range gets defensively re-clamped first, same reasoning as the country
-  // handler: a chip toggle can shrink the runner pool enough that the
-  // previous bound no longer makes sense.
-  function toggleChipFilter(setSelected: React.Dispatch<React.SetStateAction<Set<string>>>, value: string) {
-    setSelected(prev => {
+  // Chip filters (country/course/going/raceClass/raceType) only ever touch
+  // the draft set here — no fetch, no RIR re-clamp. The committed set (and
+  // the actual query) only changes once Apply is pressed, in applyFilter().
+  function toggleChipFilter(setDraftSelected: React.Dispatch<React.SetStateAction<Set<string>>>, value: string) {
+    setDraftSelected(prev => {
       const next = new Set(prev);
       if (next.has(value)) next.delete(value); else next.add(value);
       return next;
     });
-    const minRIR = Math.max(1, parseInt(draftMinRIR) || 1);
-    const maxRIR = Math.max(minRIR, Math.min(filterBounds?.maxRunnersPerRace ?? 100, parseInt(draftMaxRIR) || 100));
-    setDraftMinRIR(String(minRIR));
-    setDraftMaxRIR(String(maxRIR));
-    setMinRunnersInRange(minRIR);
-    setMaxRunnersInRange(maxRIR);
-    setFetchTrigger(t => t + 1);
   }
 
   function renderSplitCard(opts: {
@@ -882,78 +908,50 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       </View>
       )}
 
-      {!isLoading && availableCountries.length > 0 && (
-        <ScrollView
-          horizontal
-          testID="industry-sp-country-bar"
-          style={styles.countryBar}
-          contentContainerStyle={styles.countryBarContent}
-          showsHorizontalScrollIndicator={false}
-        >
-          {availableCountries.map(code => {
-            const active = selectedCountries.has(code);
-            return (
-              <Chip
-                key={code}
-                testID={`industry-sp-country-${code}`}
-                compact
-                mode={active ? "flat" : "outlined"}
-                selected={active}
-                onPress={() => {
-                  setSelectedCountries(prev => {
-                    const next = new Set(prev);
-                    if (next.has(code)) next.delete(code); else next.add(code);
-                    return next;
-                  });
-                  const minRIR = Math.max(1, parseInt(draftMinRIR) || 1);
-                  const maxRIR = Math.max(minRIR, Math.min(filterBounds?.maxRunnersPerRace ?? 100, parseInt(draftMaxRIR) || 100));
-                  setDraftMinRIR(String(minRIR));
-                  setDraftMaxRIR(String(maxRIR));
-                  setMinRunnersInRange(minRIR);
-                  setMaxRunnersInRange(maxRIR);
-                  setFetchTrigger(t => t + 1);
-                }}
-                style={active ? styles.countryChipActive : styles.countryChip}
-                textStyle={active ? styles.countryChipTextActive : styles.countryChipText}
-              >
-                {code}
-              </Chip>
-            );
-          })}
-        </ScrollView>
-      )}
+      {/*
+        Country filter is intentionally not rendered — every race in this
+        dataset is GB, so a country chip bar would only ever offer one
+        no-op option. selectedCountries/draftSelectedCountries stay wired
+        up (default empty = no filter = same result as "GB only") so this
+        is a pure UI hide, not a functional removal — trivial to re-show if
+        non-UK data is ever seeded.
+      */}
 
       {!isLoading && renderChipRow({
         filterKey: "course",
         testId: "industry-sp-course",
         label: "Course",
         values: availableCourses,
-        selected: selectedCourses,
-        onToggle: value => toggleChipFilter(setSelectedCourses, value),
+        draftSelected: draftSelectedCourses,
+        appliedSelected: selectedCourses,
+        onToggle: value => toggleChipFilter(setDraftSelectedCourses, value),
       })}
       {!isLoading && renderChipRow({
         filterKey: "going",
         testId: "industry-sp-going",
         label: "Going",
         values: availableGoings,
-        selected: selectedGoings,
-        onToggle: value => toggleChipFilter(setSelectedGoings, value),
+        draftSelected: draftSelectedGoings,
+        appliedSelected: selectedGoings,
+        onToggle: value => toggleChipFilter(setDraftSelectedGoings, value),
       })}
       {!isLoading && renderChipRow({
         filterKey: "race-class",
         testId: "industry-sp-race-class",
         label: "Class",
         values: availableRaceClasses,
-        selected: selectedRaceClasses,
-        onToggle: value => toggleChipFilter(setSelectedRaceClasses, value),
+        draftSelected: draftSelectedRaceClasses,
+        appliedSelected: selectedRaceClasses,
+        onToggle: value => toggleChipFilter(setDraftSelectedRaceClasses, value),
       })}
       {!isLoading && renderChipRow({
         filterKey: "race-type",
         testId: "industry-sp-race-type",
         label: "Type",
         values: availableRaceTypes,
-        selected: selectedRaceTypes,
-        onToggle: value => toggleChipFilter(setSelectedRaceTypes, value),
+        draftSelected: draftSelectedRaceTypes,
+        appliedSelected: selectedRaceTypes,
+        onToggle: value => toggleChipFilter(setDraftSelectedRaceTypes, value),
       })}
 
       <View
@@ -1241,12 +1239,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
+  // "Pending" — selected in the draft but not yet committed by Apply.
+  // Deliberately a muted gray fill (vs. the assertive primary-color fill of
+  // countryChipActive) so a tapped-but-unapplied chip reads as "changed,
+  // not yet in effect" rather than looking identical to an applied filter.
+  countryChipPending: {
+    backgroundColor: colors.textTertiary,
+    borderColor: colors.textTertiary,
+  },
   countryChipText: {
     fontSize: 12,
     fontWeight: "600",
     color: colors.textSecondary,
   },
   countryChipTextActive: {
+    color: "#fff",
+  },
+  countryChipTextPending: {
     color: "#fff",
   },
   splitCards: {
