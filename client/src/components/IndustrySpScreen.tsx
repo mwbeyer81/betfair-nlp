@@ -1048,7 +1048,7 @@ const styles = StyleSheet.create({
   appbarTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: 1,
   },
   // Row is center-aligned (appbarTitleRow), which already puts the icon
   // very close to the text's vertical center — this nudges it down just a
