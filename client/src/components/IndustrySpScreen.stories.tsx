@@ -663,13 +663,13 @@ export const RaceBoundsDisplayedForBothSplits: Story = {
   },
 };
 
-export const DateFilterDefaultsToCurrentYear: Story = {
+export const DateFilterDefaultsToOneMonth: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-split-card-a");
     const trigger = canvas.getByTestId("industry-sp-date-range-picker");
     await expect(trigger).toHaveTextContent("Jan 1, 2024");
-    await expect(trigger).toHaveTextContent("Dec 31, 2024");
+    await expect(trigger).toHaveTextContent("Jan 31, 2024");
   },
 };
 
@@ -706,6 +706,55 @@ export const ApplyingACustomDateRangeSendsItToTheApi: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-split-card-a");
 
+    // Within the one-month cap, so it applies exactly as picked.
+    await pickDateRangeInCanvas(canvas, "2023-01-01", "2023-01-20");
+
+    capturedDateParams = { minDate: null, maxDate: null };
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
+
+    await waitFor(() => {
+      expect(capturedDateParams.minDate).toBe("2023-01-01");
+      expect(capturedDateParams.maxDate).toBe("2023-01-20");
+    }, { timeout: 3000 });
+  },
+};
+
+export const DateRangeWiderThanOneMonthIsClampedOnApply: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp/splits`, ({ request }) => {
+          const url = new URL(request.url);
+          capturedDateParams = {
+            minDate: url.searchParams.get("minDate"),
+            maxDate: url.searchParams.get("maxDate"),
+          };
+          return HttpResponse.json({
+            success: true,
+            totalRaces: 2,
+            totalRunners: 4,
+            filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+            countries: ["GB", "IE"],
+            courses: ["Ascot", "Cheltenham"],
+            goings: ["Good", "Soft"],
+            raceClasses: ["Class 1", "Class 2"],
+            raceTypes: ["Flat", "Hurdle"],
+            splitA: { fromRow: 1, toRow: 1, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+            splitB: { fromRow: 2, toRow: null, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+          });
+        }),
+        countriesHandler,
+        filterBoundsHandler,
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-split-card-a");
+
+    // A 6-month pick gets silently pulled back to minDate + 1 month on
+    // Apply, same as every other range filter self-correcting instead of
+    // erroring on an out-of-bounds value.
     await pickDateRangeInCanvas(canvas, "2023-01-01", "2023-06-30");
 
     capturedDateParams = { minDate: null, maxDate: null };
@@ -713,8 +762,11 @@ export const ApplyingACustomDateRangeSendsItToTheApi: Story = {
 
     await waitFor(() => {
       expect(capturedDateParams.minDate).toBe("2023-01-01");
-      expect(capturedDateParams.maxDate).toBe("2023-06-30");
+      expect(capturedDateParams.maxDate).toBe("2023-02-01");
     }, { timeout: 3000 });
+
+    const trigger = canvas.getByTestId("industry-sp-date-range-picker");
+    await expect(trigger).toHaveTextContent("Feb 1, 2023");
   },
 };
 
@@ -830,59 +882,21 @@ export const ApplyingAPendingCourseChipQueriesApiAndUpdatesUrl: Story = {
   },
 };
 
-let capturedTrainerJockeyParams: { trainer: string | null; jockey: string | null } = { trainer: null, jockey: null };
-
-export const TrainerJockeySearchParamsPassedToApi: Story = {
-  parameters: {
-    msw: {
-      handlers: [
-        http.get(`${BASE}/api/industry-sp/splits`, ({ request }) => {
-          const url = new URL(request.url);
-          capturedTrainerJockeyParams = {
-            trainer: url.searchParams.get("trainer"),
-            jockey: url.searchParams.get("jockey"),
-          };
-          return HttpResponse.json({
-            success: true,
-            totalRaces: 2,
-            totalRunners: 4,
-            filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
-            countries: ["GB", "IE"],
-            courses: ["Ascot", "Cheltenham"],
-            goings: ["Good", "Soft"],
-            raceClasses: ["Class 1", "Class 2"],
-            raceTypes: ["Flat", "Hurdle"],
-            splitA: { fromRow: 1, toRow: 1, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
-            splitB: { fromRow: 2, toRow: null, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
-          });
-        }),
-        countriesHandler,
-        filterBoundsHandler,
-      ],
-    },
-  },
+export const TrainerJockeySearchIsHidden: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-split-card-a");
 
-    const trainerInput = canvas.getByTestId("industry-sp-trainer-search");
-    const jockeyInput = canvas.getByTestId("industry-sp-jockey-search");
-    await userEvent.type(trainerInput, "Smith");
-    await userEvent.type(jockeyInput, "Jones");
-
-    capturedTrainerJockeyParams = { trainer: null, jockey: null };
-    await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
-
-    await waitFor(() => {
-      expect(capturedTrainerJockeyParams.trainer).toBe("Smith");
-      expect(capturedTrainerJockeyParams.jockey).toBe("Jones");
-      expect(window.location.search).toContain("trainer=Smith");
-      expect(window.location.search).toContain("jockey=Jones");
-    }, { timeout: 3000 });
+    // Little practical use as a filter (free-text prefix match over
+    // thousands of names) — hidden, though the underlying state/query
+    // support stays in place (see the comment above its removed render
+    // call in IndustrySpScreen.tsx).
+    await expect(canvas.queryByTestId("industry-sp-trainer-search")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-jockey-search")).not.toBeInTheDocument();
   },
 };
 
-export const ResetClearsCourseChipsAndTrainerJockeySearch: Story = {
+export const ResetClearsCourseChipsSelection: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-split-card-a");
@@ -891,12 +905,9 @@ export const ResetClearsCourseChipsAndTrainerJockeySearch: Story = {
     await userEvent.click(chip);
     await expect(chip).toHaveTextContent("Ascot •");
 
-    const trainerInput = canvas.getByTestId("industry-sp-trainer-search");
-    await userEvent.type(trainerInput, "Smith");
     await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
     await waitFor(() => {
       expect(window.location.search).toContain("courses=Ascot");
-      expect(window.location.search).toContain("trainer=Smith");
     }, { timeout: 3000 });
     // Applied — solid, no pending marker anymore.
     await expect(chip).not.toHaveTextContent("•");
@@ -905,8 +916,6 @@ export const ResetClearsCourseChipsAndTrainerJockeySearch: Story = {
 
     await waitFor(() => {
       expect(window.location.search).not.toContain("courses");
-      expect(window.location.search).not.toContain("trainer");
-      expect((canvas.getByTestId("industry-sp-trainer-search") as HTMLInputElement).value).toBe("");
     }, { timeout: 3000 });
     // The chip itself is no longer selected at all post-Reset.
     await expect(canvas.getByTestId("industry-sp-course-Ascot")).not.toHaveTextContent("•");

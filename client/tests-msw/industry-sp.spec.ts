@@ -96,13 +96,13 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-filter-bar")).toBeVisible();
   });
 
-  test("course/going/race class/race type chips and trainer/jockey inputs are present", async ({ page }) => {
+  test("course/going/race class/race type chips are present; trainer/jockey search is hidden", async ({ page }) => {
     await expect(page.getByTestId("industry-sp-course-Cheltenham")).toBeVisible();
     await expect(page.getByTestId("industry-sp-going-Good")).toBeVisible();
     await expect(page.getByTestId("industry-sp-race-class-Class 1")).toBeVisible();
     await expect(page.getByTestId("industry-sp-race-type-Chase")).toBeVisible();
-    await expect(page.getByTestId("industry-sp-trainer-search")).toBeVisible();
-    await expect(page.getByTestId("industry-sp-jockey-search")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-trainer-search")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-jockey-search")).not.toBeVisible();
   });
 
   test("clicking a course chip shows a pending state and does NOT query the API or update the URL until Apply", async ({ page }) => {
@@ -140,37 +140,19 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await expect(chip).not.toContainText("•");
   });
 
-  test("typing a trainer search and applying writes it to the URL and the /splits request", async ({ page }) => {
-    const splitsRequests: string[] = [];
-    page.on("request", req => {
-      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
-    });
-
-    await page.getByTestId("industry-sp-trainer-search").fill("Smith");
-    await page.getByTestId("industry-sp-filter-apply").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
-
-    expect(page.url()).toContain("trainer=Smith");
-    expect(splitsRequests.some(u => u.includes("trainer=Smith"))).toBe(true);
-  });
-
-  test("Reset clears course chip selection (draft and applied) and trainer/jockey text from the URL", async ({ page }) => {
+  test("Reset clears course chip selection (draft and applied)", async ({ page }) => {
     const chip = page.getByTestId("industry-sp-course-Cheltenham");
     await chip.click();
     await expect(chip).toContainText("Cheltenham •");
-    await page.getByTestId("industry-sp-trainer-search").fill("Smith");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("courses=Cheltenham");
-    expect(page.url()).toContain("trainer=Smith");
     await expect(chip).not.toContainText("•");
 
     await page.getByTestId("industry-sp-filter-reset").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
     expect(page.url()).not.toContain("courses");
-    expect(page.url()).not.toContain("trainer");
-    await expect(page.getByTestId("industry-sp-trainer-search")).toHaveValue("");
     await expect(chip).not.toContainText("•");
   });
 
@@ -319,32 +301,43 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     expect(page.url()).toContain("maxInIspRange=2");
   });
 
-  test("date filter defaults to 2024-01-01 – 2024-12-31 and stays out of the URL at that default", async ({ page }) => {
+  test("date filter defaults to 2024-01-01 – 2024-01-31 and stays out of the URL at that default", async ({ page }) => {
     await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Jan 1, 2024");
-    await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Dec 31, 2024");
+    await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Jan 31, 2024");
     expect(page.url()).not.toContain("minDate");
     expect(page.url()).not.toContain("maxDate");
   });
 
-  test("applying a custom date range writes minDate/maxDate to the URL and the /splits request", async ({ page }) => {
+  test("applying a custom date range (within one month) writes minDate/maxDate to the URL and the /splits request", async ({ page }) => {
     const splitsRequests: string[] = [];
     page.on("request", (req) => {
       if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
     });
 
+    await pickDateRange(page, "2023-01-01", "2023-01-20");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    expect(page.url()).toContain("minDate=2023-01-01");
+    expect(page.url()).toContain("maxDate=2023-01-20");
+    const lastRequest = splitsRequests[splitsRequests.length - 1];
+    expect(lastRequest).toContain("minDate=2023-01-01");
+    expect(lastRequest).toContain("maxDate=2023-01-20");
+  });
+
+  test("a date range wider than one month is clamped to minDate + 1 month on Apply", async ({ page }) => {
     await pickDateRange(page, "2023-01-01", "2023-06-30");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
     expect(page.url()).toContain("minDate=2023-01-01");
-    expect(page.url()).toContain("maxDate=2023-06-30");
-    const lastRequest = splitsRequests[splitsRequests.length - 1];
-    expect(lastRequest).toContain("minDate=2023-01-01");
-    expect(lastRequest).toContain("maxDate=2023-06-30");
+    expect(page.url()).toContain("maxDate=2023-02-01");
+    expect(page.url()).not.toContain("maxDate=2023-06-30");
+    await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Feb 1, 2023");
   });
 
-  test("Reset restores the date range to the 2024 default and clears it from the URL", async ({ page }) => {
-    await pickDateRange(page, "2023-01-01", "2023-06-30");
+  test("Reset restores the date range to the 2024-01 default and clears it from the URL", async ({ page }) => {
+    await pickDateRange(page, "2023-01-01", "2023-01-20");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("minDate=2023-01-01");
@@ -353,7 +346,7 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
     await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Jan 1, 2024");
-    await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Dec 31, 2024");
+    await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Jan 31, 2024");
     expect(page.url()).not.toContain("minDate");
     expect(page.url()).not.toContain("maxDate");
   });

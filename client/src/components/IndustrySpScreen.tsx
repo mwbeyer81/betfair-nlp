@@ -45,16 +45,17 @@ interface IndustrySpScreenProps {
 // carried over to the races screen, or survive a refresh. Only non-default
 // values are written, so the URL stays clean (just "/isp") until the user
 // actually changes something.
-// minDate/maxDate default to calendar year 2024 rather than the full
-// dataset (races go back to 2015) — the full dataset's aggregations are
-// expensive enough on Atlas M0's shared, throughput-throttled free tier
-// that even a single warm, uncontended query costs ~2.5s server-side, and
-// that's before accounting for the extra latency variance under
-// concurrent load. Restricting the *default* view to a much smaller date
-// window (one year instead of eleven) directly shrinks the matched-race
-// count for the query MongoDB actually has to run, rather than just
-// avoiding self-inflicted request concurrency the way the /splits
-// combining fix did. Widen or move the window any time via Apply.
+// minDate/maxDate default to January 2024 rather than the full dataset
+// (races go back to 2015) — the full dataset's aggregations are expensive
+// enough on Atlas M0's shared, throughput-throttled free tier that even a
+// single warm, uncontended query costs ~2.5s server-side, and that's
+// before accounting for the extra latency variance under concurrent load.
+// Restricting the *default* view to a much smaller date window directly
+// shrinks the matched-race count for the query MongoDB actually has to
+// run, rather than just avoiding self-inflicted request concurrency the
+// way the /splits combining fix did. This also has to fit the one-month
+// max span enforced in applyFilter() below — move the window any time via
+// Apply, but it can never be widened past one month.
 const FILTER_DEFAULTS = {
   minRunners: 1,
   maxRunners: 20,
@@ -63,7 +64,7 @@ const FILTER_DEFAULTS = {
   minInIspRange: 1,
   maxInIspRange: 30,
   minDate: "2024-01-01",
-  maxDate: "2024-12-31",
+  maxDate: "2024-01-31",
 };
 
 // Loose client-side guardrails for the date inputs — not round-tripped
@@ -79,7 +80,7 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   isp: "Only show races where the runner's official starting price (ISP) falls in this range.",
   runners: "Only show races with this many total runners taking part.",
   inIsp: "Only show races with this many runners priced inside the ISP range above, out of the full field.",
-  date: "Only show races in this date range (YYYY-MM-DD). Defaults to 2024 to keep the default load fast — widen it any time.",
+  date: "Only show races in this date range (YYYY-MM-DD), up to one month wide. Move the window any time via Apply.",
   raceA: "The first split of races — defaults to the first 1000 matching races, so you can test a filter combination here first.",
   raceB: "The second split — defaults to the next 1000 matching races. Check whether the same filters are still profitable here before trusting them.",
   course: "Only show races run at the selected course(s) — course specialists and course bias are a classic handicapping factor.",
@@ -91,6 +92,19 @@ const FILTER_TOOLTIPS: Record<string, string> = {
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Adds one calendar month to a YYYY-MM-DD string, used to cap the date
+// filter's span in applyFilter() below. Parsed/computed in UTC so this
+// can't shift by a day depending on the browser's local timezone. Note JS
+// Date's own month-rollover quirk applies here same as everywhere else
+// (e.g. 2024-01-31 + 1 month lands on 2024-03-02, not a clamped "Feb 29"),
+// which is an acceptable approximation for a filter-width cap.
+function addOneMonth(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCMonth(dt.getUTCMonth() + 1);
+  return dt.toISOString().slice(0, 10);
+}
 
 const EMPTY_PNL: PnlStats = { staked: 0, returns: 0, pnl: 0 };
 
@@ -215,10 +229,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     // Malformed input (wrong shape, or min after max) falls back to the
     // full absolute range rather than silently keeping the last-applied
     // value — clearer to the user than a filter that looks applied but
-    // quietly didn't change.
+    // quietly didn't change. The date range is then capped to one month
+    // wide (same latency reasoning as the FILTER_DEFAULTS comment above) —
+    // a maxDate more than a month past minDate is silently pulled back to
+    // minDate + 1 month rather than rejected, matching how every other
+    // range filter here self-corrects on Apply instead of erroring.
     const dMin = DATE_RE.test(draftMinDate) ? draftMinDate : ABSOLUTE_MIN_DATE;
     const dMaxRaw = DATE_RE.test(draftMaxDate) ? draftMaxDate : ABSOLUTE_MAX_DATE;
-    const dMax = dMaxRaw < dMin ? dMin : dMaxRaw;
+    const dMaxAfterMin = dMaxRaw < dMin ? dMin : dMaxRaw;
+    const oneMonthCap = addOneMonth(dMin);
+    const dMax = dMaxAfterMin > oneMonthCap ? oneMonthCap : dMaxAfterMin;
     setDraftMinDate(dMin);
     setDraftMaxDate(dMax);
     setMinDate(dMin);
@@ -729,6 +749,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           subtitleStyle={styles.appbarSubtitle}
         />
         <Button
+          testID="industry-sp-filters-toggle"
+          mode="outlined"
+          compact
+          onPress={() => setFiltersVisible(v => !v)}
+          style={styles.headerToggleButton}
+          labelStyle={styles.headerToggleButtonLabel}
+        >
+          {filtersVisible ? "Hide filters ▾" : "Show filters ▸"}
+        </Button>
+        <Button
           testID="industry-sp-screen-events-button"
           mode="contained"
           compact
@@ -759,19 +789,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         contentContainerStyle={styles.scrollContent}
       >
       <PageContainer maxWidth={860}>
-      <View testID="industry-sp-toolbar" style={styles.toolbar}>
-        <Button
-          testID="industry-sp-filters-toggle"
-          mode="outlined"
-          compact
-          onPress={() => setFiltersVisible(v => !v)}
-          style={styles.toolbarButton}
-          labelStyle={styles.toolbarButtonLabel}
-        >
-          {filtersVisible ? "Hide filters ▾" : "Show filters ▸"}
-        </Button>
-      </View>
-
       {/* Filter grid — kept as custom for tight column alignment */}
       {filtersVisible && (
       <View testID="industry-sp-filter-bar" style={[styles.filterGrid, openTooltip != null && styles.filterGridElevated]}>
@@ -839,22 +856,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           />
           {renderTooltipText("date")}
         </View>
-        {renderTextFilterRow({
-          filterKey: "trainer",
-          label: "Trainer",
-          value: draftTrainer,
-          onChange: setDraftTrainer,
-          testId: "industry-sp-trainer-search",
-          placeholder: "Starts with...",
-        })}
-        {renderTextFilterRow({
-          filterKey: "jockey",
-          label: "Jockey",
-          value: draftJockey,
-          onChange: setDraftJockey,
-          testId: "industry-sp-jockey-search",
-          placeholder: "Starts with...",
-        })}
+        {/*
+          Trainer/jockey search is intentionally not rendered — little
+          practical use as a filter (free-text prefix match over
+          thousands of names). draftTrainer/trainerSearch and
+          draftJockey/jockeySearch stay wired up (default empty = no
+          filter) so this is a pure UI hide, not a functional removal —
+          same pattern as the hidden country filter above.
+        */}
         {renderFilterRow({
           filterKey: "raceA",
           label: "Split A",
@@ -1056,25 +1065,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
   },
-  toolbar: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xs,
-    backgroundColor: colors.background,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+  // Lives in the Appbar now (moved out of its own toolbar row below the
+  // header) — outlined in white to read against the dark primary-color
+  // header, same as headerButton's dark-background context but left
+  // uncolored (vs. headerButton's accent fill) so it doesn't visually
+  // compete with the "← Events" navigation action next to it.
+  headerToggleButton: {
+    marginHorizontal: 3,
+    borderRadius: radii.md,
+    borderColor: "rgba(255,255,255,0.6)",
   },
-  toolbarButton: {
-    borderRadius: radii.sm,
-    borderColor: colors.primary,
-  },
-  toolbarButtonLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.primary,
+  headerToggleButtonLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#fff",
   },
   filterGrid: {
     position: "relative",
