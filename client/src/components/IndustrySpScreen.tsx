@@ -742,7 +742,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           title={
             <View testID="industry-sp-title" style={styles.appbarTitleRow}>
               <Text style={styles.appbarTitle}>BackBet</Text>
-              <Icon source="sync" size={16} color="white" />
+              <View style={styles.appbarSyncIcon}>
+                <Icon source="sync" size={16} color="white" />
+              </View>
             </View>
           }
           subtitle={!isLoading ? `${totalRunners} runners · ${totalRaces} races` : undefined}
@@ -1045,8 +1047,17 @@ const styles = StyleSheet.create({
   },
   appbarTitleRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     gap: 3,
+  },
+  // Bottom-aligned against the text's own box (alignItems: "flex-end"
+  // above) isn't quite enough on its own — the glyph's circular body sits
+  // a couple px above the icon's box bottom, so this nudges the whole
+  // icon down until the circle's bottom lines up with the text baseline
+  // and the arrow tip pokes just past it, rather than floating level with
+  // mid-text the way center-alignment did.
+  appbarSyncIcon: {
+    marginBottom: -3,
   },
   appbarTitle: {
     color: "white",
