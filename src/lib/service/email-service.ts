@@ -56,6 +56,14 @@ export class EmailService {
       if (!response.ok) {
         const body = await response.text().catch(() => "");
         console.error(`EmailService: Resend API returned ${response.status} sending to ${email}: ${body}`);
+      } else {
+        // Resend returns { id } on success — logged so a specific send's
+        // actual delivery status can be checked later via
+        // GET https://api.resend.com/emails/{id} (not queryable at all
+        // without this, since Resend's API is the only source of truth
+        // for what happened after acceptance — bounced, delivered, etc.).
+        const body = await response.json().catch(() => null) as { id?: string } | null;
+        console.log(`EmailService: Resend accepted send to ${email}, id=${body?.id ?? "unknown"}`);
       }
     } catch (error) {
       console.error(`EmailService: failed to send verification email to ${email}:`, error);
