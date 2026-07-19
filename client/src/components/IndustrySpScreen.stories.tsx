@@ -51,6 +51,17 @@ async function pickDateRangeInCanvas(
 // it used to (it resolves on the very first render). This is the
 // replacement wait condition: the loading banner disappearing.
 async function waitForLoaded(canvas: ReturnType<typeof within>) {
+  // A bare mount (no filter params in the story's own URL — Storybook's
+  // iframe URL carries its own ?id=&viewMode=&args=..., which doesn't
+  // count) now shows the idle "not yet applied" placeholder instead of
+  // auto-fetching (see IndustrySpScreen's hadUrlParamsOnMount gating).
+  // Press Apply once here so every story that calls this helper can keep
+  // assuming loaded, populated content afterward, same as before that
+  // change — stories specifically covering the idle/bare-load behavior
+  // itself don't call this helper.
+  if (canvas.queryByTestId("industry-sp-split-idle-a")) {
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
+  }
   await waitFor(() => {
     expect(canvas.queryByTestId("industry-sp-loading")).not.toBeInTheDocument();
   }, { timeout: 5000 });
@@ -152,6 +163,39 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
+export const BareLoadShowsIdlePlaceholderNotResults: Story = {
+  // Regression coverage for: this screen used to auto-run the default
+  // query on every mount, so the first thing a user saw — before touching
+  // a single filter — was a fully computed Split A/Split B result and
+  // filter chips already populated from real data. A bare mount (no
+  // filter params in the story's own URL) must fetch nothing and show
+  // nothing until Apply is pressed.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.queryByTestId("industry-sp-loading")).not.toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-split-idle-a")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-split-idle-a")).toHaveTextContent("Press Apply");
+    await expect(canvas.getByTestId("industry-sp-split-idle-b")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-pnl-a")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-split-empty-a")).not.toBeInTheDocument();
+    // Chips don't know about the data either — just their own placeholder.
+    await expect(canvas.getByTestId("industry-sp-course-loading")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-course-loading")).toHaveTextContent("Apply to load options");
+    await expect(canvas.queryByTestId("industry-sp-course-Cheltenham")).not.toBeInTheDocument();
+
+    // "Details"/"View Races" are disabled — there's nothing to view yet.
+    await expect(canvas.getByTestId("industry-sp-split-details-button-a")).toBeDisabled();
+    await expect(canvas.getByTestId("industry-sp-view-races-button-a")).toBeDisabled();
+
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
+    await waitForLoaded(canvas);
+
+    await expect(canvas.queryByTestId("industry-sp-split-idle-a")).not.toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-course-Cheltenham")).toBeInTheDocument();
+  },
+};
+
 export const Loading: Story = {
   parameters: {
     msw: {
@@ -167,17 +211,24 @@ export const Loading: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    // Bare mount — idle, nothing fetched yet, so there's nothing "loading"
+    // until Apply is pressed.
+    await expect(canvas.getByTestId("industry-sp-split-idle-a")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-loading")).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
+
     await expect(canvas.getByTestId("industry-sp-loading")).toBeInTheDocument();
-    // Split cards render immediately (not hidden behind the loading
-    // banner) — each shows an "awaiting results" placeholder instead of
-    // real numbers until the fetch resolves.
+    // Split cards stay rendered (not hidden behind the loading banner) —
+    // each shows an "awaiting results" placeholder instead of real numbers
+    // until the fetch resolves.
     await expect(canvas.getByTestId("industry-sp-split-card-a")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-split-card-b")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-split-pending-a")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-split-pending-b")).toBeInTheDocument();
     await expect(canvas.queryByTestId("industry-sp-pnl-a")).not.toBeInTheDocument();
     // The filter bar (including chip rows, shown with their own
-    // "Loading…" placeholder) is visible from first paint too.
+    // "Loading…" placeholder) is visible throughout too.
     await expect(canvas.getByTestId("industry-sp-filter-bar")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-course-loading")).toBeInTheDocument();
   },
@@ -189,6 +240,10 @@ export const WithError: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("industry-sp-split-idle-a")).toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
+
     await expect(canvas.findByTestId("industry-sp-error")).resolves.toBeInTheDocument();
     await expect(canvas.queryByTestId("industry-sp-split-card-a")).not.toBeInTheDocument();
   },
@@ -305,6 +360,7 @@ export const FiltersToggleHidesAndShowsFilterBar: Story = {
 export const PnlHeadlinesShowIndependentStats: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await waitForLoaded(canvas);
 
     for (const id of ["a", "b"]) {
       await expect(canvas.findByTestId(`industry-sp-split-card-${id}`)).resolves.toBeInTheDocument();

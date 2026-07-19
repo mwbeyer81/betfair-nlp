@@ -21,8 +21,15 @@ async function goToEvents(page: import("@playwright/test").Page) {
 }
 
 // /isp is the filters + PnL screen — it renders no race list of its own.
+// A bare load (the email/password login params get stripped from the URL
+// before this screen ever mounts — see App.tsx) shows nothing until Apply
+// is pressed, so this presses it once to reach the "loaded" state most
+// callers actually want. Tests specifically covering the bare/idle
+// behavior itself navigate directly instead of using this helper.
 async function gotoIsp(page: import("@playwright/test").Page) {
   await page.goto(`${APP_URL}isp?email=matthew%40backbet.co.uk&password=beyer`);
+  await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+  await page.getByTestId("industry-sp-filter-apply").click();
   await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 }
 
@@ -234,6 +241,36 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
   test("/isp URL shows Industry SP filters screen directly", async ({ page }) => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+  });
+
+  test("a bare /isp load fetches nothing and shows the idle placeholder, not results", async ({ page }) => {
+    // Regression coverage for: this used to auto-run the default query on
+    // every mount, so the first thing a user saw — before touching any
+    // filter — was a fully computed Split A/B result. Navigates directly
+    // (not via gotoIsp, which presses Apply for callers that want the
+    // loaded state) so the email/password login params get stripped
+    // (see App.tsx) and the screen mounts with a genuinely empty query
+    // string, same as a real bookmark-free visit.
+    const splitsRequests: string[] = [];
+    page.on("request", req => {
+      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
+    });
+
+    await page.goto(`${APP_URL}isp?email=matthew%40backbet.co.uk&password=beyer`);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-split-idle-a")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-split-idle-b")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-pnl-a")).not.toBeVisible();
+
+    await page.waitForTimeout(1500);
+    expect(splitsRequests.length).toBe(0);
+
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    expect(splitsRequests.length).toBe(1);
+    await expect(page.getByTestId("industry-sp-split-idle-a")).not.toBeVisible();
   });
 
   test("/ (home page) shows Industry SP filters screen directly", async ({ page }) => {

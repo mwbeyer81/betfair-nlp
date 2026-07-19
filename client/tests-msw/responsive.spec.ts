@@ -23,6 +23,18 @@ const MACBOOK_LANDSCAPE_VIEWPORT = { width: 1728, height: 1117 };
 // bar chrome are accounted for — shorter than the device's full screen height.
 const SHORT_MOBILE_VIEWPORT = { width: 390, height: 500 };
 
+// /isp now shows nothing until Apply is pressed (a bare load fetches
+// nothing and renders an idle placeholder — see IndustrySpScreen.tsx and
+// its own dedicated bare-load tests in industry-sp.spec.ts). These layout
+// tests care about the *populated* state — real chips, real split cards —
+// since that's the actual overflow/positioning risk they guard against.
+async function gotoIspAndApplyDefaults(page: import("@playwright/test").Page) {
+  await page.goto("/isp");
+  await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+}
+
 // Scans every element in the page and returns any whose right edge extends
 // past the viewport width — used to catch text/badges clipped off-screen
 // rather than just checking a handful of known container elements.
@@ -159,9 +171,7 @@ test.describe("Responsive layout — /isp filters screen (MSW mocked, iPhone 12 
   test.use({ viewport: IPHONE_12_MINI_VIEWPORT });
 
   test.beforeEach(async ({ page }) => {
-    await page.goto("/isp");
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await gotoIspAndApplyDefaults(page);
   });
 
   test("no element on the page overflows the 375px viewport", async ({ page }) => {
@@ -195,9 +205,7 @@ test.describe("Responsive layout — /isp filters screen on a short viewport (MS
   test.use({ viewport: SHORT_MOBILE_VIEWPORT });
 
   test.beforeEach(async ({ page }) => {
-    await page.goto("/isp");
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await gotoIspAndApplyDefaults(page);
   });
 
   test("split B's PnL headline and its View Races button don't overlap", async ({ page }) => {
@@ -405,9 +413,7 @@ test.describe("Responsive layout — /isp filters screen (MSW mocked, laptop 144
   test.use({ viewport: LAPTOP_VIEWPORT });
 
   test.beforeEach(async ({ page }) => {
-    await page.goto("/isp");
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await gotoIspAndApplyDefaults(page);
   });
 
   test("no element overflows the viewport at 1440px", async ({ page }) => {
@@ -434,9 +440,7 @@ test.describe("Responsive layout — /isp split cards at the 1024px isDesktop br
   test.use({ viewport: IPAD_LANDSCAPE_VIEWPORT });
 
   test("cards are side by side right at 1024px", async ({ page }) => {
-    await page.goto("/isp");
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await gotoIspAndApplyDefaults(page);
     const boxA = await page.getByTestId("industry-sp-split-card-a").boundingBox();
     const boxB = await page.getByTestId("industry-sp-split-card-b").boundingBox();
     expect(Math.abs(boxA!.y - boxB!.y)).toBeLessThan(5);
@@ -447,9 +451,7 @@ test.describe("Responsive layout — /isp split cards just below the 1024px isDe
   test.use({ viewport: JUST_BELOW_DESKTOP_VIEWPORT });
 
   test("cards stack vertically just below 1024px", async ({ page }) => {
-    await page.goto("/isp");
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await gotoIspAndApplyDefaults(page);
     const boxA = await page.getByTestId("industry-sp-split-card-a").boundingBox();
     const boxB = await page.getByTestId("industry-sp-split-card-b").boundingBox();
     expect(boxB!.y).toBeGreaterThan(boxA!.y + boxA!.height - 5);

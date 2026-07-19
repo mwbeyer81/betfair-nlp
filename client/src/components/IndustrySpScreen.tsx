@@ -32,6 +32,7 @@ import {
   urlCountriesParam,
   urlSetParam,
   urlHasParam,
+  urlHasAnyParams,
   updateUrlParams,
 } from "../utils/ispUrlParams";
 
@@ -121,7 +122,20 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   onViewRaces,
 }) => {
   const { isDesktop } = useResponsive();
-  const [isLoading, setIsLoading] = useState(true);
+  // A bare, untouched load of /isp (no query string at all) should show
+  // nothing until the user explicitly presses Apply — the filter bar and
+  // split cards must not silently run a default query and present results
+  // the user never asked for. A URL that already carries params (a
+  // bookmark, a shared link, or navigating back from /isp/races) is
+  // treated as already-applied filter state and fetches immediately, same
+  // as before. Captured once at mount — this component remounts on route
+  // changes, so it can't go stale mid-session.
+  const [hadUrlParamsOnMount] = useState(() => urlHasAnyParams());
+  const [isLoading, setIsLoading] = useState(() => hadUrlParamsOnMount);
+  // True once a fetch has ever completed successfully — distinguishes the
+  // real "not yet applied, nothing fetched" idle state from "no matches"
+  // (both show total 0 / EMPTY_PNL, but only the latter is genuine).
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draftMin, setDraftMin] = useState(() => String(urlIntParam("minRunners", FILTER_DEFAULTS.minRunners)));
   const [draftMax, setDraftMax] = useState(() => String(urlIntParam("maxRunners", FILTER_DEFAULTS.maxRunners)));
@@ -338,6 +352,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     let cancelled = false;
 
     function applyResult(result: CachedSplitsResult) {
+      setHasLoadedOnce(true);
       setTotalRaces(result.totalRaces);
       setTotalRunners(result.totalRunners);
       setFilterBounds(result.filterBounds);
@@ -413,6 +428,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         fromRowB: !isDefault ? String(result.splitB.fromRow) : undefined,
         toRowB: !isDefault && result.splitB.toRow != null ? String(result.splitB.toRow) : undefined,
       });
+    }
+
+    // A bare load (no URL params, Apply/Reset never pressed this session)
+    // stays idle — no fetch, no cache lookup, nothing computed. The filter
+    // bar and split cards render their "not yet applied" placeholder state
+    // (see hasLoadedOnce) until the user does something.
+    if (fetchTrigger === 0 && !hadUrlParamsOnMount) {
+      return;
     }
 
     (async () => {
@@ -634,17 +657,18 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     loading: boolean;
   }) {
     const { filterKey, testId, label, values, draftSelected, appliedSelected, onToggle, loading } = opts;
-    // Renders the row (label + a "Loading…" placeholder) even before its
-    // options have arrived, rather than being entirely absent until then —
-    // so it appears alongside the rest of the filter bar on first paint
-    // instead of popping in once the background fetch resolves. Only a
-    // truly optionless row (shouldn't happen in practice) stays hidden.
-    if (values.length === 0 && !loading) return null;
+    // Always renders the row (label + a placeholder when there's nothing
+    // to show yet) rather than being entirely absent until options arrive
+    // — so it appears alongside the rest of the filter bar on first paint,
+    // whether that's "no fetch has happened yet" (bare load, before the
+    // user has pressed Apply) or "fetch in flight".
     return (
       <View testID={`industry-sp-filter-row-${filterKey}`} style={styles.chipFilterRow}>
         <Text style={styles.chipFilterLabel}>{label}</Text>
         {values.length === 0 ? (
-          <Text testID={`${testId}-loading`} style={styles.chipFilterLoadingText}>Loading…</Text>
+          <Text testID={`${testId}-loading`} style={styles.chipFilterLoadingText}>
+            {loading ? "Loading…" : "Apply to load options"}
+          </Text>
         ) : (
         <ScrollView
           horizontal
@@ -700,20 +724,30 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     totalRaces: number;
     totalRunners: number;
     pnl: PnlStats;
-    pending: boolean;
+    // idle: no fetch has ever run (bare page load, Apply never pressed) —
+    // nothing to show, waiting on the user. pending: a fetch is currently
+    // in flight (first-ever load of a URL that already carries filters, or
+    // any Apply/Reset refetch). loaded: real numbers are in.
+    status: "idle" | "pending" | "loaded";
   }) {
-    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl, pending } = opts;
+    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl, status } = opts;
     const effectiveTo = toRow ?? totalRaces;
+    const notReady = status !== "loaded";
     return (
-      <View testID={`industry-sp-split-card-${id}`} style={[styles.splitCard, isDesktop && styles.splitCardFlex, pending && styles.splitCardPending]}>
+      <View testID={`industry-sp-split-card-${id}`} style={[styles.splitCard, isDesktop && styles.splitCardFlex, notReady && styles.splitCardPending]}>
         <Text style={styles.splitCardLabel}>
           {label} — races {fromRow}–{effectiveTo}
         </Text>
-        {pending ? (
-          // Shown from the very first render (before any fetch has ever
-          // resolved, and again while Apply/Reset are refetching) — makes
-          // clear this card is awaiting real numbers rather than looking
-          // like a genuine "no matches" result.
+        {status === "idle" ? (
+          // Shown from first paint on a bare load — no fetch has happened
+          // at all, so this is neither "loading" nor "no matches", just
+          // "you haven't asked for anything yet".
+          <Text testID={`industry-sp-split-idle-${id}`} style={styles.splitPendingText}>
+            Press Apply to see results.
+          </Text>
+        ) : status === "pending" ? (
+          // A fetch is genuinely in flight — first load of a filtered URL,
+          // or any Apply/Reset refetch.
           <View testID={`industry-sp-split-pending-${id}`} style={styles.splitPendingRow}>
             <ActivityIndicator size="small" color="rgba(255,255,255,0.7)" />
             <Text style={styles.splitPendingText}>Awaiting results…</Text>
@@ -735,7 +769,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             testID={`industry-sp-split-details-button-${id}`}
             mode="outlined"
             compact
-            disabled={pending}
+            disabled={notReady}
             onPress={() => setDetailSplit(id)}
             style={styles.splitDetailsButton}
             labelStyle={styles.splitDetailsButtonLabel}
@@ -746,17 +780,19 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             testID={`industry-sp-view-races-button-${id}`}
             mode="contained"
             compact
-            disabled={pending}
+            disabled={notReady}
             onPress={() => onViewRaces(fromRow, toRow)}
             style={styles.splitViewButton}
             labelStyle={styles.splitViewButtonLabel}
           >
-            {pending ? "View Races →" : `View ${splitTotalRaces} Races →`}
+            {notReady ? "View Races →" : `View ${splitTotalRaces} Races →`}
           </Button>
         </View>
       </View>
     );
   }
+
+  const splitCardStatus: "idle" | "pending" | "loaded" = isLoading ? "pending" : hasLoadedOnce ? "loaded" : "idle";
 
   return (
     <SafeAreaView testID="industry-sp-screen" style={styles.screen}>
@@ -996,12 +1032,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       >
         {/*
           The split cards themselves are no longer hidden behind this —
-          they render from first paint (see renderSplitCard's `pending`
-          state) so the page never looks empty/blocked while the user
-          hasn't done anything yet. This stays purely as a small in-flight
-          marker: present (and still gates other actions/tests) exactly
-          when isLoading is true, on both the very first load and every
-          subsequent Apply/Reset refetch.
+          they render from first paint (see renderSplitCard's `status`)
+          so the page never looks empty/blocked while a fetch is genuinely
+          in flight. This stays purely as a small in-flight marker: present
+          (and still gates other actions/tests) exactly when isLoading is
+          true. On a bare load with nothing applied yet, isLoading is
+          false from the start (see hadUrlParamsOnMount) and this simply
+          never appears — no fetch, no banner.
         */}
         {isLoading && (
           <View testID="industry-sp-loading" style={styles.loadingBanner}>
@@ -1028,7 +1065,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               totalRaces: totalRacesA,
               totalRunners: totalRunnersA,
               pnl: pnlStatsA,
-              pending: isLoading,
+              status: splitCardStatus,
             })}
             {renderSplitCard({
               id: "b",
@@ -1038,7 +1075,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               totalRaces: totalRacesB,
               totalRunners: totalRunnersB,
               pnl: pnlStatsB,
-              pending: isLoading,
+              status: splitCardStatus,
             })}
           </>
         )}

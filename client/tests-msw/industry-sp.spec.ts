@@ -31,11 +31,90 @@ async function pickDateRange(page: Page, fromDate: string, toDate: string) {
   await page.getByTestId(`${prefix}-apply`).click();
 }
 
-test.describe("Industry SP filters screen (MSW mocked)", () => {
-  test.beforeEach(async ({ page }) => {
+// A bare /isp load (no query string) must not silently run the default
+// query and present results the user never asked for — most of this
+// suite's tests want the *loaded* state to exist, so they navigate then
+// press Apply once via this helper. The bare-load behavior itself gets
+// its own dedicated describe block below, which deliberately does NOT
+// use this helper.
+async function gotoIspAndApplyDefaults(page: Page) {
+  await page.goto("/isp");
+  await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+}
+
+test.describe("Industry SP filters screen — bare load applies nothing (MSW mocked)", () => {
+  // Regression coverage for: the /isp screen used to auto-run the default
+  // query on every mount, so the very first thing a user saw — before
+  // touching a single filter — was a fully computed Split A/Split B PnL
+  // result and filter chips already populated from real data. That's the
+  // opposite of what "Apply" should mean: nothing should be fetched, and
+  // nothing should be shown as a result, until the user explicitly presses
+  // it (or arrives via a URL that already carries filter state).
+  test("does not fetch /splits and shows the idle placeholder, not results", async ({ page }) => {
+    const splitsRequests: string[] = [];
+    page.on("request", req => {
+      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
+    });
+
     await page.goto("/isp");
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    // No loading indicator ever appears — there's nothing in flight.
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible();
+    // Split cards show the "not yet applied" placeholder, not real numbers.
+    await expect(page.getByTestId("industry-sp-split-idle-a")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-split-idle-a")).toContainText("Press Apply");
+    await expect(page.getByTestId("industry-sp-split-idle-b")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-pnl-a")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-pnl-b")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-split-empty-a")).not.toBeVisible();
+    // Filter chips don't know about the data either — no course names etc.
+    // have been fetched, just the row's own placeholder.
+    await expect(page.getByTestId("industry-sp-course-loading")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-course-loading")).toContainText("Apply to load options");
+    await expect(page.getByTestId("industry-sp-course-Cheltenham")).not.toBeVisible();
+
+    // No amount of waiting changes that — there's no background fetch to
+    // eventually resolve, unlike the old "pending" state.
+    await page.waitForTimeout(800);
+    expect(splitsRequests.length).toBe(0);
+  });
+
+  test("pressing Apply for the first time fetches and populates real results", async ({ page }) => {
+    const splitsRequests: string[] = [];
+    page.on("request", req => {
+      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
+    });
+
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    expect(splitsRequests.length).toBe(0);
+
+    await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    expect(splitsRequests.length).toBe(1);
+    await expect(page.getByTestId("industry-sp-split-idle-a")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-course-Cheltenham")).toBeVisible();
+  });
+
+  test("a URL that already carries filter params fetches immediately, without an extra Apply", async ({ page }) => {
+    // Distinguishes a genuinely bare load from one arriving via a
+    // bookmark/shared link/back-navigation, which already represents
+    // explicit, already-applied filter intent and should show results
+    // right away — same as before this change.
+    await page.goto("/isp?maxInIspRange=2");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("industry-sp-split-idle-a")).not.toBeVisible();
+  });
+});
+
+test.describe("Industry SP filters screen (MSW mocked)", () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoIspAndApplyDefaults(page);
   });
 
   test("nav link from /events opens /isp", async ({ page }) => {
@@ -175,9 +254,7 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
       if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
     });
 
-    await page.goto("/isp");
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await gotoIspAndApplyDefaults(page);
     expect(splitsRequests.length).toBe(1);
 
     await page.getByTestId("industry-sp-view-races-button-a").click();
@@ -199,9 +276,7 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
       if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
     });
 
-    await page.goto("/isp");
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await gotoIspAndApplyDefaults(page);
     expect(splitsRequests.length).toBe(1);
 
     await page.getByTestId("industry-sp-split-details-button-a").click();
@@ -218,9 +293,7 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
       if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
     });
 
-    await page.goto("/isp");
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await gotoIspAndApplyDefaults(page);
     expect(splitsRequests.length).toBe(1);
 
     await page.getByTestId("industry-sp-filter-apply").click();
@@ -234,9 +307,7 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
       if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
     });
 
-    await page.goto("/isp");
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await gotoIspAndApplyDefaults(page);
     expect(splitsRequests.length).toBe(1);
 
     // Apply a real filter change — a genuine new request, new cache entry.

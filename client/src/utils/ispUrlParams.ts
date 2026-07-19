@@ -38,6 +38,30 @@ export function urlHasParam(name: string): boolean {
   return getUrlSearchParams()?.get(name) != null;
 }
 
+// Every query param IndustrySpScreen itself ever reads or writes — kept as
+// an explicit list (rather than "any query string at all") so this can't
+// be fooled by params some other, unrelated context tacks onto the URL
+// (Storybook's own iframe carries ?id=&viewMode=&args=..., for example).
+const ISP_FILTER_PARAM_NAMES = [
+  "minRunners", "maxRunners", "minIsp", "maxIsp", "minInIspRange", "maxInIspRange",
+  "minDate", "maxDate", "sort",
+  "countries", "courses", "goings", "raceClasses", "raceTypes", "trainer", "jockey",
+  "fromRowA", "toRowA", "fromRowB", "toRowB",
+];
+
+// True if the URL carries any of IndustrySpScreen's own filter params —
+// used to decide whether a fresh mount represents a genuinely untouched
+// page load (bare /isp) vs. one arriving with already-applied filter state
+// (a bookmark, a shared link, or the URL this screen itself wrote after a
+// previous Apply). See IndustrySpScreen's initial-fetch gating: a bare
+// load should show nothing until the user presses Apply, but a link
+// carrying explicit filters should honor them immediately.
+export function urlHasAnyParams(): boolean {
+  const params = getUrlSearchParams();
+  if (params == null) return false;
+  return ISP_FILTER_PARAM_NAMES.some(name => params.get(name) != null);
+}
+
 export function urlCountriesParam(): Set<string> {
   return urlSetParam("countries");
 }
