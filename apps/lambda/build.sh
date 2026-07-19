@@ -32,6 +32,12 @@ aws lambda update-function-code \
   --region eu-north-1 \
   --output text --query FunctionName
 
+# update-function-code leaves the function in an async "in progress" state
+# briefly — update-function-configuration right after it can hit
+# ResourceConflictException if it lands before that settles. Wait it out
+# rather than let the next call race it.
+aws lambda wait function-updated --function-name hello-api --region eu-north-1
+
 echo "Configuring Lambda runtime..."
 aws lambda update-function-configuration \
   --function-name hello-api \
@@ -40,6 +46,8 @@ aws lambda update-function-configuration \
   --handler handler.handler \
   --region eu-north-1 \
   --output text --query FunctionName
+
+aws lambda wait function-updated --function-name hello-api --region eu-north-1
 
 echo "Configuring API Gateway throttling..."
 aws apigatewayv2 update-stage \
@@ -57,9 +65,15 @@ if [ -f "$LOCAL_CONFIG" ]; then
   MONGODB_DB_NAME=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.mongodb.dbName)")
   OPENAI_API_KEY=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.openai.apiKey)")
   JWT_SECRET=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.jwt.secret)")
+  # email.* is optional — signup still succeeds with verification emails
+  # skipped (see EmailService) if these are blank, so default to "" rather
+  # than erroring when config/local.json predates this section.
+  RESEND_API_KEY=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.email && c.email.apiKey) || '')")
+  EMAIL_FROM_ADDRESS=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.email && c.email.fromAddress) || '')")
+  API_URL=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.app && c.app.apiUrl) || 'https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com')")
   aws lambda update-function-configuration \
     --function-name hello-api \
-    --environment "Variables={MONGODB_URI=$MONGODB_URI,MONGODB_DB_NAME=$MONGODB_DB_NAME,OPENAI_API_KEY=$OPENAI_API_KEY,JWT_SECRET=$JWT_SECRET}" \
+    --environment "Variables={MONGODB_URI=$MONGODB_URI,MONGODB_DB_NAME=$MONGODB_DB_NAME,OPENAI_API_KEY=$OPENAI_API_KEY,JWT_SECRET=$JWT_SECRET,RESEND_API_KEY=$RESEND_API_KEY,EMAIL_FROM_ADDRESS=$EMAIL_FROM_ADDRESS,API_URL=$API_URL}" \
     --region eu-north-1 \
     --output text --query FunctionName
 else

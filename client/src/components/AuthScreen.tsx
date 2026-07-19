@@ -38,6 +38,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // Only used in signup mode — a typo-catcher, not sent to the backend.
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoLoginAttempted, setAutoLoginAttempted] = useState(false);
@@ -75,11 +77,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               if (!autoLoginAttempted) {
                 setAutoLoginAttempted(true);
                 setIsLoading(true);
-                chatApi.login(urlEmail, urlPassword).then((token) => {
+                chatApi.login(urlEmail, urlPassword).then((result) => {
                   if (typeof window !== "undefined") {
-                    localStorage.setItem("auth_token", token);
+                    localStorage.setItem("auth_token", result.token);
                   }
-                  chatApi.setToken(token);
+                  chatApi.setToken(result.token);
                   onAuthenticated();
                 }).catch(() => {
                   setIsLoading(false);
@@ -100,14 +102,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-      const token =
+      const result =
         mode === "login"
           ? await chatApi.login(email, password)
           : await chatApi.signup(email, password);
       if (typeof window !== "undefined") {
-        localStorage.setItem("auth_token", token);
+        localStorage.setItem("auth_token", result.token);
       }
-      chatApi.setToken(token);
+      chatApi.setToken(result.token);
       onAuthenticated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -119,9 +121,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const toggleMode = () => {
     setMode(m => (m === "login" ? "signup" : "login"));
     setError(null);
+    // Confirm-password only applies to signup — clear it so a stale value
+    // from a previous signup attempt can't linger into the next one.
+    setConfirmPassword("");
   };
 
-  const isFormValid = email.trim() !== "" && password.trim() !== "";
+  const passwordsMismatch =
+    mode === "signup" && confirmPassword.length > 0 && password !== confirmPassword;
+
+  const isFormValid =
+    email.trim() !== "" &&
+    password.trim() !== "" &&
+    (mode === "login" || (confirmPassword.length > 0 && password === confirmPassword));
 
   return (
     <SafeAreaView style={styles.container}>
@@ -178,10 +189,35 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               autoCapitalize="none"
               autoCorrect={false}
               editable={!isLoading}
-              onSubmitEditing={handleSubmit}
-              returnKeyType="done"
+              onSubmitEditing={mode === "login" ? handleSubmit : undefined}
+              returnKeyType={mode === "login" ? "done" : "next"}
               style={styles.input}
             />
+
+            {mode === "signup" && (
+              <>
+                <TextInput
+                  testID="auth-confirm-password-input"
+                  mode="outlined"
+                  label="Confirm password"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  placeholder="Re-enter your password"
+                  secureTextEntry
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!isLoading}
+                  onSubmitEditing={handleSubmit}
+                  returnKeyType="done"
+                  style={styles.input}
+                />
+                {passwordsMismatch && (
+                  <Text testID="auth-confirm-password-error" style={styles.errorText}>
+                    Passwords don't match
+                  </Text>
+                )}
+              </>
+            )}
 
             {error && (
               <Text testID="auth-error" style={styles.errorText}>
@@ -239,7 +275,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             <Text variant="bodySmall" style={styles.footerText}>
               {mode === "login"
                 ? "Please enter your email and password to access BackBet."
-                : "Sign up with your email — you'll be logged in immediately."}
+                : "Sign up with your email — you'll be logged in immediately and we'll send a verification link to confirm your address."}
             </Text>
           </View>
         </View>

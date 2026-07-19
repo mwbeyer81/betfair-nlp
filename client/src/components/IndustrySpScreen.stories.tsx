@@ -148,7 +148,25 @@ function splitsHandler(opts?: {
   });
 }
 
-const defaultHandlers = [splitsHandler(), countriesHandler, filterBoundsHandler];
+// Mirrors GET /api/auth/me — IndustrySpScreen fetches this whenever
+// isAuthenticated flips true, to drive the verify-email reminder banner
+// (verification status can't safely live inside the JWT itself, so it's
+// always a fresh fetch rather than something baked into the mock token).
+function authMeHandler(emailVerified: boolean) {
+  return http.get(`${BASE}/api/auth/me`, () =>
+    HttpResponse.json({ success: true, email: "test@backbet.co.uk", emailVerified })
+  );
+}
+
+const resendVerificationHandler = http.post(`${BASE}/api/auth/resend-verification`, () =>
+  HttpResponse.json({ success: true, alreadyVerified: false })
+);
+
+// Verified by default — most stories are about split/filter behavior, not
+// the verify-email banner, so this keeps them exactly as they were before
+// that banner existed. The dedicated verify-banner stories below override
+// this with authMeHandler(false).
+const defaultHandlers = [splitsHandler(), countriesHandler, filterBoundsHandler, authMeHandler(true)];
 
 const meta: Meta<typeof IndustrySpScreen> = {
   title: "Components/IndustrySpScreen",
@@ -383,6 +401,52 @@ export const AuthenticatedNeverShowsBanner: Story = {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
     await expect(canvas.queryByTestId("industry-sp-cap-banner")).not.toBeInTheDocument();
+  },
+};
+
+export const BenefitsBannerVisibleWhenAnonymous: Story = {
+  args: { isAuthenticated: false, onRequestAuth: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    const banner = canvas.getByTestId("industry-sp-benefits-banner");
+    await expect(banner).toBeInTheDocument();
+    await expect(banner).toHaveTextContent("1000");
+    await expect(banner).toHaveTextContent("100");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-benefits-banner-signup"));
+    await expect(args.onRequestAuth).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const BenefitsBannerHiddenWhenAuthenticated: Story = {
+  // isAuthenticated: true comes from meta.args.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByTestId("industry-sp-benefits-banner")).not.toBeInTheDocument();
+  },
+};
+
+export const VerifyEmailBannerShowsWhenUnverified: Story = {
+  parameters: {
+    msw: { handlers: [splitsHandler(), countriesHandler, filterBoundsHandler, authMeHandler(false), resendVerificationHandler] },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const banner = await canvas.findByTestId("industry-sp-verify-banner");
+    await expect(banner).toHaveTextContent("verify your email");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-verify-resend"));
+    await waitFor(() => expect(banner).toHaveTextContent("Verification email sent"));
+  },
+};
+
+export const VerifyEmailBannerHiddenWhenVerified: Story = {
+  // isAuthenticated: true + authMeHandler(true) both come from meta.args/
+  // defaultHandlers — this confirms the banner stays hidden in the common
+  // (already-verified) case.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => expect(canvas.queryByTestId("industry-sp-verify-banner")).not.toBeInTheDocument());
   },
 };
 

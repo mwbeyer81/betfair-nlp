@@ -64,9 +64,9 @@ export default function App() {
       params.delete("password");
       const clean = window.location.pathname + (params.toString() ? `?${params}` : "");
       window.history.replaceState({}, "", clean);
-      chatApi.login(email, password).then((token) => {
-        localStorage.setItem(TOKEN_KEY, token);
-        chatApi.setToken(token);
+      chatApi.login(email, password).then((result) => {
+        localStorage.setItem(TOKEN_KEY, result.token);
+        chatApi.setToken(result.token);
         setIsAuthenticated(true);
       }).catch(() => {
         // Invalid URL credentials — fall through to login screen

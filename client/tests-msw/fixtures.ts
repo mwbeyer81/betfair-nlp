@@ -6,6 +6,18 @@ async function setupApiMocks(page: Page) {
     route.fulfill({ json: { success: true, data: { totalRaces: 8, totalRunners: 109 } } })
   );
 
+  // IndustrySpScreen fetches this whenever it sees an authenticated session
+  // (see its emailVerified effect) — verified by default so every existing
+  // authenticated test keeps seeing "no verify-email banner" like before
+  // that banner existed. Tests specifically covering the banner override
+  // this route themselves.
+  await page.route("**/api/auth/me", (route) =>
+    route.fulfill({ json: { success: true, email: "matthew@backbet.co.uk", emailVerified: true } })
+  );
+  await page.route("**/api/auth/resend-verification", (route) =>
+    route.fulfill({ json: { success: true, alreadyVerified: false } })
+  );
+
   await page.route((url) => url.pathname === "/api/events/grouped", (route) =>
     route.fulfill({
       json: {

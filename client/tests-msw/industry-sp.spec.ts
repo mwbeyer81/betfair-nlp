@@ -780,4 +780,39 @@ anonTest.describe("Industry SP filters screen — anonymous access (MSW mocked)"
     await expect(page.getByTestId("auth-email-input")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("events-screen")).not.toBeVisible();
   });
+
+  anonTest("signing up via the overlay requires matching passwords and shows the verify-email banner afterward", async ({ page }) => {
+    await page.route((url) => url.pathname === "/api/auth/signup", (route) =>
+      route.fulfill({ json: { token: "fake.jwt.token", emailVerified: false }, status: 201 })
+    );
+    await page.route((url) => url.pathname === "/api/auth/me", (route) =>
+      route.fulfill({ json: { success: true, email: "new.user@backbet.co.uk", emailVerified: false } })
+    );
+
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-benefits-banner")).toBeVisible();
+
+    await page.getByTestId("industry-sp-signup-button").click();
+    await expect(page.getByTestId("auth-email-input")).toBeVisible();
+    await page.getByTestId("auth-mode-toggle").click();
+
+    await page.getByTestId("auth-email-input").fill("new.user@backbet.co.uk");
+    await page.getByTestId("auth-password-input").fill("correct-horse-battery");
+    await page.getByTestId("auth-confirm-password-input").fill("a-different-password");
+    await expect(page.getByTestId("auth-confirm-password-error")).toBeVisible();
+    await expect(page.getByTestId("auth-signup-button")).toBeDisabled();
+
+    await page.getByTestId("auth-confirm-password-input").fill("correct-horse-battery");
+    await expect(page.getByTestId("auth-confirm-password-error")).not.toBeVisible();
+    await expect(page.getByTestId("auth-signup-button")).toBeEnabled();
+    await page.getByTestId("auth-signup-button").click();
+
+    await expect(page.getByTestId("auth-email-input")).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("industry-sp-benefits-banner")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-verify-banner")).toBeVisible();
+
+    await page.getByTestId("industry-sp-verify-resend").click();
+    await expect(page.getByTestId("industry-sp-verify-banner")).toContainText("Verification email sent");
+  });
 });

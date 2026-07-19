@@ -193,6 +193,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // 100 for an anonymous caller, 1000 once logged in — see
   // IndustrySpService.getSplitStats. Drives the cap banner below.
   const [raceCap, setRaceCap] = useState(1000);
+  // null = "not fetched yet" (also the state while anonymous — there's
+  // nothing to verify) so the reminder banner never flashes on briefly
+  // before the real value is known. Not derived from the JWT — see
+  // AuthResult in chatApi.ts for why verification status lives outside it.
+  const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
+  const [resendStatus, setResendStatus] = useState<"idle" | "sending" | "sent" | "already-verified" | "error">("idle");
   const [filterBounds, setFilterBounds] = useState<IspFilterBounds | null>(null);
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
@@ -228,6 +234,52 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [totalRacesB, setTotalRacesB] = useState(0);
   const [totalRunnersB, setTotalRunnersB] = useState(0);
   const [pnlStatsB, setPnlStatsB] = useState<PnlStats>(EMPTY_PNL);
+
+  // Re-checks verification status whenever the auth session actually
+  // changes (login, signup, logout) — covers both "session restored from
+  // localStorage on app mount" and "just signed up via the overlay on this
+  // same page" without this screen needing to know which one happened.
+  useEffect(() => {
+    let cancelled = false;
+    if (!isAuthenticated) {
+      setEmailVerified(null);
+      setResendStatus("idle");
+      return;
+    }
+    // Never left uncaught — a network hiccup here must not crash the page,
+    // just leave verification status unknown (no banner) until it succeeds.
+    chatApi.getMe().then(me => {
+      if (!cancelled) setEmailVerified(me?.emailVerified ?? null);
+    }).catch(() => {
+      if (!cancelled) setEmailVerified(null);
+    });
+    return () => { cancelled = true; };
+  }, [isAuthenticated]);
+
+  async function handleResendVerification() {
+    setResendStatus("sending");
+    try {
+      const { alreadyVerified } = await chatApi.resendVerification();
+      if (alreadyVerified) {
+        setEmailVerified(true);
+        setResendStatus("already-verified");
+      } else {
+        setResendStatus("sent");
+      }
+    } catch {
+      setResendStatus("error");
+    }
+  }
+
+  async function handleRefreshVerification() {
+    try {
+      const me = await chatApi.getMe();
+      setEmailVerified(me?.emailVerified ?? null);
+    } catch {
+      // Leave emailVerified as-is — a failed refresh shouldn't wipe out
+      // whatever status we already knew.
+    }
+  }
 
   function applyFilter() {
     const maxRunnersLimit = filterBounds?.maxRunnersPerRace ?? 100;
@@ -887,6 +939,66 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       </Appbar.Header>
 
       {/*
+        Deliberately outside the ScrollView below (like the Appbar) so it's
+        immediately visible without scrolling on any viewport — the whole
+        point of "clearly showing" this to an anonymous visitor. Keep it
+        compact: it permanently eats into the scrollable area's height on
+        short viewports (see the ScrollView comment just below for why that
+        matters here specifically).
+      */}
+      {!isAuthenticated && (
+        <View testID="industry-sp-benefits-banner" style={styles.benefitsBanner}>
+          <Text style={styles.benefitsBannerText}>
+            Sign up free to see 10× more races per search — 1000 vs 100 when browsing anonymously.
+          </Text>
+          <Button
+            testID="industry-sp-benefits-banner-signup"
+            mode="contained"
+            compact
+            buttonColor={colors.accent}
+            onPress={onRequestAuth}
+            labelStyle={styles.headerButtonLabel}
+          >
+            Sign Up
+          </Button>
+        </View>
+      )}
+
+      {isAuthenticated && emailVerified === false && (
+        <View testID="industry-sp-verify-banner" style={styles.verifyBanner}>
+          <Text style={styles.verifyBannerText}>
+            {resendStatus === "sent"
+              ? "Verification email sent — check your inbox."
+              : resendStatus === "already-verified"
+                ? "Your email is already verified."
+                : resendStatus === "error"
+                  ? "Couldn't resend right now — try again shortly."
+                  : "Please verify your email address to secure your account."}
+          </Text>
+          <View style={styles.verifyBannerActions}>
+            <Button
+              testID="industry-sp-verify-resend"
+              mode="outlined"
+              compact
+              onPress={handleResendVerification}
+              disabled={resendStatus === "sending"}
+              labelStyle={styles.headerToggleButtonLabel}
+            >
+              {resendStatus === "sending" ? "Sending…" : "Resend email"}
+            </Button>
+            <Button
+              testID="industry-sp-verify-refresh"
+              mode="text"
+              compact
+              onPress={handleRefreshVerification}
+            >
+              I've verified
+            </Button>
+          </View>
+        </View>
+      )}
+
+      {/*
         The document/body itself can never scroll on this app (see
         index.html — html/body are locked with position:fixed +
         overflow:hidden to stop iOS Safari's pinch-zoom/bounce-scroll from
@@ -1543,5 +1655,41 @@ const styles = StyleSheet.create({
     color: colors.warning,
     fontWeight: "600",
     flexShrink: 1,
+  },
+  benefitsBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    backgroundColor: colors.primaryLight,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  benefitsBannerText: {
+    color: colors.primary,
+    fontWeight: "600",
+    flexShrink: 1,
+    fontSize: 13,
+  },
+  verifyBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    backgroundColor: colors.infoLight,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  verifyBannerText: {
+    color: colors.info,
+    fontWeight: "600",
+    flexShrink: 1,
+    fontSize: 13,
+  },
+  verifyBannerActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
   },
 });

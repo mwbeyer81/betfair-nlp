@@ -1,4 +1,6 @@
 import express from "express";
+import jwt from "jsonwebtoken";
+import config from "config";
 import { NaturalLanguageService } from "../lib/service/natural-language-service";
 import { BetfairService } from "../lib/service/betfair-service";
 import { IndustrySpService } from "../lib/service/industry-sp-service";
@@ -86,8 +88,8 @@ router.get("/hello-world", (_req, res) => {
 router.post("/api/auth/signup", async (req, res) => {
   const { email, password } = req.body || {};
   try {
-    const token = await authService!.signup(email, password);
-    return res.status(201).json({ token });
+    const { token, emailVerified } = await authService!.signup(email, password);
+    return res.status(201).json({ token, emailVerified });
   } catch (error) {
     if (error instanceof AuthError) {
       return res.status(error.status).json({ error: error.message });
@@ -112,14 +114,58 @@ router.post("/api/auth/login", async (req, res) => {
     email = LEGACY_TEST_EMAIL;
   }
   try {
-    const token = await authService!.login(email, password);
-    return res.status(200).json({ token });
+    const { token, emailVerified } = await authService!.login(email, password);
+    return res.status(200).json({ token, emailVerified });
   } catch (error) {
     if (error instanceof AuthError) {
       return res.status(error.status).json({ error: error.message });
     }
     console.error("Login failed:", error);
     return res.status(500).json({ error: "Login failed" });
+  }
+});
+
+// Public — reached by clicking the link in the verification email, not
+// necessarily from a logged-in session. Returns a small static HTML page
+// (same pattern as /hello-world above) rather than redirecting into the
+// SPA, since there's nothing for the app itself to do with this request.
+router.get("/api/auth/verify", async (req, res) => {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  const renderPage = (title: string, message: string) => {
+    res.setHeader("Content-Type", "text/html");
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} — BackBet</title>
+  <style>
+    body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f0f4f8; flex-direction: column; gap: 1rem; text-align: center; padding: 0 1.5rem; }
+    h1 { font-size: 2rem; color: #0B3D2E; margin: 0; }
+    p { color: #4a5568; margin: 0; }
+    a { color: #2F6B4F; font-weight: 600; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>${title}</h1>
+  <p>${message}</p>
+  <p><a href="${APP_URL}">Return to BackBet</a></p>
+</body>
+</html>`);
+  };
+  try {
+    const { email } = await authService!.verifyEmail(token);
+    res.status(200);
+    return renderPage("Email verified", `${email} is now verified — you can close this tab and return to BackBet.`);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      res.status(error.status);
+      return renderPage("Verification failed", error.message);
+    }
+    console.error("Email verification failed:", error);
+    res.status(500);
+    return renderPage("Verification failed", "Something went wrong — please try again.");
   }
 });
 
@@ -376,6 +422,50 @@ router.get("/api/industry-sp/race/:raceId", async (req, res) => {
 
 // All routes below require auth
 router.use(jwtAuth);
+
+// jwtAuth (above) already verified the Bearer token exists and is valid —
+// this just re-decodes it to read the `email` claim back out. Not
+// attached to `req` by jwtAuth itself (that middleware only gates), so
+// each route that needs the caller's identity decodes independently
+// rather than everything depending on a shared req.user convention.
+function emailFromAuthHeader(req: express.Request): string | null {
+  try {
+    const token = (req.headers.authorization || "").slice(7);
+    const secret = config.get<string>("jwt.secret");
+    const payload = jwt.verify(token, secret) as { email?: string };
+    return payload.email ?? null;
+  } catch {
+    return null;
+  }
+}
+
+router.get("/api/auth/me", async (req, res) => {
+  const email = emailFromAuthHeader(req);
+  if (!email) return res.status(401).json({ error: "Invalid or expired token" });
+  try {
+    const me = await authService!.getMe(email);
+    if (!me) return res.status(404).json({ error: "Account not found" });
+    return res.status(200).json({ success: true, ...me });
+  } catch (error) {
+    console.error("getMe failed:", error);
+    return res.status(500).json({ error: "Failed to fetch account" });
+  }
+});
+
+router.post("/api/auth/resend-verification", async (req, res) => {
+  const email = emailFromAuthHeader(req);
+  if (!email) return res.status(401).json({ error: "Invalid or expired token" });
+  try {
+    const result = await authService!.resendVerification(email);
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("resendVerification failed:", error);
+    return res.status(500).json({ error: "Failed to resend verification email" });
+  }
+});
 
 router.get("/health", (_req, res) => {
   res.status(200).json({

@@ -988,4 +988,34 @@ test.describe("Anonymous access (real app at localhost:80, no login)", () => {
     const body = await res.json();
     expect(body.raceCap).toBe(100);
   });
+
+  test("benefits banner is visible on the anonymous home page", async ({ page }) => {
+    await page.goto(`${APP_URL}isp`);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    const banner = page.getByTestId("industry-sp-benefits-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText("1000");
+  });
+
+  // Doesn't call POST /api/auth/signup here (unlike the MSW/Storybook
+  // suites) — this hits the real production API, and repeatedly creating
+  // throwaway accounts in the live users collection on every test run
+  // isn't worth it just to exercise the verify endpoint's happy path. The
+  // public/error-response behavior is still checked below without
+  // creating any data.
+  test("GET /api/auth/verify rejects an invalid token without requiring auth", async ({ request }) => {
+    const res = await request.get(`${API_URL}/api/auth/verify?token=not-a-real-token`);
+    expect(res.status()).toBe(400);
+    expect(res.headers()["content-type"]).toContain("html");
+  });
+
+  test("GET /api/auth/me reports the seeded legacy account as already verified", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.emailVerified).toBe(true);
+  });
 });

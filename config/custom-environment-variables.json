@@ -15,5 +15,9 @@
   },
   "jwt": {
     "secret": "JWT_SECRET"
+  },
+  "email": {
+    "apiKey": "RESEND_API_KEY",
+    "fromAddress": "EMAIL_FROM_ADDRESS"
   }
 }

@@ -9,7 +9,7 @@ const loginHandlers = [
   http.post(`${BASE}/api/auth/login`, async ({ request }) => {
     const body = (await request.json()) as { email: string; password: string };
     if (body.email === "matthew@backbet.co.uk" && body.password === "beyer") {
-      return HttpResponse.json({ token: "fake.jwt.token" });
+      return HttpResponse.json({ token: "fake.jwt.token", emailVerified: true });
     }
     return HttpResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }),
@@ -21,7 +21,7 @@ const signupHandlers = [
     if (body.email === "taken@backbet.co.uk") {
       return HttpResponse.json({ error: "An account with that email already exists" }, { status: 409 });
     }
-    return HttpResponse.json({ token: "fake.jwt.token" }, { status: 201 });
+    return HttpResponse.json({ token: "fake.jwt.token", emailVerified: false }, { status: 201 });
   }),
 ];
 
@@ -124,6 +124,7 @@ export const SignupSucceeds: Story = {
     await userEvent.click(canvas.getByTestId("auth-mode-toggle"));
     await userEvent.type(canvas.getByTestId("auth-email-input"), "new.user@backbet.co.uk");
     await userEvent.type(canvas.getByTestId("auth-password-input"), "correct-horse-battery");
+    await userEvent.type(canvas.getByTestId("auth-confirm-password-input"), "correct-horse-battery");
     await userEvent.click(canvas.getByTestId("auth-signup-button"));
 
     await waitFor(() => expect(args.onAuthenticated).toHaveBeenCalledTimes(1));
@@ -137,9 +138,50 @@ export const SignupFailsForTakenEmail: Story = {
     await userEvent.click(canvas.getByTestId("auth-mode-toggle"));
     await userEvent.type(canvas.getByTestId("auth-email-input"), "taken@backbet.co.uk");
     await userEvent.type(canvas.getByTestId("auth-password-input"), "correct-horse-battery");
+    await userEvent.type(canvas.getByTestId("auth-confirm-password-input"), "correct-horse-battery");
     await userEvent.click(canvas.getByTestId("auth-signup-button"));
 
     await expect(canvas.findByTestId("auth-error")).resolves.toHaveTextContent("already exists");
     await expect(args.onAuthenticated).not.toHaveBeenCalled();
+  },
+};
+
+export const ConfirmPasswordFieldOnlyInSignupMode: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByTestId("auth-confirm-password-input")).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId("auth-mode-toggle"));
+    await expect(canvas.getByTestId("auth-confirm-password-input")).toBeInTheDocument();
+  },
+};
+
+export const MismatchedConfirmPasswordShowsErrorAndDisablesSubmit: Story = {
+  args: { onAuthenticated: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByTestId("auth-mode-toggle"));
+    await userEvent.type(canvas.getByTestId("auth-email-input"), "new.user@backbet.co.uk");
+    await userEvent.type(canvas.getByTestId("auth-password-input"), "correct-horse-battery");
+    await userEvent.type(canvas.getByTestId("auth-confirm-password-input"), "not-the-same");
+
+    await expect(canvas.getByTestId("auth-confirm-password-error")).toHaveTextContent("don't match");
+    // Disabled (not just visually) — a real click can't reach it, which is
+    // exactly the guarantee this test cares about, so don't attempt one.
+    await expect(canvas.getByTestId("auth-signup-button")).toBeDisabled();
+    await expect(args.onAuthenticated).not.toHaveBeenCalled();
+  },
+};
+
+export const MatchingConfirmPasswordClearsErrorAndEnablesSubmit: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByTestId("auth-mode-toggle"));
+    await userEvent.type(canvas.getByTestId("auth-email-input"), "new.user@backbet.co.uk");
+    await userEvent.type(canvas.getByTestId("auth-password-input"), "correct-horse-battery");
+    await userEvent.type(canvas.getByTestId("auth-confirm-password-input"), "correct-horse-battery");
+
+    await expect(canvas.queryByTestId("auth-confirm-password-error")).not.toBeInTheDocument();
+    await expect(canvas.getByTestId("auth-signup-button")).toBeEnabled();
   },
 };

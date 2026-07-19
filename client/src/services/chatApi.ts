@@ -107,6 +107,15 @@ export interface IspPage {
   pnlStats: PnlStats;
 }
 
+export interface AuthResult {
+  token: string;
+  // Deliberately not derived from the JWT itself — verification status can
+  // change after the token was issued, so it rides along in the login/
+  // signup response body instead (and is re-fetched via getMe() on
+  // session restore, since a stored token alone doesn't carry it).
+  emailVerified: boolean;
+}
+
 export interface IspSplitResult {
   fromRow: number;
   toRow: number | null;
@@ -174,7 +183,7 @@ class ChatApi {
     return this.token ? { Authorization: `Bearer ${this.token}` } : {};
   }
 
-  async login(email: string, password: string): Promise<string> {
+  async login(email: string, password: string): Promise<AuthResult> {
     const response = await fetch(`${this.baseUrl}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -185,10 +194,10 @@ class ChatApi {
       throw new Error(result?.error || "Invalid credentials");
     }
     const result = await response.json();
-    return result.token as string;
+    return { token: result.token as string, emailVerified: result.emailVerified === true };
   }
 
-  async signup(email: string, password: string): Promise<string> {
+  async signup(email: string, password: string): Promise<AuthResult> {
     const response = await fetch(`${this.baseUrl}/api/auth/signup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -199,7 +208,29 @@ class ChatApi {
       throw new Error(result?.error || "Sign up failed");
     }
     const result = await response.json();
-    return result.token as string;
+    return { token: result.token as string, emailVerified: result.emailVerified === true };
+  }
+
+  async getMe(): Promise<{ email: string; emailVerified: boolean } | null> {
+    const response = await fetch(`${this.baseUrl}/api/auth/me`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) return null;
+    const result = await response.json();
+    return { email: result.email, emailVerified: result.emailVerified === true };
+  }
+
+  async resendVerification(): Promise<{ alreadyVerified: boolean }> {
+    const response = await fetch(`${this.baseUrl}/api/auth/resend-verification`, {
+      method: "POST",
+      headers: this.authHeader(),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Failed to resend verification email");
+    }
+    const result = await response.json();
+    return { alreadyVerified: result.alreadyVerified === true };
   }
 
   async getEventDefinitions(eventId: string): Promise<MarketDefinitionDoc[]> {

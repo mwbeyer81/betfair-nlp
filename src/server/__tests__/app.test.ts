@@ -11,6 +11,33 @@ const TEST_USER_PASSWORD = "beyer";
 // below returns this so login() can bcrypt.compare against a real hash.
 const TEST_USER_PASSWORD_HASH = bcrypt.hashSync(TEST_USER_PASSWORD, 10);
 
+// A minimal in-memory "users" table backing the mocked collection below —
+// stateful (persists across tests in this file, in execution order) so
+// signup -> verify -> me flows can be exercised end-to-end without a real
+// database. The legacy seeded account starts pre-verified (it predates
+// email verification entirely, and there's no real inbox behind it to
+// click a link from).
+interface MockUserDoc {
+  _id: InstanceType<typeof ObjectId>;
+  email: string;
+  passwordHash: string;
+  createdAt: Date;
+  emailVerified: boolean;
+  verificationToken: string | null;
+  verificationTokenExpiresAt: Date | null;
+}
+const mockUsers: MockUserDoc[] = [
+  {
+    _id: new ObjectId(),
+    email: TEST_USER_EMAIL,
+    passwordHash: TEST_USER_PASSWORD_HASH,
+    createdAt: new Date(),
+    emailVerified: true,
+    verificationToken: null,
+    verificationTokenExpiresAt: null,
+  },
+];
+
 beforeAll(async () => {
   const res = await request(app)
     .post("/api/auth/login")
@@ -40,18 +67,25 @@ jest.mock("../../config/database", () => ({
           if (name === "users") {
             return {
               createIndex: jest.fn().mockResolvedValue(undefined),
-              findOne: jest.fn().mockImplementation(async (query: { email?: string }) => {
-                if (query?.email === TEST_USER_EMAIL) {
-                  return {
-                    _id: new ObjectId(),
-                    email: TEST_USER_EMAIL,
-                    passwordHash: TEST_USER_PASSWORD_HASH,
-                    createdAt: new Date(),
-                  };
+              findOne: jest.fn().mockImplementation(async (query: { email?: string; verificationToken?: string }) => {
+                if (query?.email) {
+                  return mockUsers.find(u => u.email === query.email) ?? null;
+                }
+                if (query?.verificationToken) {
+                  return mockUsers.find(u => u.verificationToken === query.verificationToken) ?? null;
                 }
                 return null;
               }),
-              insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
+              insertOne: jest.fn().mockImplementation(async (doc: Omit<MockUserDoc, "_id">) => {
+                const _id = new ObjectId();
+                mockUsers.push({ ...doc, _id });
+                return { insertedId: _id };
+              }),
+              updateOne: jest.fn().mockImplementation(async (filter: { _id?: unknown }, update: { $set?: Partial<MockUserDoc> }) => {
+                const user = mockUsers.find(u => String(u._id) === String(filter?._id));
+                if (user && update?.$set) Object.assign(user, update.$set);
+                return { matchedCount: user ? 1 : 0 };
+              }),
             };
           }
           return {
@@ -170,6 +204,15 @@ describe("API Endpoints", () => {
       expect(typeof response.body.token).toBe("string");
     });
 
+    it("a fresh signup is unverified", async () => {
+      const response = await request(app)
+        .post("/api/auth/signup")
+        .send({ email: "unverified.user@backbet.co.uk", password: "correct-horse-battery" })
+        .expect(201);
+
+      expect(response.body.emailVerified).toBe(false);
+    });
+
     it("returns 409 when the email is already registered", async () => {
       const response = await request(app)
         .post("/api/auth/signup")
@@ -209,6 +252,15 @@ describe("API Endpoints", () => {
       expect(typeof response.body.token).toBe("string");
     });
 
+    it("the seeded legacy account logs in as already verified", async () => {
+      const response = await request(app)
+        .post("/api/auth/login")
+        .send({ email: TEST_USER_EMAIL, password: TEST_USER_PASSWORD })
+        .expect(200);
+
+      expect(response.body.emailVerified).toBe(true);
+    });
+
     it("returns 401 for a wrong password", async () => {
       const response = await request(app)
         .post("/api/auth/login")
@@ -237,6 +289,89 @@ describe("API Endpoints", () => {
         .expect(401);
 
       expect(response.body).toHaveProperty("error");
+    });
+  });
+
+  describe("GET /api/auth/verify", () => {
+    it("is public — returns 200 HTML with no auth header, given a valid token", async () => {
+      await request(app)
+        .post("/api/auth/signup")
+        .send({ email: "verify.me@backbet.co.uk", password: "correct-horse-battery" })
+        .expect(201);
+      const token = mockUsers.find(u => u.email === "verify.me@backbet.co.uk")?.verificationToken;
+      expect(typeof token).toBe("string");
+
+      const response = await request(app).get(`/api/auth/verify?token=${token}`).expect(200);
+      expect(response.headers["content-type"]).toMatch(/html/);
+      expect(response.text).toContain("verify.me@backbet.co.uk");
+
+      const user = mockUsers.find(u => u.email === "verify.me@backbet.co.uk");
+      expect(user?.emailVerified).toBe(true);
+      expect(user?.verificationToken).toBeNull();
+    });
+
+    it("returns 400 HTML for an unknown/invalid token", async () => {
+      const response = await request(app).get("/api/auth/verify?token=not-a-real-token").expect(400);
+      expect(response.headers["content-type"]).toMatch(/html/);
+    });
+
+    it("returns 400 HTML for an expired token", async () => {
+      await request(app)
+        .post("/api/auth/signup")
+        .send({ email: "expired.token@backbet.co.uk", password: "correct-horse-battery" })
+        .expect(201);
+      const user = mockUsers.find(u => u.email === "expired.token@backbet.co.uk")!;
+      user.verificationTokenExpiresAt = new Date(Date.now() - 1000);
+
+      const response = await request(app).get(`/api/auth/verify?token=${user.verificationToken}`).expect(400);
+      expect(response.text).toContain("expired");
+    });
+  });
+
+  describe("GET /api/auth/me", () => {
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/auth/me").expect(401);
+    });
+
+    it("returns email + emailVerified for the authenticated user", async () => {
+      const response = await request(app)
+        .get("/api/auth/me")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toMatchObject({ success: true, email: TEST_USER_EMAIL, emailVerified: true });
+    });
+  });
+
+  describe("POST /api/auth/resend-verification", () => {
+    it("returns 401 without auth", async () => {
+      await request(app).post("/api/auth/resend-verification").expect(401);
+    });
+
+    it("issues a new token for an unverified account", async () => {
+      const signupRes = await request(app)
+        .post("/api/auth/signup")
+        .send({ email: "resend.me@backbet.co.uk", password: "correct-horse-battery" })
+        .expect(201);
+      const originalToken = mockUsers.find(u => u.email === "resend.me@backbet.co.uk")?.verificationToken;
+
+      const response = await request(app)
+        .post("/api/auth/resend-verification")
+        .set("Authorization", `Bearer ${signupRes.body.token}`)
+        .expect(200);
+
+      expect(response.body).toMatchObject({ success: true, alreadyVerified: false });
+      const newToken = mockUsers.find(u => u.email === "resend.me@backbet.co.uk")?.verificationToken;
+      expect(newToken).not.toBe(originalToken);
+    });
+
+    it("reports alreadyVerified for an already-verified account", async () => {
+      const response = await request(app)
+        .post("/api/auth/resend-verification")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toMatchObject({ success: true, alreadyVerified: true });
     });
   });
 

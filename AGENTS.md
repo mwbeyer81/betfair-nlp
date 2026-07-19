@@ -539,3 +539,205 @@ the way:
   referenced the now-removed `industry-sp-screen-events-button` testID —
   worth a real run against `app.backbet.co.uk` or a working local
   `localhost:3000`/`:80` before merging.
+
+  **Post-merge note:** this shipped — merged to `develop` (`c52bc42`),
+  Lambda + `app.backbet.co.uk` both redeployed and verified live
+  (screenshot + curl checks against production). One deploy gotcha for
+  whoever deploys next: **run `apps/lambda/build.sh` and
+  `apps/web/deploy.sh` from a worktree whose local HEAD is actually
+  `origin/develop`**, not just after pushing to the remote — I first ran
+  `apps/lambda/build.sh` from `/home/ubuntu/betfair-nlp`'s primary
+  checkout right after `git push origin anon-isp-home:develop`, and it
+  silently bundled the *old* pre-merge code (the local branch pointer
+  hadn't moved, only the remote had), deploying stale Lambda code that
+  still 401'd on `/api/industry-sp*`. Caught it via a live curl check,
+  fast-forwarded the local checkout (`git stash` the primary worktree's
+  unrelated pre-existing dirty state first, `git merge --ff-only
+  origin/develop`, `git stash pop`), redeployed, confirmed fixed. Also:
+  `aws lambda update-function-code` followed immediately by
+  `update-function-configuration` in `apps/lambda/build.sh` has a race
+  (the config call can hit `ResourceConflictException: An update is in
+  progress` if it lands before the code update's async state settles) —
+  ran into it twice, worked around each time with
+  `aws lambda wait function-updated --function-name hello-api --region
+  eu-north-1` before retrying the config call manually. Didn't fix the
+  script itself since it's shared infra outside this branch's scope, but
+  **whoever deploys Lambda next should expect this and either retry once
+  or add the wait into `build.sh` properly.**
+
+---
+
+## 2026-07-19 (later) — Agent in `~/betfair-nlp-auth-hardening` (branch `auth-hardening`)
+
+**Task (starting):** Four features on top of the anonymous-ISP-home work
+above:
+1. Password confirmation field on signup (`AuthScreen.tsx`, client-side
+   match check only — backend `signup(email, password)` keeps its
+   existing single-password validation, `MIN_PASSWORD_LENGTH = 5`).
+2. Email verification: extend `UserDocument`
+   (`src/lib/dao/user-dao.ts`) with `emailVerified`/`verificationToken`/
+   `verificationTokenExpiresAt`; new `email-service.ts` wrapping the
+   Resend API (chosen over AWS SES — no email infra existed at all
+   before this); `signup()` generates a token and sends a verification
+   email; new endpoints `GET /api/auth/verify` (public, returns a small
+   static HTML confirmation page — same pattern as the existing
+   `/hello-world` route), `GET /api/auth/me` (protected, returns
+   `{email, emailVerified}` since that status can't safely live inside
+   the stateless JWT), `POST /api/auth/resend-verification`. **Decision
+   (confirmed with user): soft reminder, not a hard gate** — signing up
+   unlocks the 1000-race cap immediately regardless of verification
+   status; unverified accounts just see a dismissible-per-session
+   reminder banner. No changes to the raceCap/auth-tier logic from the
+   entry above.
+3. Cloudflare Turnstile bot-check: **explicitly deferred** — user chose
+   to skip it this pass (no Turnstile site/secret key available, and I
+   have no Cloudflare API access to provision one — the Cloudflare MCP
+   tools available to me cover Workers/DNS-zones/KV/R2/etc., not
+   Turnstile). Flagging here in case a future agent has keys and picks
+   this up: it'd slot into `AuthScreen.tsx`'s submit flow client-side
+   (widget + token) and a server-side siteverify call in
+   `auth-service.ts` before `signup`/`login` proceed.
+4. New always-visible "benefits of signing up" banner on
+   `IndustrySpScreen.tsx`, below the `Appbar.Header`, shown to every
+   anonymous visitor (not gated on hitting the race cap like the
+   existing `industry-sp-cap-banner`) — distinct banner, distinct
+   testID, don't confuse the two.
+
+**Resend API key: not yet provided by the user.** `email-service.ts` is
+being written to read the key from config (`config.get("email.apiKey")`,
+mapped from `RESEND_API_KEY` via `custom-environment-variables.json`,
+same pattern as `jwt.secret`/`openai.apiKey`) and to **log a warning and
+no-op rather than throw** when the key is absent/empty — signup must
+never hard-fail just because email delivery isn't configured yet. Real
+sending (and the "does the email actually arrive" verification) can't be
+tested end-to-end until the user supplies a real key and verifies a
+sending domain/address with Resend — noting this so nobody assumes the
+email path was verified live the way the rest of this repo's deploys
+usually are.
+
+**Touching:** `src/lib/service/auth-service.ts`, `src/lib/dao/user-dao.ts`,
+`src/server/router.ts` (new routes only, not the industry-sp block from
+the entry above), `client/src/components/AuthScreen.tsx`,
+`client/src/components/IndustrySpScreen.tsx` (new banner, alongside but
+separate from the existing cap banner), `client/src/services/chatApi.ts`,
+`config/default.json`, `config/custom-environment-variables.json`,
+`apps/lambda/build.sh` (secrets block only). New file:
+`src/lib/service/email-service.ts`. **Not** touching
+`src/lib/dao/industry-sp-dao.ts`, `client/src/utils/ispUrlParams.ts`, or
+the raceCap/optionalJwtAuth logic from the previous entry at all.
+
+Will append a completion entry below once shipped/verified.
+
+**Done — committed on `auth-hardening`, not yet merged/deployed.** All
+four planned pieces landed as designed (password confirmation, email
+verification via Resend, verify/me/resend-verification endpoints, the
+two banners), plus:
+
+- **Cloudflare Turnstile: confirmed still deferred**, unchanged from the
+  "starting" note above — no keys available, no Turnstile API in my
+  Cloudflare MCP tools. `AuthScreen.tsx`'s submit flow has no bot-check
+  hook yet; whoever picks this up next should read the "starting" note
+  above for where it'd slot in.
+- **`apps/lambda/build.sh` race condition (flagged as a known issue in
+  the *previous* entry, from the anon-isp-home work) — actually fixed
+  this time**, since I was about to hit it again myself: added
+  `aws lambda wait function-updated --function-name hello-api --region
+  eu-north-1` between `update-function-code` and each
+  `update-function-configuration` call. Also extended the
+  `config/local.json`-driven secrets block with `RESEND_API_KEY`,
+  `EMAIL_FROM_ADDRESS`, `API_URL` (all read with a `|| ''` /
+  `|| 'https://fd0xr...'` fallback so an older `config/local.json`
+  without an `email` section doesn't crash the script).
+- **`chatApi.getMe()` needs a `.catch()` everywhere it's called from a
+  `useEffect`** — found this the hard way via Storybook: several
+  pre-existing `IndustrySpScreen` stories override `parameters.msw.
+  handlers` with a narrow custom list that doesn't include the new
+  `/api/auth/me` mock, and `getMe()`'s underlying `fetch()` rejects (not
+  just returns a non-ok response) when MSW's default onUnhandledRequest
+  behavior lets it fall through to a real network call that fails in the
+  headless test browser. An uncaught rejection there surfaced as a page
+  error and failed ~7 *unrelated* stories (course chips, date filters,
+  zero-match states — nothing to do with auth). Fixed by wrapping both
+  `getMe()` call sites (the `isAuthenticated` effect and
+  `handleRefreshVerification`) in `.catch()`/try-catch so a failed
+  verification-status fetch just leaves the banner state as "unknown"
+  instead of crashing anything. **If you add another effect that calls a
+  new `chatApi.*` method for the first time, check whether existing
+  stories/tests override MSW handlers narrowly enough to leave it
+  unmocked — an uncaught rejection there will fail tests that have
+  nothing to do with your change.**
+- The signup response shape changed from `{ token }` to
+  `{ token, emailVerified }` (same for login) — `AuthResult` in
+  `chatApi.ts`. Updated every call site (`AuthScreen.tsx`'s two
+  `chatApi.login/signup` usages, `App.tsx`'s URL-based `?email=&password=`
+  auto-login effect) to destructure `.token` instead of treating the
+  return value as a bare string. `onAuthenticated`'s own signature
+  deliberately stayed `() => void` — `IndustrySpScreen` re-fetches
+  `emailVerified` itself via `getMe()` whenever its `isAuthenticated` prop
+  flips true, rather than threading verification status through
+  `App.tsx` as a second piece of auth state.
+- **Verification status is never derived from the JWT** — it can change
+  after the token was issued (user clicks the email link in a different
+  tab/session), so baking it into the JWT would go stale. It always
+  comes from a fresh `GET /api/auth/me` call instead. Worth remembering
+  if a future change is tempted to add `emailVerified` to the JWT payload
+  for convenience — that would silently break "click the verify link
+  while the app is open in another tab."
+- **Resend API key: still not provided.** `EmailService` reads
+  `email.apiKey` (mapped from `RESEND_API_KEY`) and no-ops with a console
+  warning when it's blank — signup/resend never hard-fail because of it.
+  Nobody has verified an actual email lands in an inbox yet; that needs a
+  real key + a verified sending domain/address with Resend before this
+  ships for real. `config/default.json`'s `email.fromAddress` default
+  (`BackBet <onboarding@resend.dev>`) is Resend's own shared
+  test-sending address — fine for a first smoke test once a key exists,
+  but swap it for a real `noreply@backbet.co.uk`-style address (once
+  verified with Resend) before relying on this for actual users, since
+  the shared address has its own deliverability/reputation limits.
+
+**Verified:**
+- `cd client && yarn build` and `npx tsc --noEmit` (backend) — both
+  clean.
+- Supertest (`src/server/__tests__/app.test.ts`): 88 passed (added a
+  stateful in-memory `mockUsers` array behind the mocked "users"
+  collection — `findOne`/`insertOne`/`updateOne` — so signup → verify →
+  me → resend-verification can be exercised end-to-end against the mock
+  without a real database; new tests read the generated verification
+  token directly off that array rather than trying to intercept an
+  email).
+- Storybook: `AuthScreen.stories.tsx` 12/12 pass (2 pre-existing signup
+  stories had to be fixed to also fill the new confirm-password field, or
+  the disabled-submit-button change would've broken them).
+  `IndustrySpScreen.stories.tsx` 47/49 pass — the 2 failures are the same
+  pre-existing, unrelated course-chip `[object Set]` URL-serialization
+  bug already documented in the previous entry (confirmed unchanged by
+  this work).
+- MSW Playwright (`tests-msw/industry-sp.spec.ts` +
+  `navigation.spec.ts` + `responsive.spec.ts`, against `yarn build:web`'s
+  static `dist/`): 103/104 pass — the 1 failure is the same pre-existing
+  `sort=asc is sent on initial load` flake noted in the previous entry.
+  Added a default `/api/auth/me` mock (verified: true) to `fixtures.ts`'s
+  shared `setupApiMocks` so every existing authenticated test keeps
+  seeing "no verify banner" like before, plus a full anonymous
+  signup-with-mismatched-then-matching-passwords-then-verify-banner flow
+  test.
+- Full non-integration Jest suite: same 8-suites/35-tests pre-existing
+  baseline as the previous entry (confirmed by count, not a fresh
+  stash-compare this time — same root causes: missing DB/API-key-shaped
+  environment issues, unrelated to auth).
+- **Not run** — same two gaps as the previous entry, for the same
+  reasons (no local MongoDB, no live server in this sandbox):
+  `industry-sp-*.integration.test.ts` (unaffected by this change — no
+  DAO/service methods touched here besides the new `UserDAO`/
+  `AuthService` methods, which integration tests don't currently cover
+  either way) and the live-server portions of
+  `client/tests/industry-sp-e2e.spec.ts`. Added new live-suite coverage
+  for the benefits banner and the public `GET /api/auth/verify`/
+  `GET /api/auth/me` endpoints, but **deliberately did NOT add a live
+  test that calls the real `POST /api/auth/signup`** — unlike MSW/
+  Storybook, that endpoint's live counterpart writes to the actual
+  production `users` collection, and creating a throwaway account on
+  every CI run isn't worth it just to exercise the verify happy path.
+  Whoever next has a working `localhost:3000`/`:80` (or runs against
+  `app.backbet.co.uk`) should still eyeball the full signup → resend →
+  verify-link flow manually at least once before this ships broadly.
