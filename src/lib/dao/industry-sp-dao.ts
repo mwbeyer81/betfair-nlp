@@ -20,6 +20,18 @@ export interface IspRunner {
   isFavourite: boolean;
   jockey?: string;
   trainer?: string;
+  // Trainer's trailing-14-day form (same race-type category — Flat vs
+  // Jumps — as this race), computed as-of this race's own date using only
+  // strictly earlier runs, so it never leaks future results into a
+  // historical race. Precomputed in src/commands/precompute-trainer-form.ts;
+  // absent (undefined) on runners whose trainer field is empty, and
+  // trainerFormWinRate is null (not 0) when trainerFormRuns is 0 — that's
+  // the "no sample yet" signal the frontend badge uses to omit itself.
+  trainerFormRuns?: number;
+  trainerFormWins?: number;
+  trainerFormWinRate?: number | null;
+  trainerFormStaked?: number;
+  trainerFormReturns?: number;
 }
 
 export interface IspRace {
@@ -83,7 +95,10 @@ export class IndustrySpDAO {
     raceClasses: string[] = [],
     raceTypes: string[] = [],
     trainerSearch: string | null = null,
-    jockeySearch: string | null = null
+    jockeySearch: string | null = null,
+    trainerFormMinWinRate = 0,
+    minTrainerFormRunners = 0,
+    maxTrainerFormRunners = 100
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -224,6 +239,42 @@ export class IndustrySpDAO {
       ? "$runnersWithIspCount"
       : { $size: runnersInRangeFilter };
 
+    // Runner-level "in form" threshold, race-level qualifying-runner count —
+    // same $filter/$size-on-array-expression shape as inRangeRunnersCount
+    // above, deliberately not $unwind: trainerFormMinWinRate is a
+    // request-time threshold (unlike runnersWithIspCount's fixed isp>1
+    // definition), so unlike that field it can't be precomputed once at
+    // import time.
+    //
+    // Unlike inRangeRunnersCount though, there's no isp-range-style "covers
+    // everything" fast path available here (the underlying trainerFormWinRate
+    // values aren't known ahead of time), so instead this skips the $filter/
+    // $size scan entirely whenever the bounds are at their true no-op
+    // defaults (minTrainerFormRunners<=0, maxTrainerFormRunners>=100 — every
+    // real per-race runner count is well under 100) and substitutes a literal
+    // 0. Without this, every single request — including the overwhelming
+    // majority that never touch this filter — would pay a $filter/$size scan
+    // over every matched race's runners array, which is exactly the class of
+    // per-request array scan this DAO has otherwise gone to lengths to avoid
+    // on Atlas M0 (see the comments throughout this file).
+    const trainerFormFilterActive = minTrainerFormRunners > 0 || maxTrainerFormRunners < 100;
+    const trainerFormQualifyingCountExpr = trainerFormFilterActive
+      ? {
+          $size: {
+            $filter: {
+              input: "$runners",
+              as: "r",
+              cond: {
+                $and: [
+                  { $ne: ["$$r.trainerFormWinRate", null] },
+                  { $gte: ["$$r.trainerFormWinRate", trainerFormMinWinRate] },
+                ],
+              },
+            },
+          },
+        }
+      : 0;
+
     // Only a per-race id + sort key + the two precomputed counts survive
     // into the $facet — every other field (course, meetingName, runners,
     // ...) is re-fetched via $lookup after sorting/paginating down to a
@@ -251,6 +302,7 @@ export class IndustrySpDAO {
         $addFields: {
           allRunnersCount: "$runnersWithIspCount",
           inRangeRunnersCount: inRangeRunnersCountExpr,
+          trainerFormQualifyingCount: trainerFormQualifyingCountExpr,
         },
       },
       {
@@ -259,6 +311,8 @@ export class IndustrySpDAO {
             $and: [
               { $gte: ["$inRangeRunnersCount", minInIspRange] },
               { $lte: ["$inRangeRunnersCount", maxInIspRange] },
+              { $gte: ["$trainerFormQualifyingCount", minTrainerFormRunners] },
+              { $lte: ["$trainerFormQualifyingCount", maxTrainerFormRunners] },
             ],
           },
         },

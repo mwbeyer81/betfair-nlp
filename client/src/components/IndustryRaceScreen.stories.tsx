@@ -18,7 +18,7 @@ const MOCK_RACE = {
   raceType: "Chase",
   ran: 3,
   runners: [
-    { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true },
+    { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true, trainer: "W P Mullins", trainerFormRuns: 14, trainerFormWins: 3, trainerFormWinRate: 21.43 },
     { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "PLACED", sortPriority: 2, isp: 5.5, ispFraction: "9/2", isFavourite: false },
     { id: 21003, name: "Fastorslow", num: 3, draw: null, status: "LOSER", sortPriority: 3, isp: 9.0, ispFraction: "8/1", isFavourite: false },
   ],
@@ -63,6 +63,17 @@ export const ItemsRendered: Story = {
       await expect(canvas.getByTestId(`industry-race-item-${runner.id}`)).toBeInTheDocument();
       await expect(canvas.getByTestId(`industry-race-isp-${runner.id}`)).toBeInTheDocument();
     }
+  },
+};
+
+export const TrainerFormBadgeDisplayed: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-race-list");
+
+    await expect(canvas.getByTestId("industry-race-item-trainer-21001")).toHaveTextContent("W P Mullins");
+    await expect(canvas.getByTestId("industry-race-item-trainer-form-21001")).toHaveTextContent("3/14");
+    await expect(canvas.getByTestId("industry-race-item-trainer-form-21001")).toHaveTextContent("21%");
   },
 };
 

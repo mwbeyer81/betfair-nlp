@@ -1,5 +1,10 @@
 #!/usr/bin/env ts-node
 
+// After running this import (or any reseed), re-run
+// `yarn precompute:trainer-form` — this script's replaceOne-per-race upsert
+// replaces each race document wholesale, which wipes any trainerForm*
+// fields a prior precompute run had written onto `runners`.
+
 import { createReadStream } from "fs";
 import { parse } from "csv-parse";
 import { createHash } from "crypto";

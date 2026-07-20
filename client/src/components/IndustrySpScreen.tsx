@@ -68,6 +68,15 @@ const FILTER_DEFAULTS = {
   maxInIspRange: 30,
   minDate: "2024-01-01",
   maxDate: "2024-01-31",
+  // trainerFormMinWinRate is just the "in form" threshold definition — it
+  // has no effect on results by itself. Only minTrainerFormRunners > 0
+  // actually narrows anything, so leaving it at 0 (a true no-op, same
+  // as minInIspRange's own "count >= 0 always true" default) keeps this
+  // filter inert until the user opts in, exactly like every other filter
+  // here on first load.
+  trainerFormMinWinRate: 20,
+  minTrainerFormRunners: 0,
+  maxTrainerFormRunners: 30,
 };
 
 // Loose client-side guardrails for the date inputs — not round-tripped
@@ -92,6 +101,8 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   raceType: "Only show races of the selected type (Flat, Hurdle, Chase, ...).",
   trainer: "Only show races with a runner trained by a name starting with this text.",
   jockey: "Only show races with a runner ridden by a name starting with this text.",
+  trainerFormWinRate: "A runner's trainer counts as \"in form\" if their win rate over their last 14 days of same-type (Flat/Jumps) runs is at least this percentage.",
+  trainerFormRunners: "Only show races with this many runners whose trainer is currently in form, per the threshold above.",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -187,6 +198,24 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [trainerSearch, setTrainerSearch] = useState(() => urlStringParam("trainer", ""));
   const [draftJockey, setDraftJockey] = useState(() => urlStringParam("jockey", ""));
   const [jockeySearch, setJockeySearch] = useState(() => urlStringParam("jockey", ""));
+  const [draftTrainerFormMinWinRate, setDraftTrainerFormMinWinRate] = useState(() =>
+    String(urlFloatParam("trainerFormMinWinRate", FILTER_DEFAULTS.trainerFormMinWinRate))
+  );
+  const [trainerFormMinWinRate, setTrainerFormMinWinRate] = useState(() =>
+    urlFloatParam("trainerFormMinWinRate", FILTER_DEFAULTS.trainerFormMinWinRate)
+  );
+  const [draftMinTFR, setDraftMinTFR] = useState(() =>
+    String(urlIntParam("minTrainerFormRunners", FILTER_DEFAULTS.minTrainerFormRunners))
+  );
+  const [draftMaxTFR, setDraftMaxTFR] = useState(() =>
+    String(urlIntParam("maxTrainerFormRunners", FILTER_DEFAULTS.maxTrainerFormRunners))
+  );
+  const [minTrainerFormRunners, setMinTrainerFormRunners] = useState(() =>
+    urlIntParam("minTrainerFormRunners", FILTER_DEFAULTS.minTrainerFormRunners)
+  );
+  const [maxTrainerFormRunners, setMaxTrainerFormRunners] = useState(() =>
+    urlIntParam("maxTrainerFormRunners", FILTER_DEFAULTS.maxTrainerFormRunners)
+  );
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
@@ -345,6 +374,17 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setDraftJockey(trimmedJockey);
     setJockeySearch(trimmedJockey);
 
+    const tfWinRate = Math.min(100, Math.max(0, parseFloat(draftTrainerFormMinWinRate) || 0));
+    setDraftTrainerFormMinWinRate(String(tfWinRate));
+    setTrainerFormMinWinRate(tfWinRate);
+
+    const minTFR = Math.max(0, parseInt(draftMinTFR) || 0);
+    const maxTFR = Math.max(minTFR, Math.min(maxRunnersLimit, parseInt(draftMaxTFR) || maxRunnersLimit));
+    setDraftMinTFR(String(minTFR));
+    setDraftMaxTFR(String(maxTFR));
+    setMinTrainerFormRunners(minTFR);
+    setMaxTrainerFormRunners(maxTFR);
+
     // Commit every chip filter's draft (pending) selection to the applied
     // set actually used for fetching — this is the point where a chip's
     // visual flips from "pending" (gray) to "applied" (solid).
@@ -424,6 +464,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setTrainerSearch("");
     setDraftJockey("");
     setJockeySearch("");
+    setDraftTrainerFormMinWinRate(String(FILTER_DEFAULTS.trainerFormMinWinRate));
+    setTrainerFormMinWinRate(FILTER_DEFAULTS.trainerFormMinWinRate);
+    setDraftMinTFR(String(FILTER_DEFAULTS.minTrainerFormRunners));
+    setDraftMaxTFR(String(FILTER_DEFAULTS.maxTrainerFormRunners));
+    setMinTrainerFormRunners(FILTER_DEFAULTS.minTrainerFormRunners);
+    setMaxTrainerFormRunners(FILTER_DEFAULTS.maxTrainerFormRunners);
 
     // Hand the two race splits back to auto (half/half) mode — the next
     // fetch recomputes them from the fresh grand total.
@@ -508,6 +554,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         raceTypes: selectedRaceTypes.size > 0 ? [...selectedRaceTypes].sort().join(",") : undefined,
         trainer: trainerSearch ? trainerSearch : undefined,
         jockey: jockeySearch ? jockeySearch : undefined,
+        trainerFormMinWinRate: trainerFormMinWinRate !== FILTER_DEFAULTS.trainerFormMinWinRate ? String(trainerFormMinWinRate) : undefined,
+        minTrainerFormRunners: minTrainerFormRunners !== FILTER_DEFAULTS.minTrainerFormRunners ? String(minTrainerFormRunners) : undefined,
+        maxTrainerFormRunners: maxTrainerFormRunners !== FILTER_DEFAULTS.maxTrainerFormRunners ? String(maxTrainerFormRunners) : undefined,
         // Only write the split boundaries once the user has explicitly
         // applied a custom split — writing the auto-computed default here
         // too would make the *next* mount think a custom split was already
@@ -539,7 +588,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         minRunnersInRange, maxRunnersInRange, minDate, maxDate, isDefault, fromRowA, toRowA, fromRowB, toRowB,
         courses: [...selectedCourses], goings: [...selectedGoings],
         raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
-        trainerSearch, jockeySearch, isAuthenticated,
+        trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+        isAuthenticated,
       });
 
       // fetchTrigger only ever increments via Apply/Reset — anything else
@@ -586,7 +636,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           minDate,
           maxDate,
           [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
-          trainerSearch || undefined, jockeySearch || undefined
+          trainerSearch || undefined, jockeySearch || undefined,
+          trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners
         );
         if (cancelled) return;
         // An explicit (non-default) split's row numbers are only meaningful
@@ -1118,6 +1169,27 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           maxLength: 3,
           hint: filterBounds != null ? `/${filterBounds.maxRunnersPerRace}` : null,
           hintTestId: "industry-sp-max-rir-bound",
+        })}
+        {renderTextFilterRow({
+          filterKey: "trainerFormWinRate",
+          label: "Trainer Form Win %",
+          value: draftTrainerFormMinWinRate,
+          onChange: setDraftTrainerFormMinWinRate,
+          testId: "industry-sp-trainer-form-min-win-rate",
+        })}
+        {renderFilterRow({
+          filterKey: "trainerFormRunners",
+          label: "# In-Form Trainer",
+          minValue: draftMinTFR,
+          onMinChange: setDraftMinTFR,
+          minTestId: "industry-sp-min-trainer-form-runners",
+          maxValue: draftMaxTFR,
+          onMaxChange: setDraftMaxTFR,
+          maxTestId: "industry-sp-max-trainer-form-runners",
+          keyboardType: "numeric",
+          maxLength: 3,
+          hint: filterBounds != null ? `/${filterBounds.maxRunnersPerRace}` : null,
+          hintTestId: "industry-sp-max-trainer-form-runners-bound",
         })}
         <View
           testID="industry-sp-filter-row-date"

@@ -1075,6 +1075,16 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
+    it("accepts trainer-form filter params and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?trainerFormMinWinRate=25&minTrainerFormRunners=1&maxTrainerFormRunners=5")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
     it("each race includes raceClass and going", async () => {
       const response = await request(app)
         .get("/api/industry-sp")
@@ -1293,6 +1303,15 @@ describe("API Endpoints", () => {
 
     it("is public — returns 200 without auth", async () => {
       await request(app).get("/api/industry-sp/splits").expect(200);
+    });
+
+    it("accepts trainer-form filter params and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?trainerFormMinWinRate=30&minTrainerFormRunners=1&maxTrainerFormRunners=30")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
     });
   });
 

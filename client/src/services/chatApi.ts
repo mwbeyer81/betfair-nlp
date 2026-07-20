@@ -72,6 +72,15 @@ export interface IspRunner {
   isFavourite: boolean;
   jockey?: string;
   trainer?: string;
+  // Trainer's trailing-14-day form (same race-type category — Flat vs
+  // Jumps — as this race), computed as-of this race's own date. Undefined
+  // when the runner has no trainer; trainerFormWinRate is null (not 0)
+  // when trainerFormRuns is 0 — that's the "no sample yet" signal.
+  trainerFormRuns?: number;
+  trainerFormWins?: number;
+  trainerFormWinRate?: number | null;
+  trainerFormStaked?: number;
+  trainerFormReturns?: number;
 }
 
 export interface IspRace {
@@ -397,7 +406,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string): Promise<IspPage> {
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -420,6 +429,9 @@ class ChatApi {
     if (raceTypes.length > 0) params.set("raceTypes", raceTypes.join(","));
     if (trainer) params.set("trainer", trainer);
     if (jockey) params.set("jockey", jockey);
+    if (trainerFormMinWinRate != null) params.set("trainerFormMinWinRate", String(trainerFormMinWinRate));
+    if (minTrainerFormRunners != null) params.set("minTrainerFormRunners", String(minTrainerFormRunners));
+    if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp?${params}`,
       { headers: this.authHeader() }
@@ -461,7 +473,10 @@ class ChatApi {
     raceClasses: string[] = [],
     raceTypes: string[] = [],
     trainer?: string,
-    jockey?: string
+    jockey?: string,
+    trainerFormMinWinRate?: number,
+    minTrainerFormRunners?: number,
+    maxTrainerFormRunners?: number
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -484,6 +499,9 @@ class ChatApi {
     if (raceTypes.length > 0) params.set("raceTypes", raceTypes.join(","));
     if (trainer) params.set("trainer", trainer);
     if (jockey) params.set("jockey", jockey);
+    if (trainerFormMinWinRate != null) params.set("trainerFormMinWinRate", String(trainerFormMinWinRate));
+    if (minTrainerFormRunners != null) params.set("minTrainerFormRunners", String(minTrainerFormRunners));
+    if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
       { headers: this.authHeader() }

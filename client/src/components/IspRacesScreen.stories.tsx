@@ -16,7 +16,11 @@ const MOCK_RACES: Array<{
   raceName: string;
   raceType: string;
   ran: number;
-  runners: Array<{ id: number; name: string; num: number | null; draw: number | null; status: string; sortPriority: number; isp: number; ispFraction: string; isFavourite: boolean }>;
+  runners: Array<{
+    id: number; name: string; num: number | null; draw: number | null; status: string; sortPriority: number;
+    isp: number; ispFraction: string; isFavourite: boolean;
+    trainer?: string; trainerFormRuns?: number; trainerFormWins?: number; trainerFormWinRate?: number | null;
+  }>;
 }> = [
   {
     raceId: 914592,
@@ -29,8 +33,8 @@ const MOCK_RACES: Array<{
     raceType: "Chase",
     ran: 2,
     runners: [
-      { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true },
-      { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 5.5, ispFraction: "9/2", isFavourite: false },
+      { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true, trainer: "W P Mullins", trainerFormRuns: 14, trainerFormWins: 3, trainerFormWinRate: 21.43 },
+      { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 5.5, ispFraction: "9/2", isFavourite: false, trainer: "Emmet Mullins" },
     ],
   },
   {
@@ -248,6 +252,22 @@ export const PerRunnerPnl: Story = {
     // Meetingofthewaters: LOSER at ISP 5.5, stake £0.22 → -£0.22
     await expect(canvas.getByTestId("industry-sp-pnl-item-21002")).toHaveTextContent("-£0.22");
     await expect(canvas.getByTestId("industry-sp-stake-21002")).toHaveTextContent("Bet £0.22");
+  },
+};
+
+export const TrainerFormBadgeDisplayed: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    // Galopin Des Champs has a 14-day form sample — badge shows win/run/rate.
+    await expect(canvas.getByTestId("industry-sp-item-trainer-21001")).toHaveTextContent("W P Mullins");
+    await expect(canvas.getByTestId("industry-sp-item-trainer-form-21001")).toHaveTextContent("3/14");
+    await expect(canvas.getByTestId("industry-sp-item-trainer-form-21001")).toHaveTextContent("21%");
+
+    // Meetingofthewaters has a trainer but no form sample — name shows, no badge.
+    await expect(canvas.getByTestId("industry-sp-item-trainer-21002")).toHaveTextContent("Emmet Mullins");
+    await expect(canvas.queryByTestId("industry-sp-item-trainer-form-21002")).not.toBeInTheDocument();
   },
 };
 

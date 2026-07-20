@@ -4,6 +4,7 @@ import config from "config";
 import { NaturalLanguageService } from "../lib/service/natural-language-service";
 import { BetfairService } from "../lib/service/betfair-service";
 import { IndustrySpService } from "../lib/service/industry-sp-service";
+import { TrainerFormService } from "../lib/service/trainer-form-service";
 import { AuthService, AuthError } from "../lib/service/auth-service";
 import { DatabaseConnection } from "../config/database";
 import { jwtAuth, optionalJwtAuth } from "./middleware";
@@ -16,6 +17,7 @@ let dbConnection: DatabaseConnection | null = null;
 let naturalLanguageService: NaturalLanguageService | null = null;
 let betfairService: BetfairService | null = null;
 let industrySpService: IndustrySpService | null = null;
+let trainerFormService: TrainerFormService | null = null;
 let authService: AuthService | null = null;
 
 export const initializeServices = async () => {
@@ -36,6 +38,12 @@ export const initializeServices = async () => {
       await industrySpService.createIndexes();
     } catch (indexError) {
       console.warn("industry-sp createIndexes failed (non-fatal, queries may be slower):", indexError);
+    }
+    trainerFormService = new TrainerFormService();
+    try {
+      await trainerFormService.createIndexes();
+    } catch (indexError) {
+      console.warn("trainer-form createIndexes failed (non-fatal, queries may be slower):", indexError);
     }
     authService = new AuthService(dbConnection.getDb());
     try {
@@ -374,6 +382,9 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const raceTypes = parseCsvListParam(req.query.raceTypes);
     const trainerSearch = typeof req.query.trainer === "string" && req.query.trainer.trim() ? req.query.trainer.trim() : null;
     const jockeySearch = typeof req.query.jockey === "string" && req.query.jockey.trim() ? req.query.jockey.trim() : null;
+    const trainerFormMinWinRate = Math.min(100, Math.max(0, parseFloat(req.query.trainerFormMinWinRate as string) || 0));
+    const minTrainerFormRunners = Math.max(0, parseInt(req.query.minTrainerFormRunners as string) || 0);
+    const maxTrainerFormRunners = Math.min(100, Math.max(0, parseInt(req.query.maxTrainerFormRunners as string) || 100));
 
     // Set by optionalJwtAuth (registered on /api/industry-sp above) —
     // decides the Split A/Split B race cap: 100 anonymous, 1000 logged in.
@@ -382,7 +393,8 @@ router.get("/api/industry-sp/splits", async (req, res) => {
 
     const result = await industrySpService.getSplitStats(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
-      minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, raceCap
+      minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
+      trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, raceCap
     );
     // Smoke-tested live: combined into one request and warm (no cold
     // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
@@ -429,7 +441,10 @@ router.get("/api/industry-sp", async (req, res) => {
     const raceTypes = parseCsvListParam(req.query.raceTypes);
     const trainerSearch = typeof req.query.trainer === "string" && req.query.trainer.trim() ? req.query.trainer.trim() : null;
     const jockeySearch = typeof req.query.jockey === "string" && req.query.jockey.trim() ? req.query.jockey.trim() : null;
-    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch);
+    const trainerFormMinWinRate = Math.min(100, Math.max(0, parseFloat(req.query.trainerFormMinWinRate as string) || 0));
+    const minTrainerFormRunners = Math.max(0, parseInt(req.query.minTrainerFormRunners as string) || 0);
+    const maxTrainerFormRunners = Math.min(100, Math.max(0, parseInt(req.query.maxTrainerFormRunners as string) || 100));
+    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners);
     res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
   } catch (error) {
     console.error("getAllRacesByRace error:", error);

@@ -225,6 +225,21 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-max-rir-value")).toBeVisible();
   });
 
+  test("trainer-form filter controls are present and respond to Apply/Reset", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-trainer-form-min-win-rate")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-min-trainer-form-runners")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-max-trainer-form-runners")).toBeVisible();
+
+    await page.getByTestId("industry-sp-min-trainer-form-runners").fill("2");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-min-trainer-form-runners")).toHaveValue("2");
+
+    await page.getByTestId("industry-sp-filter-reset").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-min-trainer-form-runners")).toHaveValue("0");
+  });
+
   test("setting maxRunnersInRange=2 zeroes out the aggregate (mocked race has 3 runners in range)", async ({ page }) => {
     const maxInput = page.getByTestId("industry-sp-max-rir-value");
     await maxInput.fill("2");
@@ -560,6 +575,22 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
 
   test("default state shows the mocked race (3 runners in range, default maxRIR=30)", async ({ page }) => {
     await expect(page.getByTestId("industry-sp-race-914592")).toBeVisible({ timeout: 5000 });
+  });
+
+  test("shows the trainer-form badge for a runner with a sample, and omits it for one without", async ({ page }) => {
+    // Fixture: runner 12347 (Fact To File) has trainerFormRuns=14/Wins=3/WinRate=21.43;
+    // runner 12345 (Springwell Bay) has a trainer but no trainerFormRuns field at
+    // all; runner 12346 (Gaelic Warrior) has trainerFormRuns=0. Only the first
+    // should show the win/run/rate fragment.
+    await expect(page.getByTestId("industry-sp-item-trainer-12347")).toContainText("W P Mullins");
+    await expect(page.getByTestId("industry-sp-item-trainer-form-12347")).toContainText("3/14");
+    await expect(page.getByTestId("industry-sp-item-trainer-form-12347")).toContainText("21%");
+
+    await expect(page.getByTestId("industry-sp-item-trainer-12345")).toContainText("W P Mullins");
+    await expect(page.getByTestId("industry-sp-item-trainer-form-12345")).not.toBeVisible();
+
+    await expect(page.getByTestId("industry-sp-item-trainer-12346")).toContainText("G Elliott");
+    await expect(page.getByTestId("industry-sp-item-trainer-form-12346")).not.toBeVisible();
   });
 
   test("filters applied via the URL query string are respected", async ({ page }) => {

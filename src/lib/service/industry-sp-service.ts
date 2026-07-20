@@ -37,7 +37,10 @@ export class IndustrySpService {
     raceClasses: string[] = [],
     raceTypes: string[] = [],
     trainerSearch: string | null = null,
-    jockeySearch: string | null = null
+    jockeySearch: string | null = null,
+    trainerFormMinWinRate = 0,
+    minTrainerFormRunners = 0,
+    maxTrainerFormRunners = 100
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -64,7 +67,10 @@ export class IndustrySpService {
       raceClasses,
       raceTypes,
       trainerSearch,
-      jockeySearch
+      jockeySearch,
+      trainerFormMinWinRate,
+      minTrainerFormRunners,
+      maxTrainerFormRunners
     );
   }
 
@@ -113,6 +119,9 @@ export class IndustrySpService {
     raceTypes: string[] = [],
     trainerSearch: string | null = null,
     jockeySearch: string | null = null,
+    trainerFormMinWinRate = 0,
+    minTrainerFormRunners = 0,
+    maxTrainerFormRunners = 100,
     // Per-window race cap: 1000 for an authenticated caller (the
     // longstanding default), 100 for an anonymous one. Applied to both the
     // auto-computed default window below and any explicit
@@ -152,7 +161,8 @@ export class IndustrySpService {
       await Promise.all([
         this.industrySpDAO.getAllRacesByRace(
           1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null,
-          minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch
+          minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
+          trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners
         ),
         // Deliberately dataset-global, not date-scoped — these are slider/
         // dropdown bounds (available countries, runner/ISP ranges), and
@@ -209,11 +219,13 @@ export class IndustrySpService {
     const [resultA, resultB] = await Promise.all([
       this.industrySpDAO.getAllRacesByRace(
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromA, effToA,
-        minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch
+        minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
+        trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners
       ),
       this.industrySpDAO.getAllRacesByRace(
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromB, effToB,
-        minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch
+        minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
+        trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners
       ),
     ]);
 

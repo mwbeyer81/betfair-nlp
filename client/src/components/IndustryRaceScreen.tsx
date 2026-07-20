@@ -164,6 +164,16 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
                     {formatPnl(runnerPnl(runner)!)}
                   </Text>
                 )}
+                {runner.trainer && (
+                  <Text testID={`industry-race-item-trainer-${runner.id}`} style={styles.trainerBadge} numberOfLines={1}>
+                    {runner.trainer}
+                    {runner.trainerFormRuns != null && runner.trainerFormRuns > 0 && runner.trainerFormWinRate != null && (
+                      <Text testID={`industry-race-item-trainer-form-${runner.id}`} style={styles.trainerFormBadge}>
+                        {` · ${runner.trainerFormWins}/${runner.trainerFormRuns} · ${runner.trainerFormWinRate.toFixed(0)}%`}
+                      </Text>
+                    )}
+                  </Text>
+                )}
                 <View
                   style={[
                     styles.statusBadge,
@@ -374,5 +384,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     marginRight: spacing.sm,
+  },
+  trainerBadge: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginRight: spacing.sm,
+    maxWidth: 160,
+  },
+  trainerFormBadge: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textTertiary,
   },
 });
