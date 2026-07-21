@@ -1381,6 +1381,15 @@ describe("API Endpoints", () => {
 
       expect(response.body.success).toBe(true);
     });
+
+    it("accepts a splitByRunners=false param and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?splitByRunners=false")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
   });
 
   describe("GET /api/trainer-form", () => {

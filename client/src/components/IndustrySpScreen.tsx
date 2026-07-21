@@ -119,6 +119,7 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   hasTrainerForm: "Only show races with at least one runner whose trainer has a recent-form sample available (they've run at least once in the last 14 days). Runners with \"No recent form sample\" are excluded.",
   minModelWinProbability: "Only show races with a runner whose XGBoost-predicted win probability is at least this percentage. The model is trained on course/going/class/distance/draw/trainer-form/jockey — deliberately not on ISP, so it's an independent view, not a recalibration of the market's own price.",
   onlyModelBeatsSp: "Only show races with a runner whose model win probability is higher than the win probability implied by their own industry SP (100/isp) — i.e. the model rates them a better chance than the market's own price does.",
+  splitByRunners: "When on (default), Split A and Split B's auto-computed boundary divides the matching runners in half, so both splits compare a similar number of qualifying bets — not just a similar number of races, which can vary a lot in runner count once other filters are active. Turn off to go back to splitting by race count instead. Only affects the auto-computed default split — a manually edited split (below) is always by race range.",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -241,6 +242,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // it's boolean-only, same shape as hasTrainerForm.
   const [draftOnlyModelBeatsSp, setDraftOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
   const [onlyModelBeatsSp, setOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
+  // "Split by runners" — whether the auto/default Split A/B boundary
+  // bisects by qualifying-runner count (the default) or by race count (the
+  // original behavior, an explicit opt-out). True unless the URL carries an
+  // explicit "false" — inverted from the other checkboxes here (which
+  // default false/unchecked), since runner-count bisection is the current
+  // shipped default and only needs a URL param when the user opts out.
+  const [draftSplitByRunners, setDraftSplitByRunners] = useState(() => urlStringParam("splitByRunners", "") !== "false");
+  const [splitByRunners, setSplitByRunners] = useState(() => urlStringParam("splitByRunners", "") !== "false");
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
@@ -411,6 +420,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMinModelWinProbability(modelWinProb);
 
     setOnlyModelBeatsSp(draftOnlyModelBeatsSp);
+    setSplitByRunners(draftSplitByRunners);
 
     // Commit every chip filter's draft (pending) selection to the applied
     // set actually used for fetching — this is the point where a chip's
@@ -500,6 +510,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMinModelWinProbability(FILTER_DEFAULTS.minModelWinProbability);
     setDraftOnlyModelBeatsSp(false);
     setOnlyModelBeatsSp(false);
+    setDraftSplitByRunners(true);
+    setSplitByRunners(true);
 
     // Hand the two race splits back to auto (half/half) mode — the next
     // fetch recomputes them from the fresh grand total.
@@ -588,6 +600,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         hasTrainerForm: hasTrainerForm ? "true" : undefined,
         minModelWinProbability: minModelWinProbability !== FILTER_DEFAULTS.minModelWinProbability ? String(minModelWinProbability) : undefined,
         onlyModelBeatsSp: onlyModelBeatsSp ? "true" : undefined,
+        // True is the default (matches the shipped runner-count bisection);
+        // only write the param when the user has opted out to "Races" mode.
+        splitByRunners: !splitByRunners ? "false" : undefined,
         // Only write the split boundaries once the user has explicitly
         // applied a custom split — writing the auto-computed default here
         // too would make the *next* mount think a custom split was already
@@ -620,7 +635,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         courses: [...selectedCourses], goings: [...selectedGoings],
         raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
         trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp,
+        minModelWinProbability, onlyModelBeatsSp, splitByRunners,
         isAuthenticated,
       });
 
@@ -670,7 +685,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
           trainerSearch || undefined, jockeySearch || undefined,
           trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp
+          minModelWinProbability, onlyModelBeatsSp, splitByRunners
         );
         if (cancelled) return;
         // An explicit (non-default) split's row numbers are only meaningful
@@ -942,6 +957,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     toRow: number | null;
     totalRaces: number;
     totalRunners: number;
+    // 1-based runner-index range this split covers, e.g. Split A: 1..totalRunnersA,
+    // Split B: totalRunnersA+1..totalRunnersA+totalRunnersB. Purely a display
+    // concern (computed by the caller from already-returned totalRunners
+    // figures) — doesn't affect what's actually fetched.
+    runnerFrom: number;
+    runnerTo: number;
     pnl: PnlStats;
     // idle: no fetch has ever run (bare page load, Apply never pressed) —
     // nothing to show, waiting on the user. pending: a fetch is currently
@@ -949,14 +970,25 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     // any Apply/Reset refetch). loaded: real numbers are in.
     status: "idle" | "pending" | "loaded";
   }) {
-    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl, status } = opts;
+    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, runnerFrom, runnerTo, pnl, status } = opts;
     const effectiveTo = toRow ?? totalRaces;
     const notReady = status !== "loaded";
     return (
       <View testID={`industry-sp-split-card-${id}`} style={[styles.splitCard, isDesktop && styles.splitCardFlex, notReady && styles.splitCardPending]}>
-        <Text style={styles.splitCardLabel}>
-          {label} — races {fromRow}–{effectiveTo}
-        </Text>
+        {splitByRunners && status === "loaded" && splitTotalRunners > 0 ? (
+          <>
+            <Text testID={`industry-sp-split-runner-range-${id}`} style={styles.splitCardLabel}>
+              {label} — runners {runnerFrom}–{runnerTo}
+            </Text>
+            <Text testID={`industry-sp-split-race-range-${id}`} style={styles.splitCardSubLabel}>
+              (races {fromRow}–{effectiveTo})
+            </Text>
+          </>
+        ) : (
+          <Text style={styles.splitCardLabel}>
+            {label} — races {fromRow}–{effectiveTo}
+          </Text>
+        )}
         {status === "idle" ? (
           // Shown from first paint on a bare load — no fetch has happened
           // at all, so this is neither "loading" nor "no matches", just
@@ -1302,6 +1334,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           filter) so this is a pure UI hide, not a functional removal —
           same pattern as the hidden country filter above.
         */}
+        {renderCheckboxFilterRow({
+          filterKey: "splitByRunners",
+          label: "Split by runners",
+          testId: "industry-sp-split-by-runners",
+          checked: draftSplitByRunners,
+          onToggle: () => setDraftSplitByRunners(v => !v),
+        })}
         {renderFilterRow({
           filterKey: "raceA",
           label: "Split A",
@@ -1459,6 +1498,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               toRow: toRowA,
               totalRaces: totalRacesA,
               totalRunners: totalRunnersA,
+              runnerFrom: 1,
+              runnerTo: totalRunnersA,
               pnl: pnlStatsA,
               status: splitCardStatus,
             })}
@@ -1467,6 +1508,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               label: "Split B",
               fromRow: fromRowB,
               toRow: toRowB,
+              runnerFrom: totalRunnersA + 1,
+              runnerTo: totalRunnersA + totalRunnersB,
               totalRaces: totalRacesB,
               totalRunners: totalRunnersB,
               pnl: pnlStatsB,
@@ -1486,6 +1529,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           toRow={(detailSplit === "a" ? toRowA : toRowB) ?? totalRaces}
           totalRaces={detailSplit === "a" ? totalRacesA : totalRacesB}
           totalRunners={detailSplit === "a" ? totalRunnersA : totalRunnersB}
+          runnerFrom={detailSplit === "a" ? 1 : totalRunnersA + 1}
+          runnerTo={detailSplit === "a" ? totalRunnersA : totalRunnersA + totalRunnersB}
+          splitByRunners={splitByRunners}
           pnl={detailSplit === "a" ? pnlStatsA : pnlStatsB}
           onClose={() => setDetailSplit(null)}
           onViewRaces={() => {
@@ -1780,6 +1826,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: "rgba(255,255,255,0.85)",
+  },
+  splitCardSubLabel: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.5)",
   },
   splitEmptyText: {
     fontSize: 12,

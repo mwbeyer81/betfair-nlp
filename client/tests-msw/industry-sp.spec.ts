@@ -300,6 +300,32 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-only-model-beats-sp")).not.toHaveAttribute("aria-checked", "true");
   });
 
+  test("'Split by runners' checkbox defaults to checked, and unchecking it sends splitByRunners=false", async ({ page }) => {
+    // Unlike every other checkbox on this screen, this one defaults to
+    // checked (true) — it matches the currently-shipped default-split
+    // behavior (bisect by qualifying-runner count), so only opting OUT
+    // (unchecking) needs to be visible in the URL/request.
+    await expect(page.getByTestId("industry-sp-split-by-runners")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-split-by-runners")).toHaveAttribute("aria-checked", "true");
+
+    let captured: string | null = null;
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const url = new URL(route.request().url());
+      captured = url.searchParams.get("splitByRunners");
+      await route.continue();
+    });
+
+    await page.getByTestId("industry-sp-split-by-runners").click();
+    await expect(page.getByTestId("industry-sp-split-by-runners")).not.toHaveAttribute("aria-checked", "true");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(captured).toBe("false");
+
+    await page.getByTestId("industry-sp-filter-reset").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-split-by-runners")).toHaveAttribute("aria-checked", "true");
+  });
+
   test("setting maxRunnersInRange=2 zeroes out the aggregate (mocked race has 3 runners in range)", async ({ page }) => {
     const maxInput = page.getByTestId("industry-sp-max-rir-value");
     await maxInput.fill("2");
@@ -623,6 +649,49 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     // catch the transient gap between the two fetches.
     await expect(page.getByTestId("industry-sp-split-card-a")).not.toContainText("54621", { timeout: 10000 });
     await expect(page.getByTestId("industry-sp-split-empty-b")).not.toBeVisible();
+  });
+
+  test("split cards show a 'runners X–Y' label (with races as secondary) when 'Split by runners' is on, and revert to 'races X–Y' when off", async ({ page }) => {
+    // Custom route with a real multi-race total (unlike the default 1-race
+    // fixture, where Split A is always empty) so both splits have
+    // non-trivial, distinct runner counts to display.
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const totalRaces = 2500;
+      const totalRunners = 5000;
+      const pnl = { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 };
+      await route.fulfill({
+        json: {
+          success: true,
+          totalRaces,
+          totalRunners,
+          filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+          countries: ["GB", "IE"],
+          courses: ["Cheltenham", "Ascot"],
+          goings: ["Good", "Soft"],
+          raceClasses: ["Class 1", "Class 2"],
+          raceTypes: ["Chase", "Hurdle"],
+          splitA: { fromRow: 1, toRow: 1250, total: 1250, totalRunners: 2500, pnlStats: pnl },
+          splitB: { fromRow: 1251, toRow: null, total: 1250, totalRunners: 2500, pnlStats: pnl },
+        },
+      });
+    });
+
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    // Default (checked): runner range is primary, race range shown as
+    // secondary "(races ...)" text.
+    await expect(page.getByTestId("industry-sp-split-runner-range-a")).toContainText("runners 1–2500");
+    await expect(page.getByTestId("industry-sp-split-race-range-a")).toContainText("races 1–1250");
+    await expect(page.getByTestId("industry-sp-split-runner-range-b")).toContainText("runners 2501–5000");
+    await expect(page.getByTestId("industry-sp-split-race-range-b")).toContainText("races 1251–2500");
+
+    // Unchecking reverts both cards to the original single-line race label.
+    await page.getByTestId("industry-sp-split-by-runners").click();
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-split-runner-range-a")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-split-card-a")).toContainText("races 1–1250");
   });
 });
 

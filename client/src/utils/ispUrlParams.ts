@@ -47,7 +47,7 @@ const ISP_FILTER_PARAM_NAMES = [
   "minDate", "maxDate", "sort",
   "countries", "courses", "goings", "raceClasses", "raceTypes", "trainer", "jockey",
   "fromRowA", "toRowA", "fromRowB", "toRowB",
-  "trainerFormMinWinRate", "hasTrainerForm", "minModelWinProbability", "onlyModelBeatsSp",
+  "trainerFormMinWinRate", "hasTrainerForm", "minModelWinProbability", "onlyModelBeatsSp", "splitByRunners",
 ];
 
 // True if the URL carries any of IndustrySpScreen's own filter params —

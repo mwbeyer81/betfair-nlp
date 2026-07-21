@@ -12,6 +12,11 @@ interface SplitDetailPanelProps {
   toRow: number;
   totalRaces: number;
   totalRunners: number;
+  // 1-based runner-index range this split covers — display-only, mirrors
+  // the split card's own runner-range labeling (see IndustrySpScreen.tsx).
+  runnerFrom: number;
+  runnerTo: number;
+  splitByRunners: boolean;
   pnl: PnlStats;
   onClose: () => void;
   onViewRaces: () => void;
@@ -28,6 +33,9 @@ export const SplitDetailPanel: React.FC<SplitDetailPanelProps> = ({
   toRow,
   totalRaces,
   totalRunners,
+  runnerFrom,
+  runnerTo,
+  splitByRunners,
   pnl,
   onClose,
   onViewRaces,
@@ -40,9 +48,20 @@ export const SplitDetailPanel: React.FC<SplitDetailPanelProps> = ({
           <Text variant="titleMedium" style={styles.title}>
             {label}
           </Text>
-          <Text variant="bodySmall" style={styles.subtitle}>
-            Races {fromRow}–{toRow}
-          </Text>
+          {splitByRunners && totalRunners > 0 ? (
+            <>
+              <Text testID={`split-detail-runner-range-${id}`} variant="bodySmall" style={styles.subtitle}>
+                Runners {runnerFrom}–{runnerTo}
+              </Text>
+              <Text testID={`split-detail-race-range-${id}`} variant="bodySmall" style={styles.subtitleMuted}>
+                (races {fromRow}–{toRow})
+              </Text>
+            </>
+          ) : (
+            <Text variant="bodySmall" style={styles.subtitle}>
+              Races {fromRow}–{toRow}
+            </Text>
+          )}
         </View>
         <Button
           testID={`split-detail-panel-filters-${id}`}
@@ -135,6 +154,10 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     color: "rgba(255,255,255,0.8)",
+  },
+  subtitleMuted: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 11,
   },
   filtersButton: {
     borderRadius: radii.sm,

@@ -130,6 +130,13 @@ export class IndustrySpService {
     maxTrainerFormRunners = 100,
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
+    // Whether the default (auto-computed) split bisects by qualifying-
+    // runner count (true, the current default — matches what shipped
+    // before this toggle existed) or by race count (false, the original
+    // behavior, exposed as an explicit UI opt-out). Has no effect when the
+    // caller supplies explicit fromRowA/toRowA/etc. — those always stay
+    // race-index, regardless of this flag.
+    splitByRunners = true,
     // Per-window race cap: 1000 for an authenticated caller (the
     // longstanding default), 100 for an anonymous one. Applied to both the
     // auto-computed default window below and any explicit
@@ -206,7 +213,7 @@ export class IndustrySpService {
     let effToB = toRowB;
     if (splitsAreDefault) {
       let half: number;
-      if (grand.totalRunners > 0) {
+      if (splitByRunners && grand.totalRunners > 0) {
         const target = Math.ceil(grand.totalRunners / 2);
         const { boundaryRowIndex } = await this.industrySpDAO.getQualifyingRunnerSplitBoundary(
           minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
@@ -220,8 +227,9 @@ export class IndustrySpService {
         // somehow doesn't.
         half = boundaryRowIndex ?? Math.floor(grand.total / 2);
       } else {
-        // No qualifying runners at all — both splits stay empty either way,
-        // race-count bisection is fine (and cheaper, skips the extra query).
+        // Either splitByRunners is off (explicit UI opt-out to the original
+        // race-count bisection) or there are no qualifying runners at all
+        // (both splits stay empty either way, so skip the extra query).
         half = Math.floor(grand.total / 2);
       }
       effFromA = 1;

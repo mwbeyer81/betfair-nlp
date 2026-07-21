@@ -50,6 +50,19 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     expect(result.splitB.totalRunners).toBeLessThanOrEqual(Math.floor(result.totalRunners / 2));
   });
 
+  it("splitByRunners=false reverts the default split to the original race-count bisection", async () => {
+    const result = await service.getSplitStats(
+      1, 30, [], 1, 1000, 1, 10000, null, null, null, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, 0, false, false
+    );
+    expect(result.totalRaces).toBeGreaterThan(0);
+    const half = Math.floor(result.totalRaces / 2);
+    expect(result.splitA.toRow).toBe(half);
+    expect(result.splitB.fromRow).toBe(half + 1);
+    expect(result.splitA.total).toBe(half);
+    expect(result.splitB.total).toBe(result.totalRaces - half);
+  });
+
   it("splits are independent — each carries its own pnlStats", async () => {
     const result = await service.getSplitStats();
     expect(typeof result.splitA.pnlStats.staked).toBe("number");

@@ -507,7 +507,8 @@ class ChatApi {
     minTrainerFormRunners?: number,
     maxTrainerFormRunners?: number,
     minModelWinProbability?: number,
-    onlyModelBeatsSp?: boolean
+    onlyModelBeatsSp?: boolean,
+    splitByRunners?: boolean
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -535,6 +536,10 @@ class ChatApi {
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    // Defaults true server-side — only sent when explicitly false (the
+    // "Split by races" opt-out), so the common case's URL/cache key stays
+    // as short as every other true-is-default toggle in this app.
+    if (splitByRunners === false) params.set("splitByRunners", "false");
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
       { headers: this.authHeader() }

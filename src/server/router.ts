@@ -387,6 +387,10 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const maxTrainerFormRunners = Math.min(100, Math.max(0, parseInt(req.query.maxTrainerFormRunners as string) || 100));
     const minModelWinProbability = Math.min(100, Math.max(0, parseFloat(req.query.minModelWinProbability as string) || 0));
     const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
+    // Defaults true (bisect the default split by qualifying-runner count) —
+    // only an explicit "false" opts back into the original race-count
+    // bisection, so an absent/malformed param can't silently regress.
+    const splitByRunners = req.query.splitByRunners !== "false";
 
     // Set by optionalJwtAuth (registered on /api/industry-sp above) —
     // decides the Split A/Split B race cap: 100 anonymous, 1000 logged in.
@@ -396,7 +400,8 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const result = await industrySpService.getSplitStats(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
-      trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp, raceCap
+      trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
+      splitByRunners, raceCap
     );
     // Smoke-tested live: combined into one request and warm (no cold
     // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
