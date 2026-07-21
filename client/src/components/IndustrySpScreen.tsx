@@ -13,6 +13,7 @@ import {
   Appbar,
   Button,
   Chip,
+  Checkbox,
   ActivityIndicator,
   Icon,
 } from "react-native-paper";
@@ -73,10 +74,18 @@ const FILTER_DEFAULTS = {
   // actually narrows anything, so leaving it at 0 (a true no-op, same
   // as minInIspRange's own "count >= 0 always true" default) keeps this
   // filter inert until the user opts in, exactly like every other filter
-  // here on first load.
-  trainerFormMinWinRate: 20,
+  // here on first load. Default 0 (not some positive threshold) so that
+  // simply checking "Has trainer form" below — without also typing a win
+  // rate — means "any non-null sample", i.e. exactly "has trainer form
+  // available", per the literal ask; the win-rate field only narrows
+  // further if the user explicitly raises it above 0.
+  trainerFormMinWinRate: 0,
+  // maxTrainerFormRunners has no real ceiling to express here (no race has
+  // anywhere near 100 runners) — fixed rather than user-editable; only
+  // minTrainerFormRunners (0 or 1, driven by the "Has trainer form"
+  // checkbox below) actually toggles this filter on/off.
   minTrainerFormRunners: 0,
-  maxTrainerFormRunners: 30,
+  maxTrainerFormRunners: 100,
 };
 
 // Loose client-side guardrails for the date inputs — not round-tripped
@@ -101,8 +110,8 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   raceType: "Only show races of the selected type (Flat, Hurdle, Chase, ...).",
   trainer: "Only show races with a runner trained by a name starting with this text.",
   jockey: "Only show races with a runner ridden by a name starting with this text.",
-  trainerFormWinRate: "A runner's trainer counts as \"in form\" if their win rate over their last 14 days of same-type (Flat/Jumps) runs is at least this percentage.",
-  trainerFormRunners: "Only show races with this many runners whose trainer is currently in form, per the threshold above.",
+  trainerFormWinRate: "Once \"Has trainer form\" is checked below, only count a runner's trainer as \"in form\" if their win rate over their last 14 days of same-type (Flat/Jumps) runs is at least this percentage. Leave at 0 to just require any recent form sample.",
+  hasTrainerForm: "Only show races with at least one runner whose trainer has a recent-form sample available (they've run at least once in the last 14 days). Runners with \"No recent form sample\" are excluded.",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -204,18 +213,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [trainerFormMinWinRate, setTrainerFormMinWinRate] = useState(() =>
     urlFloatParam("trainerFormMinWinRate", FILTER_DEFAULTS.trainerFormMinWinRate)
   );
-  const [draftMinTFR, setDraftMinTFR] = useState(() =>
-    String(urlIntParam("minTrainerFormRunners", FILTER_DEFAULTS.minTrainerFormRunners))
-  );
-  const [draftMaxTFR, setDraftMaxTFR] = useState(() =>
-    String(urlIntParam("maxTrainerFormRunners", FILTER_DEFAULTS.maxTrainerFormRunners))
-  );
+  // "Has trainer form" checkbox — the sole control for minTrainerFormRunners
+  // (0 or 1). maxTrainerFormRunners has no meaningful ceiling to expose (no
+  // race has anywhere near 100 runners), so it's a fixed constant rather
+  // than user-editable state.
+  const [draftHasTrainerForm, setDraftHasTrainerForm] = useState(() => urlStringParam("hasTrainerForm", "") === "true");
+  const [hasTrainerForm, setHasTrainerForm] = useState(() => urlStringParam("hasTrainerForm", "") === "true");
   const [minTrainerFormRunners, setMinTrainerFormRunners] = useState(() =>
-    urlIntParam("minTrainerFormRunners", FILTER_DEFAULTS.minTrainerFormRunners)
+    urlStringParam("hasTrainerForm", "") === "true" ? 1 : FILTER_DEFAULTS.minTrainerFormRunners
   );
-  const [maxTrainerFormRunners, setMaxTrainerFormRunners] = useState(() =>
-    urlIntParam("maxTrainerFormRunners", FILTER_DEFAULTS.maxTrainerFormRunners)
-  );
+  const maxTrainerFormRunners = FILTER_DEFAULTS.maxTrainerFormRunners;
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
@@ -378,12 +385,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setDraftTrainerFormMinWinRate(String(tfWinRate));
     setTrainerFormMinWinRate(tfWinRate);
 
-    const minTFR = Math.max(0, parseInt(draftMinTFR) || 0);
-    const maxTFR = Math.max(minTFR, Math.min(maxRunnersLimit, parseInt(draftMaxTFR) || maxRunnersLimit));
-    setDraftMinTFR(String(minTFR));
-    setDraftMaxTFR(String(maxTFR));
-    setMinTrainerFormRunners(minTFR);
-    setMaxTrainerFormRunners(maxTFR);
+    setHasTrainerForm(draftHasTrainerForm);
+    setMinTrainerFormRunners(draftHasTrainerForm ? 1 : 0);
 
     // Commit every chip filter's draft (pending) selection to the applied
     // set actually used for fetching — this is the point where a chip's
@@ -466,10 +469,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setJockeySearch("");
     setDraftTrainerFormMinWinRate(String(FILTER_DEFAULTS.trainerFormMinWinRate));
     setTrainerFormMinWinRate(FILTER_DEFAULTS.trainerFormMinWinRate);
-    setDraftMinTFR(String(FILTER_DEFAULTS.minTrainerFormRunners));
-    setDraftMaxTFR(String(FILTER_DEFAULTS.maxTrainerFormRunners));
+    setDraftHasTrainerForm(false);
+    setHasTrainerForm(false);
     setMinTrainerFormRunners(FILTER_DEFAULTS.minTrainerFormRunners);
-    setMaxTrainerFormRunners(FILTER_DEFAULTS.maxTrainerFormRunners);
 
     // Hand the two race splits back to auto (half/half) mode — the next
     // fetch recomputes them from the fresh grand total.
@@ -555,8 +557,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         trainer: trainerSearch ? trainerSearch : undefined,
         jockey: jockeySearch ? jockeySearch : undefined,
         trainerFormMinWinRate: trainerFormMinWinRate !== FILTER_DEFAULTS.trainerFormMinWinRate ? String(trainerFormMinWinRate) : undefined,
-        minTrainerFormRunners: minTrainerFormRunners !== FILTER_DEFAULTS.minTrainerFormRunners ? String(minTrainerFormRunners) : undefined,
-        maxTrainerFormRunners: maxTrainerFormRunners !== FILTER_DEFAULTS.maxTrainerFormRunners ? String(maxTrainerFormRunners) : undefined,
+        hasTrainerForm: hasTrainerForm ? "true" : undefined,
         // Only write the split boundaries once the user has explicitly
         // applied a custom split — writing the auto-computed default here
         // too would make the *next* mount think a custom split was already
@@ -779,6 +780,48 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           autoCapitalize="none"
           autoCorrect={false}
         />
+        {renderTooltipText(filterKey)}
+      </View>
+    );
+  }
+
+  // A single boolean toggle — draft/applied follows the same pattern as
+  // every other filter here (checking the box doesn't narrow anything
+  // until Apply is pressed), it just has no text-box-with-a-typed-value to
+  // visually distinguish "pending" from "applied", so the checkbox itself
+  // simply reflects whatever draft state it's bound to.
+  function renderCheckboxFilterRow(opts: {
+    filterKey: string;
+    label: string;
+    testId: string;
+    checked: boolean;
+    onToggle: () => void;
+  }) {
+    const { filterKey, label, testId, checked, onToggle } = opts;
+    return (
+      <View
+        key={filterKey}
+        testID={`industry-sp-filter-row-${filterKey}`}
+        style={[styles.filterGridRow, openTooltip === filterKey && styles.filterGridRowElevated]}
+      >
+        <TouchableOpacity
+          testID={testId}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked }}
+          // react-native-web's accessibilityState->aria-checked mapping
+          // wasn't reliably reflecting in the DOM in this RNW version — the
+          // direct aria-checked prop (RNW passes aria-* props straight
+          // through) is what actually shows up, so both are set: this one
+          // for correctness/tests, accessibilityState for any RN-native
+          // consumers of this same component tree.
+          aria-checked={checked}
+          style={styles.checkboxRow}
+          onPress={onToggle}
+        >
+          <Checkbox status={checked ? "checked" : "unchecked"} onPress={onToggle} />
+          <Text style={styles.filterGridLabelText}>{label}</Text>
+        </TouchableOpacity>
+        {renderTooltipToggle(filterKey)}
         {renderTooltipText(filterKey)}
       </View>
     );
@@ -1177,19 +1220,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           onChange: setDraftTrainerFormMinWinRate,
           testId: "industry-sp-trainer-form-min-win-rate",
         })}
-        {renderFilterRow({
-          filterKey: "trainerFormRunners",
-          label: "# In-Form Trainer",
-          minValue: draftMinTFR,
-          onMinChange: setDraftMinTFR,
-          minTestId: "industry-sp-min-trainer-form-runners",
-          maxValue: draftMaxTFR,
-          onMaxChange: setDraftMaxTFR,
-          maxTestId: "industry-sp-max-trainer-form-runners",
-          keyboardType: "numeric",
-          maxLength: 3,
-          hint: filterBounds != null ? `/${filterBounds.maxRunnersPerRace}` : null,
-          hintTestId: "industry-sp-max-trainer-form-runners-bound",
+        {renderCheckboxFilterRow({
+          filterKey: "hasTrainerForm",
+          label: "Has trainer form",
+          testId: "industry-sp-has-trainer-form",
+          checked: draftHasTrainerForm,
+          onToggle: () => setDraftHasTrainerForm(v => !v),
         })}
         <View
           testID="industry-sp-filter-row-date"
@@ -1510,6 +1546,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: colors.textSecondary,
+    flexShrink: 1,
+  },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "center",
     flexShrink: 1,
   },
   tooltipToggle: {

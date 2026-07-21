@@ -28,7 +28,27 @@ test.describe("Runner History (MSW mocked)", () => {
     await expect(page.getByTestId("runner-history-race-type")).toBeVisible();
     await expect(page.getByTestId("runner-history-date-range-picker")).toBeVisible();
     await expect(page.getByTestId("runner-history-min-isp")).toBeVisible();
+    await expect(page.getByTestId("runner-history-has-trainer-form")).toBeVisible();
     await expect(page.getByTestId("runner-history-trainer-form-min-win-rate")).toBeVisible();
+  });
+
+  test("checking 'Has trainer form' sends minTrainerFormRunners=1 to /api/industry-sp", async ({ page }) => {
+    await page.goto("/isp/runner/history?runnerName=" + encodeURIComponent("Fact To File"));
+    await expect(page.getByTestId("runner-history-screen")).toBeVisible({ timeout: 10000 });
+
+    let capturedMinTFR: string | null = null;
+    await page.route("**/api/industry-sp*", async (route) => {
+      const url = new URL(route.request().url());
+      capturedMinTFR = url.searchParams.get("minTrainerFormRunners");
+      await route.continue();
+    });
+
+    await expect(page.getByTestId("runner-history-has-trainer-form")).not.toHaveAttribute("aria-checked", "true");
+    await page.getByTestId("runner-history-has-trainer-form").click();
+    await expect(page.getByTestId("runner-history-has-trainer-form")).toHaveAttribute("aria-checked", "true");
+    await page.getByTestId("runner-history-filter-apply").click();
+    await expect(page.getByTestId("runner-history-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(capturedMinTFR).toBe("1");
   });
 
   test("applying a course chip re-fetches and Reset clears it back", async ({ page }) => {

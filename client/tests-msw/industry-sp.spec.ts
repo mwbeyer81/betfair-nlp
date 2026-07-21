@@ -226,18 +226,36 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
   });
 
   test("trainer-form filter controls are present and respond to Apply/Reset", async ({ page }) => {
+    // React Native Web's accessibilityState={{checked}} only emits
+    // aria-checked when true — it's simply absent from the DOM when false,
+    // rather than rendered as aria-checked="false".
     await expect(page.getByTestId("industry-sp-trainer-form-min-win-rate")).toBeVisible();
-    await expect(page.getByTestId("industry-sp-min-trainer-form-runners")).toBeVisible();
-    await expect(page.getByTestId("industry-sp-max-trainer-form-runners")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-has-trainer-form")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-has-trainer-form")).not.toHaveAttribute("aria-checked", "true");
 
-    await page.getByTestId("industry-sp-min-trainer-form-runners").fill("2");
+    await page.getByTestId("industry-sp-has-trainer-form").click();
+    await expect(page.getByTestId("industry-sp-has-trainer-form")).toHaveAttribute("aria-checked", "true");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-min-trainer-form-runners")).toHaveValue("2");
+    await expect(page.getByTestId("industry-sp-has-trainer-form")).toHaveAttribute("aria-checked", "true");
 
     await page.getByTestId("industry-sp-filter-reset").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-min-trainer-form-runners")).toHaveValue("0");
+    await expect(page.getByTestId("industry-sp-has-trainer-form")).not.toHaveAttribute("aria-checked", "true");
+  });
+
+  test("checking 'Has trainer form' sends minTrainerFormRunners=1 to /api/industry-sp/splits", async ({ page }) => {
+    let capturedMinTFR: string | null = null;
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const url = new URL(route.request().url());
+      capturedMinTFR = url.searchParams.get("minTrainerFormRunners");
+      await route.continue();
+    });
+
+    await page.getByTestId("industry-sp-has-trainer-form").click();
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(capturedMinTFR).toBe("1");
   });
 
   test("setting maxRunnersInRange=2 zeroes out the aggregate (mocked race has 3 runners in range)", async ({ page }) => {

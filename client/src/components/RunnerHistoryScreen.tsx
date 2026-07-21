@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, TextInput as RNTextInput, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
-import { Text, Appbar, Button, Chip, ActivityIndicator } from "react-native-paper";
+import { Text, Appbar, Button, Chip, Checkbox, ActivityIndicator } from "react-native-paper";
 import { chatApi, IspRace, IspFilterBounds } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
@@ -72,6 +72,12 @@ export const RunnerHistoryScreen: React.FC<RunnerHistoryScreenProps> = ({
   const [maxIsp, setMaxIsp] = useState(1000);
   const [draftTrainerFormMinWinRate, setDraftTrainerFormMinWinRate] = useState("0");
   const [trainerFormMinWinRate, setTrainerFormMinWinRate] = useState(0);
+  // Independent of trainerFormMinWinRate — checking this alone (with the win
+  // rate field left at its 0 default) means "any non-null sample", i.e.
+  // "has trainer form available" per the literal ask; the win-rate field
+  // only narrows further once raised above 0.
+  const [draftHasTrainerForm, setDraftHasTrainerForm] = useState(false);
+  const [hasTrainerForm, setHasTrainerForm] = useState(false);
 
   const [fetchTrigger, setFetchTrigger] = useState(0);
 
@@ -94,7 +100,7 @@ export const RunnerHistoryScreen: React.FC<RunnerHistoryScreenProps> = ({
           1, undefined, minDate || undefined, maxDate || undefined,
           [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
           undefined, undefined,
-          trainerFormMinWinRate, trainerFormMinWinRate > 0 ? 1 : 0, 100,
+          trainerFormMinWinRate, hasTrainerForm ? 1 : 0, 100,
           runnerName
         );
         if (cancelled) return;
@@ -120,7 +126,7 @@ export const RunnerHistoryScreen: React.FC<RunnerHistoryScreenProps> = ({
       1, undefined, minDate || undefined, maxDate || undefined,
       [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
       undefined, undefined,
-      trainerFormMinWinRate, trainerFormMinWinRate > 0 ? 1 : 0, 100,
+      trainerFormMinWinRate, hasTrainerForm ? 1 : 0, 100,
       runnerName
     );
     setRaces(prev => [...prev, ...result.data]);
@@ -145,6 +151,7 @@ export const RunnerHistoryScreen: React.FC<RunnerHistoryScreenProps> = ({
     const winRate = Math.min(100, Math.max(0, parseFloat(draftTrainerFormMinWinRate) || 0));
     setDraftTrainerFormMinWinRate(String(winRate));
     setTrainerFormMinWinRate(winRate);
+    setHasTrainerForm(draftHasTrainerForm);
     setFetchTrigger(t => t + 1);
   }
 
@@ -167,6 +174,8 @@ export const RunnerHistoryScreen: React.FC<RunnerHistoryScreenProps> = ({
     setMaxIsp(1000);
     setDraftTrainerFormMinWinRate("0");
     setTrainerFormMinWinRate(0);
+    setDraftHasTrainerForm(false);
+    setHasTrainerForm(false);
     setFetchTrigger(t => t + 1);
   }
 
@@ -264,6 +273,20 @@ export const RunnerHistoryScreen: React.FC<RunnerHistoryScreenProps> = ({
             onChangeText={setDraftMaxIsp}
             keyboardType="decimal-pad"
           />
+        </View>
+
+        <View testID="runner-history-filter-row-has-trainer-form" style={styles.filterRow}>
+          <TouchableOpacity
+            testID="runner-history-has-trainer-form"
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: draftHasTrainerForm }}
+            aria-checked={draftHasTrainerForm}
+            style={styles.checkboxRow}
+            onPress={() => setDraftHasTrainerForm(v => !v)}
+          >
+            <Checkbox status={draftHasTrainerForm ? "checked" : "unchecked"} onPress={() => setDraftHasTrainerForm(v => !v)} />
+            <Text style={styles.filterLabel}>Has trainer form</Text>
+          </TouchableOpacity>
         </View>
 
         <View testID="runner-history-filter-row-trainer-form" style={styles.filterRow}>
@@ -365,6 +388,7 @@ const styles = StyleSheet.create({
   chip: { marginRight: 4 },
   filterRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
   filterLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, minWidth: 100 },
+  checkboxRow: { flexDirection: "row", alignItems: "center", flexShrink: 1 },
   gridInput: {
     borderWidth: 1,
     borderColor: colors.border,

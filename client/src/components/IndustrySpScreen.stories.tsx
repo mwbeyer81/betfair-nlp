@@ -604,8 +604,7 @@ export const TrainerFormFilterVisible: Story = {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
     await expect(canvas.getByTestId("industry-sp-trainer-form-min-win-rate")).toBeInTheDocument();
-    await expect(canvas.getByTestId("industry-sp-min-trainer-form-runners")).toBeInTheDocument();
-    await expect(canvas.getByTestId("industry-sp-max-trainer-form-runners")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-has-trainer-form")).toBeInTheDocument();
   },
 };
 
