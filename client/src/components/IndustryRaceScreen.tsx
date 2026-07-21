@@ -151,7 +151,7 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
                 onPress={() => onNavigateToRunner(race.raceId, runner.id)}
               >
                 <Text style={styles.priority}>{runner.sortPriority}.</Text>
-                <Text style={styles.runnerName} numberOfLines={1}>
+                <Text testID={`industry-race-item-name-${runner.id}`} style={styles.runnerName} numberOfLines={1}>
                   {runner.name}
                 </Text>
                 {runner.isp != null && (
@@ -365,12 +365,15 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     width: 22,
   },
+  // Deliberately not flex:1 — in a flexWrap row, a flex-grow item gets
+  // squeezed toward minWidth (effectively invisible) as more badges are
+  // added to the same row, rather than wrapping itself; a fixed maxWidth
+  // (matching trainerBadge's own cap) makes it wrap as a whole instead.
   runnerName: {
     fontSize: 13,
     fontWeight: "500",
     color: colors.text,
-    flex: 1,
-    minWidth: 0,
+    maxWidth: 160,
     marginRight: spacing.sm,
   },
   statusBadge: {

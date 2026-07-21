@@ -747,6 +747,25 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-race-773337")).toBeVisible();
   });
 
+  test("runner name stays legible even when every other badge is present on the same row", async ({ page }) => {
+    // Regression: reported live — a runner with ISP/Bet/PnL, trainer +
+    // trainer-form, Model, Value and status badges all present at once
+    // squeezed the runner name down to an illegible sliver. runnerName used
+    // flex:1 in a flexWrap row — a flex-grow item gets shrunk toward its
+    // minWidth (0) to stay on the current line instead of wrapping itself,
+    // once enough sibling badges are present. Fixture runner 55501 carries
+    // every optional badge at once (see fixtures.ts) to reproduce it. Only
+    // manifests on a narrow (mobile) viewport — a wide desktop row has room
+    // for every badge without ever needing to shrink the name.
+    await page.setViewportSize({ width: 375, height: 812 });
+    const name = page.getByTestId("industry-sp-item-name-55501");
+    await expect(name).toBeVisible();
+    await expect(name).toHaveText("Value Bet Horse With A Longer Name");
+    const box = await name.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThan(40);
+  });
+
   test("← Filters button returns to /isp", async ({ page }) => {
     await page.getByTestId("industry-sp-races-back").click();
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });

@@ -255,8 +255,12 @@ async function setupApiMocks(page: Page) {
     going: "Soft",
     ran: 2,
     runners: [
-      // isp 10 -> implied 10%, model 25% -> beats SP (value).
-      { id: 55501, name: "Value Bet Horse", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 10, ispFraction: "9/1", isFavourite: false, modelWinProbability: 25 },
+      // isp 10 -> implied 10%, model 25% -> beats SP (value). Also carries
+      // every other optional badge (trainer, trainer-form, ISP/stake/PnL) at
+      // once — the real-world worst case reported live where a runner with
+      // ISP + Bet + PnL + trainer/form + Model + Value + status badges all
+      // present squeezed the runner name down to an illegible sliver.
+      { id: 55501, name: "Value Bet Horse With A Longer Name", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 10, ispFraction: "9/1", isFavourite: false, trainer: "Henry Daly", trainerFormRuns: 13, trainerFormWins: 4, trainerFormWinRate: 30.77, modelWinProbability: 25 },
       // isp 1.5 -> implied 66.7%, model 20% -> doesn't beat SP.
       { id: 55502, name: "Market Favourite", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 1.5, ispFraction: "1/2", isFavourite: true, modelWinProbability: 20 },
     ],
