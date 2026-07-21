@@ -107,7 +107,8 @@ export class IndustrySpDAO {
     minTrainerFormRunners = 0,
     maxTrainerFormRunners = 100,
     runnerName: string | null = null,
-    minModelWinProbability = 0
+    minModelWinProbability = 0,
+    onlyModelBeatsSp = false
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -316,6 +317,31 @@ export class IndustrySpDAO {
         }
       : 0;
 
+    // "Model beats SP" — a per-runner comparison (not a fixed threshold) of
+    // the model's win-probability estimate against the probability implied
+    // by the runner's own industry SP (isp is decimal odds, so implied win%
+    // = 100/isp). Same $filter/$size-with-fast-path shape as the other two
+    // above: skipped entirely when the checkbox is off.
+    const modelBeatsSpFilterActive = onlyModelBeatsSp;
+    const modelBeatsSpQualifyingCountExpr = modelBeatsSpFilterActive
+      ? {
+          $size: {
+            $filter: {
+              input: "$runners",
+              as: "r",
+              cond: {
+                $and: [
+                  { $ne: ["$$r.modelWinProbability", null] },
+                  { $ne: ["$$r.isp", null] },
+                  { $gt: ["$$r.isp", 0] },
+                  { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
+                ],
+              },
+            },
+          },
+        }
+      : 0;
+
     // Only a per-race id + sort key + the two precomputed counts survive
     // into the $facet — every other field (course, meetingName, runners,
     // ...) is re-fetched via $lookup after sorting/paginating down to a
@@ -345,6 +371,7 @@ export class IndustrySpDAO {
           inRangeRunnersCount: inRangeRunnersCountExpr,
           trainerFormQualifyingCount: trainerFormQualifyingCountExpr,
           modelQualifyingCount: modelQualifyingCountExpr,
+          modelBeatsSpQualifyingCount: modelBeatsSpQualifyingCountExpr,
         },
       },
       {
@@ -356,6 +383,7 @@ export class IndustrySpDAO {
               { $gte: ["$trainerFormQualifyingCount", minTrainerFormRunners] },
               { $lte: ["$trainerFormQualifyingCount", maxTrainerFormRunners] },
               { $gte: ["$modelQualifyingCount", modelFilterActive ? 1 : 0] },
+              { $gte: ["$modelBeatsSpQualifyingCount", modelBeatsSpFilterActive ? 1 : 0] },
             ],
           },
         },

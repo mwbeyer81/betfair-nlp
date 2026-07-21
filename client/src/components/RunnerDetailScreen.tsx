@@ -15,6 +15,7 @@ import {
   formatRaceDate,
   toFormCategory,
   OddsMode,
+  modelBeatsSp,
 } from "../utils/ispFormat";
 
 interface RunnerDetailScreenProps {
@@ -162,6 +163,13 @@ export const RunnerDetailScreen: React.FC<RunnerDetailScreenProps> = ({
                   label="Model Win %"
                   value={`${runner.modelWinProbability.toFixed(1)}%`}
                   testID="runner-detail-model-win-probability"
+                />
+              )}
+              {modelBeatsSp(runner) && (
+                <DetailRow
+                  label="Model vs SP"
+                  value="Value"
+                  testID="runner-detail-model-beats-sp"
                 />
               )}
             </View>

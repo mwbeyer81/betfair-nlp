@@ -432,7 +432,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number): Promise<IspPage> {
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -460,6 +460,7 @@ class ChatApi {
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (runnerName) params.set("runnerName", runnerName);
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
+    if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp?${params}`,
       { headers: this.authHeader() }
@@ -505,7 +506,8 @@ class ChatApi {
     trainerFormMinWinRate?: number,
     minTrainerFormRunners?: number,
     maxTrainerFormRunners?: number,
-    minModelWinProbability?: number
+    minModelWinProbability?: number,
+    onlyModelBeatsSp?: boolean
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -532,6 +534,7 @@ class ChatApi {
     if (minTrainerFormRunners != null) params.set("minTrainerFormRunners", String(minTrainerFormRunners));
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
+    if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
       { headers: this.authHeader() }

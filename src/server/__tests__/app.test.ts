@@ -1125,6 +1125,16 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
+    it("accepts an onlyModelBeatsSp param and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?onlyModelBeatsSp=true")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
     it("each race includes raceClass and going", async () => {
       const response = await request(app)
         .get("/api/industry-sp")
@@ -1357,6 +1367,15 @@ describe("API Endpoints", () => {
     it("accepts a minModelWinProbability param and returns 200 with success", async () => {
       const response = await request(app)
         .get("/api/industry-sp/splits?minModelWinProbability=30")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
+
+    it("accepts an onlyModelBeatsSp param and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?onlyModelBeatsSp=true")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 

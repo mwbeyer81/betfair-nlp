@@ -237,6 +237,31 @@ async function setupApiMocks(page: Page) {
     ],
   };
 
+  // A third race with two runners: one whose model win probability beats
+  // its own SP-implied probability (a "value" bet) and one that doesn't —
+  // within the same race, so onlyModelBeatsSp's runner-level hiding can be
+  // proven without touching MOCK_INDUSTRY_SP_RACE's existing fixture values
+  // (which other tests already assert exact badge percentages against).
+  const MOCK_VALUE_MIXED_RACE = {
+    raceId: 556677,
+    meetingId: "Kempton|2022-06-01",
+    meetingName: "Kempton — 1 June 2022",
+    course: "Kempton",
+    countryCode: "GB",
+    raceTime: "2022-06-01T15:30:00",
+    raceName: "Kempton Handicap",
+    raceType: "Flat",
+    raceClass: "Class 2",
+    going: "Soft",
+    ran: 2,
+    runners: [
+      // isp 10 -> implied 10%, model 25% -> beats SP (value).
+      { id: 55501, name: "Value Bet Horse", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 10, ispFraction: "9/1", isFavourite: false, modelWinProbability: 25 },
+      // isp 1.5 -> implied 66.7%, model 20% -> doesn't beat SP.
+      { id: 55502, name: "Market Favourite", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 1.5, ispFraction: "1/2", isFavourite: true, modelWinProbability: 20 },
+    ],
+  };
+
   await page.route((url) => url.pathname === "/api/industry-sp", (route) => {
     // The mocked race has 3 runners in ISP range. Return empty data when maxInIspRange < 3.
     const reqUrl = new URL(route.request().url());
@@ -245,7 +270,8 @@ async function setupApiMocks(page: Page) {
     const minTrainerFormRunners = parseInt(reqUrl.searchParams.get("minTrainerFormRunners") ?? "0");
     const trainerFormMinWinRate = parseFloat(reqUrl.searchParams.get("trainerFormMinWinRate") ?? "0");
     const minModelWinProbability = parseFloat(reqUrl.searchParams.get("minModelWinProbability") ?? "0");
-    let raceData = maxInIspRange >= 3 ? [MOCK_INDUSTRY_SP_RACE, MOCK_NO_FORM_RACE] : [];
+    const onlyModelBeatsSp = reqUrl.searchParams.get("onlyModelBeatsSp") === "true";
+    let raceData = maxInIspRange >= 3 ? [MOCK_INDUSTRY_SP_RACE, MOCK_NO_FORM_RACE, MOCK_VALUE_MIXED_RACE] : [];
     // Runner History screen scopes every request to one horse's exact name
     // (case-insensitive) — mirrors the real backend's anchored-both-ends match.
     if (runnerName) {
@@ -272,6 +298,18 @@ async function setupApiMocks(page: Page) {
           (r) => (r as { modelWinProbability?: number }).modelWinProbability != null &&
             (r as { modelWinProbability: number }).modelWinProbability >= minModelWinProbability
         )
+      );
+    }
+    // Mirrors the real DAO's modelBeatsSpQualifyingCount check — a race
+    // qualifies if at least 1 runner's model win% exceeds its own SP-implied
+    // win% (100/isp).
+    if (onlyModelBeatsSp) {
+      raceData = raceData.filter((race) =>
+        race.runners.some((r) => {
+          const runner = r as { modelWinProbability?: number; isp?: number };
+          return runner.modelWinProbability != null && runner.isp != null && runner.isp > 0 &&
+            runner.modelWinProbability > 100 / runner.isp;
+        })
       );
     }
     route.fulfill({

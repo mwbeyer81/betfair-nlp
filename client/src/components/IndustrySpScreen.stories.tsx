@@ -616,6 +616,14 @@ export const ModelWinProbabilityFilterVisible: Story = {
   },
 };
 
+export const OnlyModelBeatsSpFilterVisible: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitForLoaded(canvas);
+    await expect(canvas.getByTestId("industry-sp-only-model-beats-sp")).toBeInTheDocument();
+  },
+};
+
 export const RestrictiveFilterZeroesOutMatches: Story = {
   parameters: {
     msw: {

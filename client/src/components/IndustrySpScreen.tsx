@@ -118,6 +118,7 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   trainerFormWinRate: "Once \"Has trainer form\" is checked below, only count a runner's trainer as \"in form\" if their win rate over their last 14 days of same-type (Flat/Jumps) runs is at least this percentage. Leave at 0 to just require any recent form sample.",
   hasTrainerForm: "Only show races with at least one runner whose trainer has a recent-form sample available (they've run at least once in the last 14 days). Runners with \"No recent form sample\" are excluded.",
   minModelWinProbability: "Only show races with a runner whose XGBoost-predicted win probability is at least this percentage. The model is trained on course/going/class/distance/draw/trainer-form/jockey — deliberately not on ISP, so it's an independent view, not a recalibration of the market's own price.",
+  onlyModelBeatsSp: "Only show races with a runner whose model win probability is higher than the win probability implied by their own industry SP (100/isp) — i.e. the model rates them a better chance than the market's own price does.",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -235,6 +236,11 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [minModelWinProbability, setMinModelWinProbability] = useState(() =>
     urlFloatParam("minModelWinProbability", FILTER_DEFAULTS.minModelWinProbability)
   );
+  // "Model beats SP" checkbox — a per-runner comparison (model win% >
+  // SP-implied win%), not a fixed threshold, so unlike minModelWinProbability
+  // it's boolean-only, same shape as hasTrainerForm.
+  const [draftOnlyModelBeatsSp, setDraftOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
+  const [onlyModelBeatsSp, setOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
@@ -404,6 +410,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setDraftMinModelWinProbability(String(modelWinProb));
     setMinModelWinProbability(modelWinProb);
 
+    setOnlyModelBeatsSp(draftOnlyModelBeatsSp);
+
     // Commit every chip filter's draft (pending) selection to the applied
     // set actually used for fetching — this is the point where a chip's
     // visual flips from "pending" (gray) to "applied" (solid).
@@ -490,6 +498,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMinTrainerFormRunners(FILTER_DEFAULTS.minTrainerFormRunners);
     setDraftMinModelWinProbability(String(FILTER_DEFAULTS.minModelWinProbability));
     setMinModelWinProbability(FILTER_DEFAULTS.minModelWinProbability);
+    setDraftOnlyModelBeatsSp(false);
+    setOnlyModelBeatsSp(false);
 
     // Hand the two race splits back to auto (half/half) mode — the next
     // fetch recomputes them from the fresh grand total.
@@ -577,6 +587,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         trainerFormMinWinRate: trainerFormMinWinRate !== FILTER_DEFAULTS.trainerFormMinWinRate ? String(trainerFormMinWinRate) : undefined,
         hasTrainerForm: hasTrainerForm ? "true" : undefined,
         minModelWinProbability: minModelWinProbability !== FILTER_DEFAULTS.minModelWinProbability ? String(minModelWinProbability) : undefined,
+        onlyModelBeatsSp: onlyModelBeatsSp ? "true" : undefined,
         // Only write the split boundaries once the user has explicitly
         // applied a custom split — writing the auto-computed default here
         // too would make the *next* mount think a custom split was already
@@ -609,7 +620,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         courses: [...selectedCourses], goings: [...selectedGoings],
         raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
         trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability,
+        minModelWinProbability, onlyModelBeatsSp,
         isAuthenticated,
       });
 
@@ -659,7 +670,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
           trainerSearch || undefined, jockeySearch || undefined,
           trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability
+          minModelWinProbability, onlyModelBeatsSp
         );
         if (cancelled) return;
         // An explicit (non-default) split's row numbers are only meaningful
@@ -1254,6 +1265,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           value: draftMinModelWinProbability,
           onChange: setDraftMinModelWinProbability,
           testId: "industry-sp-min-model-win-probability",
+        })}
+        {renderCheckboxFilterRow({
+          filterKey: "onlyModelBeatsSp",
+          label: "Model beats SP",
+          testId: "industry-sp-only-model-beats-sp",
+          checked: draftOnlyModelBeatsSp,
+          onToggle: () => setDraftOnlyModelBeatsSp(v => !v),
         })}
         <View
           testID="industry-sp-filter-row-date"

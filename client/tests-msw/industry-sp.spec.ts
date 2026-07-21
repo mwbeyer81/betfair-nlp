@@ -278,6 +278,28 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-min-model-win-probability")).toHaveValue("0");
   });
 
+  test("'Model beats SP' checkbox is present and sends onlyModelBeatsSp=true to /api/industry-sp/splits", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-only-model-beats-sp")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-only-model-beats-sp")).not.toHaveAttribute("aria-checked", "true");
+
+    let captured: string | null = null;
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const url = new URL(route.request().url());
+      captured = url.searchParams.get("onlyModelBeatsSp");
+      await route.continue();
+    });
+
+    await page.getByTestId("industry-sp-only-model-beats-sp").click();
+    await expect(page.getByTestId("industry-sp-only-model-beats-sp")).toHaveAttribute("aria-checked", "true");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(captured).toBe("true");
+
+    await page.getByTestId("industry-sp-filter-reset").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-only-model-beats-sp")).not.toHaveAttribute("aria-checked", "true");
+  });
+
   test("setting maxRunnersInRange=2 zeroes out the aggregate (mocked race has 3 runners in range)", async ({ page }) => {
     const maxInput = page.getByTestId("industry-sp-max-rir-value");
     await maxInput.fill("2");
@@ -692,6 +714,37 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-race-914592")).toContainText("1 runners");
     await expect(page.getByTestId("industry-sp-race-773337")).toBeVisible();
     await expect(page.getByTestId("industry-sp-item-99001")).toBeVisible();
+  });
+
+  test("shows a Value badge only for runners whose model win% beats their SP-implied win%", async ({ page }) => {
+    // Fixture race 556677 (Kempton) has runner 55501 (isp 10 -> implied 10%,
+    // model 25% -> beats SP) and runner 55502 (isp 1.5 -> implied 66.7%,
+    // model 20% -> doesn't). Fixture race 914592's three runners (12345/
+    // 12346/12347) all fall short of their own implied SP%, so none show
+    // the badge.
+    await expect(page.getByTestId("industry-sp-item-value-55501")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-item-value-55502")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-item-value-12345")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-item-value-12346")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-item-value-12347")).not.toBeVisible();
+  });
+
+  test("onlyModelBeatsSp=true hides individual runners who don't beat their own SP, and excludes races with none that do", async ({ page }) => {
+    // Race 914592's three runners all fall short of their own implied SP%,
+    // so the whole race should disappear. Race 556677 (Kempton) has one
+    // runner (55501) that beats SP and one (55502) that doesn't — only
+    // 55501 should render.
+    await page.goto("/isp/races?onlyModelBeatsSp=true");
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("industry-sp-race-914592")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-race-556677")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-item-55501")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-item-55502")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-race-556677")).toContainText("1 runners");
+    // The single-runner Teston race (99001, modelWinProbability=100,
+    // isp=11 -> implied 9.1%) also beats its own SP, so it stays visible.
+    await expect(page.getByTestId("industry-sp-race-773337")).toBeVisible();
   });
 
   test("← Filters button returns to /isp", async ({ page }) => {

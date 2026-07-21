@@ -50,6 +50,20 @@ export function runnerPnl(runner: IspRunner): number | null {
   return runner.status === "WINNER" ? 1 : -stakeToWin1(runner.isp);
 }
 
+// isp is decimal odds (stake included), so the probability the market
+// itself implies is 1/isp — as a percentage, 100/isp.
+export function impliedProbabilityPct(isp: number): number {
+  return 100 / isp;
+}
+
+// True when the model rates a runner's win chance higher than the market's
+// own price implies — a simple "value bet" signal, independent of any
+// fixed threshold (unlike minModelWinProbability).
+export function modelBeatsSp(runner: IspRunner): boolean {
+  if (runner.modelWinProbability == null || runner.isp == null || runner.isp <= 0) return false;
+  return runner.modelWinProbability > impliedProbabilityPct(runner.isp);
+}
+
 export function formatRaceTime(isoTime: string): string {
   try {
     return new Date(isoTime).toLocaleTimeString("en-GB", {

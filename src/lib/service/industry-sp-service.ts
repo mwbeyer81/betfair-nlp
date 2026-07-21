@@ -42,7 +42,8 @@ export class IndustrySpService {
     minTrainerFormRunners = 0,
     maxTrainerFormRunners = 100,
     runnerName: string | null = null,
-    minModelWinProbability = 0
+    minModelWinProbability = 0,
+    onlyModelBeatsSp = false
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -74,7 +75,8 @@ export class IndustrySpService {
       minTrainerFormRunners,
       maxTrainerFormRunners,
       runnerName,
-      minModelWinProbability
+      minModelWinProbability,
+      onlyModelBeatsSp
     );
   }
 
@@ -127,6 +129,7 @@ export class IndustrySpService {
     minTrainerFormRunners = 0,
     maxTrainerFormRunners = 100,
     minModelWinProbability = 0,
+    onlyModelBeatsSp = false,
     // Per-window race cap: 1000 for an authenticated caller (the
     // longstanding default), 100 for an anonymous one. Applied to both the
     // auto-computed default window below and any explicit
@@ -167,7 +170,8 @@ export class IndustrySpService {
         this.industrySpDAO.getAllRacesByRace(
           1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null,
           minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
-          trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability
+          trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
+          onlyModelBeatsSp
         ),
         // Deliberately dataset-global, not date-scoped — these are slider/
         // dropdown bounds (available countries, runner/ISP ranges), and
@@ -225,12 +229,14 @@ export class IndustrySpService {
       this.industrySpDAO.getAllRacesByRace(
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromA, effToA,
         minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
-        trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability
+        trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
+        onlyModelBeatsSp
       ),
       this.industrySpDAO.getAllRacesByRace(
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromB, effToB,
         minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
-        trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability
+        trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
+        onlyModelBeatsSp
       ),
     ]);
 

@@ -16,6 +16,7 @@ import {
   formatRaceDate,
   toFormCategory,
   OddsMode,
+  modelBeatsSp,
 } from "../utils/ispFormat";
 
 interface IndustryRaceScreenProps {
@@ -187,6 +188,11 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
                 {runner.modelWinProbability != null && (
                   <Text testID={`industry-race-item-model-${runner.id}`} style={styles.modelBadge}>
                     Model {runner.modelWinProbability.toFixed(0)}%
+                  </Text>
+                )}
+                {modelBeatsSp(runner) && (
+                  <Text testID={`industry-race-item-value-${runner.id}`} style={styles.valueBadge}>
+                    Value
                   </Text>
                 )}
                 <View
@@ -418,6 +424,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+    marginRight: spacing.sm,
+  },
+  valueBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.success,
+    backgroundColor: colors.successLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,

@@ -16,6 +16,7 @@ import {
   formatRaceDate,
   toFormCategory,
   OddsMode,
+  modelBeatsSp,
 } from "../utils/ispFormat";
 import {
   urlIntParam,
@@ -84,6 +85,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const minTrainerFormRunners = hasTrainerForm ? 1 : 0;
   const maxTrainerFormRunners = 100;
   const minModelWinProbability = urlFloatParam("minModelWinProbability", 0);
+  const onlyModelBeatsSp = urlStringParam("onlyModelBeatsSp", "") === "true";
 
   useEffect(() => {
     updateUrlParams({ sort: sortOrder !== "asc" ? sortOrder : undefined });
@@ -96,7 +98,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       setError(null);
       setRaces([]);
       try {
-        const result = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability);
+        const result = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
         if (cancelled) return;
         setRaces(result.data);
         setPage(1);
@@ -122,7 +124,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     setIsLoadingMore(true);
     try {
       const next = page + 1;
-      const result = await chatApi.getIndustrySp(next, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability);
+      const result = await chatApi.getIndustrySp(next, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
       setRaces(prev => [...prev, ...result.data]);
       setPage(next);
       setTotalPages(result.totalPages);
@@ -151,6 +153,9 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         return false;
       }
       if (minModelWinProbability > 0 && !(r.modelWinProbability != null && r.modelWinProbability >= minModelWinProbability)) {
+        return false;
+      }
+      if (onlyModelBeatsSp && !modelBeatsSp(r)) {
         return false;
       }
       return true;
@@ -314,6 +319,11 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                         {runner.modelWinProbability != null && (
                           <Text testID={`industry-sp-item-model-${runner.id}`} style={styles.modelBadge}>
                             Model {runner.modelWinProbability.toFixed(0)}%
+                          </Text>
+                        )}
+                        {modelBeatsSp(runner) && (
+                          <Text testID={`industry-sp-item-value-${runner.id}`} style={styles.valueBadge}>
+                            Value
                           </Text>
                         )}
                         <View
@@ -570,6 +580,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+    marginRight: spacing.sm,
+  },
+  valueBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.success,
+    backgroundColor: colors.successLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,
