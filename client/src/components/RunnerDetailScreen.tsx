@@ -16,6 +16,7 @@ import {
   toFormCategory,
   OddsMode,
   modelBeatsSp,
+  impliedProbabilityPct,
 } from "../utils/ispFormat";
 
 interface RunnerDetailScreenProps {
@@ -163,6 +164,13 @@ export const RunnerDetailScreen: React.FC<RunnerDetailScreenProps> = ({
                   label="Model Win %"
                   value={`${runner.modelWinProbability.toFixed(1)}%`}
                   testID="runner-detail-model-win-probability"
+                />
+              )}
+              {runner.modelWinProbability != null && runner.isp != null && runner.isp > 0 && (
+                <DetailRow
+                  label="Implied SP %"
+                  value={`${impliedProbabilityPct(runner.isp).toFixed(1)}%`}
+                  testID="runner-detail-implied-sp"
                 />
               )}
               {modelBeatsSp(runner) && (

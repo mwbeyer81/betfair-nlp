@@ -659,6 +659,13 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-item-model-12347")).toContainText("39%");
   });
 
+  test("shows the SP-implied win% next to the model badge for easy comparison", async ({ page }) => {
+    // isp 4.5 -> implied 100/4.5 = 22.2%; isp 9.2 -> 10.9%; isp 2.1 -> 47.6%.
+    await expect(page.getByTestId("industry-sp-item-implied-sp-12345")).toContainText("SP 22%");
+    await expect(page.getByTestId("industry-sp-item-implied-sp-12346")).toContainText("SP 11%");
+    await expect(page.getByTestId("industry-sp-item-implied-sp-12347")).toContainText("SP 48%");
+  });
+
   test("filters applied via the URL query string are respected", async ({ page }) => {
     await page.goto("/isp/races?maxInIspRange=2");
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });

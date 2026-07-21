@@ -17,6 +17,7 @@ import {
   toFormCategory,
   OddsMode,
   modelBeatsSp,
+  impliedProbabilityPct,
 } from "../utils/ispFormat";
 import {
   urlIntParam,
@@ -319,6 +320,11 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                         {runner.modelWinProbability != null && (
                           <Text testID={`industry-sp-item-model-${runner.id}`} style={styles.modelBadge}>
                             Model {runner.modelWinProbability.toFixed(0)}%
+                            {runner.isp != null && runner.isp > 0 && (
+                              <Text testID={`industry-sp-item-implied-sp-${runner.id}`} style={styles.impliedSpBadge}>
+                                {` · SP ${impliedProbabilityPct(runner.isp).toFixed(0)}%`}
+                              </Text>
+                            )}
                           </Text>
                         )}
                         {modelBeatsSp(runner) && (
@@ -591,6 +597,10 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     borderRadius: radii.sm,
     marginRight: spacing.sm,
+  },
+  impliedSpBadge: {
+    fontWeight: "500",
+    color: colors.textTertiary,
   },
   valueBadge: {
     fontSize: 11,
