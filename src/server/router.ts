@@ -444,7 +444,8 @@ router.get("/api/industry-sp", async (req, res) => {
     const trainerFormMinWinRate = Math.min(100, Math.max(0, parseFloat(req.query.trainerFormMinWinRate as string) || 0));
     const minTrainerFormRunners = Math.max(0, parseInt(req.query.minTrainerFormRunners as string) || 0);
     const maxTrainerFormRunners = Math.min(100, Math.max(0, parseInt(req.query.maxTrainerFormRunners as string) || 100));
-    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners);
+    const runnerName = typeof req.query.runnerName === "string" && req.query.runnerName.trim() ? req.query.runnerName.trim() : null;
+    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName);
     res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
   } catch (error) {
     console.error("getAllRacesByRace error:", error);
@@ -474,6 +475,23 @@ router.get("/api/industry-sp/race/:raceId", async (req, res) => {
   } catch (error) {
     console.error("getRaceById error:", error);
     res.status(500).json({ success: false, error: "Failed to fetch race" });
+  }
+});
+
+router.get("/api/trainer-form", async (req, res) => {
+  try {
+    if (!trainerFormService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const trainer = typeof req.query.trainer === "string" ? req.query.trainer.trim() : "";
+    const formCategory = req.query.formCategory === "Flat" || req.query.formCategory === "Jumps" ? req.query.formCategory : null;
+    if (!trainer || !formCategory) {
+      return res.status(400).json({ success: false, error: "trainer and formCategory (Flat|Jumps) are required" });
+    }
+    const data = await trainerFormService.getTrainerForm(trainer, formCategory);
+    if (!data) return res.status(404).json({ success: false, error: "Trainer form not found" });
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error("getTrainerForm error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch trainer form" });
   }
 });
 

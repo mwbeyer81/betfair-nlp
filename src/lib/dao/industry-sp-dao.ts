@@ -98,7 +98,8 @@ export class IndustrySpDAO {
     jockeySearch: string | null = null,
     trainerFormMinWinRate = 0,
     minTrainerFormRunners = 0,
-    maxTrainerFormRunners = 100
+    maxTrainerFormRunners = 100,
+    runnerName: string | null = null
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -143,6 +144,15 @@ export class IndustrySpDAO {
     if (jockeySearch) {
       runnerTextMatches.push({
         runners: { $elemMatch: { jockey: { $regex: `^${escapeRegex(jockeySearch)}`, $options: "i" } } },
+      });
+    }
+    // Exact (not prefix) match, anchored both ends — this is a "find this
+    // specific horse's history" lookup (Runner History screen), not a
+    // typeahead search, so "Sea The Stars" must not also match a race
+    // whose runner is "Sea The Star".
+    if (runnerName) {
+      runnerTextMatches.push({
+        runners: { $elemMatch: { name: { $regex: `^${escapeRegex(runnerName)}$`, $options: "i" } } },
       });
     }
     const runnerTextMatch = runnerTextMatches.length > 0 ? { $and: runnerTextMatches } : {};
@@ -673,6 +683,7 @@ export class IndustrySpDAO {
       [{ raceType: 1 }],
       [{ "runners.trainer": 1 }],
       [{ "runners.jockey": 1 }],
+      [{ "runners.name": 1 }],
     ];
     for (const [keys, opts] of specs) {
       try {

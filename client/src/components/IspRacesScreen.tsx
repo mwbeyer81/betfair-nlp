@@ -14,6 +14,7 @@ import {
   runnerPnl,
   formatRaceTime,
   formatRaceDate,
+  toFormCategory,
   OddsMode,
 } from "../utils/ispFormat";
 import {
@@ -33,6 +34,8 @@ interface IspRacesScreenProps {
   onBack: () => void;
   onNavigateToMeeting: (meetingId: string) => void;
   onNavigateToRace: (raceId: number) => void;
+  onNavigateToRunner: (raceId: number, runnerId: number) => void;
+  onNavigateToTrainer: (trainer: string, formCategory: "Flat" | "Jumps") => void;
 }
 
 // A read-only view of whatever filters were applied on the Industry SP
@@ -42,6 +45,8 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   onBack,
   onNavigateToMeeting,
   onNavigateToRace,
+  onNavigateToRunner,
+  onNavigateToTrainer,
 }) => {
   const [races, setRaces] = useState<IspRace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -231,10 +236,11 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                       })()}
                     </TouchableOpacity>
                     {race.runners.map((runner: IspRunner) => (
-                      <View
+                      <TouchableOpacity
                         key={runner.id}
                         testID={`industry-sp-item-${runner.id}`}
                         style={styles.runnerRow}
+                        onPress={() => onNavigateToRunner(race.raceId, runner.id)}
                       >
                         <Text style={styles.priority}>{runner.sortPriority}.</Text>
                         <Text style={styles.runnerName} numberOfLines={1}>
@@ -259,14 +265,18 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                           </Text>
                         )}
                         {runner.trainer && (
-                          <Text testID={`industry-sp-item-trainer-${runner.id}`} style={styles.trainerBadge} numberOfLines={1}>
-                            {runner.trainer}
-                            {runner.trainerFormRuns != null && runner.trainerFormRuns > 0 && runner.trainerFormWinRate != null && (
-                              <Text testID={`industry-sp-item-trainer-form-${runner.id}`} style={styles.trainerFormBadge}>
-                                {` · ${runner.trainerFormWins}/${runner.trainerFormRuns} · ${runner.trainerFormWinRate.toFixed(0)}%`}
-                              </Text>
-                            )}
-                          </Text>
+                          <TouchableOpacity
+                            onPress={(e) => { e.stopPropagation(); onNavigateToTrainer(runner.trainer!, toFormCategory(race.raceType)); }}
+                          >
+                            <Text testID={`industry-sp-item-trainer-${runner.id}`} style={styles.trainerBadge} numberOfLines={1}>
+                              {runner.trainer}
+                              {runner.trainerFormRuns != null && runner.trainerFormRuns > 0 && runner.trainerFormWinRate != null && (
+                                <Text testID={`industry-sp-item-trainer-form-${runner.id}`} style={styles.trainerFormBadge}>
+                                  {` · ${runner.trainerFormWins}/${runner.trainerFormRuns} · ${runner.trainerFormWinRate.toFixed(0)}%`}
+                                </Text>
+                              )}
+                            </Text>
+                          </TouchableOpacity>
                         )}
                         <View
                           style={[
@@ -286,7 +296,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                             {runner.status}
                           </Text>
                         </View>
-                      </View>
+                      </TouchableOpacity>
                     ))}
                   </View>
                 ))}

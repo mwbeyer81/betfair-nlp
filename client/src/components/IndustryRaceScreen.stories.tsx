@@ -41,6 +41,8 @@ const meta: Meta<typeof IndustryRaceScreen> = {
     raceId: RACE_ID,
     onNavigateToMeeting: fn(),
     onNavigateToIsp: fn(),
+    onNavigateToRunner: fn(),
+    onNavigateToTrainer: fn(),
   },
 };
 

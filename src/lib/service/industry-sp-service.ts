@@ -40,7 +40,8 @@ export class IndustrySpService {
     jockeySearch: string | null = null,
     trainerFormMinWinRate = 0,
     minTrainerFormRunners = 0,
-    maxTrainerFormRunners = 100
+    maxTrainerFormRunners = 100,
+    runnerName: string | null = null
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -70,7 +71,8 @@ export class IndustrySpService {
       jockeySearch,
       trainerFormMinWinRate,
       minTrainerFormRunners,
-      maxTrainerFormRunners
+      maxTrainerFormRunners,
+      runnerName
     );
   }
 

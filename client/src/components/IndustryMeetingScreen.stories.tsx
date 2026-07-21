@@ -57,6 +57,8 @@ const meta: Meta<typeof IndustryMeetingScreen> = {
     meetingId: MEETING_ID,
     onBack: fn(),
     onNavigateToRace: fn(),
+    onNavigateToRunner: fn(),
+    onNavigateToTrainer: fn(),
   },
 };
 

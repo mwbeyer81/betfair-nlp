@@ -104,6 +104,28 @@ export interface IspFilterBounds {
   minIsp: number;
 }
 
+export type TrainerFormCategory = "Flat" | "Jumps";
+
+export interface TrainerFormRunDoc {
+  raceId: number;
+  runnerId: number;
+  horseName: string;
+  raceDate: string;
+  course: string;
+  status: "WINNER" | "PLACED" | "LOSER" | "NON_FINISHER";
+  pos: string;
+  isp: number | null;
+}
+
+export interface TrainerFormDoc {
+  trainer: string;
+  formCategory: TrainerFormCategory;
+  runs: TrainerFormRunDoc[];
+  totalRuns: number;
+  totalWins: number;
+  lastUpdated: string;
+}
+
 export interface IspPage {
   success: boolean;
   data: IspRace[];
@@ -406,7 +428,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number): Promise<IspPage> {
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -432,6 +454,7 @@ class ChatApi {
     if (trainerFormMinWinRate != null) params.set("trainerFormMinWinRate", String(trainerFormMinWinRate));
     if (minTrainerFormRunners != null) params.set("minTrainerFormRunners", String(minTrainerFormRunners));
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
+    if (runnerName) params.set("runnerName", runnerName);
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp?${params}`,
       { headers: this.authHeader() }
@@ -534,6 +557,17 @@ class ChatApi {
       headers: this.authHeader(),
     });
     if (!response.ok) throw new Error("Failed to fetch race");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getTrainerForm(trainer: string, formCategory: TrainerFormCategory): Promise<TrainerFormDoc | null> {
+    const params = new URLSearchParams({ trainer, formCategory });
+    const response = await fetch(`${this.baseUrl}/api/trainer-form?${params}`, {
+      headers: this.authHeader(),
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error("Failed to fetch trainer form");
     const result = await response.json();
     return result.data;
   }

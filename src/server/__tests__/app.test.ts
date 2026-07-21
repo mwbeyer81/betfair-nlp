@@ -155,6 +155,26 @@ jest.mock("../../config/database", () => ({
               }),
             };
           }
+          if (name === "trainer_form") {
+            return {
+              createIndex: jest.fn().mockResolvedValue(undefined),
+              findOne: jest.fn().mockImplementation(async (query: { trainer?: string; formCategory?: string }) => {
+                if (query?.trainer === "W P Mullins" && query?.formCategory === "Flat") {
+                  return {
+                    trainer: "W P Mullins",
+                    formCategory: "Flat",
+                    runs: [
+                      { raceId: 914592, runnerId: 12347, horseName: "Fact To File", raceDate: "2025-01-08", course: "Cheltenham", status: "WINNER", pos: "1", isp: 2.1 },
+                    ],
+                    totalRuns: 1,
+                    totalWins: 1,
+                    lastUpdated: "2025-01-09T00:00:00.000Z",
+                  };
+                }
+                return null;
+              }),
+            };
+          }
           return {
             distinct: jest.fn().mockResolvedValue(["GB", "IE"]),
           find: jest.fn().mockReturnValue({
@@ -1085,6 +1105,16 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
+    it("accepts a runnerName param and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?runnerName=" + encodeURIComponent("Fact To File"))
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
     it("each race includes raceClass and going", async () => {
       const response = await request(app)
         .get("/api/industry-sp")
@@ -1312,6 +1342,43 @@ describe("API Endpoints", () => {
         .expect(200);
 
       expect(response.body.success).toBe(true);
+    });
+  });
+
+  describe("GET /api/trainer-form", () => {
+    it("returns 400 when trainer is missing", async () => {
+      const response = await request(app)
+        .get("/api/trainer-form?formCategory=Flat")
+        .expect(400);
+      expect(response.body).toHaveProperty("error");
+    });
+
+    it("returns 400 when formCategory is missing or invalid", async () => {
+      const response = await request(app)
+        .get("/api/trainer-form?trainer=W%20P%20Mullins&formCategory=NotACategory")
+        .expect(400);
+      expect(response.body).toHaveProperty("error");
+    });
+
+    it("returns 404 for an unknown trainer", async () => {
+      const response = await request(app)
+        .get("/api/trainer-form?trainer=Nobody&formCategory=Flat")
+        .expect(404);
+      expect(response.body).toHaveProperty("error");
+    });
+
+    it("returns 200 with the trainer's form data for a known trainer/category", async () => {
+      const response = await request(app)
+        .get("/api/trainer-form?trainer=" + encodeURIComponent("W P Mullins") + "&formCategory=Flat")
+        .expect(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.trainer).toBe("W P Mullins");
+      expect(Array.isArray(response.body.data.runs)).toBe(true);
+      expect(response.body.data.runs.length).toBeGreaterThan(0);
+    });
+
+    it("is public — returns 200 without auth", async () => {
+      await request(app).get("/api/trainer-form?trainer=" + encodeURIComponent("W P Mullins") + "&formCategory=Flat").expect(200);
     });
   });
 

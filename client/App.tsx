@@ -13,8 +13,12 @@ import { IndustrySpScreen } from "./src/components/IndustrySpScreen";
 import { IspRacesScreen } from "./src/components/IspRacesScreen";
 import { IndustryMeetingScreen } from "./src/components/IndustryMeetingScreen";
 import { IndustryRaceScreen } from "./src/components/IndustryRaceScreen";
+import { RunnerDetailScreen } from "./src/components/RunnerDetailScreen";
+import { RunnerHistoryScreen } from "./src/components/RunnerHistoryScreen";
+import { TrainerDetailScreen } from "./src/components/TrainerDetailScreen";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
+import { buildReturnParams, resolveReturn } from "./src/utils/returnNav";
 import { theme, colors } from "./src/theme";
 
 const TOKEN_KEY = "auth_token";
@@ -131,6 +135,12 @@ export default function App() {
           onBack={() => navigate("/isp", window.location.search.slice(1))}
           onNavigateToMeeting={(meetingId) => navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}`)}
           onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}`)}
+          onNavigateToRunner={(raceId, runnerId) =>
+            navigate("/isp/runner", `raceId=${raceId}&runnerId=${runnerId}&${buildReturnParams(route)}`)
+          }
+          onNavigateToTrainer={(trainer, formCategory) =>
+            navigate("/isp/trainer", `trainer=${encodeURIComponent(trainer)}&formCategory=${formCategory}&${buildReturnParams(route)}`)
+          }
         />
       );
     }
@@ -143,6 +153,12 @@ export default function App() {
           // returns there (not the filters screen they aren't editing).
           onBack={() => navigate("/isp/races")}
           onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}`)}
+          onNavigateToRunner={(raceId, runnerId) =>
+            navigate("/isp/runner", `raceId=${raceId}&runnerId=${runnerId}&${buildReturnParams(route)}`)
+          }
+          onNavigateToTrainer={(trainer, formCategory) =>
+            navigate("/isp/trainer", `trainer=${encodeURIComponent(trainer)}&formCategory=${formCategory}&${buildReturnParams(route)}`)
+          }
         />
       );
     }
@@ -153,6 +169,58 @@ export default function App() {
           raceId={raceId}
           onNavigateToMeeting={(meetingId) => navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}`)}
           onNavigateToIsp={() => navigate("/isp/races")}
+          onNavigateToRunner={(raceId, runnerId) =>
+            navigate("/isp/runner", `raceId=${raceId}&runnerId=${runnerId}&${buildReturnParams(route)}`)
+          }
+          onNavigateToTrainer={(trainer, formCategory) =>
+            navigate("/isp/trainer", `trainer=${encodeURIComponent(trainer)}&formCategory=${formCategory}&${buildReturnParams(route)}`)
+          }
+        />
+      );
+    }
+    if (route === "/isp/runner") {
+      const raceId = parseInt(queryParams.get("raceId") ?? "", 10);
+      const runnerId = parseInt(queryParams.get("runnerId") ?? "", 10);
+      const back = resolveReturn(queryParams, "/isp/races");
+      return (
+        <RunnerDetailScreen
+          raceId={raceId}
+          runnerId={runnerId}
+          onBack={() => navigate(back.route, back.query)}
+          onNavigateToHistory={(runnerName) =>
+            navigate("/isp/runner/history", `runnerName=${encodeURIComponent(runnerName)}&${buildReturnParams(route)}`)
+          }
+          onNavigateToTrainer={(trainer, formCategory) =>
+            navigate("/isp/trainer", `trainer=${encodeURIComponent(trainer)}&formCategory=${formCategory}&${buildReturnParams(route)}`)
+          }
+        />
+      );
+    }
+    if (route === "/isp/runner/history") {
+      const runnerName = queryParams.get("runnerName") ?? "";
+      const back = resolveReturn(queryParams, "/isp/races");
+      return (
+        <RunnerHistoryScreen
+          runnerName={runnerName}
+          onBack={() => navigate(back.route, back.query)}
+          onNavigateToRunner={(raceId, runnerId) =>
+            navigate("/isp/runner", `raceId=${raceId}&runnerId=${runnerId}&${buildReturnParams(route)}`)
+          }
+        />
+      );
+    }
+    if (route === "/isp/trainer") {
+      const trainer = queryParams.get("trainer") ?? "";
+      const formCategory = queryParams.get("formCategory") === "Jumps" ? "Jumps" : "Flat";
+      const back = resolveReturn(queryParams, "/isp/races");
+      return (
+        <TrainerDetailScreen
+          trainer={trainer}
+          formCategory={formCategory}
+          onBack={() => navigate(back.route, back.query)}
+          onNavigateToRunner={(raceId, runnerId) =>
+            navigate("/isp/runner", `raceId=${raceId}&runnerId=${runnerId}&${buildReturnParams(route)}`)
+          }
         />
       );
     }

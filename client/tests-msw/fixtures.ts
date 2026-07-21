@@ -158,9 +158,9 @@ async function setupApiMocks(page: Page) {
       raceType: "Chase",
       ran: 3,
       runners: [
-        { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, ispFraction: "7/2", isFavourite: false },
-        { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, ispFraction: "41/5", isFavourite: false },
-        { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, ispFraction: "11/10", isFavourite: true },
+        { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, ispFraction: "7/2", isFavourite: false, trainer: "W P Mullins" },
+        { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, ispFraction: "41/5", isFavourite: false, trainer: "G Elliott", trainerFormRuns: 0 },
+        { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, ispFraction: "11/10", isFavourite: true, trainer: "W P Mullins", trainerFormRuns: 14, trainerFormWins: 3, trainerFormWinRate: 21.43 },
       ],
     },
     {
@@ -196,28 +196,38 @@ async function setupApiMocks(page: Page) {
     route.fulfill({ json: { success: true, data: race } });
   });
 
+  const MOCK_INDUSTRY_SP_RACE = {
+    raceId: 914592,
+    meetingId: "Cheltenham|2025-01-01",
+    meetingName: "Cheltenham — 1 January 2025",
+    course: "Cheltenham",
+    countryCode: "GB",
+    raceTime: "2025-01-01T14:01:00",
+    raceName: "Cheltenham Chase",
+    raceType: "Chase",
+    raceClass: "Class 1",
+    going: "Good",
+    ran: 3,
+    runners: [
+      { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, ispFraction: "7/2", isFavourite: false, trainer: "W P Mullins" },
+      { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, ispFraction: "41/5", isFavourite: false, trainer: "G Elliott", trainerFormRuns: 0 },
+      { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, ispFraction: "11/10", isFavourite: true, trainer: "W P Mullins", trainerFormRuns: 14, trainerFormWins: 3, trainerFormWinRate: 21.43 },
+    ],
+  };
+
   await page.route((url) => url.pathname === "/api/industry-sp", (route) => {
     // The mocked race has 3 runners in ISP range. Return empty data when maxInIspRange < 3.
     const reqUrl = new URL(route.request().url());
     const maxInIspRange = parseInt(reqUrl.searchParams.get("maxInIspRange") ?? "30");
-    const raceData = maxInIspRange >= 3 ? [
-      {
-        raceId: 914592,
-        meetingId: "Cheltenham|2025-01-01",
-        meetingName: "Cheltenham — 1 January 2025",
-        course: "Cheltenham",
-        countryCode: "GB",
-        raceTime: "2025-01-01T14:01:00",
-        raceName: "Cheltenham Chase",
-        raceType: "Chase",
-        ran: 3,
-        runners: [
-          { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, ispFraction: "7/2", isFavourite: false, trainer: "W P Mullins" },
-          { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, ispFraction: "41/5", isFavourite: false, trainer: "G Elliott", trainerFormRuns: 0 },
-          { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, ispFraction: "11/10", isFavourite: true, trainer: "W P Mullins", trainerFormRuns: 14, trainerFormWins: 3, trainerFormWinRate: 21.43 },
-        ],
-      },
-    ] : [];
+    const runnerName = reqUrl.searchParams.get("runnerName");
+    let raceData = maxInIspRange >= 3 ? [MOCK_INDUSTRY_SP_RACE] : [];
+    // Runner History screen scopes every request to one horse's exact name
+    // (case-insensitive) — mirrors the real backend's anchored-both-ends match.
+    if (runnerName) {
+      raceData = raceData.filter((race) =>
+        race.runners.some((r) => r.name.toLowerCase() === runnerName.toLowerCase())
+      );
+    }
     route.fulfill({
       json: {
         success: true,
@@ -229,6 +239,29 @@ async function setupApiMocks(page: Page) {
         data: raceData,
       },
     });
+  });
+
+  const MOCK_TRAINER_FORM = {
+    trainer: "W P Mullins",
+    formCategory: "Flat",
+    runs: [
+      { raceId: 914591, runnerId: 11111, horseName: "Galopin Des Champs", raceDate: "2025-01-01", course: "Ascot", status: "WINNER", pos: "1", isp: 2.5 },
+      { raceId: 914592, runnerId: 12347, horseName: "Fact To File", raceDate: "2025-01-08", course: "Cheltenham", status: "WINNER", pos: "1", isp: 2.1 },
+      { raceId: 914594, runnerId: 33333, horseName: "State Man", raceDate: "2025-01-15", course: "Newbury", status: "LOSER", pos: "4", isp: 5.0 },
+    ],
+    totalRuns: 3,
+    totalWins: 2,
+    lastUpdated: "2025-01-16T00:00:00.000Z",
+  };
+
+  await page.route((url) => url.pathname === "/api/trainer-form", (route) => {
+    const reqUrl = new URL(route.request().url());
+    const trainer = reqUrl.searchParams.get("trainer");
+    if (trainer === "W P Mullins") {
+      route.fulfill({ json: { success: true, data: MOCK_TRAINER_FORM } });
+    } else {
+      route.fulfill({ status: 404, json: { success: false, error: "Trainer form not found" } });
+    }
   });
 
   await page.route((url) => url.pathname === "/api/industry-sp/splits", (route) => {

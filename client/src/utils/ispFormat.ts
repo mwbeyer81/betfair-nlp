@@ -74,3 +74,12 @@ export function formatRaceDate(isoTime: string): string {
     return "";
   }
 }
+
+// Mirrors the same Flat/Jumps bucketing used server-side in
+// src/commands/precompute-trainer-form.ts (toFormCategory there) — kept in
+// sync manually since the trainer-form badge's category needs to match
+// exactly what the precompute script grouped by. Anything that isn't
+// exactly "Flat" (Hurdle, Chase, NH Flat, ...) is Jumps.
+export function toFormCategory(raceType: string): "Flat" | "Jumps" {
+  return (raceType || "").trim().toLowerCase() === "flat" ? "Flat" : "Jumps";
+}

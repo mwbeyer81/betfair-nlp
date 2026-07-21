@@ -14,6 +14,7 @@ import {
   runnerPnl,
   formatRaceTime,
   formatRaceDate,
+  toFormCategory,
   OddsMode,
 } from "../utils/ispFormat";
 
@@ -21,12 +22,16 @@ interface IndustryMeetingScreenProps {
   meetingId: string;
   onBack: () => void;
   onNavigateToRace: (raceId: number) => void;
+  onNavigateToRunner: (raceId: number, runnerId: number) => void;
+  onNavigateToTrainer: (trainer: string, formCategory: "Flat" | "Jumps") => void;
 }
 
 export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
   meetingId,
   onBack,
   onNavigateToRace,
+  onNavigateToRunner,
+  onNavigateToTrainer,
 }) => {
   const [races, setRaces] = useState<IspRace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -154,10 +159,11 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
                   })()}
                 </TouchableOpacity>
                 {race.runners.map((runner: IspRunner) => (
-                  <View
+                  <TouchableOpacity
                     key={runner.id}
                     testID={`industry-meeting-item-${runner.id}`}
                     style={styles.runnerRow}
+                    onPress={() => onNavigateToRunner(race.raceId, runner.id)}
                   >
                     <Text style={styles.priority}>{runner.sortPriority}.</Text>
                     <Text style={styles.runnerName} numberOfLines={1}>
@@ -180,6 +186,20 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
                         {formatPnl(runnerPnl(runner)!)}
                       </Text>
                     )}
+                    {runner.trainer && (
+                      <TouchableOpacity
+                        onPress={(e) => { e.stopPropagation(); onNavigateToTrainer(runner.trainer!, toFormCategory(race.raceType)); }}
+                      >
+                        <Text testID={`industry-meeting-item-trainer-${runner.id}`} style={styles.trainerBadge} numberOfLines={1}>
+                          {runner.trainer}
+                          {runner.trainerFormRuns != null && runner.trainerFormRuns > 0 && runner.trainerFormWinRate != null && (
+                            <Text testID={`industry-meeting-item-trainer-form-${runner.id}`} style={styles.trainerFormBadge}>
+                              {` · ${runner.trainerFormWins}/${runner.trainerFormRuns} · ${runner.trainerFormWinRate.toFixed(0)}%`}
+                            </Text>
+                          )}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                     <View
                       style={[
                         styles.statusBadge,
@@ -190,7 +210,7 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
                         {runner.status}
                       </Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
             ))}
@@ -414,5 +434,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     marginRight: spacing.sm,
+  },
+  trainerBadge: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginRight: spacing.sm,
+    maxWidth: 160,
+  },
+  trainerFormBadge: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textTertiary,
   },
 });

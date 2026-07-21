@@ -83,6 +83,8 @@ const meta: Meta<typeof IspRacesScreen> = {
     onBack: fn(),
     onNavigateToMeeting: fn(),
     onNavigateToRace: fn(),
+    onNavigateToRunner: fn(),
+    onNavigateToTrainer: fn(),
   },
 };
 

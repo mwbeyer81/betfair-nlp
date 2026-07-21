@@ -314,6 +314,55 @@ test.describe("Responsive layout — /isp/races screen (MSW mocked, iPhone 12 mi
   });
 });
 
+test.describe("Responsive layout — Runner Detail screen (MSW mocked, iPhone 12 mini, 375px)", () => {
+  test.use({ viewport: IPHONE_12_MINI_VIEWPORT });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/isp/races");
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("industry-sp-item-12347").click();
+    await expect(page.getByTestId("runner-detail-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("runner-detail-loading")).not.toBeVisible({ timeout: 10000 });
+  });
+
+  test("no element on the page overflows the 375px viewport", async ({ page }) => {
+    const overflowing = await findOverflowingElements(page, IPHONE_12_MINI_VIEWPORT.width);
+    expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
+  });
+});
+
+test.describe("Responsive layout — Runner History screen (MSW mocked, iPhone 12 mini, 375px)", () => {
+  test.use({ viewport: IPHONE_12_MINI_VIEWPORT });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/isp/runner/history?runnerName=" + encodeURIComponent("Fact To File"));
+    await expect(page.getByTestId("runner-history-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("runner-history-loading")).not.toBeVisible({ timeout: 10000 });
+  });
+
+  test("no element on the page overflows the 375px viewport", async ({ page }) => {
+    // Likely the tightest fit of the three new screens — 4 chip rows plus a
+    // date range and ISP range packed into the filter bar.
+    const overflowing = await findOverflowingElements(page, IPHONE_12_MINI_VIEWPORT.width);
+    expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
+  });
+});
+
+test.describe("Responsive layout — Trainer Detail screen (MSW mocked, iPhone 12 mini, 375px)", () => {
+  test.use({ viewport: IPHONE_12_MINI_VIEWPORT });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/isp/trainer?trainer=" + encodeURIComponent("W P Mullins") + "&formCategory=Flat");
+    await expect(page.getByTestId("trainer-detail-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("trainer-detail-loading")).not.toBeVisible({ timeout: 10000 });
+  });
+
+  test("no element on the page overflows the 375px viewport", async ({ page }) => {
+    const overflowing = await findOverflowingElements(page, IPHONE_12_MINI_VIEWPORT.width);
+    expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
+  });
+});
+
 test.describe("Responsive layout — /runners (MSW mocked, 768px)", () => {
   test.use({ viewport: TABLET_VIEWPORT });
 

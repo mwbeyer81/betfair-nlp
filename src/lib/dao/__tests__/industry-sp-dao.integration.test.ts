@@ -304,4 +304,34 @@ describe("IndustrySpDAO (integration)", () => {
       expect(qualifying.length).toBeGreaterThanOrEqual(1);
     }
   });
+
+  it("filters by exact runner (horse) name, case-insensitive", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const runnerName = sample[0]?.runners[0]?.name;
+    if (!runnerName) return; // no data seeded in this environment
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, runnerName.toUpperCase()
+    );
+    expect(data.length).toBeGreaterThan(0);
+    for (const race of data) {
+      expect(race.runners.some(r => r.name.toLowerCase() === runnerName.toLowerCase())).toBe(true);
+    }
+  });
+
+  it("runner name matching is anchored both ends, not a prefix match (unlike trainer/jockey search)", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const runnerName = sample[0]?.runners[0]?.name;
+    if (!runnerName || runnerName.length < 2) return;
+    // A strict prefix of a real horse's name should match nothing — the
+    // full name must match exactly, unlike trainerSearch/jockeySearch.
+    const prefix = runnerName.slice(0, runnerName.length - 1);
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, prefix
+    );
+    for (const race of data) {
+      expect(race.runners.some(r => r.name.toLowerCase() === prefix.toLowerCase())).toBe(true);
+    }
+  });
 });

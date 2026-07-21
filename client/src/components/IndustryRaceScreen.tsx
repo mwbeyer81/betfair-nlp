@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, ScrollView, StyleSheet, SafeAreaView } from "react-native";
+import { View, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
 import { Text, Appbar, Button, ActivityIndicator } from "react-native-paper";
 import { chatApi, IspRace, IspRunner } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
@@ -14,6 +14,7 @@ import {
   runnerPnl,
   formatRaceTime,
   formatRaceDate,
+  toFormCategory,
   OddsMode,
 } from "../utils/ispFormat";
 
@@ -21,12 +22,16 @@ interface IndustryRaceScreenProps {
   raceId: number;
   onNavigateToMeeting: (meetingId: string) => void;
   onNavigateToIsp: () => void;
+  onNavigateToRunner: (raceId: number, runnerId: number) => void;
+  onNavigateToTrainer: (trainer: string, formCategory: "Flat" | "Jumps") => void;
 }
 
 export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
   raceId,
   onNavigateToMeeting,
   onNavigateToIsp,
+  onNavigateToRunner,
+  onNavigateToTrainer,
 }) => {
   const [race, setRace] = useState<IspRace | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -138,10 +143,11 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
               <Text style={styles.emptyText}>No runners found.</Text>
             )}
             {race.runners.map((runner: IspRunner) => (
-              <View
+              <TouchableOpacity
                 key={runner.id}
                 testID={`industry-race-item-${runner.id}`}
                 style={styles.runnerRow}
+                onPress={() => onNavigateToRunner(race.raceId, runner.id)}
               >
                 <Text style={styles.priority}>{runner.sortPriority}.</Text>
                 <Text style={styles.runnerName} numberOfLines={1}>
@@ -165,14 +171,18 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
                   </Text>
                 )}
                 {runner.trainer && (
-                  <Text testID={`industry-race-item-trainer-${runner.id}`} style={styles.trainerBadge} numberOfLines={1}>
-                    {runner.trainer}
-                    {runner.trainerFormRuns != null && runner.trainerFormRuns > 0 && runner.trainerFormWinRate != null && (
-                      <Text testID={`industry-race-item-trainer-form-${runner.id}`} style={styles.trainerFormBadge}>
-                        {` · ${runner.trainerFormWins}/${runner.trainerFormRuns} · ${runner.trainerFormWinRate.toFixed(0)}%`}
-                      </Text>
-                    )}
-                  </Text>
+                  <TouchableOpacity
+                    onPress={(e) => { e.stopPropagation(); onNavigateToTrainer(runner.trainer!, toFormCategory(race.raceType)); }}
+                  >
+                    <Text testID={`industry-race-item-trainer-${runner.id}`} style={styles.trainerBadge} numberOfLines={1}>
+                      {runner.trainer}
+                      {runner.trainerFormRuns != null && runner.trainerFormRuns > 0 && runner.trainerFormWinRate != null && (
+                        <Text testID={`industry-race-item-trainer-form-${runner.id}`} style={styles.trainerFormBadge}>
+                          {` · ${runner.trainerFormWins}/${runner.trainerFormRuns} · ${runner.trainerFormWinRate.toFixed(0)}%`}
+                        </Text>
+                      )}
+                    </Text>
+                  </TouchableOpacity>
                 )}
                 <View
                   style={[
@@ -184,7 +194,7 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
                     {runner.status}
                   </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))}
           </PageContainer>
           </ScrollView>
