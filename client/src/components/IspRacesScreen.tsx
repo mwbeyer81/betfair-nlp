@@ -132,8 +132,21 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     }
   }
 
-  const visibleRaces = races.filter(race => race.runners.length > 0);
-  const visibleRunners = visibleRaces.reduce((sum, r) => sum + r.runners.length, 0);
+  // With "Has trainer form" active, the backend only guarantees a race has
+  // *at least one* qualifying runner — it still returns every runner in the
+  // race, most of which typically won't themselves have a sample. Narrowing
+  // to just the qualifying ones here (rather than showing the full field)
+  // is what actually delivers "only see horses that have recent trainer
+  // form available", not just "races containing such a horse somewhere".
+  function qualifyingRunners(race: IspRace): IspRunner[] {
+    if (!hasTrainerForm) return race.runners;
+    return race.runners.filter(
+      r => r.trainerFormWinRate != null && r.trainerFormWinRate >= trainerFormMinWinRate
+    );
+  }
+
+  const visibleRaces = races.filter(race => qualifyingRunners(race).length > 0);
+  const visibleRunners = visibleRaces.reduce((sum, r) => sum + qualifyingRunners(r).length, 0);
 
   const byMeeting = visibleRaces.reduce<Record<string, { meetingName: string; races: IspRace[] }>>(
     (acc, race) => {
@@ -232,7 +245,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                       <Text style={styles.raceTime}>{formatRaceTime(race.raceTime)}</Text>
                       <Text style={styles.raceDate}>{formatRaceDate(race.raceTime)}</Text>
                       <Text style={styles.raceType}>{race.raceType}</Text>
-                      <Text style={styles.raceCount}>{race.runners.length} runners</Text>
+                      <Text style={styles.raceCount}>{qualifyingRunners(race).length} runners</Text>
                       {(() => {
                         const rp = computeRangePnl([race]);
                         if (rp.staked === 0) return null;
@@ -243,7 +256,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                         );
                       })()}
                     </TouchableOpacity>
-                    {race.runners.map((runner: IspRunner) => (
+                    {qualifyingRunners(race).map((runner: IspRunner) => (
                       <TouchableOpacity
                         key={runner.id}
                         testID={`industry-sp-item-${runner.id}`}

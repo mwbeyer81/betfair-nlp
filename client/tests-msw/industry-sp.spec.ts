@@ -633,6 +633,25 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-race-773337")).not.toBeVisible();
   });
 
+  test("hasTrainerForm=true hides individual runners within a matching race who don't themselves have a sample", async ({ page }) => {
+    // Regression test: the race-level filter only guarantees *a* runner in
+    // the race qualifies, not that every runner shown does — reported live:
+    // user checked the filter, tapped through fresh, and landed on a
+    // runner (the first one shown) with no trainer form, even though the
+    // race itself had qualifying runners further down the list. Fixture
+    // race 914592 has 3 runners: 12347 (Fact To File) qualifies, 12345 and
+    // 12346 don't — only 12347 should render once the filter is active.
+    await page.goto("/isp/races?hasTrainerForm=true");
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("industry-sp-item-12347")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-item-12345")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-item-12346")).not.toBeVisible();
+    // The race header's own runner count should reflect what's actually
+    // shown (1), not the full field (3).
+    await expect(page.getByTestId("industry-sp-race-914592")).toContainText("1 runners");
+  });
+
   test("← Filters button returns to /isp", async ({ page }) => {
     await page.getByTestId("industry-sp-races-back").click();
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
