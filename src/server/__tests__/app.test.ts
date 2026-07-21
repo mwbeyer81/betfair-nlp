@@ -1115,6 +1115,16 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
+    it("accepts a minModelWinProbability param and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?minModelWinProbability=30")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
     it("each race includes raceClass and going", async () => {
       const response = await request(app)
         .get("/api/industry-sp")
@@ -1338,6 +1348,15 @@ describe("API Endpoints", () => {
     it("accepts trainer-form filter params and returns 200 with success", async () => {
       const response = await request(app)
         .get("/api/industry-sp/splits?trainerFormMinWinRate=30&minTrainerFormRunners=1&maxTrainerFormRunners=30")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
+
+    it("accepts a minModelWinProbability param and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?minModelWinProbability=30")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 

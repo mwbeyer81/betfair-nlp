@@ -157,6 +157,13 @@ export const RunnerDetailScreen: React.FC<RunnerDetailScreenProps> = ({
                 </>
               )}
               {runner.jockey && <DetailRow label="Jockey" value={runner.jockey} />}
+              {runner.modelWinProbability != null && (
+                <DetailRow
+                  label="Model Win %"
+                  value={`${runner.modelWinProbability.toFixed(1)}%`}
+                  testID="runner-detail-model-win-probability"
+                />
+              )}
             </View>
 
             {runner.trainer && (

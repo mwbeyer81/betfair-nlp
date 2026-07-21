@@ -55,6 +55,7 @@ export interface SplitsCacheParams {
   trainerFormMinWinRate: number;
   minTrainerFormRunners: number;
   maxTrainerFormRunners: number;
+  minModelWinProbability: number;
   // Default-split mode is its own cache bucket, distinct from any explicit
   // range — the backend recomputes the default from whatever the current
   // grand total is, so caching it under a fixed fromRow/toRow would go
@@ -95,6 +96,7 @@ export function buildSplitsCacheKey(p: SplitsCacheParams): string {
       p.trainerFormMinWinRate,
       p.minTrainerFormRunners,
       p.maxTrainerFormRunners,
+      p.minModelWinProbability,
       p.isDefault ? "default" : [p.fromRowA, p.toRowA, p.fromRowB, p.toRowB],
       p.isAuthenticated,
     ])

@@ -280,6 +280,14 @@ describe("IndustrySpDAO (integration)", () => {
     expect(withDefaults.total).toBe(unfiltered.total);
   });
 
+  it("minModelWinProbability default (0) is a no-op vs. omitting the filter entirely", async () => {
+    const unfiltered = await dao.getAllRacesByRace(1, 20);
+    const withDefault = await dao.getAllRacesByRace(
+      1, 20, 1, 30, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [], [], [], null, null, 0, 0, 100, null, 0
+    );
+    expect(withDefault.total).toBe(unfiltered.total);
+  });
+
   it("minTrainerFormRunners narrows (or matches) the result vs. no threshold, when trainer-form data is seeded", async () => {
     // Guarded like the trainer/jockey prefix tests above — trainerFormRuns/
     // trainerFormWinRate only exist once src/commands/precompute-trainer-form.ts
@@ -300,6 +308,31 @@ describe("IndustrySpDAO (integration)", () => {
       const qualifying = race.runners.filter(
         r => (r as unknown as { trainerFormWinRate?: number | null }).trainerFormWinRate != null &&
           (r as unknown as { trainerFormWinRate: number }).trainerFormWinRate >= 50
+      );
+      expect(qualifying.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("minModelWinProbability narrows (or matches) the result vs. no threshold, when model predictions are seeded", async () => {
+    // Guarded like the trainer-form test above — modelWinProbability only
+    // exists once ml/train_and_predict.py has been run against this
+    // environment's data; skip rather than fail if it hasn't.
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const hasModelData = sample[0]?.runners.some(
+      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+    );
+    if (!hasModelData) return;
+
+    const unfiltered = await dao.getAllRacesByRace(1, 20, 1, 100);
+    const narrowed = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, null, 30
+    );
+    expect(narrowed.total).toBeLessThanOrEqual(unfiltered.total);
+    for (const race of narrowed.data) {
+      const qualifying = race.runners.filter(
+        r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null &&
+          (r as unknown as { modelWinProbability: number }).modelWinProbability >= 30
       );
       expect(qualifying.length).toBeGreaterThanOrEqual(1);
     }

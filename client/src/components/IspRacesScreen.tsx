@@ -83,6 +83,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const hasTrainerForm = urlStringParam("hasTrainerForm", "") === "true";
   const minTrainerFormRunners = hasTrainerForm ? 1 : 0;
   const maxTrainerFormRunners = 100;
+  const minModelWinProbability = urlFloatParam("minModelWinProbability", 0);
 
   useEffect(() => {
     updateUrlParams({ sort: sortOrder !== "asc" ? sortOrder : undefined });
@@ -95,7 +96,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       setError(null);
       setRaces([]);
       try {
-        const result = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners);
+        const result = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability);
         if (cancelled) return;
         setRaces(result.data);
         setPage(1);
@@ -121,7 +122,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     setIsLoadingMore(true);
     try {
       const next = page + 1;
-      const result = await chatApi.getIndustrySp(next, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners);
+      const result = await chatApi.getIndustrySp(next, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability);
       setRaces(prev => [...prev, ...result.data]);
       setPage(next);
       setTotalPages(result.totalPages);
@@ -132,17 +133,28 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     }
   }
 
-  // With "Has trainer form" active, the backend only guarantees a race has
-  // *at least one* qualifying runner — it still returns every runner in the
-  // race, most of which typically won't themselves have a sample. Narrowing
-  // to just the qualifying ones here (rather than showing the full field)
-  // is what actually delivers "only see horses that have recent trainer
-  // form available", not just "races containing such a horse somewhere".
+  // With "Has trainer form" (or the model win-probability threshold) active,
+  // the backend only guarantees a race has *at least one* qualifying runner
+  // for each filter independently — it still returns every runner in the
+  // race, most of which typically won't themselves qualify. Narrowing to
+  // just the qualifying ones here (rather than showing the full field) is
+  // what actually delivers "only see horses that have recent trainer form
+  // available" (or a high model win probability), not just "races
+  // containing such a horse somewhere". When both filters are active at
+  // once, a runner must satisfy both to display — a rare edge case where a
+  // matching race could show zero runners if no single runner satisfies
+  // both independently-satisfied thresholds, but that's a predictable,
+  // correct outcome rather than silently ignoring one filter.
   function qualifyingRunners(race: IspRace): IspRunner[] {
-    if (!hasTrainerForm) return race.runners;
-    return race.runners.filter(
-      r => r.trainerFormWinRate != null && r.trainerFormWinRate >= trainerFormMinWinRate
-    );
+    return race.runners.filter(r => {
+      if (hasTrainerForm && !(r.trainerFormWinRate != null && r.trainerFormWinRate >= trainerFormMinWinRate)) {
+        return false;
+      }
+      if (minModelWinProbability > 0 && !(r.modelWinProbability != null && r.modelWinProbability >= minModelWinProbability)) {
+        return false;
+      }
+      return true;
+    });
   }
 
   const visibleRaces = races.filter(race => qualifyingRunners(race).length > 0);
@@ -298,6 +310,11 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                               )}
                             </Text>
                           </TouchableOpacity>
+                        )}
+                        {runner.modelWinProbability != null && (
+                          <Text testID={`industry-sp-item-model-${runner.id}`} style={styles.modelBadge}>
+                            Model {runner.modelWinProbability.toFixed(0)}%
+                          </Text>
                         )}
                         <View
                           style={[
@@ -545,6 +562,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     color: colors.textTertiary,
+  },
+  modelBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.accent,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+    marginRight: spacing.sm,
   },
   pnlPos: {
     color: colors.pnlPositive,

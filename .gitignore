@@ -53,3 +53,10 @@ packages/shared/dist/
 
 # Playwright test-results inside packages
 **/test-results/
+
+# Python ML pipeline
+ml/venv/
+ml/__pycache__/
+ml/models/
+**/__pycache__/
+*.pyc

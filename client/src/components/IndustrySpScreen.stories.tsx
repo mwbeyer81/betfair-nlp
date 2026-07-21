@@ -608,6 +608,14 @@ export const TrainerFormFilterVisible: Story = {
   },
 };
 
+export const ModelWinProbabilityFilterVisible: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitForLoaded(canvas);
+    await expect(canvas.getByTestId("industry-sp-min-model-win-probability")).toBeInTheDocument();
+  },
+};
+
 export const RestrictiveFilterZeroesOutMatches: Story = {
   parameters: {
     msw: {

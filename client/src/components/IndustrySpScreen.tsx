@@ -86,6 +86,11 @@ const FILTER_DEFAULTS = {
   // checkbox below) actually toggles this filter on/off.
   minTrainerFormRunners: 0,
   maxTrainerFormRunners: 100,
+  // Same "0 is a true no-op" convention as trainerFormMinWinRate above —
+  // the XGBoost model's win-probability estimate is populated on every
+  // runner (no cold-start gap), so this alone (no separate "has" checkbox
+  // needed) is enough to gate the filter on/off.
+  minModelWinProbability: 0,
 };
 
 // Loose client-side guardrails for the date inputs — not round-tripped
@@ -112,6 +117,7 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   jockey: "Only show races with a runner ridden by a name starting with this text.",
   trainerFormWinRate: "Once \"Has trainer form\" is checked below, only count a runner's trainer as \"in form\" if their win rate over their last 14 days of same-type (Flat/Jumps) runs is at least this percentage. Leave at 0 to just require any recent form sample.",
   hasTrainerForm: "Only show races with at least one runner whose trainer has a recent-form sample available (they've run at least once in the last 14 days). Runners with \"No recent form sample\" are excluded.",
+  minModelWinProbability: "Only show races with a runner whose XGBoost-predicted win probability is at least this percentage. The model is trained on course/going/class/distance/draw/trainer-form/jockey — deliberately not on ISP, so it's an independent view, not a recalibration of the market's own price.",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -223,6 +229,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     urlStringParam("hasTrainerForm", "") === "true" ? 1 : FILTER_DEFAULTS.minTrainerFormRunners
   );
   const maxTrainerFormRunners = FILTER_DEFAULTS.maxTrainerFormRunners;
+  const [draftMinModelWinProbability, setDraftMinModelWinProbability] = useState(() =>
+    String(urlFloatParam("minModelWinProbability", FILTER_DEFAULTS.minModelWinProbability))
+  );
+  const [minModelWinProbability, setMinModelWinProbability] = useState(() =>
+    urlFloatParam("minModelWinProbability", FILTER_DEFAULTS.minModelWinProbability)
+  );
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
@@ -388,6 +400,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setHasTrainerForm(draftHasTrainerForm);
     setMinTrainerFormRunners(draftHasTrainerForm ? 1 : 0);
 
+    const modelWinProb = Math.min(100, Math.max(0, parseFloat(draftMinModelWinProbability) || 0));
+    setDraftMinModelWinProbability(String(modelWinProb));
+    setMinModelWinProbability(modelWinProb);
+
     // Commit every chip filter's draft (pending) selection to the applied
     // set actually used for fetching — this is the point where a chip's
     // visual flips from "pending" (gray) to "applied" (solid).
@@ -472,6 +488,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setDraftHasTrainerForm(false);
     setHasTrainerForm(false);
     setMinTrainerFormRunners(FILTER_DEFAULTS.minTrainerFormRunners);
+    setDraftMinModelWinProbability(String(FILTER_DEFAULTS.minModelWinProbability));
+    setMinModelWinProbability(FILTER_DEFAULTS.minModelWinProbability);
 
     // Hand the two race splits back to auto (half/half) mode — the next
     // fetch recomputes them from the fresh grand total.
@@ -558,6 +576,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         jockey: jockeySearch ? jockeySearch : undefined,
         trainerFormMinWinRate: trainerFormMinWinRate !== FILTER_DEFAULTS.trainerFormMinWinRate ? String(trainerFormMinWinRate) : undefined,
         hasTrainerForm: hasTrainerForm ? "true" : undefined,
+        minModelWinProbability: minModelWinProbability !== FILTER_DEFAULTS.minModelWinProbability ? String(minModelWinProbability) : undefined,
         // Only write the split boundaries once the user has explicitly
         // applied a custom split — writing the auto-computed default here
         // too would make the *next* mount think a custom split was already
@@ -590,6 +609,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         courses: [...selectedCourses], goings: [...selectedGoings],
         raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
         trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+        minModelWinProbability,
         isAuthenticated,
       });
 
@@ -638,7 +658,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           maxDate,
           [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
           trainerSearch || undefined, jockeySearch || undefined,
-          trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners
+          trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+          minModelWinProbability
         );
         if (cancelled) return;
         // An explicit (non-default) split's row numbers are only meaningful
@@ -1226,6 +1247,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           testId: "industry-sp-has-trainer-form",
           checked: draftHasTrainerForm,
           onToggle: () => setDraftHasTrainerForm(v => !v),
+        })}
+        {renderTextFilterRow({
+          filterKey: "minModelWinProbability",
+          label: "Model Win %",
+          value: draftMinModelWinProbability,
+          onChange: setDraftMinModelWinProbability,
+          testId: "industry-sp-min-model-win-probability",
         })}
         <View
           testID="industry-sp-filter-row-date"

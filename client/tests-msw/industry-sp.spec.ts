@@ -258,6 +258,26 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     expect(capturedMinTFR).toBe("1");
   });
 
+  test("Model Win % filter is present and sends minModelWinProbability to /api/industry-sp/splits", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-min-model-win-probability")).toBeVisible();
+
+    let captured: string | null = null;
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const url = new URL(route.request().url());
+      captured = url.searchParams.get("minModelWinProbability");
+      await route.continue();
+    });
+
+    await page.getByTestId("industry-sp-min-model-win-probability").fill("30");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(captured).toBe("30");
+
+    await page.getByTestId("industry-sp-filter-reset").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-min-model-win-probability")).toHaveValue("0");
+  });
+
   test("setting maxRunnersInRange=2 zeroes out the aggregate (mocked race has 3 runners in range)", async ({ page }) => {
     const maxInput = page.getByTestId("industry-sp-max-rir-value");
     await maxInput.fill("2");
@@ -611,6 +631,12 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-item-trainer-form-12346")).not.toBeVisible();
   });
 
+  test("shows the model win-probability badge on every runner (no cold-start gap, unlike trainer form)", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-item-model-12345")).toContainText("13%");
+    await expect(page.getByTestId("industry-sp-item-model-12346")).toContainText("8%");
+    await expect(page.getByTestId("industry-sp-item-model-12347")).toContainText("39%");
+  });
+
   test("filters applied via the URL query string are respected", async ({ page }) => {
     await page.goto("/isp/races?maxInIspRange=2");
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
@@ -650,6 +676,22 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     // The race header's own runner count should reflect what's actually
     // shown (1), not the full field (3).
     await expect(page.getByTestId("industry-sp-race-914592")).toContainText("1 runners");
+  });
+
+  test("minModelWinProbability hides individual runners below the threshold, and excludes races with none above it", async ({ page }) => {
+    // Fixture race 914592 has modelWinProbability 12.5/8.3/39.2 for runners
+    // 12345/12346/12347 — a 20% threshold should show only 12347. Fixture
+    // race 773337 (Teston, modelWinProbability=100) should still be
+    // included since its one runner clears the bar.
+    await page.goto("/isp/races?minModelWinProbability=20");
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("industry-sp-item-12347")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-item-12345")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-item-12346")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-race-914592")).toContainText("1 runners");
+    await expect(page.getByTestId("industry-sp-race-773337")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-item-99001")).toBeVisible();
   });
 
   test("← Filters button returns to /isp", async ({ page }) => {

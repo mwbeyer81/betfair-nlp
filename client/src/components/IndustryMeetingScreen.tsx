@@ -200,6 +200,11 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
                         </Text>
                       </TouchableOpacity>
                     )}
+                    {runner.modelWinProbability != null && (
+                      <Text testID={`industry-meeting-item-model-${runner.id}`} style={styles.modelBadge}>
+                        Model {runner.modelWinProbability.toFixed(0)}%
+                      </Text>
+                    )}
                     <View
                       style={[
                         styles.statusBadge,
@@ -445,5 +450,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     color: colors.textTertiary,
+  },
+  modelBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.accent,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+    marginRight: spacing.sm,
   },
 });

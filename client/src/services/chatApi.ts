@@ -81,6 +81,10 @@ export interface IspRunner {
   trainerFormWinRate?: number | null;
   trainerFormStaked?: number;
   trainerFormReturns?: number;
+  // XGBoost win-probability estimate (0-100, normalized so a race's
+  // runners sum to 100) — precomputed in ml/train_and_predict.py,
+  // deliberately trained without isp/ispFraction/isFavourite as inputs.
+  modelWinProbability?: number | null;
 }
 
 export interface IspRace {
@@ -428,7 +432,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string): Promise<IspPage> {
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -455,6 +459,7 @@ class ChatApi {
     if (minTrainerFormRunners != null) params.set("minTrainerFormRunners", String(minTrainerFormRunners));
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (runnerName) params.set("runnerName", runnerName);
+    if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp?${params}`,
       { headers: this.authHeader() }
@@ -499,7 +504,8 @@ class ChatApi {
     jockey?: string,
     trainerFormMinWinRate?: number,
     minTrainerFormRunners?: number,
-    maxTrainerFormRunners?: number
+    maxTrainerFormRunners?: number,
+    minModelWinProbability?: number
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -525,6 +531,7 @@ class ChatApi {
     if (trainerFormMinWinRate != null) params.set("trainerFormMinWinRate", String(trainerFormMinWinRate));
     if (minTrainerFormRunners != null) params.set("minTrainerFormRunners", String(minTrainerFormRunners));
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
+    if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
       { headers: this.authHeader() }

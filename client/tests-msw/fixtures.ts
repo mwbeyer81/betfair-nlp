@@ -209,9 +209,9 @@ async function setupApiMocks(page: Page) {
     going: "Good",
     ran: 3,
     runners: [
-      { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, ispFraction: "7/2", isFavourite: false, trainer: "W P Mullins" },
-      { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, ispFraction: "41/5", isFavourite: false, trainer: "G Elliott", trainerFormRuns: 0 },
-      { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, ispFraction: "11/10", isFavourite: true, trainer: "W P Mullins", trainerFormRuns: 14, trainerFormWins: 3, trainerFormWinRate: 21.43 },
+      { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, ispFraction: "7/2", isFavourite: false, trainer: "W P Mullins", modelWinProbability: 12.5 },
+      { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, ispFraction: "41/5", isFavourite: false, trainer: "G Elliott", trainerFormRuns: 0, modelWinProbability: 8.3 },
+      { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, ispFraction: "11/10", isFavourite: true, trainer: "W P Mullins", trainerFormRuns: 14, trainerFormWins: 3, trainerFormWinRate: 21.43, modelWinProbability: 39.2 },
     ],
   };
 
@@ -233,7 +233,7 @@ async function setupApiMocks(page: Page) {
     going: "Good",
     ran: 1,
     runners: [
-      { id: 99001, name: "Teston (FR)", num: 1, draw: 2, status: "PLACED", sortPriority: 1, isp: 11, ispFraction: "10/1", isFavourite: false, trainer: "Ivan Furtado", trainerFormRuns: 0 },
+      { id: 99001, name: "Teston (FR)", num: 1, draw: 2, status: "PLACED", sortPriority: 1, isp: 11, ispFraction: "10/1", isFavourite: false, trainer: "Ivan Furtado", trainerFormRuns: 0, modelWinProbability: 100 },
     ],
   };
 
@@ -244,6 +244,7 @@ async function setupApiMocks(page: Page) {
     const runnerName = reqUrl.searchParams.get("runnerName");
     const minTrainerFormRunners = parseInt(reqUrl.searchParams.get("minTrainerFormRunners") ?? "0");
     const trainerFormMinWinRate = parseFloat(reqUrl.searchParams.get("trainerFormMinWinRate") ?? "0");
+    const minModelWinProbability = parseFloat(reqUrl.searchParams.get("minModelWinProbability") ?? "0");
     let raceData = maxInIspRange >= 3 ? [MOCK_INDUSTRY_SP_RACE, MOCK_NO_FORM_RACE] : [];
     // Runner History screen scopes every request to one horse's exact name
     // (case-insensitive) — mirrors the real backend's anchored-both-ends match.
@@ -262,6 +263,16 @@ async function setupApiMocks(page: Page) {
         );
         return qualifying.length >= minTrainerFormRunners;
       });
+    }
+    // Mirrors the real DAO's modelQualifyingCount check — a race qualifies
+    // if at least 1 runner has modelWinProbability >= minModelWinProbability.
+    if (minModelWinProbability > 0) {
+      raceData = raceData.filter((race) =>
+        race.runners.some(
+          (r) => (r as { modelWinProbability?: number }).modelWinProbability != null &&
+            (r as { modelWinProbability: number }).modelWinProbability >= minModelWinProbability
+        )
+      );
     }
     route.fulfill({
       json: {

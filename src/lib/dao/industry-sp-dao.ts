@@ -32,6 +32,13 @@ export interface IspRunner {
   trainerFormWinRate?: number | null;
   trainerFormStaked?: number;
   trainerFormReturns?: number;
+  // XGBoost win-probability estimate (0-100, normalized so a race's runners
+  // sum to 100) — precomputed in ml/train_and_predict.py, deliberately
+  // trained WITHOUT isp/ispFraction/isFavourite as inputs so it's an
+  // independent view, not a recalibration of the market's own price.
+  // Populated for every runner (no cold-start gap like trainerForm), so
+  // undefined only means the precompute hasn't been run at all yet.
+  modelWinProbability?: number | null;
 }
 
 export interface IspRace {
@@ -99,7 +106,8 @@ export class IndustrySpDAO {
     trainerFormMinWinRate = 0,
     minTrainerFormRunners = 0,
     maxTrainerFormRunners = 100,
-    runnerName: string | null = null
+    runnerName: string | null = null,
+    minModelWinProbability = 0
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -285,6 +293,29 @@ export class IndustrySpDAO {
         }
       : 0;
 
+    // Same shape again for the model win-probability threshold — a single
+    // "at least 1 qualifying runner" check (no separate min/max count pair
+    // exposed here, unlike trainerForm's, since there's no UI need for it).
+    // Same fast-path reasoning: skip the $filter/$size scan entirely when
+    // the threshold is at its 0 no-op default.
+    const modelFilterActive = minModelWinProbability > 0;
+    const modelQualifyingCountExpr = modelFilterActive
+      ? {
+          $size: {
+            $filter: {
+              input: "$runners",
+              as: "r",
+              cond: {
+                $and: [
+                  { $ne: ["$$r.modelWinProbability", null] },
+                  { $gte: ["$$r.modelWinProbability", minModelWinProbability] },
+                ],
+              },
+            },
+          },
+        }
+      : 0;
+
     // Only a per-race id + sort key + the two precomputed counts survive
     // into the $facet — every other field (course, meetingName, runners,
     // ...) is re-fetched via $lookup after sorting/paginating down to a
@@ -313,6 +344,7 @@ export class IndustrySpDAO {
           allRunnersCount: "$runnersWithIspCount",
           inRangeRunnersCount: inRangeRunnersCountExpr,
           trainerFormQualifyingCount: trainerFormQualifyingCountExpr,
+          modelQualifyingCount: modelQualifyingCountExpr,
         },
       },
       {
@@ -323,6 +355,7 @@ export class IndustrySpDAO {
               { $lte: ["$inRangeRunnersCount", maxInIspRange] },
               { $gte: ["$trainerFormQualifyingCount", minTrainerFormRunners] },
               { $lte: ["$trainerFormQualifyingCount", maxTrainerFormRunners] },
+              { $gte: ["$modelQualifyingCount", modelFilterActive ? 1 : 0] },
             ],
           },
         },
