@@ -371,6 +371,99 @@ describe("IndustrySpDAO (integration)", () => {
     }
   });
 
+  it("totalRunners (qualifyingRunnersCount-based) still matches the isp-range-only count when no optional filter is active", async () => {
+    // Fast-path equivalence: buildQualifyingRaceStages' qualifyingRunnersCount
+    // reuses inRangeRunnersCount directly whenever none of trainer-form/
+    // model/model-beats-SP are active. pnlStats.count is a good independent
+    // cross-check — it's untouched by this change and still sums
+    // inRangeRunnersCount directly (see the DAO's pnlStats fast path,
+    // deliberately left alone per product decision to not rescope P&L) — so
+    // with no optional filters and the default isp range (which takes the
+    // pnlStats fast path), the two must be exactly equal.
+    const result = await dao.getAllRacesByRace(1, 20, 1, 100);
+    expect(result.totalRunners).toBeGreaterThan(0);
+    expect(result.totalRunners).toBe(result.pnlStats.count);
+  });
+
+  it("qualifyingRunnersCount-based totalRunners strictly narrows (or matches) as trainer-form/model filters stack, when seeded", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const hasModelData = sample[0]?.runners.some(
+      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+    );
+    if (!hasModelData) return;
+
+    const none = await dao.getAllRacesByRace(1, 20, 1, 100);
+    const modelOnly = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, null, 30
+    );
+    const modelAndBeatsSp = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, null, 30, true
+    );
+    // Layering on more joint conditions can only keep or shrink the
+    // qualifying-runner total, never grow it.
+    expect(modelOnly.totalRunners).toBeLessThanOrEqual(none.totalRunners);
+    expect(modelAndBeatsSp.totalRunners).toBeLessThanOrEqual(modelOnly.totalRunners);
+  });
+
+  it("getQualifyingRunnerSplitBoundary partitions totalRunners exactly, with no filters active", async () => {
+    const grand = await dao.getAllRacesByRace(1, 1, 1, 100);
+    if (grand.totalRunners === 0) return;
+    const target = Math.ceil(grand.totalRunners / 2);
+    const { boundaryRowIndex } = await dao.getQualifyingRunnerSplitBoundary(
+      1, 100, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, target
+    );
+    expect(boundaryRowIndex).not.toBeNull();
+
+    const splitA = await dao.getAllRacesByRace(1, 1, 1, 100, [], 1, 1000, "asc", 1, 10000, 1, boundaryRowIndex!);
+    const splitB = await dao.getAllRacesByRace(1, 1, 1, 100, [], 1, 1000, "asc", 1, 10000, boundaryRowIndex! + 1, null);
+
+    // Exact partition — no gap or double-count across the boundary.
+    expect(splitA.total + splitB.total).toBe(grand.total);
+    expect(splitA.totalRunners + splitB.totalRunners).toBe(grand.totalRunners);
+    // The boundary is the first race whose cumulative count reaches the
+    // target, so Split A always has at least the target, Split B at most
+    // the remainder.
+    expect(splitA.totalRunners).toBeGreaterThanOrEqual(target);
+    expect(splitB.totalRunners).toBeLessThanOrEqual(Math.floor(grand.totalRunners / 2));
+  });
+
+  it("getQualifyingRunnerSplitBoundary still partitions exactly with trainer-form + model filters both active, when seeded", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const hasTrainerFormData = sample[0]?.runners.some(
+      r => (r as unknown as { trainerFormRuns?: number }).trainerFormRuns != null
+    );
+    const hasModelData = sample[0]?.runners.some(
+      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+    );
+    if (!hasTrainerFormData || !hasModelData) return;
+
+    const grand = await dao.getAllRacesByRace(
+      1, 1, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 1, 30, null, 10
+    );
+    if (grand.totalRunners === 0) return;
+    const target = Math.ceil(grand.totalRunners / 2);
+    const { boundaryRowIndex } = await dao.getQualifyingRunnerSplitBoundary(
+      1, 100, [], 1, 100000, 1, 10000, null, null, [], [], [], [], null, null, 0, 1, 30, 10, false, target
+    );
+    expect(boundaryRowIndex).not.toBeNull();
+
+    const splitA = await dao.getAllRacesByRace(
+      1, 1, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, boundaryRowIndex!, null, null,
+      [], [], [], [], null, null, 0, 1, 30, null, 10
+    );
+    const splitB = await dao.getAllRacesByRace(
+      1, 1, 1, 100, [], 1, 100000, "asc", 1, 10000, boundaryRowIndex! + 1, null, null, null,
+      [], [], [], [], null, null, 0, 1, 30, null, 10
+    );
+
+    expect(splitA.total + splitB.total).toBe(grand.total);
+    expect(splitA.totalRunners + splitB.totalRunners).toBe(grand.totalRunners);
+    expect(splitA.totalRunners).toBeGreaterThanOrEqual(target);
+  });
+
   it("filters by exact runner (horse) name, case-insensitive", async () => {
     const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
     const runnerName = sample[0]?.runners[0]?.name;

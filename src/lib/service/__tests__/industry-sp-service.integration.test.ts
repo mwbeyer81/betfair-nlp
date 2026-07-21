@@ -21,21 +21,33 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     await client.close();
   });
 
-  it("defaults to an even first-half/second-half split of the current total", async () => {
+  it("defaults to an even first-half/second-half split of the current total, bisected by qualifying-runner count", async () => {
+    // The default split boundary is chosen by cumulative *qualifying
+    // runner* count (getQualifyingRunnerSplitBoundary), not race count — a
+    // race-count bisection can leave the two splits with very uneven
+    // runner counts once trainer-form/model/model-beats-SP filters are
+    // active (not exercised here, but the invariant holds regardless).
     const result = await service.getSplitStats();
     expect(result.totalRaces).toBeGreaterThan(0);
+    expect(result.totalRunners).toBeGreaterThan(0);
 
-    const half = Math.floor(result.totalRaces / 2);
     expect(result.splitA.fromRow).toBe(1);
-    expect(result.splitA.toRow).toBe(half);
-    expect(result.splitB.fromRow).toBe(half + 1);
+    expect(result.splitB.fromRow).toBe(result.splitA.toRow! + 1);
     // Open-ended (through the end) rather than a concrete number, so it
     // never needs reclamping as the total changes with the filters.
     expect(result.splitB.toRow).toBeNull();
 
-    // Together they cover every matching race exactly once.
-    expect(result.splitA.total).toBe(half);
-    expect(result.splitB.total).toBe(result.totalRaces - half);
+    // Together they cover every matching race — and every qualifying
+    // runner — exactly once, no gap or double-count.
+    expect(result.splitA.total + result.splitB.total).toBe(result.totalRaces);
+    expect(result.splitA.totalRunners + result.splitB.totalRunners).toBe(result.totalRunners);
+
+    // The crossover race is the first (in raceTime order) whose cumulative
+    // qualifying-runner count reaches half — so Split A's runner count is
+    // always >= the target, and Split B's is always <= the remainder.
+    const target = Math.ceil(result.totalRunners / 2);
+    expect(result.splitA.totalRunners).toBeGreaterThanOrEqual(target);
+    expect(result.splitB.totalRunners).toBeLessThanOrEqual(Math.floor(result.totalRunners / 2));
   });
 
   it("splits are independent — each carries its own pnlStats", async () => {
@@ -67,11 +79,10 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     const filtered = await service.getSplitStats(1, 100, [country]);
     const unfiltered = await service.getSplitStats(1, 100, []);
     expect(filtered.totalRaces).toBeLessThanOrEqual(unfiltered.totalRaces);
-    // Half/half of whatever the filtered total is — always sums back to
-    // the filtered total, unlike the old fixed-1000/1000-window default.
-    const half = Math.floor(filtered.totalRaces / 2);
-    expect(filtered.splitA.total).toBe(half);
-    expect(filtered.splitB.total).toBe(filtered.totalRaces - half);
+    // Splits always sum back to the filtered total — races and qualifying
+    // runners alike — regardless of which filter narrowed it.
+    expect(filtered.splitA.total + filtered.splitB.total).toBe(filtered.totalRaces);
+    expect(filtered.splitA.totalRunners + filtered.splitB.totalRunners).toBe(filtered.totalRunners);
   });
 
   it("an inverted split range (toRowA < fromRowA) returns an empty split instead of throwing", async () => {

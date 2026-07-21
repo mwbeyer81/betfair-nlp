@@ -188,23 +188,42 @@ export class IndustrySpService {
 
     // Splits default to an even first-half/second-half divide of whatever
     // the current total is, whenever the caller doesn't pin down explicit
-    // boundaries (a fresh page load, or after Reset) — this used to be a
-    // fixed 1000/1000-race window instead, but that assumed a total in the
-    // thousands; now that the date filter caps the default view to one
-    // month (see FILTER_DEFAULTS in IndustrySpScreen.tsx), a fixed
-    // 1000/1000 window routinely left Split B empty (fromRowB=1001 beyond
-    // a total that's often well under 1000 for a single month). Half/half
-    // guarantees both splits are populated regardless of how small the
-    // total is. effToB is left open-ended (null, "through the end") rather
-    // than an explicit number so it never needs reclamping as the total
-    // changes with the filters.
+    // boundaries (a fresh page load, or after Reset). Bisected by
+    // *qualifying runner count*, not race count — a race-count bisection
+    // (the old behavior) can leave Split A and Split B with very uneven
+    // numbers of runners that actually match the active filters once
+    // trainer-form/model/model-beats-SP are on, since qualifying-runner
+    // count per race varies once those filters cut some runners out.
+    // effToB is left open-ended (null, "through the end") rather than an
+    // explicit number so it never needs reclamping as the total changes
+    // with the filters. Explicit (user-edited) split boundaries are
+    // unaffected — they stay race-index numbers, since "View Races" always
+    // needs to fetch actual race documents.
     const splitsAreDefault = fromRowA == null && toRowA == null && fromRowB == null && toRowB == null;
     let effFromA = fromRowA ?? 1;
     let effToA = toRowA;
     let effFromB = fromRowB ?? 1;
     let effToB = toRowB;
     if (splitsAreDefault) {
-      const half = Math.floor(grand.total / 2);
+      let half: number;
+      if (grand.totalRunners > 0) {
+        const target = Math.ceil(grand.totalRunners / 2);
+        const { boundaryRowIndex } = await this.industrySpDAO.getQualifyingRunnerSplitBoundary(
+          minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
+          minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
+          trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+          minModelWinProbability, onlyModelBeatsSp, target
+        );
+        // Defensive fallback only — boundaryRowIndex should always resolve
+        // when grand.totalRunners > 0 (the same matched set produced that
+        // total), but a race-count bisection is a safe degradation if it
+        // somehow doesn't.
+        half = boundaryRowIndex ?? Math.floor(grand.total / 2);
+      } else {
+        // No qualifying runners at all — both splits stay empty either way,
+        // race-count bisection is fine (and cheaper, skips the extra query).
+        half = Math.floor(grand.total / 2);
+      }
       effFromA = 1;
       effToA = half;
       effFromB = half + 1;

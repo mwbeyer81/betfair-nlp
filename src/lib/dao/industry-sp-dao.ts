@@ -78,6 +78,179 @@ export class IndustrySpDAO {
   }
 
   /**
+   * Builds the race-matching + per-race qualifying-count stages shared by
+   * getAllRacesByRace and getQualifyingRunnerSplitBoundary — extracted so
+   * the two can never drift apart on what counts as "a matching race" /
+   * "a qualifying runner". Returns the $match (scalar filters + isp-range
+   * runner count) + $addFields (qualifying-count expressions) + $match
+   * (threshold expr) trio; callers add their own leading date/sort stages
+   * and trailing $project.
+   */
+  private buildQualifyingRaceStages(p: {
+    countries: string[];
+    minRunners: number;
+    maxRunners: number;
+    minIsp: number;
+    maxIsp: number;
+    minInIspRange: number;
+    maxInIspRange: number;
+    courses: string[];
+    goings: string[];
+    raceClasses: string[];
+    raceTypes: string[];
+    trainerSearch: string | null;
+    jockeySearch: string | null;
+    runnerName: string | null;
+    trainerFormMinWinRate: number;
+    minTrainerFormRunners: number;
+    maxTrainerFormRunners: number;
+    minModelWinProbability: number;
+    onlyModelBeatsSp: boolean;
+  }): Record<string, unknown>[] {
+    const countryMatch = p.countries.length > 0 ? { countryCode: { $in: p.countries } } : {};
+    const courseMatch = p.courses.length > 0 ? { course: { $in: p.courses } } : {};
+    const goingMatch = p.goings.length > 0 ? { going: { $in: p.goings } } : {};
+    const raceClassMatch = p.raceClasses.length > 0 ? { raceClass: { $in: p.raceClasses } } : {};
+    const raceTypeMatch = p.raceTypes.length > 0 ? { raceType: { $in: p.raceTypes } } : {};
+
+    const runnerTextMatches: Record<string, unknown>[] = [];
+    if (p.trainerSearch) {
+      runnerTextMatches.push({
+        runners: { $elemMatch: { trainer: { $regex: `^${escapeRegex(p.trainerSearch)}`, $options: "i" } } },
+      });
+    }
+    if (p.jockeySearch) {
+      runnerTextMatches.push({
+        runners: { $elemMatch: { jockey: { $regex: `^${escapeRegex(p.jockeySearch)}`, $options: "i" } } },
+      });
+    }
+    if (p.runnerName) {
+      runnerTextMatches.push({
+        runners: { $elemMatch: { name: { $regex: `^${escapeRegex(p.runnerName)}$`, $options: "i" } } },
+      });
+    }
+    const runnerTextMatch = runnerTextMatches.length > 0 ? { $and: runnerTextMatches } : {};
+
+    const runnersInRangeFilter = {
+      $filter: {
+        input: "$runners",
+        as: "r",
+        cond: {
+          $and: [
+            { $ifNull: ["$$r.isp", false] },
+            { $gt: ["$$r.isp", 1] },
+            { $gte: ["$$r.isp", p.minIsp] },
+            { $lte: ["$$r.isp", p.maxIsp] },
+          ],
+        },
+      },
+    };
+
+    const ispRangeCoversAllRealValues = p.minIsp <= 1 && p.maxIsp >= 1000;
+    const inRangeRunnersCountExpr = ispRangeCoversAllRealValues
+      ? "$runnersWithIspCount"
+      : { $size: runnersInRangeFilter };
+
+    const trainerFormFilterActive = p.minTrainerFormRunners > 0 || p.maxTrainerFormRunners < 100;
+    const trainerFormCond = [
+      { $ne: ["$$r.trainerFormWinRate", null] },
+      { $gte: ["$$r.trainerFormWinRate", p.trainerFormMinWinRate] },
+    ];
+    const trainerFormQualifyingCountExpr = trainerFormFilterActive
+      ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: trainerFormCond } } } }
+      : 0;
+
+    const modelFilterActive = p.minModelWinProbability > 0;
+    const modelCond = [
+      { $ne: ["$$r.modelWinProbability", null] },
+      { $gte: ["$$r.modelWinProbability", p.minModelWinProbability] },
+    ];
+    const modelQualifyingCountExpr = modelFilterActive
+      ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: modelCond } } } }
+      : 0;
+
+    const modelBeatsSpFilterActive = p.onlyModelBeatsSp;
+    const modelBeatsSpCond = [
+      { $ne: ["$$r.modelWinProbability", null] },
+      { $ne: ["$$r.isp", null] },
+      { $gt: ["$$r.isp", 0] },
+      { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
+    ];
+    const modelBeatsSpQualifyingCountExpr = modelBeatsSpFilterActive
+      ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: modelBeatsSpCond } } } }
+      : 0;
+
+    // Combined per-runner qualifying count: isp-in-range AND every currently
+    // active runner-level filter, jointly (not independently) — mirrors
+    // IspRacesScreen.tsx's client-side qualifyingRunners() exactly, unlike
+    // the three counts above (each only proves "at least one runner
+    // satisfies THIS filter", not that a single runner satisfies all of them
+    // at once). Backs both the totalRunners stat and the runner-count split
+    // boundary (getQualifyingRunnerSplitBoundary). Fast path: identical to
+    // inRangeRunnersCount when none of the three optional filters are active.
+    const qualifyingRunnersFilterActive = trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive;
+    const qualifyingRunnersCountExpr = qualifyingRunnersFilterActive
+      ? {
+          $size: {
+            $filter: {
+              input: "$runners",
+              as: "r",
+              cond: {
+                $and: [
+                  { $ifNull: ["$$r.isp", false] },
+                  { $gt: ["$$r.isp", 1] },
+                  { $gte: ["$$r.isp", p.minIsp] },
+                  { $lte: ["$$r.isp", p.maxIsp] },
+                  ...(trainerFormFilterActive ? trainerFormCond : []),
+                  ...(modelFilterActive ? modelCond : []),
+                  ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
+                ],
+              },
+            },
+          },
+        }
+      : inRangeRunnersCountExpr;
+
+    return [
+      {
+        $match: {
+          ...countryMatch,
+          ...courseMatch,
+          ...goingMatch,
+          ...raceClassMatch,
+          ...raceTypeMatch,
+          ...runnerTextMatch,
+          runnersWithIspCount: { $gte: p.minRunners, $lte: p.maxRunners },
+        },
+      },
+      {
+        $addFields: {
+          allRunnersCount: "$runnersWithIspCount",
+          inRangeRunnersCount: inRangeRunnersCountExpr,
+          trainerFormQualifyingCount: trainerFormQualifyingCountExpr,
+          modelQualifyingCount: modelQualifyingCountExpr,
+          modelBeatsSpQualifyingCount: modelBeatsSpQualifyingCountExpr,
+          qualifyingRunnersCount: qualifyingRunnersCountExpr,
+        },
+      },
+      {
+        $match: {
+          $expr: {
+            $and: [
+              { $gte: ["$inRangeRunnersCount", p.minInIspRange] },
+              { $lte: ["$inRangeRunnersCount", p.maxInIspRange] },
+              { $gte: ["$trainerFormQualifyingCount", p.minTrainerFormRunners] },
+              { $lte: ["$trainerFormQualifyingCount", p.maxTrainerFormRunners] },
+              { $gte: ["$modelQualifyingCount", modelFilterActive ? 1 : 0] },
+              { $gte: ["$modelBeatsSpQualifyingCount", modelBeatsSpFilterActive ? 1 : 0] },
+            ],
+          },
+        },
+      },
+    ];
+  }
+
+  /**
    * Return all races grouped by meeting, sorted chronologically.
    * Runners with no parseable ISP (isp === null) are excluded, mirroring how
    * REMOVED/missing-bsp runners are excluded on the Betfair-SP equivalent.
@@ -134,37 +307,6 @@ export class IndustrySpDAO {
       return { data: [], total: 0, totalRunners: 0, pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 } };
     }
 
-    const countryMatch = countries.length > 0 ? { countryCode: { $in: countries } } : {};
-    // Race-level scalar fields, same $in shape as countryMatch above.
-    const courseMatch = courses.length > 0 ? { course: { $in: courses } } : {};
-    const goingMatch = goings.length > 0 ? { going: { $in: goings } } : {};
-    const raceClassMatch = raceClasses.length > 0 ? { raceClass: { $in: raceClasses } } : {};
-    const raceTypeMatch = raceTypes.length > 0 ? { raceType: { $in: raceTypes } } : {};
-    // Runner-level: a race matches if ANY runner's trainer/jockey starts
-    // with the search text (case-insensitive prefix match — anchored so it
-    // can use the runners.trainer/runners.jockey indexes, unlike an
-    // unanchored substring search).
-    const runnerTextMatches: Record<string, unknown>[] = [];
-    if (trainerSearch) {
-      runnerTextMatches.push({
-        runners: { $elemMatch: { trainer: { $regex: `^${escapeRegex(trainerSearch)}`, $options: "i" } } },
-      });
-    }
-    if (jockeySearch) {
-      runnerTextMatches.push({
-        runners: { $elemMatch: { jockey: { $regex: `^${escapeRegex(jockeySearch)}`, $options: "i" } } },
-      });
-    }
-    // Exact (not prefix) match, anchored both ends — this is a "find this
-    // specific horse's history" lookup (Runner History screen), not a
-    // typeahead search, so "Sea The Stars" must not also match a race
-    // whose runner is "Sea The Star".
-    if (runnerName) {
-      runnerTextMatches.push({
-        runners: { $elemMatch: { name: { $regex: `^${escapeRegex(runnerName)}$`, $options: "i" } } },
-      });
-    }
-    const runnerTextMatch = runnerTextMatches.length > 0 ? { $and: runnerTextMatches } : {};
     const raceTimeSortDir = sortOrder === "desc" ? -1 : 1;
 
     // Narrows the matched set by calendar date *before* anything else in
@@ -228,172 +370,36 @@ export class IndustrySpDAO {
           { $limit: limit },
         ];
 
-    const runnersInRangeFilter = {
-      $filter: {
-        input: "$runners",
-        as: "r",
-        cond: {
-          $and: [
-            { $ifNull: ["$$r.isp", false] },
-            { $gt: ["$$r.isp", 1] },
-            { $gte: ["$$r.isp", minIsp] },
-            { $lte: ["$$r.isp", maxIsp] },
-          ],
-        },
-      },
-    };
-
-    // `runnersWithIspCount` is precomputed at import time (see
-    // import-industry-sp.ts) as "count of runners with a valid, parseable
-    // ISP (isp > 1)" — a definition that never depends on request params, so
-    // it's stored + indexed instead of recomputed via $filter/$size on every
-    // query. That makes it always usable for allRunnersCount, and it doubles
-    // as inRangeRunnersCount whenever the isp range filter is wide enough to
-    // cover every real isp value (true range in this dataset is
-    // [1.01, 751]; minIsp<=1/maxIsp>=1000 matches the frontend's own
-    // "no filter" defaults with margin). When the caller actually narrows
-    // the isp range, fall back to the on-the-fly $filter as before.
+    // Still needed locally for the pnlStats fast-path decision below
+    // (buildQualifyingRaceStages uses the same expression internally for
+    // inRangeRunnersCount, but doesn't expose it — trivial to recompute).
     const ispRangeCoversAllRealValues = minIsp <= 1 && maxIsp >= 1000;
-    const inRangeRunnersCountExpr = ispRangeCoversAllRealValues
-      ? "$runnersWithIspCount"
-      : { $size: runnersInRangeFilter };
 
-    // Runner-level "in form" threshold, race-level qualifying-runner count —
-    // same $filter/$size-on-array-expression shape as inRangeRunnersCount
-    // above, deliberately not $unwind: trainerFormMinWinRate is a
-    // request-time threshold (unlike runnersWithIspCount's fixed isp>1
-    // definition), so unlike that field it can't be precomputed once at
-    // import time.
-    //
-    // Unlike inRangeRunnersCount though, there's no isp-range-style "covers
-    // everything" fast path available here (the underlying trainerFormWinRate
-    // values aren't known ahead of time), so instead this skips the $filter/
-    // $size scan entirely whenever the bounds are at their true no-op
-    // defaults (minTrainerFormRunners<=0, maxTrainerFormRunners>=100 — every
-    // real per-race runner count is well under 100) and substitutes a literal
-    // 0. Without this, every single request — including the overwhelming
-    // majority that never touch this filter — would pay a $filter/$size scan
-    // over every matched race's runners array, which is exactly the class of
-    // per-request array scan this DAO has otherwise gone to lengths to avoid
-    // on Atlas M0 (see the comments throughout this file).
-    const trainerFormFilterActive = minTrainerFormRunners > 0 || maxTrainerFormRunners < 100;
-    const trainerFormQualifyingCountExpr = trainerFormFilterActive
-      ? {
-          $size: {
-            $filter: {
-              input: "$runners",
-              as: "r",
-              cond: {
-                $and: [
-                  { $ne: ["$$r.trainerFormWinRate", null] },
-                  { $gte: ["$$r.trainerFormWinRate", trainerFormMinWinRate] },
-                ],
-              },
-            },
-          },
-        }
-      : 0;
-
-    // Same shape again for the model win-probability threshold — a single
-    // "at least 1 qualifying runner" check (no separate min/max count pair
-    // exposed here, unlike trainerForm's, since there's no UI need for it).
-    // Same fast-path reasoning: skip the $filter/$size scan entirely when
-    // the threshold is at its 0 no-op default.
-    const modelFilterActive = minModelWinProbability > 0;
-    const modelQualifyingCountExpr = modelFilterActive
-      ? {
-          $size: {
-            $filter: {
-              input: "$runners",
-              as: "r",
-              cond: {
-                $and: [
-                  { $ne: ["$$r.modelWinProbability", null] },
-                  { $gte: ["$$r.modelWinProbability", minModelWinProbability] },
-                ],
-              },
-            },
-          },
-        }
-      : 0;
-
-    // "Model beats SP" — a per-runner comparison (not a fixed threshold) of
-    // the model's win-probability estimate against the probability implied
-    // by the runner's own industry SP (isp is decimal odds, so implied win%
-    // = 100/isp). Same $filter/$size-with-fast-path shape as the other two
-    // above: skipped entirely when the checkbox is off.
-    const modelBeatsSpFilterActive = onlyModelBeatsSp;
-    const modelBeatsSpQualifyingCountExpr = modelBeatsSpFilterActive
-      ? {
-          $size: {
-            $filter: {
-              input: "$runners",
-              as: "r",
-              cond: {
-                $and: [
-                  { $ne: ["$$r.modelWinProbability", null] },
-                  { $ne: ["$$r.isp", null] },
-                  { $gt: ["$$r.isp", 0] },
-                  { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
-                ],
-              },
-            },
-          },
-        }
-      : 0;
-
-    // Only a per-race id + sort key + the two precomputed counts survive
-    // into the $facet — every other field (course, meetingName, runners,
-    // ...) is re-fetched via $lookup after sorting/paginating down to a
-    // handful of docs, never before. This keeps every $sort in this
-    // pipeline operating on a ~40-byte doc regardless of collection size.
-    // The leading $match filters on the plain, indexed runnersWithIspCount
-    // field directly (not $expr) so it can use the index — this replaces
-    // what used to be a $filter/$size scan over every race's embedded
-    // runners array on every single request.
+    // Only a per-race id + sort key + the qualifying counts survive into
+    // the $facet — every other field (course, meetingName, runners, ...) is
+    // re-fetched via $lookup after sorting/paginating down to a handful of
+    // docs, never before. This keeps every $sort in this pipeline operating
+    // on a ~40-byte doc regardless of collection size. The leading $match
+    // (inside buildQualifyingRaceStages) filters on the plain, indexed
+    // runnersWithIspCount field directly (not $expr) so it can use the
+    // index — this replaces what used to be a $filter/$size scan over
+    // every race's embedded runners array on every single request.
     const basePipeline = [
       ...dateMatchStage,
       ...leadingSortStage,
-      {
-        $match: {
-          ...countryMatch,
-          ...courseMatch,
-          ...goingMatch,
-          ...raceClassMatch,
-          ...raceTypeMatch,
-          ...runnerTextMatch,
-          runnersWithIspCount: { $gte: minRunners, $lte: maxRunners },
-        },
-      },
-      {
-        $addFields: {
-          allRunnersCount: "$runnersWithIspCount",
-          inRangeRunnersCount: inRangeRunnersCountExpr,
-          trainerFormQualifyingCount: trainerFormQualifyingCountExpr,
-          modelQualifyingCount: modelQualifyingCountExpr,
-          modelBeatsSpQualifyingCount: modelBeatsSpQualifyingCountExpr,
-        },
-      },
-      {
-        $match: {
-          $expr: {
-            $and: [
-              { $gte: ["$inRangeRunnersCount", minInIspRange] },
-              { $lte: ["$inRangeRunnersCount", maxInIspRange] },
-              { $gte: ["$trainerFormQualifyingCount", minTrainerFormRunners] },
-              { $lte: ["$trainerFormQualifyingCount", maxTrainerFormRunners] },
-              { $gte: ["$modelQualifyingCount", modelFilterActive ? 1 : 0] },
-              { $gte: ["$modelBeatsSpQualifyingCount", modelBeatsSpFilterActive ? 1 : 0] },
-            ],
-          },
-        },
-      },
+      ...this.buildQualifyingRaceStages({
+        countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
+        courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName,
+        trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+        minModelWinProbability, onlyModelBeatsSp,
+      }),
       {
         $project: {
           _id: 1,
           raceTime: 1,
           allRunnersCount: 1,
           inRangeRunnersCount: 1,
+          qualifyingRunnersCount: 1,
           raceStaked: 1,
           raceReturns: 1,
         },
@@ -474,7 +480,14 @@ export class IndustrySpDAO {
               },
             ],
             total: [{ $count: "count" }],
-            totalRunners: [{ $group: { _id: null, count: { $sum: "$inRangeRunnersCount" } } }],
+            // Sums qualifyingRunnersCount (isp-in-range AND every currently
+            // active runner-level filter, jointly) rather than
+            // inRangeRunnersCount — so this reflects the same runner set
+            // IspRacesScreen.tsx's client-side qualifyingRunners() actually
+            // displays, not just the isp-range filter. Identical to the old
+            // sum whenever none of the trainer-form/model/model-beats-SP
+            // filters are active (see buildQualifyingRaceStages' fast path).
+            totalRunners: [{ $group: { _id: null, count: { $sum: "$qualifyingRunnersCount" } } }],
             // Fast path: raceStaked/raceReturns are precomputed at import time
             // over the same static isp>1 runner set as runnersWithIspCount, so
             // whenever the isp range filter covers every real isp value this
@@ -531,6 +544,112 @@ export class IndustrySpDAO {
       totalRunners: result?.totalRunners?.[0]?.count ?? 0,
       pnlStats: { staked, returns, pnl: returns - staked, count },
     };
+  }
+
+  /**
+   * Finds the race-index (1-based, same "row N of the current sort order"
+   * meaning as getAllRacesByRace's fromRow/toRow) at which the cumulative
+   * count of qualifying runners — in ascending raceTime order — first
+   * reaches targetCumulativeCount. Used by IndustrySpService.getSplitStats
+   * to bisect Split A / Split B by runner count rather than race count, so
+   * both splits end up with a comparable number of runners that actually
+   * match every active filter (not just a comparable number of races, which
+   * can vary wildly in qualifying-runner count once trainer-form/model
+   * filters are active). Returns null only if the matched set is empty.
+   *
+   * Deliberately a separate method rather than an overload of
+   * getAllRacesByRace — "find the boundary for a target cumulative count"
+   * is a different query shape ($setWindowFields cumulative sum) from
+   * "give me races N..M" ($skip/$limit).
+   */
+  public async getQualifyingRunnerSplitBoundary(
+    minRunners = 1,
+    maxRunners = 30,
+    countries: string[] = [],
+    minIsp = 1,
+    maxIsp = 1000,
+    minInIspRange = 1,
+    maxInIspRange = 1000,
+    minRaceTime: string | null = null,
+    maxRaceTime: string | null = null,
+    courses: string[] = [],
+    goings: string[] = [],
+    raceClasses: string[] = [],
+    raceTypes: string[] = [],
+    trainerSearch: string | null = null,
+    jockeySearch: string | null = null,
+    trainerFormMinWinRate = 0,
+    minTrainerFormRunners = 0,
+    maxTrainerFormRunners = 100,
+    minModelWinProbability = 0,
+    onlyModelBeatsSp = false,
+    targetCumulativeCount: number
+  ): Promise<{ boundaryRowIndex: number | null }> {
+    // Same date-narrowing-before-everything-else reasoning as
+    // getAllRacesByRace's own dateMatchStage (see its comment) — lets this
+    // and the leading $sort below both work off one bounded walk of the
+    // {raceTime:1} index.
+    const dateMatchStage: Record<string, unknown>[] =
+      minRaceTime != null || maxRaceTime != null
+        ? [
+            {
+              $match: {
+                raceTime: {
+                  ...(minRaceTime != null ? { $gte: minRaceTime } : {}),
+                  ...(maxRaceTime != null ? { $lte: maxRaceTime } : {}),
+                },
+              },
+            },
+          ]
+        : [];
+
+    const [result] = await this.collection
+      .aggregate<{ rowNumber: number }>(
+        [
+          ...dateMatchStage,
+          { $sort: { raceTime: 1 } },
+          ...this.buildQualifyingRaceStages({
+            countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
+            courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName: null,
+            trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+            minModelWinProbability, onlyModelBeatsSp,
+          }),
+          // Project down to a ~40-60 byte doc before $setWindowFields — it
+          // can't reuse the {raceTime:1} index the leading $sort above
+          // benefits from (its own ordering pass always buffers the
+          // matched set), but at this doc size that's only ~5MB even
+          // across the full ~109k-race collection, comfortably under even
+          // the old Atlas M0 32MB in-memory-sort ceiling — the same
+          // tiny-projected-doc discipline used everywhere else in this
+          // file, just applied to a windowed sum instead of a per-document
+          // $filter/$size.
+          { $project: { _id: 0, raceTime: 1, qualifyingRunnersCount: 1 } },
+          {
+            $setWindowFields: {
+              sortBy: { raceTime: 1 },
+              output: {
+                cumulativeQualifyingRunners: {
+                  $sum: "$qualifyingRunnersCount",
+                  window: { documents: ["unbounded", "current"] },
+                },
+                rowNumber: { $documentNumber: {} },
+              },
+            },
+          },
+          // The first race (in sort order) whose cumulative count reaches
+          // the target is the boundary — everything up to and including it
+          // is Split A. Same tiny-doc byte-size reasoning applies to this
+          // second sort/limit pass.
+          { $match: { cumulativeQualifyingRunners: { $gte: targetCumulativeCount } } },
+          { $sort: { rowNumber: 1 } },
+          { $limit: 1 },
+          { $project: { _id: 0, rowNumber: 1 } },
+        ],
+        { allowDiskUse: true }
+      )
+      .toArray();
+
+    return { boundaryRowIndex: result?.rowNumber ?? null };
   }
 
   /**
