@@ -75,6 +75,14 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const raceTypes = [...urlSetParam("raceTypes")];
   const trainer = urlStringParam("trainer", "") || undefined;
   const jockey = urlStringParam("jockey", "") || undefined;
+  // "Has trainer form" (IndustrySpScreen) only writes hasTrainerForm=true to
+  // the URL, not the raw minTrainerFormRunners/maxTrainerFormRunners the API
+  // actually takes — this screen derives them itself rather than reading
+  // stale param names, the same way applyFilter() does on that screen.
+  const trainerFormMinWinRate = urlFloatParam("trainerFormMinWinRate", 0);
+  const hasTrainerForm = urlStringParam("hasTrainerForm", "") === "true";
+  const minTrainerFormRunners = hasTrainerForm ? 1 : 0;
+  const maxTrainerFormRunners = 100;
 
   useEffect(() => {
     updateUrlParams({ sort: sortOrder !== "asc" ? sortOrder : undefined });
@@ -87,7 +95,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       setError(null);
       setRaces([]);
       try {
-        const result = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey);
+        const result = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners);
         if (cancelled) return;
         setRaces(result.data);
         setPage(1);
@@ -113,7 +121,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     setIsLoadingMore(true);
     try {
       const next = page + 1;
-      const result = await chatApi.getIndustrySp(next, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey);
+      const result = await chatApi.getIndustrySp(next, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners);
       setRaces(prev => [...prev, ...result.data]);
       setPage(next);
       setTotalPages(result.totalPages);

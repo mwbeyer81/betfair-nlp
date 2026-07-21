@@ -617,6 +617,22 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-list")).toContainText("No races found.");
   });
 
+  test("hasTrainerForm=true in the URL excludes a race whose runners have no trainer-form sample", async ({ page }) => {
+    // Regression test: IndustrySpScreen's "Has trainer form" checkbox only
+    // ever affected the Split A/B aggregate totals — it was never actually
+    // threaded through to this screen's own fetch, so tapping "View Races"
+    // and clicking into an individual race could land on a runner with no
+    // trainer form at all, despite the filter being checked. Fixture race
+    // 773337 (Southwell Bombardier Handicap) has exactly one runner with
+    // trainerFormRuns=0 — it must disappear once this filter is on, leaving
+    // only 914592 (which has a runner with real form).
+    await page.goto("/isp/races?hasTrainerForm=true");
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("industry-sp-race-914592")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-race-773337")).not.toBeVisible();
+  });
+
   test("← Filters button returns to /isp", async ({ page }) => {
     await page.getByTestId("industry-sp-races-back").click();
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });

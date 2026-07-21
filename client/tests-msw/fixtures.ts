@@ -215,18 +215,53 @@ async function setupApiMocks(page: Page) {
     ],
   };
 
+  // A second race where every runner has zero trainer-form sample — the
+  // same shape as the real cold-start-window bug (a race whose runners'
+  // trainers have no runs in the trailing 14 days as of that race). Used to
+  // prove the "Has trainer form" filter actually excludes a race like this
+  // from the individual races list, not just the Split aggregate totals.
+  const MOCK_NO_FORM_RACE = {
+    raceId: 773337,
+    meetingId: "Southwell|2021-01-01",
+    meetingName: "Southwell — 1 January 2021",
+    course: "Southwell",
+    countryCode: "GB",
+    raceTime: "2021-01-01T01:15:00",
+    raceName: "Bombardier Handicap",
+    raceType: "Flat",
+    raceClass: "Class 1",
+    going: "Good",
+    ran: 1,
+    runners: [
+      { id: 99001, name: "Teston (FR)", num: 1, draw: 2, status: "PLACED", sortPriority: 1, isp: 11, ispFraction: "10/1", isFavourite: false, trainer: "Ivan Furtado", trainerFormRuns: 0 },
+    ],
+  };
+
   await page.route((url) => url.pathname === "/api/industry-sp", (route) => {
     // The mocked race has 3 runners in ISP range. Return empty data when maxInIspRange < 3.
     const reqUrl = new URL(route.request().url());
     const maxInIspRange = parseInt(reqUrl.searchParams.get("maxInIspRange") ?? "30");
     const runnerName = reqUrl.searchParams.get("runnerName");
-    let raceData = maxInIspRange >= 3 ? [MOCK_INDUSTRY_SP_RACE] : [];
+    const minTrainerFormRunners = parseInt(reqUrl.searchParams.get("minTrainerFormRunners") ?? "0");
+    const trainerFormMinWinRate = parseFloat(reqUrl.searchParams.get("trainerFormMinWinRate") ?? "0");
+    let raceData = maxInIspRange >= 3 ? [MOCK_INDUSTRY_SP_RACE, MOCK_NO_FORM_RACE] : [];
     // Runner History screen scopes every request to one horse's exact name
     // (case-insensitive) — mirrors the real backend's anchored-both-ends match.
     if (runnerName) {
       raceData = raceData.filter((race) =>
         race.runners.some((r) => r.name.toLowerCase() === runnerName.toLowerCase())
       );
+    }
+    // Mirrors the real DAO: a race qualifies if at least minTrainerFormRunners
+    // of its runners have a non-null trainerFormWinRate >= trainerFormMinWinRate.
+    if (minTrainerFormRunners > 0) {
+      raceData = raceData.filter((race) => {
+        const qualifying = race.runners.filter(
+          (r) => (r as { trainerFormWinRate?: number }).trainerFormWinRate != null &&
+            (r as { trainerFormWinRate: number }).trainerFormWinRate >= trainerFormMinWinRate
+        );
+        return qualifying.length >= minTrainerFormRunners;
+      });
     }
     route.fulfill({
       json: {
