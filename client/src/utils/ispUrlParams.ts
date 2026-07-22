@@ -47,6 +47,7 @@ const ISP_FILTER_PARAM_NAMES = [
   "minDate", "maxDate", "sort",
   "countries", "courses", "goings", "raceClasses", "raceTypes", "trainer", "jockey",
   "fromRowA", "toRowA", "fromRowB", "toRowB",
+  "fromRunnerA", "toRunnerA", "fromRunnerB", "toRunnerB",
   "trainerFormMinWinRate", "hasTrainerForm", "minModelWinProbability", "onlyModelBeatsSp", "splitByRunners",
 ];
 

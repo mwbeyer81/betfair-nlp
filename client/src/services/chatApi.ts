@@ -508,7 +508,11 @@ class ChatApi {
     maxTrainerFormRunners?: number,
     minModelWinProbability?: number,
     onlyModelBeatsSp?: boolean,
-    splitByRunners?: boolean
+    splitByRunners?: boolean,
+    fromRunnerA?: number,
+    toRunnerA?: number,
+    fromRunnerB?: number,
+    toRunnerB?: number
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -540,6 +544,10 @@ class ChatApi {
     // "Split by races" opt-out), so the common case's URL/cache key stays
     // as short as every other true-is-default toggle in this app.
     if (splitByRunners === false) params.set("splitByRunners", "false");
+    if (fromRunnerA != null) params.set("fromRunnerA", String(fromRunnerA));
+    if (toRunnerA != null) params.set("toRunnerA", String(toRunnerA));
+    if (fromRunnerB != null) params.set("fromRunnerB", String(fromRunnerB));
+    if (toRunnerB != null) params.set("toRunnerB", String(toRunnerB));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
       { headers: this.authHeader() }

@@ -137,6 +137,19 @@ export class IndustrySpService {
     // caller supplies explicit fromRowA/toRowA/etc. — those always stay
     // race-index, regardless of this flag.
     splitByRunners = true,
+    // Explicit runner-index split boundaries — the runner-mode equivalent
+    // of fromRowA/toRowA/fromRowB/toRowB above. When any of these four are
+    // set, they take priority over fromRowA/etc. (mirrors "explicit beats
+    // default", just for the other unit) and get resolved into race-index
+    // bounds via getQualifyingRunnerSplitBoundary before anything else in
+    // this method runs — after that resolution, every line below (raceCap
+    // clamping, the actual getAllRacesByRace calls) is completely
+    // unchanged, since it only ever deals in race indices regardless of
+    // which unit the caller asked in.
+    fromRunnerA: number | null = null,
+    toRunnerA: number | null = null,
+    fromRunnerB: number | null = null,
+    toRunnerB: number | null = null,
     // Per-window race cap: 1000 for an authenticated caller (the
     // longstanding default), 100 for an anonymous one. Applied to both the
     // auto-computed default window below and any explicit
@@ -193,25 +206,63 @@ export class IndustrySpService {
         this.industrySpDAO.getDistinctRaceTypes(),
       ]);
 
+    // Resolves a runner-index target (e.g. "the runner at cumulative
+    // position 2500") to the race-index of the first race (in raceTime
+    // order) whose cumulative qualifying-runner count reaches it — the
+    // same lookup the default-split bisection uses below, just exposed for
+    // an arbitrary caller-supplied target instead of a single fixed
+    // bisection point. Falls back to the given race-index bound (1 for a
+    // "from" target, the grand total for a "to" target) if the target is
+    // out of range (e.g. asking for runner 999999 in a field of 500).
+    const resolveRunnerBoundary = async (target: number, fallback: number): Promise<number> => {
+      const { boundaryRowIndex } = await this.industrySpDAO.getQualifyingRunnerSplitBoundary(
+        minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
+        minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
+        trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+        minModelWinProbability, onlyModelBeatsSp, Math.max(1, target)
+      );
+      return boundaryRowIndex ?? fallback;
+    };
+
     // Splits default to an even first-half/second-half divide of whatever
     // the current total is, whenever the caller doesn't pin down explicit
-    // boundaries (a fresh page load, or after Reset). Bisected by
-    // *qualifying runner count*, not race count — a race-count bisection
-    // (the old behavior) can leave Split A and Split B with very uneven
-    // numbers of runners that actually match the active filters once
-    // trainer-form/model/model-beats-SP are on, since qualifying-runner
-    // count per race varies once those filters cut some runners out.
-    // effToB is left open-ended (null, "through the end") rather than an
-    // explicit number so it never needs reclamping as the total changes
-    // with the filters. Explicit (user-edited) split boundaries are
-    // unaffected — they stay race-index numbers, since "View Races" always
-    // needs to fetch actual race documents.
-    const splitsAreDefault = fromRowA == null && toRowA == null && fromRowB == null && toRowB == null;
-    let effFromA = fromRowA ?? 1;
-    let effToA = toRowA;
-    let effFromB = fromRowB ?? 1;
-    let effToB = toRowB;
-    if (splitsAreDefault) {
+    // boundaries in either unit (a fresh page load, or after Reset).
+    // Bisected by *qualifying runner count*, not race count — a race-count
+    // bisection (the old behavior) can leave Split A and Split B with very
+    // uneven numbers of runners that actually match the active filters
+    // once trainer-form/model/model-beats-SP are on, since qualifying-
+    // runner count per race varies once those filters cut some runners
+    // out. effToB is left open-ended (null, "through the end") rather than
+    // an explicit number so it never needs reclamping as the total changes
+    // with the filters.
+    const hasExplicitRunnerSplit = fromRunnerA != null || toRunnerA != null || fromRunnerB != null || toRunnerB != null;
+    const hasExplicitRaceSplit = fromRowA != null || toRowA != null || fromRowB != null || toRowB != null;
+    const splitsAreDefault = !hasExplicitRunnerSplit && !hasExplicitRaceSplit;
+    let effFromA: number;
+    let effToA: number | null;
+    let effFromB: number;
+    let effToB: number | null;
+
+    if (hasExplicitRunnerSplit) {
+      // Explicit runner-index split — the runner-mode equivalent of a
+      // user-edited race range. Resolves each of the (up to) four runner
+      // targets into a race index; an omitted "from" defaults to the first
+      // race, an omitted "to" stays open-ended ("through the end"), same
+      // shape as the race-based explicit split below.
+      [effFromA, effToA, effFromB, effToB] = await Promise.all([
+        fromRunnerA != null ? resolveRunnerBoundary(fromRunnerA, 1) : Promise.resolve(1),
+        toRunnerA != null ? resolveRunnerBoundary(toRunnerA, grand.total) : Promise.resolve(null),
+        fromRunnerB != null ? resolveRunnerBoundary(fromRunnerB, 1) : Promise.resolve(1),
+        toRunnerB != null ? resolveRunnerBoundary(toRunnerB, grand.total) : Promise.resolve(null),
+      ]);
+    } else if (hasExplicitRaceSplit) {
+      // Explicit race-index split, unchanged from before this method
+      // learned about runner-index splits.
+      effFromA = fromRowA ?? 1;
+      effToA = toRowA;
+      effFromB = fromRowB ?? 1;
+      effToB = toRowB;
+    } else {
       let half: number;
       if (splitByRunners && grand.totalRunners > 0) {
         const target = Math.ceil(grand.totalRunners / 2);

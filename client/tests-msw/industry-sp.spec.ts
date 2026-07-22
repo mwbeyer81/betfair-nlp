@@ -331,6 +331,88 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-split-by-runners")).toHaveAttribute("aria-checked", "true");
   });
 
+  test("in 'Split by runners' mode, Split A/B edit runner numbers (with a '/totalRunners' hint), not race numbers", async ({ page }) => {
+    // Regression: the user asked to be able to choose the runner split
+    // boundary directly, the same way race boundaries were already
+    // editable — confirms the runner-specific boxes (distinct testIDs from
+    // the race ones) are what's shown by default, since "Split by runners"
+    // is checked out of the box.
+    await expect(page.getByTestId("industry-sp-from-runner-a")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-to-runner-a")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-from-runner-b")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-to-runner-b")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-from-row-a")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-runner-bound-a")).toContainText("/");
+
+    // Switching to "Split by races" swaps in the race-index boxes instead.
+    await page.getByTestId("industry-sp-split-by-runners").click();
+    await expect(page.getByTestId("industry-sp-from-row-a")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-from-runner-a")).not.toBeVisible();
+  });
+
+  test("typing a custom runner range and applying sends fromRunnerA/toRunnerA/fromRunnerB/toRunnerB, not fromRowA/etc", async ({ page }) => {
+    // route.fallback() (not .continue()) is what defers to the fixture's
+    // own splits handler registered earlier — .continue() sends the
+    // request straight to the network instead, bypassing it entirely.
+    let captured: Record<string, string | null> = {};
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const url = new URL(route.request().url());
+      captured = {
+        fromRunnerA: url.searchParams.get("fromRunnerA"),
+        toRunnerA: url.searchParams.get("toRunnerA"),
+        fromRunnerB: url.searchParams.get("fromRunnerB"),
+        fromRowA: url.searchParams.get("fromRowA"),
+      };
+      await route.fallback();
+    });
+
+    await page.getByTestId("industry-sp-to-runner-a").fill("1");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    expect(captured.fromRunnerA).toBe("1");
+    expect(captured.toRunnerA).toBe("1");
+    expect(captured.fromRowA).toBeNull();
+    // The mock doesn't replicate the real backend's runner-to-race
+    // resolution (that's verified separately, directly against real data),
+    // but the URL should carry *some* toRunnerA — proving the applied
+    // split is persisted as a runner-index range, not silently dropped.
+    expect(page.url()).toContain("toRunnerA=");
+    expect(page.url()).not.toContain("fromRowA");
+  });
+
+  test("reloading a URL with an explicit runner-range split restores it as the active split (not the default)", async ({ page }) => {
+    // Asserts on the *outgoing request*, not the redisplayed box values —
+    // the mock (unlike the real backend) doesn't implement runner-to-race
+    // boundary resolution, so it can't honor an explicit runner target
+    // faithfully; the real resolution is verified separately, directly
+    // against production-scale data (see industry-sp-service.integration.
+    // test.ts). What this test actually guards is the frontend wiring: a
+    // URL carrying an explicit runner range must be read and re-sent as
+    // that same explicit range, not silently replaced by the auto default.
+    let captured: Record<string, string | null> = {};
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const url = new URL(route.request().url());
+      captured = {
+        fromRunnerA: url.searchParams.get("fromRunnerA"),
+        toRunnerA: url.searchParams.get("toRunnerA"),
+        fromRunnerB: url.searchParams.get("fromRunnerB"),
+        toRunnerB: url.searchParams.get("toRunnerB"),
+      };
+      await route.fallback();
+    });
+
+    await page.goto("/isp?fromRunnerA=1&toRunnerA=2&fromRunnerB=3&toRunnerB=3");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    expect(captured.fromRunnerA).toBe("1");
+    expect(captured.toRunnerA).toBe("2");
+    expect(captured.fromRunnerB).toBe("3");
+    expect(captured.toRunnerB).toBe("3");
+    await expect(page.getByTestId("industry-sp-split-by-runners")).toHaveAttribute("aria-checked", "true");
+  });
+
   test("setting maxRunnersInRange=2 zeroes out the aggregate (mocked race has 3 runners in range)", async ({ page }) => {
     const maxInput = page.getByTestId("industry-sp-max-rir-value");
     await maxInput.fill("2");

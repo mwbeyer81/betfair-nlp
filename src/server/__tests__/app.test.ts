@@ -1412,6 +1412,17 @@ describe("API Endpoints", () => {
 
       expect(response.body.success).toBe(true);
     });
+
+    it("accepts explicit fromRunnerA/toRunnerA/fromRunnerB/toRunnerB params and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?fromRunnerA=1&toRunnerA=500&fromRunnerB=501&toRunnerB=1000")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.splitA).toHaveProperty("fromRow");
+      expect(response.body.splitB).toHaveProperty("fromRow");
+    });
   });
 
   describe("GET /api/trainer-form", () => {

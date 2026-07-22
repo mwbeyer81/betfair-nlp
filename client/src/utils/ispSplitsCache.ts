@@ -70,6 +70,15 @@ export interface SplitsCacheParams {
   toRowA: number | null;
   fromRowB: number;
   toRowB: number | null;
+  // Runner-mode equivalent of fromRowA/etc. above — only one unit is ever
+  // actually sent to the backend at a time (see IndustrySpScreen's fetch
+  // effect), but both are included here so a switch between "Split by
+  // races" and "Split by runners" with an otherwise-identical explicit
+  // range can't collide on the same cache entry.
+  fromRunnerA: number | null;
+  toRunnerA: number | null;
+  fromRunnerB: number | null;
+  toRunnerB: number | null;
   // The anon/authenticated race cap changes what the backend actually
   // returns for the exact same filter/split combination — without this,
   // signing up (or logging out) mid-session could silently serve the
@@ -104,7 +113,9 @@ export function buildSplitsCacheKey(p: SplitsCacheParams): string {
       p.minModelWinProbability,
       p.onlyModelBeatsSp,
       p.splitByRunners,
-      p.isDefault ? "default" : [p.fromRowA, p.toRowA, p.fromRowB, p.toRowB],
+      p.isDefault
+        ? "default"
+        : [p.fromRowA, p.toRowA, p.fromRowB, p.toRowB, p.fromRunnerA, p.toRunnerA, p.fromRunnerB, p.toRunnerB],
       p.isAuthenticated,
     ])
   );

@@ -33,9 +33,12 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
 
     expect(result.splitA.fromRow).toBe(1);
     expect(result.splitB.fromRow).toBe(result.splitA.toRow! + 1);
-    // Open-ended (through the end) rather than a concrete number, so it
-    // never needs reclamping as the total changes with the filters.
-    expect(result.splitB.toRow).toBeNull();
+    // No longer literally null — raceCap clamping (1000 races for an
+    // authenticated caller, the default here) always concretizes an
+    // open-ended upper bound to a real race index that never exceeds the
+    // true total, rather than leaving it "through the end" unresolved.
+    expect(typeof result.splitB.toRow).toBe("number");
+    expect(result.splitB.toRow).toBeLessThanOrEqual(result.totalRaces);
 
     // Together they cover every matching race — and every qualifying
     // runner — exactly once, no gap or double-count.
@@ -61,6 +64,33 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     expect(result.splitB.fromRow).toBe(half + 1);
     expect(result.splitA.total).toBe(half);
     expect(result.splitB.total).toBe(result.totalRaces - half);
+  });
+
+  it("resolves an explicit runner-index split (fromRunnerA/toRunnerA/fromRunnerB/toRunnerB) into the equivalent race range", async () => {
+    // The user wanted to choose the runner split boundary directly, the
+    // same way the race boundary was already editable — this is the
+    // runner-mode equivalent of "respects explicit fromRowA/toRowA/..."
+    // below, resolved server-side via getQualifyingRunnerSplitBoundary.
+    const grand = await service.getSplitStats();
+    expect(grand.totalRunners).toBeGreaterThan(0);
+    const target = Math.min(2500, Math.floor(grand.totalRunners / 2));
+
+    const result = await service.getSplitStats(
+      1, 30, [], 1, 1000, 1, 10000, null, null, null, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, 0, false, true,
+      1, target, target + 1, null
+    );
+    expect(result.splitA.fromRow).toBe(1);
+    // Race is the atomic unit, so the resolved runner count can overshoot
+    // the exact target slightly (whichever race's cumulative count first
+    // reaches it), but never by more than that one race's own runners.
+    expect(result.splitA.totalRunners).toBeGreaterThanOrEqual(target);
+    // An explicit split (race- or runner-based) is a deliberate narrow
+    // slice, not required to cover the whole dataset like the default
+    // split does — same as the existing explicit race-range test below,
+    // this only checks that B picks up exactly where A's resolved range
+    // left off, not that the two together span everything.
+    expect(result.splitB.fromRow).toBe(result.splitA.toRow! + 1);
   });
 
   it("splits are independent — each carries its own pnlStats", async () => {

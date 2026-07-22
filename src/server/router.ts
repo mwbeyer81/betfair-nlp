@@ -375,6 +375,16 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const toRowA = isNaN(toRowARaw) ? null : Math.max(1, toRowARaw);
     const fromRowB = isNaN(fromRowBRaw) ? null : Math.max(1, fromRowBRaw);
     const toRowB = isNaN(toRowBRaw) ? null : Math.max(1, toRowBRaw);
+    // Runner-index equivalent of fromRowA/toRowA/fromRowB/toRowB above —
+    // same clamping, resolved to race indices server-side in getSplitStats.
+    const fromRunnerARaw = parseInt(req.query.fromRunnerA as string);
+    const toRunnerARaw = parseInt(req.query.toRunnerA as string);
+    const fromRunnerBRaw = parseInt(req.query.fromRunnerB as string);
+    const toRunnerBRaw = parseInt(req.query.toRunnerB as string);
+    const fromRunnerA = isNaN(fromRunnerARaw) ? null : Math.max(1, fromRunnerARaw);
+    const toRunnerA = isNaN(toRunnerARaw) ? null : Math.max(1, toRunnerARaw);
+    const fromRunnerB = isNaN(fromRunnerBRaw) ? null : Math.max(1, fromRunnerBRaw);
+    const toRunnerB = isNaN(toRunnerBRaw) ? null : Math.max(1, toRunnerBRaw);
     const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
     const courses = parseCsvListParam(req.query.courses);
     const goings = parseCsvListParam(req.query.goings);
@@ -401,7 +411,7 @@ router.get("/api/industry-sp/splits", async (req, res) => {
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
-      splitByRunners, raceCap
+      splitByRunners, fromRunnerA, toRunnerA, fromRunnerB, toRunnerB, raceCap
     );
     // Smoke-tested live: combined into one request and warm (no cold
     // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
