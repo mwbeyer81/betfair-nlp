@@ -653,6 +653,219 @@ export class IndustrySpDAO {
   }
 
   /**
+   * Runner-level exact split: given absolute cumulative-runner-ordinal
+   * targets (1-based, same ordinal space getQualifyingRunnerSplitBoundary
+   * resolves against — raceTime ascending, then within-race qualifying
+   * order), returns pnlStats/totalRunners for exactly the runners in
+   * [fromRunnerTarget, toRunnerTarget] (toRunnerTarget=null means "through
+   * the end of raceRowBound"). Unlike getAllRacesByRace (which always
+   * assigns a whole race to one split, rounding up to the next full race
+   * whenever a target lands mid-race), this selects individual qualifying
+   * runners directly — so a race straddling a split boundary can
+   * contribute some runners to this split and the rest to the other,
+   * giving an exact count instead of an approximation.
+   *
+   * Regression: reported live — typing "1-1000" for Split A and "1001-
+   * 2000" for Split B never showed exactly 1000/1000, since both targets
+   * commonly round up to the same shared boundary race.
+   *
+   * fromRow/toRow in the result are the race-index span actually touched
+   * by the selected runners (for "View N Races" navigation) — they can
+   * overlap with the other split's span when a boundary race is shared
+   * between the two splits' runner ranges, which is the accepted
+   * trade-off for exact runner counts.
+   *
+   * raceRowBound caps how many races (from race 1) this scans/unwinds —
+   * callers resolve it via getQualifyingRunnerSplitBoundary(toTarget) and
+   * the usual raceCap ceiling, so cost stays bounded regardless of how far
+   * out toRunnerTarget is.
+   */
+  public async getRunnerRangeStats(
+    minRunners = 1,
+    maxRunners = 30,
+    countries: string[] = [],
+    minIsp = 1,
+    maxIsp = 1000,
+    minInIspRange = 1,
+    maxInIspRange = 1000,
+    minRaceTime: string | null = null,
+    maxRaceTime: string | null = null,
+    courses: string[] = [],
+    goings: string[] = [],
+    raceClasses: string[] = [],
+    raceTypes: string[] = [],
+    trainerSearch: string | null = null,
+    jockeySearch: string | null = null,
+    trainerFormMinWinRate = 0,
+    minTrainerFormRunners = 0,
+    maxTrainerFormRunners = 100,
+    minModelWinProbability = 0,
+    onlyModelBeatsSp = false,
+    fromRunnerTarget: number,
+    toRunnerTarget: number | null,
+    raceRowBound: number
+  ): Promise<{
+    fromRow: number;
+    toRow: number | null;
+    total: number;
+    totalRunners: number;
+    pnlStats: { staked: number; returns: number; pnl: number; count: number };
+  }> {
+    const dateMatchStage: Record<string, unknown>[] =
+      minRaceTime != null || maxRaceTime != null
+        ? [
+            {
+              $match: {
+                raceTime: {
+                  ...(minRaceTime != null ? { $gte: minRaceTime } : {}),
+                  ...(maxRaceTime != null ? { $lte: maxRaceTime } : {}),
+                },
+              },
+            },
+          ]
+        : [];
+
+    const trainerFormFilterActive = minTrainerFormRunners > 0 || maxTrainerFormRunners < 100;
+    const trainerFormCond = [
+      { $ne: ["$$r.trainerFormWinRate", null] },
+      { $gte: ["$$r.trainerFormWinRate", trainerFormMinWinRate] },
+    ];
+    const modelFilterActive = minModelWinProbability > 0;
+    const modelCond = [
+      { $ne: ["$$r.modelWinProbability", null] },
+      { $gte: ["$$r.modelWinProbability", minModelWinProbability] },
+    ];
+    const modelBeatsSpFilterActive = onlyModelBeatsSp;
+    const modelBeatsSpCond = [
+      { $ne: ["$$r.modelWinProbability", null] },
+      { $ne: ["$$r.isp", null] },
+      { $gt: ["$$r.isp", 0] },
+      { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
+    ];
+    // Mirrors buildQualifyingRaceStages' own qualifying condition exactly —
+    // duplicated rather than shared, because that method's fast path skips
+    // $filter entirely via a precomputed scalar count field whenever
+    // possible, whereas this method always needs the actual matching
+    // runner subdocuments (isp/status), not just a count, so the fast path
+    // doesn't apply here regardless.
+    const qualifyingRunnersArrayExpr = {
+      $map: {
+        input: {
+          $filter: {
+            input: "$runners",
+            as: "r",
+            cond: {
+              $and: [
+                { $ifNull: ["$$r.isp", false] },
+                { $gt: ["$$r.isp", 1] },
+                { $gte: ["$$r.isp", minIsp] },
+                { $lte: ["$$r.isp", maxIsp] },
+                ...(trainerFormFilterActive ? trainerFormCond : []),
+                ...(modelFilterActive ? modelCond : []),
+                ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
+              ],
+            },
+          },
+        },
+        as: "r",
+        // Trimmed to just the two fields pnlStats needs — this array is
+        // about to be $unwind-ed, which duplicates every other field on
+        // the parent doc per element, so keeping it minimal (rather than
+        // the full runner subdocument) is what keeps that unwind cheap.
+        in: { isp: "$$r.isp", status: "$$r.status" },
+      },
+    };
+
+    const [result] = await this.collection
+      .aggregate<{ fromRow: number; toRow: number; staked: number; returns: number; count: number }>(
+        [
+          ...dateMatchStage,
+          { $sort: { raceTime: 1 } },
+          ...this.buildQualifyingRaceStages({
+            countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
+            courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName: null,
+            trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+            minModelWinProbability, onlyModelBeatsSp,
+          }),
+          { $limit: Math.max(1, raceRowBound) },
+          {
+            $setWindowFields: {
+              sortBy: { raceTime: 1 },
+              output: { raceRowNumber: { $documentNumber: {} } },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              raceRowNumber: 1,
+              qualifyingRunnersArray: qualifyingRunnersArrayExpr,
+            },
+          },
+          { $unwind: { path: "$qualifyingRunnersArray", includeArrayIndex: "arrIdx" } },
+          {
+            // $documentNumber only accepts a single-field sortBy — this
+            // needs two (race order, then within-race order) — so a
+            // cumulative $sum of a constant 1 over the same window
+            // (unboundedPreceding..current) gives the identical 1-based
+            // running ordinal instead.
+            $setWindowFields: {
+              sortBy: { raceRowNumber: 1, arrIdx: 1 },
+              output: { globalOrdinal: { $sum: 1, window: { documents: ["unbounded", "current"] } } },
+            },
+          },
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $gte: ["$globalOrdinal", Math.max(1, fromRunnerTarget)] },
+                  ...(toRunnerTarget != null ? [{ $lte: ["$globalOrdinal", toRunnerTarget] }] : []),
+                ],
+              },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              fromRow: { $min: "$raceRowNumber" },
+              toRow: { $max: "$raceRowNumber" },
+              staked: { $sum: { $divide: [1, { $subtract: ["$qualifyingRunnersArray.isp", 1] }] } },
+              returns: {
+                $sum: {
+                  $cond: [
+                    { $eq: ["$qualifyingRunnersArray.status", "WINNER"] },
+                    { $add: [{ $divide: [1, { $subtract: ["$qualifyingRunnersArray.isp", 1] }] }, 1] },
+                    0,
+                  ],
+                },
+              },
+              count: { $sum: 1 },
+            },
+          },
+        ],
+        { allowDiskUse: true }
+      )
+      .toArray();
+
+    if (!result) {
+      return {
+        fromRow: Math.max(1, fromRunnerTarget),
+        toRow: null,
+        total: 0,
+        totalRunners: 0,
+        pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
+      };
+    }
+
+    return {
+      fromRow: result.fromRow,
+      toRow: result.toRow,
+      total: result.toRow - result.fromRow + 1,
+      totalRunners: result.count,
+      pnlStats: { staked: result.staked, returns: result.returns, pnl: result.returns - result.staked, count: result.count },
+    };
+  }
+
+  /**
    * All races for one meeting (course + date), sorted by raceTime. A
    * meeting only ever has a handful of races, so no pagination or 32MB
    * sort-limit concerns here — this is a plain $match + $sort.

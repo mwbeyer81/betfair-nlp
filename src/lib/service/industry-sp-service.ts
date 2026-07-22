@@ -238,37 +238,75 @@ export class IndustrySpService {
     const hasExplicitRunnerSplit = fromRunnerA != null || toRunnerA != null || fromRunnerB != null || toRunnerB != null;
     const hasExplicitRaceSplit = fromRowA != null || toRowA != null || fromRowB != null || toRowB != null;
     const splitsAreDefault = !hasExplicitRunnerSplit && !hasExplicitRaceSplit;
+
+    if (hasExplicitRunnerSplit) {
+      // Explicit runner-index split — selects individual qualifying runners
+      // directly via getRunnerRangeStats rather than resolving each target
+      // to a race and handing whole races to getAllRacesByRace. That older
+      // approach rounded every target up to the next full race (since a
+      // race is the smallest unit getAllRacesByRace can hand to one split),
+      // so typing "1-1000" / "1001-2000" never showed exactly 1000/1000 —
+      // reported live as the result cards "still not matching" what was
+      // typed even after the double-counting bug (see git history) was
+      // fixed. Selecting at the runner level instead gives an exact count
+      // for each split with no rounding and no possibility of the two
+      // ranges overlapping, as long as the caller's own from/to targets
+      // don't overlap.
+      const effFromRunnerA = Math.max(1, fromRunnerA ?? 1);
+      const effFromRunnerB = Math.max(1, fromRunnerB ?? 1);
+
+      // raceRowBound only bounds how many races this scans/unwinds (cost
+      // control) — it is NOT the split boundary itself, unlike the old
+      // effToA/effToB. Resolved via the existing (cheap, tiny-doc) boundary
+      // lookup for an explicit "to" target, or raceCap alone when the
+      // target is open-ended ("through the end").
+      const raceRowBoundFor = async (toTarget: number | null): Promise<number> => {
+        if (toTarget == null) return Math.min(raceCap, grand.total);
+        const boundaryRow = await resolveRunnerBoundary(toTarget, grand.total);
+        return Math.min(boundaryRow, raceCap, grand.total);
+      };
+
+      const [raceRowBoundA, raceRowBoundB] = await Promise.all([
+        raceRowBoundFor(toRunnerA),
+        raceRowBoundFor(toRunnerB),
+      ]);
+
+      const [splitA, splitB] = await Promise.all([
+        this.industrySpDAO.getRunnerRangeStats(
+          minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
+          minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
+          trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+          minModelWinProbability, onlyModelBeatsSp, effFromRunnerA, toRunnerA, raceRowBoundA
+        ),
+        this.industrySpDAO.getRunnerRangeStats(
+          minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
+          minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
+          trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+          minModelWinProbability, onlyModelBeatsSp, effFromRunnerB, toRunnerB, raceRowBoundB
+        ),
+      ]);
+
+      return {
+        totalRaces: grand.total,
+        totalRunners: grand.totalRunners,
+        raceCap,
+        filterBounds,
+        countries: countryCodes,
+        courses: courseValues,
+        goings: goingValues,
+        raceClasses: raceClassValues,
+        raceTypes: raceTypeValues,
+        splitA,
+        splitB,
+      };
+    }
+
     let effFromA: number;
     let effToA: number | null;
     let effFromB: number;
     let effToB: number | null;
 
-    if (hasExplicitRunnerSplit) {
-      // Explicit runner-index split — the runner-mode equivalent of a
-      // user-edited race range. Resolves each of the (up to) four runner
-      // targets into a race index; an omitted "from" defaults to the first
-      // race, an omitted "to" stays open-ended ("through the end"), same
-      // shape as the race-based explicit split below.
-      [effFromA, effToA, effFromB, effToB] = await Promise.all([
-        fromRunnerA != null ? resolveRunnerBoundary(fromRunnerA, 1) : Promise.resolve(1),
-        toRunnerA != null ? resolveRunnerBoundary(toRunnerA, grand.total) : Promise.resolve(null),
-        fromRunnerB != null ? resolveRunnerBoundary(fromRunnerB, 1) : Promise.resolve(1),
-        toRunnerB != null ? resolveRunnerBoundary(toRunnerB, grand.total) : Promise.resolve(null),
-      ]);
-
-      // Race is the atomic unit, so two nearby runner targets (e.g. 1000
-      // and 1001) commonly resolve to the *same* race — the one whose
-      // cumulative count first reaches both. Left alone, that race would be
-      // queried into both Split A and Split B, double-counting its stakes/
-      // returns/runners in each split's pnlStats (reported live: typing
-      // "1-1000" / "1001-2000" produced two splits whose combined P&L
-      // didn't reconcile with the grand total). Split A already claims that
-      // boundary race in full (resolveRunnerBoundary rounds up, never
-      // down), so Split B must start no earlier than the race after it.
-      if (effToA != null && effFromB <= effToA) {
-        effFromB = effToA + 1;
-      }
-    } else if (hasExplicitRaceSplit) {
+    if (hasExplicitRaceSplit) {
       // Explicit race-index split, unchanged from before this method
       // learned about runner-index splits.
       effFromA = fromRowA ?? 1;

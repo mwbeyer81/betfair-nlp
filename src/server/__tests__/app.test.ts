@@ -212,6 +212,10 @@ jest.mock("../../config/database", () => ({
                 eventName: "Cheltenham 1st Jan",
                 marketIds: ["1.237066150"],
                 count: 1,
+                // getRunnerRangeStats' $group shape (explicit runner-range
+                // splits) — a flat top-level doc, not nested in $facet.
+                fromRow: 1,
+                toRow: 8,
                 // /api/events/:eventId/definitions (MarketDefinitionDocument shape)
                 // /api/events/:eventId/runners (Race shape)
                 marketId: "1.237066150",
@@ -261,6 +265,13 @@ jest.mock("../../config/database", () => ({
                 // of those tests).
                 total: [{ count: 10000 }],
                 pnlStats: [{ staked: 1, returns: 2, count: 1 }],
+                // getRunnerRangeStats' $group shape (explicit runner-range
+                // splits) — a single flat doc, not nested in $facet arrays
+                // like the fields above, since that method runs its own
+                // standalone aggregation rather than sharing getAllRacesByRace's
+                // $facet. fromRow/toRow reused below at top level.
+                staked: 1,
+                returns: 2,
                 runnerCounts: [{ maxRunners: 12 }],
                 ispBounds: [{ maxIsp: 100, minIsp: 1.5 }],
               },
