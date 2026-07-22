@@ -255,6 +255,19 @@ export class IndustrySpService {
         fromRunnerB != null ? resolveRunnerBoundary(fromRunnerB, 1) : Promise.resolve(1),
         toRunnerB != null ? resolveRunnerBoundary(toRunnerB, grand.total) : Promise.resolve(null),
       ]);
+
+      // Race is the atomic unit, so two nearby runner targets (e.g. 1000
+      // and 1001) commonly resolve to the *same* race — the one whose
+      // cumulative count first reaches both. Left alone, that race would be
+      // queried into both Split A and Split B, double-counting its stakes/
+      // returns/runners in each split's pnlStats (reported live: typing
+      // "1-1000" / "1001-2000" produced two splits whose combined P&L
+      // didn't reconcile with the grand total). Split A already claims that
+      // boundary race in full (resolveRunnerBoundary rounds up, never
+      // down), so Split B must start no earlier than the race after it.
+      if (effToA != null && effFromB <= effToA) {
+        effFromB = effToA + 1;
+      }
     } else if (hasExplicitRaceSplit) {
       // Explicit race-index split, unchanged from before this method
       // learned about runner-index splits.

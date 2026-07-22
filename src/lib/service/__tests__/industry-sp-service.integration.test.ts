@@ -93,6 +93,28 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     expect(result.splitB.fromRow).toBe(result.splitA.toRow! + 1);
   });
 
+  it("an explicit contiguous runner-range split never double-counts the shared boundary race", async () => {
+    // Regression: reported live via screenshot — typing "1-1000" for Split A
+    // and "1001-2000" for Split B. Races are the atomic unit, so nearby
+    // runner targets (1000 and 1001) commonly resolve to the *same* race —
+    // whichever one's cumulative qualifying-runner count first reaches
+    // each target. Left alone, that shared race was queried into BOTH
+    // splits, double-counting its stakes/returns/runners in each split's
+    // pnlStats even though the displayed ranges looked contiguous.
+    const grand = await service.getSplitStats();
+    expect(grand.totalRunners).toBeGreaterThan(2000);
+
+    const result = await service.getSplitStats(
+      1, 30, [], 1, 1000, 1, 10000, null, null, null, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, 0, false, true,
+      1, 1000, 1001, 2000
+    );
+    // Split B must start strictly after Split A ends — the boundary race
+    // belongs entirely to A (resolveRunnerBoundary rounds up, never down),
+    // never re-included at the start of B.
+    expect(result.splitB.fromRow).toBe(result.splitA.toRow! + 1);
+  });
+
   it("splits are independent — each carries its own pnlStats", async () => {
     const result = await service.getSplitStats();
     expect(typeof result.splitA.pnlStats.staked).toBe("number");
