@@ -148,8 +148,13 @@ test.describe("Industry SP filters screen — bare load applies nothing (MSW moc
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
 
-    await expect(page.getByTestId("industry-sp-split-card-a")).toContainText("races 1–1250");
-    await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("races 1251–2500");
+    // "Split by runners" is checked by default, so the card shows the
+    // runner range (1–2 / 3–4, from this mock's splitA/splitB
+    // totalRunners of 2 each) rather than the race range — still two
+    // distinct, non-overlapping ranges, which is what this test actually
+    // guards against (the same full range appearing twice).
+    await expect(page.getByTestId("industry-sp-split-card-a")).toContainText("runners 1–2");
+    await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("runners 3–4");
   });
 
   test("a URL that already carries filter params fetches immediately, without an extra Apply", async ({ page }) => {
@@ -651,7 +656,7 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     await expect(page.getByTestId("industry-sp-split-empty-b")).not.toBeVisible();
   });
 
-  test("split cards show a 'runners X–Y' label (with races as secondary) when 'Split by runners' is on, and revert to 'races X–Y' when off", async ({ page }) => {
+  test("split cards show only a 'runners X–Y' label when 'Split by runners' is on (no race numbers), and revert to 'races X–Y' when off", async ({ page }) => {
     // Custom route with a real multi-race total (unlike the default 1-race
     // fixture, where Split A is always empty) so both splits have
     // non-trivial, distinct runner counts to display.
@@ -679,12 +684,12 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-    // Default (checked): runner range is primary, race range shown as
-    // secondary "(races ...)" text.
+    // Default (checked): only the runner range is shown — no race numbers
+    // anywhere on the card, since they'd contradict "Split by runners".
     await expect(page.getByTestId("industry-sp-split-runner-range-a")).toContainText("runners 1–2500");
-    await expect(page.getByTestId("industry-sp-split-race-range-a")).toContainText("races 1–1250");
+    await expect(page.getByTestId("industry-sp-split-card-a")).not.toContainText("races");
     await expect(page.getByTestId("industry-sp-split-runner-range-b")).toContainText("runners 2501–5000");
-    await expect(page.getByTestId("industry-sp-split-race-range-b")).toContainText("races 1251–2500");
+    await expect(page.getByTestId("industry-sp-split-card-b")).not.toContainText("races");
 
     // Unchecking reverts both cards to the original single-line race label.
     await page.getByTestId("industry-sp-split-by-runners").click();
@@ -692,6 +697,28 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-sp-split-runner-range-a")).not.toBeVisible();
     await expect(page.getByTestId("industry-sp-split-card-a")).toContainText("races 1–1250");
+  });
+
+  test("manual Split A/Split B race-range editing boxes are hidden while 'Split by runners' is checked, and appear when unchecked", async ({ page }) => {
+    // Regression: reported live via screenshot — race-index numbers were
+    // visible in the manual edit boxes (and a "/totalRaces" hint) even
+    // while "Split by runners" was checked, contradicting the runner-range
+    // framing shown on the result cards below. These boxes always edit
+    // race indices (custom splits stay race-based even in Runners mode),
+    // so they're now only shown in Races mode.
+    await expect(page.getByTestId("industry-sp-from-row-a")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-from-row-b")).not.toBeVisible();
+
+    // Unchecking (even before Apply — this follows the draft state)
+    // reveals them immediately.
+    await page.getByTestId("industry-sp-split-by-runners").click();
+    await expect(page.getByTestId("industry-sp-from-row-a")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-from-row-b")).toBeVisible();
+
+    // Re-checking hides them again.
+    await page.getByTestId("industry-sp-split-by-runners").click();
+    await expect(page.getByTestId("industry-sp-from-row-a")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-from-row-b")).not.toBeVisible();
   });
 });
 

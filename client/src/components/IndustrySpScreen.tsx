@@ -976,14 +976,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     return (
       <View testID={`industry-sp-split-card-${id}`} style={[styles.splitCard, isDesktop && styles.splitCardFlex, notReady && styles.splitCardPending]}>
         {splitByRunners && status === "loaded" && splitTotalRunners > 0 ? (
-          <>
-            <Text testID={`industry-sp-split-runner-range-${id}`} style={styles.splitCardLabel}>
-              {label} — runners {runnerFrom}–{runnerTo}
-            </Text>
-            <Text testID={`industry-sp-split-race-range-${id}`} style={styles.splitCardSubLabel}>
-              (races {fromRow}–{effectiveTo})
-            </Text>
-          </>
+          <Text testID={`industry-sp-split-runner-range-${id}`} style={styles.splitCardLabel}>
+            {label} — runners {runnerFrom}–{runnerTo}
+          </Text>
         ) : (
           <Text style={styles.splitCardLabel}>
             {label} — races {fromRow}–{effectiveTo}
@@ -1341,7 +1336,18 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           checked: draftSplitByRunners,
           onToggle: () => setDraftSplitByRunners(v => !v),
         })}
-        {renderFilterRow({
+        {/*
+          Manual race-range editing only makes sense — and is only shown —
+          in "Split by races" mode. These boxes always edit race indices
+          (custom split boundaries stay race-based even in Runners mode,
+          per product decision), so showing them while "Split by runners"
+          is checked would put race numbers on screen that contradict the
+          runner-range framing shown below, and imply an editing capability
+          ("type a runner range") this doesn't actually offer. Follows the
+          draft (not yet applied) checkbox so unchecking it reveals these
+          immediately, before Apply.
+        */}
+        {!draftSplitByRunners && renderFilterRow({
           filterKey: "raceA",
           label: "Split A",
           minValue: draftFromA,
@@ -1355,7 +1361,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           hint: totalRaces > 0 ? `/${totalRaces}` : null,
           hintTestId: "industry-sp-race-bound-a",
         })}
-        {renderFilterRow({
+        {!draftSplitByRunners && renderFilterRow({
           filterKey: "raceB",
           label: "Split B",
           minValue: draftFromB,

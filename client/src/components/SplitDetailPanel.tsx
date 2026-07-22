@@ -49,14 +49,9 @@ export const SplitDetailPanel: React.FC<SplitDetailPanelProps> = ({
             {label}
           </Text>
           {splitByRunners && totalRunners > 0 ? (
-            <>
-              <Text testID={`split-detail-runner-range-${id}`} variant="bodySmall" style={styles.subtitle}>
-                Runners {runnerFrom}–{runnerTo}
-              </Text>
-              <Text testID={`split-detail-race-range-${id}`} variant="bodySmall" style={styles.subtitleMuted}>
-                (races {fromRow}–{toRow})
-              </Text>
-            </>
+            <Text testID={`split-detail-runner-range-${id}`} variant="bodySmall" style={styles.subtitle}>
+              Runners {runnerFrom}–{runnerTo}
+            </Text>
           ) : (
             <Text variant="bodySmall" style={styles.subtitle}>
               Races {fromRow}–{toRow}

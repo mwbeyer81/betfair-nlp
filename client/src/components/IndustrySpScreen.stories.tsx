@@ -330,6 +330,12 @@ export const DefaultSplitsAreHalfAndHalf: Story = {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
 
+    // The manual race-range boxes are only rendered in "Split by races"
+    // mode (checked by default) — unchecking it reveals them without
+    // re-fetching (a pure local draft-state toggle), so this still reads
+    // the values from the load that already happened above.
+    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
+
     // Mock total is 2500 (see splitsHandler's default) — half/half is
     // 1-1250 / 1251-<end>. The "to" box shows the grand total (2500) as
     // the open-ended upper bound's display value.
@@ -659,6 +665,8 @@ export const FilterRowsAreGridAligned: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
+    // Split A/B's race-range boxes only render in "Split by races" mode.
+    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     // The whole point of the grid redesign: every row's min-input starts at
     // the same x position, so columns read as aligned rather than each row
@@ -676,6 +684,8 @@ export const GridInputsAreLargeEnoughToType: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
+    // Split A/B's race-range boxes only render in "Split by races" mode.
+    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     for (const testId of [
       "industry-sp-min-isp", "industry-sp-max-isp",
@@ -710,6 +720,9 @@ export const TooltipTogglesShowAndHideExplanation: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
+    // Split A/B's race-range rows (and their tooltip toggles) only render
+    // in "Split by races" mode.
+    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     await expect(canvas.queryByTestId("industry-sp-tooltip-text-runners")).not.toBeInTheDocument();
 
@@ -738,6 +751,8 @@ export const TooltipDoesNotShiftFilterLayout: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
+    // Split A/B's race-range boxes only render in "Split by races" mode.
+    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     const applyButton = canvas.getByTestId("industry-sp-filter-apply");
     const raceLabelBefore = canvas.getByTestId("industry-sp-from-row-a").getBoundingClientRect().top;
@@ -772,6 +787,9 @@ export const TooltipToggleHasAdequateTapTarget: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
+    // Split A/B's race-range rows (and their tooltip toggles) only render
+    // in "Split by races" mode.
+    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     for (const key of ["isp", "runners", "inIsp", "raceA", "raceB"]) {
       const toggle = canvas.getByTestId(`industry-sp-tooltip-toggle-${key}`);
@@ -871,6 +889,8 @@ export const ApplyingCustomSplitUpdatesUrlWithBothRanges: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
+    // Manual split-range editing only exists in "Split by races" mode.
+    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     const toRowA = canvas.getByTestId("industry-sp-to-row-a");
     await userEvent.clear(toRowA);
@@ -905,6 +925,11 @@ export const ResetButtonRestoresDefaultsAndClearsUrl: Story = {
       expect(window.location.search).not.toContain("maxInIspRange");
     }, { timeout: 3000 });
 
+    // Reset also hands "Split by runners" back to checked, hiding the
+    // race-range boxes again — reveal them to read the recomputed values.
+    await expect(canvas.getByTestId("industry-sp-split-by-runners")).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
+
     // Reset also hands the split boundaries back to auto mode — they
     // recompute to the fresh half/half default (mock total 2500 -> 1251).
     await waitFor(() => {
@@ -928,6 +953,9 @@ export const RaceBoundsDisplayedForBothSplits: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
+    // The race-bound hints live on the race-range boxes, only rendered in
+    // "Split by races" mode.
+    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
     const boundA = await canvas.findByTestId("industry-sp-race-bound-a");
     const boundB = await canvas.findByTestId("industry-sp-race-bound-b");
     await expect(boundA).toHaveTextContent("/2500");
