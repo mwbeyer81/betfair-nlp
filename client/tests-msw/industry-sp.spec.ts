@@ -586,8 +586,30 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
     expect(splitsRequests.length).toBe(1);
   });
 
-  test("clicking Graph on either split card opens the same P&L convergence panel", async ({ page }) => {
-    await gotoIspAndApplyDefaults(page);
+  test("each split card's Graph button opens its own P&L convergence panel, scoped to its own runner range", async ({ page }) => {
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    // Regression: reported live — "the graphs should actually use the same
+    // race numbers on its x axis, eg 1 to 500, or 1000 to 2000." A large,
+    // well-defined mock total (the default fixture's default split totals
+    // happen to be 0/3 runners here, too degenerate to show two distinct
+    // meaningful ranges) so Split A and Split B clearly have their own,
+    // different, non-trivial runner ranges.
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      await route.fulfill({
+        json: {
+          success: true, totalRaces: 900, totalRunners: 1000, raceCap: 1000,
+          filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+          countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
+          raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
+          splitA: { fromRow: 1, toRow: 450, total: 450, totalRunners: 500, pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } },
+          splitB: { fromRow: 451, toRow: 900, total: 450, totalRunners: 500, pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } },
+        },
+      });
+    });
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
     await page.getByTestId("industry-sp-split-graph-button-a").click();
     await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
@@ -597,15 +619,21 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
     await expect(page.getByTestId("runner-convergence-loading")).not.toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("runner-convergence-chart")).toBeVisible();
     await expect(page.getByTestId("runner-convergence-final-roi")).toBeVisible();
+    // Split A's own graph is runners 1-500 (its own totalRunners), like
+    // the user's own "eg 1 to 500" example.
+    await expect(page.getByTestId("runner-convergence-range-subtitle")).toHaveText("Runners 1–500");
 
     await page.getByTestId("runner-convergence-panel-close").click();
     await expect(page.getByTestId("runner-convergence-panel")).not.toBeVisible();
 
-    // Split B's own Graph button opens the identical panel/chart, not a
-    // separate one scoped to just Split B's own runner range.
+    // Split B's own Graph button opens a panel scoped to its own range —
+    // 501-1000, continuing directly after Split A's own 1-500, not
+    // restarting at 1 and not showing the combined 1-1000 range on both
+    // buttons.
     await page.getByTestId("industry-sp-split-graph-button-b").click();
     await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
     await expect(page.getByTestId("runner-convergence-chart")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("runner-convergence-range-subtitle")).toHaveText("Runners 501–1000");
   });
 
   test("pressing Apply always fetches fresh, even with unchanged filters", async ({ page }) => {

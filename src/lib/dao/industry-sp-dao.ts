@@ -866,15 +866,27 @@ export class IndustrySpDAO {
   }
 
   /**
-   * Cumulative P&L convergence series, one point per qualifying runner from
-   * ordinal 1 up to toRunnerTarget (same global ordinal space as
+   * Cumulative P&L convergence series, one point per qualifying runner in
+   * [fromRunnerTarget, toRunnerTarget] (same global ordinal space as
    * getRunnerRangeStats — raceTime ascending, then within-race order).
    * Demonstrates how the running ROI% is volatile over a small sample and
    * settles down as more runners are included — requested live to visualize
    * "after a few runners it'll be wrong" alongside the split cards.
    *
+   * runnerOrdinal in each returned point is always the TRUE global ordinal
+   * (e.g. 1001, 1002, ... for a Split B call starting at 1001) — matching
+   * the same numbers shown on that split's own card — but
+   * cumulativeStaked/cumulativeReturns restart at zero at fromRunnerTarget,
+   * not from the true start of the dataset. Each split's graph is meant to
+   * be its own independent convergence test over its own runners, not a
+   * slice of one dataset-wide running total (which would already be flat/
+   * stable by the time Split B's range begins, showing none of the early
+   * volatility this graph exists to visualize).
+   *
    * raceRowBound caps how many races (from race 1) this scans/unwinds, same
-   * cost-control role as in getRunnerRangeStats.
+   * cost-control role as in getRunnerRangeStats — the scan still always
+   * starts at race 1 regardless of fromRunnerTarget, since identifying the
+   * true global ordinal of any runner requires counting from the start.
    */
   public async getRunnerConvergenceSeries(
     minRunners = 1,
@@ -897,6 +909,7 @@ export class IndustrySpDAO {
     maxTrainerFormRunners = 100,
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
+    fromRunnerTarget: number,
     toRunnerTarget: number,
     raceRowBound: number
   ): Promise<{ runnerOrdinal: number; cumulativeStaked: number; cumulativeReturns: number }[]> {
@@ -993,17 +1006,45 @@ export class IndustrySpDAO {
             },
           },
           { $unwind: { path: "$qualifyingRunnersArray", includeArrayIndex: "arrIdx" } },
+          // Pass 1: the TRUE global ordinal of every runner from race 1
+          // onward — needed to identify exactly which runners fall in
+          // [fromRunnerTarget, toRunnerTarget], regardless of where that
+          // range starts.
           {
             $setWindowFields: {
               sortBy: { raceRowNumber: 1, arrIdx: 1 },
               output: {
                 runnerOrdinal: { $sum: 1, window: { documents: ["unbounded", "current"] } },
-                cumulativeStaked: { $sum: stakeExpr, window: { documents: ["unbounded", "current"] } },
-                cumulativeReturns: { $sum: returnExpr, window: { documents: ["unbounded", "current"] } },
               },
             },
           },
-          { $match: { $expr: { $lte: ["$runnerOrdinal", toRunnerTarget] } } },
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $gte: ["$runnerOrdinal", Math.max(1, fromRunnerTarget)] },
+                  { $lte: ["$runnerOrdinal", toRunnerTarget] },
+                ],
+              },
+            },
+          },
+          {
+            $addFields: { staked: stakeExpr, returns: returnExpr },
+          },
+          // Pass 2: cumulative sum restarted at zero over just the filtered
+          // subset above (still ordered by the same true global ordinal),
+          // so this split's own convergence line starts fresh at its own
+          // first runner rather than continuing whatever total the dataset
+          // had already accumulated before fromRunnerTarget.
+          {
+            $setWindowFields: {
+              sortBy: { runnerOrdinal: 1 },
+              output: {
+                cumulativeStaked: { $sum: "$staked", window: { documents: ["unbounded", "current"] } },
+                cumulativeReturns: { $sum: "$returns", window: { documents: ["unbounded", "current"] } },
+              },
+            },
+          },
           { $project: { _id: 0, runnerOrdinal: 1, cumulativeStaked: 1, cumulativeReturns: 1 } },
         ],
         { allowDiskUse: true }

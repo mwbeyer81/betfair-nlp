@@ -17,12 +17,16 @@ const CHART_HEIGHT = 320;
 const CHART_PADDING = 24;
 
 // Requested live: a chart showing how the running ROI% is wildly volatile
-// over a small sample of runners and settles down as more are included, up
-// to the upper limit of Split B — one point per qualifying runner, no
-// bucketing, so the early volatility reads clearly rather than being
-// smoothed away.
+// over a small sample of runners and settles down as more are included —
+// one point per qualifying runner, no bucketing, so the early volatility
+// reads clearly rather than being smoothed away. Each split's own Graph
+// button passes that split's own runner range (e.g. Split B's 1001-2000),
+// so firstOrdinal/lastOrdinal below show the same numbers that split's own
+// card does — not always starting at 1 (see loadConvergence in
+// IndustrySpScreen.tsx).
 export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ points, loading, error, onClose }) => {
-  const upperLimit = points.length > 0 ? points[points.length - 1].runnerOrdinal : 0;
+  const firstOrdinal = points.length > 0 ? points[0].runnerOrdinal : 0;
+  const lastOrdinal = points.length > 0 ? points[points.length - 1].runnerOrdinal : 0;
   const finalRoi = points.length > 0 ? points[points.length - 1].roiPercent : null;
 
   let pathD = "";
@@ -56,9 +60,9 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
           <Text variant="titleMedium" style={styles.title}>
             P&L Convergence
           </Text>
-          {upperLimit > 0 && (
-            <Text variant="bodySmall" style={styles.subtitle}>
-              Runners 1–{upperLimit}
+          {lastOrdinal > 0 && (
+            <Text testID="runner-convergence-range-subtitle" variant="bodySmall" style={styles.subtitle}>
+              Runners {firstOrdinal}–{lastOrdinal}
             </Text>
           )}
         </View>
@@ -99,7 +103,7 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
                 style={[styles.finalRoi, finalRoi >= 0 ? styles.pnlPos : styles.pnlNeg]}
               >
                 Converges to {finalRoi >= 0 ? "+" : ""}
-                {finalRoi.toFixed(1)}% after {upperLimit} runners
+                {finalRoi.toFixed(1)}% after {points.length} runners
               </Text>
             )}
             <View testID="runner-convergence-chart" style={styles.chartContainer}>
@@ -118,7 +122,9 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
                 <Path d={pathD} stroke={colors.accent} strokeWidth={2} fill="none" />
               </Svg>
             </View>
-            <Text style={styles.axisCaption}>X axis: runner count (1–{upperLimit}) · Y axis: cumulative ROI%</Text>
+            <Text style={styles.axisCaption}>
+              X axis: runners {firstOrdinal}–{lastOrdinal} · Y axis: cumulative ROI%
+            </Text>
           </>
         )}
       </ScrollView>

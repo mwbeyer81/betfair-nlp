@@ -337,7 +337,7 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     await expect(panel).not.toBeVisible();
   });
 
-  test("Graph button opens a P&L convergence chart spanning runner 1 up to Split B's upper limit", async ({ page }) => {
+  test("each split card's Graph button opens a P&L convergence chart scoped to that split's own runner range", async ({ page }) => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
 
@@ -347,15 +347,27 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     await expect(page.getByTestId("runner-convergence-loading")).not.toBeVisible({ timeout: 30000 });
     await expect(page.getByTestId("runner-convergence-chart")).toBeVisible();
     await expect(page.getByTestId("runner-convergence-final-roi")).toContainText("runners");
+    const rangeA = await page.getByTestId("runner-convergence-range-subtitle").textContent();
+    const matchA = rangeA?.match(/Runners (\d+)–(\d+)/);
+    expect(matchA).toBeTruthy();
+    // Split A's own graph always starts at runner 1.
+    expect(matchA![1]).toBe("1");
 
     await page.getByTestId("runner-convergence-panel-close").click();
     await expect(panel).not.toBeVisible();
 
-    // Split B's own Graph button opens the identical chart (same full
-    // runner-1-to-N range), not a separate one scoped to just Split B.
+    // Split B's own Graph button opens a chart scoped to its own range —
+    // starting right after Split A's own range ends, not restarting at 1
+    // and not repeating Split A's combined range. Regression: reported
+    // live — "the graphs should actually use the same race numbers on its
+    // x axis, eg 1 to 500, or 1000 to 2000."
     await page.getByTestId("industry-sp-split-graph-button-b").click();
     await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
     await expect(page.getByTestId("runner-convergence-chart")).toBeVisible({ timeout: 30000 });
+    const rangeB = await page.getByTestId("runner-convergence-range-subtitle").textContent();
+    const matchB = rangeB?.match(/Runners (\d+)–(\d+)/);
+    expect(matchB).toBeTruthy();
+    expect(matchB![1]).toBe(String(Number(matchA![2]) + 1));
   });
 
   test("both Race A and Race B splits render their own card and View Races button, defaulting to the first/second half of the matching races", async ({ page }) => {

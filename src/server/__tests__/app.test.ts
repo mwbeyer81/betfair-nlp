@@ -1478,6 +1478,22 @@ describe("API Endpoints", () => {
         .expect(400);
       expect(response.body).toHaveProperty("error");
     });
+
+    it("accepts an explicit fromRunner (e.g. Split B's own 1001-2000 range) and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/runner-convergence?fromRunner=1001&toRunner=2000")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+      expect(response.body.success).toBe(true);
+    });
+
+    it("returns 400 when fromRunner exceeds toRunner", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/runner-convergence?fromRunner=2000&toRunner=1000")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(400);
+      expect(response.body).toHaveProperty("error");
+    });
   });
 
   describe("GET /api/trainer-form", () => {

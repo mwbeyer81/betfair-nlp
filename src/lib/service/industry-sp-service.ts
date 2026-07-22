@@ -396,9 +396,12 @@ export class IndustrySpService {
   // Cumulative ROI% convergence series for the "P&L graph" — requested
   // live alongside the split cards to show how the running profit % is
   // volatile over a small sample and settles down as more runners are
-  // included. toRunnerTarget is the upper limit of Split B (the caller
-  // passes fromRunnerA + totalRunnersA + totalRunnersB), and the series
-  // always starts from runner 1, spanning both splits at once.
+  // included. fromRunnerTarget/toRunnerTarget are one split's own runner
+  // range (e.g. Split B's 1001..2000) — each split's graph is its own
+  // independent convergence test starting fresh at fromRunnerTarget, not a
+  // slice of one dataset-wide running total (see getRunnerConvergenceSeries
+  // on the DAO for why). runnerOrdinal in the returned points is still the
+  // true global ordinal, matching what that split's own card shows.
   public async getRunnerConvergenceSeries(
     minRunners = 1,
     maxRunners = 30,
@@ -420,6 +423,7 @@ export class IndustrySpService {
     maxTrainerFormRunners = 100,
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
+    fromRunnerTarget: number,
     toRunnerTarget: number,
     raceCap = 1000
   ): Promise<{ runnerOrdinal: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[]> {
@@ -433,6 +437,9 @@ export class IndustrySpService {
     // Same "resolve a target ordinal to a race-row bound, then clamp to
     // raceCap" shape as getSplitStats' own raceRowBoundFor — bounds how
     // many races this scans regardless of how large toRunnerTarget is.
+    // Still resolved from toRunnerTarget alone (not fromRunnerTarget) — the
+    // scan always starts at race 1 to identify true global ordinals, see
+    // the DAO method's own comment.
     const { boundaryRowIndex } = await this.industrySpDAO.getQualifyingRunnerSplitBoundary(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
@@ -445,7 +452,7 @@ export class IndustrySpService {
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-      minModelWinProbability, onlyModelBeatsSp, Math.max(1, toRunnerTarget), raceRowBound
+      minModelWinProbability, onlyModelBeatsSp, Math.max(1, fromRunnerTarget), Math.max(1, toRunnerTarget), raceRowBound
     );
 
     return points.map(p => ({

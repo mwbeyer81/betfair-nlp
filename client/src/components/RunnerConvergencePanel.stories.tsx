@@ -3,11 +3,15 @@ import { within, userEvent, expect, fn } from "@storybook/test";
 import { RunnerConvergencePanel } from "./RunnerConvergencePanel";
 import { RunnerConvergencePoint } from "../services/chatApi";
 
-function samplePoints(n: number): RunnerConvergencePoint[] {
+// startOrdinal defaults to 1 (Split A's own case); a non-1 start models
+// Split B's own graph, whose x axis shows its true global ordinals (e.g.
+// 1001-2000) while its cumulative sum restarts fresh at startOrdinal — see
+// getRunnerConvergenceSeries on the backend.
+function samplePoints(n: number, startOrdinal = 1): RunnerConvergencePoint[] {
   let cumulativeStaked = 0;
   let cumulativeReturns = 0;
   return Array.from({ length: n }, (_, i) => {
-    const ordinal = i + 1;
+    const ordinal = startOrdinal + i;
     cumulativeStaked += 1;
     if (ordinal % 3 === 0) cumulativeReturns += 1.8;
     const cumulativePnl = cumulativeReturns - cumulativeStaked;
@@ -95,5 +99,23 @@ export const EmptyState: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByTestId("runner-convergence-empty")).toBeInTheDocument();
     await expect(canvas.queryByTestId("runner-convergence-chart")).not.toBeInTheDocument();
+  },
+};
+
+export const ScopedToASplitsOwnRange: Story = {
+  // Models Split B's own Graph button: a range that doesn't start at 1
+  // (e.g. runners 1001-1200), reported live — "the graphs should
+  // actually use the same race numbers on its x axis, eg 1 to 500, or
+  // 1000 to 2000." The subtitle/axis caption must show the TRUE range,
+  // not a re-based 1..N index, and "Converges to X% after N runners"
+  // must count the runners in THIS range (200), not the last ordinal
+  // (1200).
+  args: {
+    points: samplePoints(200, 1001),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("runner-convergence-range-subtitle")).toHaveTextContent("Runners 1001–1200");
+    await expect(canvas.getByTestId("runner-convergence-final-roi")).toHaveTextContent("after 200 runners");
   },
 };

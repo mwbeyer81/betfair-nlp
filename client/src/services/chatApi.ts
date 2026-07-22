@@ -570,6 +570,7 @@ class ChatApi {
   // sample and settles down as more runners are included.
   async getIndustrySpRunnerConvergence(
     toRunner: number,
+    fromRunner = 1,
     minRunners = 1,
     maxRunners = 30,
     countries: string[] = [],
@@ -593,6 +594,7 @@ class ChatApi {
   ): Promise<{ success: boolean; data: RunnerConvergencePoint[]; count: number }> {
     const params = new URLSearchParams({
       toRunner: String(toRunner),
+      fromRunner: String(fromRunner),
       minRunners: String(minRunners),
       maxRunners: String(maxRunners),
       minIsp: String(minIsp),

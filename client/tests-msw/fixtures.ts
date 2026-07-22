@@ -413,29 +413,36 @@ async function setupApiMocks(page: Page) {
   await page.route((url) => url.pathname === "/api/industry-sp/runner-convergence", (route) => {
     const reqUrl = new URL(route.request().url());
     const toRunner = Math.max(1, parseInt(reqUrl.searchParams.get("toRunner") ?? "1", 10));
-    // Synthetic but plausible: volatile for the first few runners, settling
-    // toward a stable ~-10% ROI — mirrors the real convergence shape
-    // (verified live against production data) without needing real bet
-    // outcomes in the mock.
+    // Defaults to 1 — Split A's own Graph button always sends fromRunner=1
+    // explicitly; Split B's sends its own first runner's ordinal, so its
+    // line restarts fresh instead of continuing Split A's already-settled
+    // total (mirrors the real backend — see getRunnerConvergenceSeries).
+    const fromRunner = Math.max(1, parseInt(reqUrl.searchParams.get("fromRunner") ?? "1", 10));
+    // Synthetic but plausible: volatile for the first few runners of
+    // whichever range was requested, settling toward a stable ~-10% ROI —
+    // mirrors the real convergence shape (verified live against production
+    // data) without needing real bet outcomes in the mock. The win pattern
+    // is keyed off the TRUE global ordinal (not a re-based local index),
+    // same as the real backend, so a Split B call starting mid-sequence
+    // isn't artificially "luckier" or "unluckier" than the equivalent
+    // slice of Split A's own sequence would have been.
     let cumulativeStaked = 0;
     let cumulativeReturns = 0;
-    const data = Array.from({ length: toRunner }, (_, i) => {
-      const ordinal = i + 1;
+    const data = [];
+    for (let ordinal = fromRunner; ordinal <= toRunner; ordinal++) {
       const stake = 1;
       cumulativeStaked += stake;
-      // A deterministic pseudo-random win pattern, not truly random, so the
-      // test assertions below stay stable across runs.
       const isWinner = ordinal % 3 === 0;
       if (isWinner) cumulativeReturns += stake * 1.8;
       const cumulativePnl = cumulativeReturns - cumulativeStaked;
-      return {
+      data.push({
         runnerOrdinal: ordinal,
         cumulativeStaked,
         cumulativeReturns,
         cumulativePnl,
         roiPercent: cumulativeStaked > 0 ? (cumulativePnl / cumulativeStaked) * 100 : 0,
-      };
-    });
+      });
+    }
     route.fulfill({ json: { success: true, data, count: data.length } });
   });
 

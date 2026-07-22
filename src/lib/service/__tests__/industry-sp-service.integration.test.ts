@@ -235,12 +235,12 @@ describe("IndustrySpService.getRunnerConvergenceSeries (integration)", () => {
     await client.close();
   });
 
-  it("returns exactly toRunnerTarget points, one per runner ordinal 1..N, in order", async () => {
+  it("returns exactly toRunnerTarget points, one per runner ordinal 1..N, in order, when fromRunnerTarget is 1", async () => {
     // Requested live: a P&L convergence graph showing how the running
     // ROI% is volatile over a small sample and settles down as more
     // runners are included, up to the upper limit of Split B.
     const points = await service.getRunnerConvergenceSeries(
-      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 500
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1, 500
     );
     expect(points.length).toBe(500);
     points.forEach((p, i) => expect(p.runnerOrdinal).toBe(i + 1));
@@ -248,7 +248,7 @@ describe("IndustrySpService.getRunnerConvergenceSeries (integration)", () => {
 
   it("cumulativeStaked/cumulativeReturns/cumulativePnl/roiPercent are non-decreasing in sample size and reconcile at the end", async () => {
     const points = await service.getRunnerConvergenceSeries(
-      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 500
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1, 500
     );
     // Both cumulative counters only ever grow (every runner stakes
     // something; returns are added on top, never subtracted).
@@ -265,7 +265,7 @@ describe("IndustrySpService.getRunnerConvergenceSeries (integration)", () => {
     // Cross-check against the exact runner-level split (getRunnerRangeStats)
     // added alongside this — both must agree on the same underlying data.
     const points = await service.getRunnerConvergenceSeries(
-      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 2000
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1, 2000
     );
     const last = points[points.length - 1];
 
@@ -278,5 +278,28 @@ describe("IndustrySpService.getRunnerConvergenceSeries (integration)", () => {
     const combinedReturns = splitResult.splitA.pnlStats.returns + splitResult.splitB.pnlStats.returns;
     expect(last.cumulativeStaked).toBeCloseTo(combinedStaked, 6);
     expect(last.cumulativeReturns).toBeCloseTo(combinedReturns, 6);
+  });
+
+  it("a range not starting at 1 (e.g. Split B's own 1001-2000) restarts the cumulative sum fresh, but keeps true global runnerOrdinal labels", async () => {
+    // Regression: reported live — Split A and Split B's graphs should use
+    // "the same race numbers on its x axis, eg 1 to 500, or 1000 to 2000",
+    // not both starting at a re-based 1. Split B's own convergence line
+    // must also demonstrate its own early volatility (restart near the
+    // single-runner extreme), not continue whatever total Split A's range
+    // had already settled to.
+    const pointsA = await service.getRunnerConvergenceSeries(
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1, 1000
+    );
+    const pointsB = await service.getRunnerConvergenceSeries(
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1001, 2000
+    );
+    expect(pointsB.length).toBe(1000);
+    expect(pointsB[0].runnerOrdinal).toBe(1001);
+    expect(pointsB[pointsB.length - 1].runnerOrdinal).toBe(2000);
+    // Split B's own cumulative starts fresh — its first point's staked
+    // total is one runner's worth (a small single stake), nowhere near
+    // Split A's already-accumulated 1000-runner total.
+    expect(pointsB[0].cumulativeStaked).toBeLessThan(5);
+    expect(pointsB[0].cumulativeStaked).toBeLessThan(pointsA[pointsA.length - 1].cumulativeStaked);
   });
 });

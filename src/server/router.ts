@@ -460,6 +460,17 @@ router.get("/api/industry-sp/runner-convergence", async (req, res) => {
       return res.status(400).json({ success: false, error: "toRunner is required and must be a positive integer" });
     }
     const toRunner = toRunnerRaw;
+    // Defaults to 1 (the dataset's true start) when omitted — a caller
+    // asking for the graph without a fromRunner gets the same behavior as
+    // before fromRunner existed. Split A's own Graph button always sends 1
+    // explicitly; Split B's sends its own first runner's ordinal, so its
+    // convergence line restarts fresh there instead of continuing Split
+    // A's already-settled running total (see getRunnerConvergenceSeries).
+    const fromRunnerRaw = parseInt(req.query.fromRunner as string);
+    const fromRunner = isNaN(fromRunnerRaw) || fromRunnerRaw < 1 ? 1 : fromRunnerRaw;
+    if (fromRunner > toRunner) {
+      return res.status(400).json({ success: false, error: "fromRunner must not exceed toRunner" });
+    }
 
     // Set by optionalJwtAuth (registered on /api/industry-sp above) — same
     // race cap the split cards themselves use, so the graph never scans
@@ -471,7 +482,7 @@ router.get("/api/industry-sp/runner-convergence", async (req, res) => {
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
-      toRunner, raceCap
+      fromRunner, toRunner, raceCap
     );
     res.set("Cache-Control", "public, max-age=60");
     res.status(200).json({ success: true, data, count: data.length });

@@ -155,21 +155,26 @@ function splitsHandler(opts?: {
 const runnerConvergenceHandler = http.get(`${BASE}/api/industry-sp/runner-convergence`, ({ request }) => {
   const url = new URL(request.url);
   const toRunner = Math.max(1, parseInt(url.searchParams.get("toRunner") ?? "1", 10));
+  // Defaults to 1 — Split A's own Graph button always sends fromRunner=1
+  // explicitly; Split B's sends its own first runner's ordinal, so its own
+  // line restarts fresh rather than continuing Split A's already-settled
+  // total (mirrors the real backend — see getRunnerConvergenceSeries).
+  const fromRunner = Math.max(1, parseInt(url.searchParams.get("fromRunner") ?? "1", 10));
   let cumulativeStaked = 0;
   let cumulativeReturns = 0;
-  const data = Array.from({ length: toRunner }, (_, i) => {
-    const ordinal = i + 1;
+  const data = [];
+  for (let ordinal = fromRunner; ordinal <= toRunner; ordinal++) {
     cumulativeStaked += 1;
     if (ordinal % 3 === 0) cumulativeReturns += 1.8;
     const cumulativePnl = cumulativeReturns - cumulativeStaked;
-    return {
+    data.push({
       runnerOrdinal: ordinal,
       cumulativeStaked,
       cumulativeReturns,
       cumulativePnl,
       roiPercent: (cumulativePnl / cumulativeStaked) * 100,
-    };
-  });
+    });
+  }
   return HttpResponse.json({ success: true, data, count: data.length });
 });
 
@@ -602,9 +607,21 @@ export const GraphButtonOpensConvergencePanel: Story = {
       expect(canvas.queryByTestId("runner-convergence-loading")).not.toBeInTheDocument();
     }, { timeout: 5000 });
     await expect(canvas.getByTestId("runner-convergence-chart")).toBeInTheDocument();
+    // Mock's default split totals are 2 runners each — Split A's own graph
+    // is runners 1-2, not the mock's combined 1-4 total.
+    await expect(canvas.getByTestId("runner-convergence-range-subtitle")).toHaveTextContent("Runners 1–2");
 
     await userEvent.click(canvas.getByTestId("runner-convergence-panel-close"));
     await expect(canvas.queryByTestId("runner-convergence-panel")).not.toBeInTheDocument();
+
+    // Split B's own Graph button opens a panel scoped to its own range —
+    // 3-4, not a repeat of Split A's 1-2 and not the combined 1-4.
+    await userEvent.click(canvas.getByTestId("industry-sp-split-graph-button-b"));
+    await canvas.findByTestId("runner-convergence-panel");
+    await waitFor(() => {
+      expect(canvas.queryByTestId("runner-convergence-loading")).not.toBeInTheDocument();
+    }, { timeout: 5000 });
+    await expect(canvas.getByTestId("runner-convergence-range-subtitle")).toHaveTextContent("Runners 3–4");
   },
 };
 

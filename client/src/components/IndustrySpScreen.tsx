@@ -1114,17 +1114,28 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     });
   }
 
-  // Opens the P&L convergence graph — up to the upper limit of Split B
-  // (totalRunnersA + totalRunnersB), spanning both splits from runner 1.
-  // Both split cards' "Graph" buttons call this same function.
-  async function loadConvergence() {
+  // Opens the P&L convergence graph for one split's own runner range —
+  // Split A: 1..totalRunnersA, Split B: totalRunnersA+1..totalRunnersA+
+  // totalRunnersB (the exact same numbers that split's own card shows).
+  // Each split's graph is its own independent convergence test starting
+  // fresh at its own first runner, not a shared dataset-wide line — see
+  // getRunnerConvergenceSeries on the backend for why.
+  async function loadConvergence(id: "a" | "b") {
     setShowConvergencePanel(true);
-    setConvergenceLoading(true);
     setConvergenceError(null);
-    const toRunner = totalRunnersA + totalRunnersB;
+    const fromRunner = id === "a" ? 1 : totalRunnersA + 1;
+    const toRunner = id === "a" ? totalRunnersA : totalRunnersA + totalRunnersB;
+    // A split with zero runners (e.g. an empty result) has nothing to
+    // graph — the backend requires toRunner >= 1, so skip the request
+    // entirely rather than firing one that's guaranteed to fail.
+    if (toRunner < fromRunner) {
+      setConvergencePoints([]);
+      return;
+    }
+    setConvergenceLoading(true);
     try {
       const result = await chatApi.getIndustrySpRunnerConvergence(
-        toRunner, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, minRunnersInRange, maxRunnersInRange,
+        toRunner, fromRunner, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, minRunnersInRange, maxRunnersInRange,
         minDate, maxDate, [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
         trainerSearch || undefined, jockeySearch || undefined,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
@@ -1215,7 +1226,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             mode="outlined"
             compact
             disabled={notReady}
-            onPress={loadConvergence}
+            onPress={() => loadConvergence(id)}
             style={styles.splitDetailsButton}
             labelStyle={styles.splitDetailsButtonLabel}
           >
