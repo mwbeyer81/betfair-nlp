@@ -591,7 +591,20 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   useEffect(() => {
     let cancelled = false;
 
-    function applyResult(result: CachedSplitsResult) {
+    // isRunnerExplicit: true when this fetch was driven by the user's own
+    // typed runner range (fromRunnerA/etc, not the auto default or a
+    // race-index range). In that case the draft runner boxes must NOT be
+    // overwritten with the *resolved* totalRunners-derived values below —
+    // races are the atomic unit, so an arbitrary runner target (e.g. 1000)
+    // almost never lands exactly on a race boundary and gets resolved to
+    // whatever the nearest one actually is (e.g. 1003); silently replacing
+    // the user's typed "1000" with "1003" after every Apply was reported
+    // live as the box "changing on its own". The applied (non-draft)
+    // fromRunnerA/toRunnerA still always reflect the resolved values —
+    // those back the cache key and must stay consistent with what a
+    // remount reconstructs from the URL (see the cache-key comments
+    // below) — only the user-facing editable text is preserved here.
+    function applyResult(result: CachedSplitsResult, isRunnerExplicit: boolean) {
       setHasLoadedOnce(true);
       setTotalRaces(result.totalRaces);
       setTotalRunners(result.totalRunners);
@@ -625,14 +638,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       // race-index editing or the auto default.
       setFromRunnerA(1);
       setToRunnerA(result.splitA.totalRunners);
-      setDraftFromRunnerA("1");
-      setDraftToRunnerA(String(result.splitA.totalRunners));
       const runnerFromB = result.splitA.totalRunners + 1;
       const runnerToB = result.splitA.totalRunners + result.splitB.totalRunners;
       setFromRunnerB(runnerFromB);
       setToRunnerB(runnerToB);
-      setDraftFromRunnerB(String(runnerFromB));
-      setDraftToRunnerB(String(runnerToB));
+      if (!isRunnerExplicit) {
+        setDraftFromRunnerA("1");
+        setDraftToRunnerA(String(result.splitA.totalRunners));
+        setDraftFromRunnerB(String(runnerFromB));
+        setDraftToRunnerB(String(runnerToB));
+      }
 
       setTotalRacesA(result.splitA.total);
       setTotalRunnersA(result.splitA.totalRunners);
@@ -766,7 +781,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         // time (this bucket's own key already guarantees it was computed
         // fresh, so there's nothing to re-derive from a different total).
         if (cached && (isDefault || !isStaleSplit(cached.splitB.fromRow, cached.totalRaces))) {
-          applyResult(cached);
+          applyResult(cached, !isDefault && splitByRunners);
           syncUrl(cached, isDefault);
           setIsLoading(false);
           return;
@@ -821,7 +836,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           setFetchTrigger(t => t + 1);
           return;
         }
-        applyResult(result);
+        applyResult(result, !isDefault && splitByRunners);
         syncUrl(result, isDefault);
         // Written under a key reflecting the *resolved* boundary values —
         // exactly what syncUrl just wrote to the URL — not the pre-fetch

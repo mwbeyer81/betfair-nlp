@@ -381,6 +381,46 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     expect(page.url()).not.toContain("fromRowA");
   });
 
+  test("the typed runner range stays visible in the box after Apply — not silently replaced by the resolved value", async ({ page }) => {
+    // Regression: reported live via screenshot — typing "1–1000" / "1001–
+    // 2000" into Split A/B then clicking Apply caused the boxes to change
+    // to "1–1003" / "1004–2005" (the *resolved*, race-boundary-snapped
+    // values) instead of keeping what was actually typed. Races are the
+    // atomic unit, so an arbitrary runner target rarely lands exactly on a
+    // race boundary and gets resolved to whatever the nearest one actually
+    // is — that resolved range is correctly shown on the result card below
+    // ("Split A — runners 1–1003"), but the *edit box* silently overwriting
+    // the user's own request made it look like the app was ignoring input.
+    //
+    // A large mock total (the default fixture's is only 3 runners, too
+    // small to test this — typing 1000 against a total of 3 legitimately
+    // clamps down to 3, a different, correct behavior that would mask this
+    // regression) so the typed value is well within range and the mock's
+    // own (unrelated to what was typed) resolved total is clearly distinct
+    // from it — if the fix regresses, the box would show "2500" (the
+    // mock's canned splitA.totalRunners) instead of what was typed.
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      await route.fulfill({
+        json: {
+          success: true, totalRaces: 2500, totalRunners: 5000, raceCap: 1000,
+          filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+          countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
+          raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
+          splitA: { fromRow: 1, toRow: 1250, total: 1250, totalRunners: 2500, pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } },
+          splitB: { fromRow: 1251, toRow: null, total: 1250, totalRunners: 2500, pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } },
+        },
+      });
+    });
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-to-runner-a").fill("1000");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("industry-sp-to-runner-a")).toHaveValue("1000");
+  });
+
   test("reloading a URL with an explicit runner-range split restores it as the active split (not the default)", async ({ page }) => {
     // Asserts on the *outgoing request*, not the redisplayed box values —
     // the mock (unlike the real backend) doesn't implement runner-to-race
