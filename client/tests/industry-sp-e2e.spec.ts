@@ -152,18 +152,50 @@ test.describe("GET /api/industry-sp/splits (live server @ localhost:3000)", () =
     }
   });
 
-  test("defaults to an even first-half/second-half split of the real dataset", async ({ request }) => {
+  test("defaults to a split of the real dataset bisected by qualifying-runner count, with race ranges that never exceed the total", async ({ request }) => {
+    // Split A/B's default boundary is chosen by cumulative qualifying-
+    // runner count (not a plain race-count bisection), and raceCap
+    // clamping means neither split's toRow is ever literally null anymore
+    // — both get concretized to a real race index. See the dedicated
+    // overshoot regression test below for the specific bug this also
+    // covers (a clamped toRow exceeding the true totalRaces).
     const token = await getBearerToken(request);
     const res = await request.get(`${API_URL}/api/industry-sp/splits`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const body = await res.json();
-    const half = Math.floor(body.totalRaces / 2);
     expect(body.splitA.fromRow).toBe(1);
-    expect(body.splitA.toRow).toBe(half);
-    expect(body.splitB.fromRow).toBe(half + 1);
-    expect(body.splitB.toRow).toBeNull();
-    // splitA + splitB together cover every matching race exactly once.
+    expect(body.splitB.fromRow).toBe(body.splitA.toRow + 1);
+    expect(body.splitA.toRow).toBeLessThanOrEqual(body.totalRaces);
+    expect(body.splitB.toRow).toBeLessThanOrEqual(body.totalRaces);
+    // splitA + splitB together cover every matching race — and every
+    // qualifying runner — exactly once.
+    expect(body.splitA.total + body.splitB.total).toBe(body.totalRaces);
+    expect(body.splitA.totalRunners + body.splitB.totalRunners).toBe(body.totalRunners);
+  });
+
+  test("splitB's toRow never exceeds totalRaces when the matched set is smaller than the race cap", async ({ request }) => {
+    // Regression test: reported live via a screenshot — a narrow filter
+    // (here, a single week, chosen because it reliably yields a fixed,
+    // small matched set well under both the anonymous (100) and
+    // authenticated (1000) race caps) naturally yields far fewer matching
+    // races than the cap, and raceCap clamping used to compute toRow as
+    // fromRow + raceCap - 1 unconditionally — producing a race range that
+    // implied far more races than actually existed (reported live:
+    // totalRaces=675 alongside a displayed toRowB of 1334). The underlying
+    // total/totalRunners counts were still correct even with the bug
+    // (MongoDB's own $skip/$limit silently returns fewer rows than
+    // requested); only the displayed boundary number was wrong.
+    const token = await getBearerToken(request);
+    const res = await request.get(
+      `${API_URL}/api/industry-sp/splits?minDate=2024-01-01&maxDate=2024-01-07`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.totalRaces).toBeGreaterThan(0);
+    expect(body.splitA.toRow).toBeLessThanOrEqual(body.totalRaces);
+    expect(body.splitB.toRow).toBeLessThanOrEqual(body.totalRaces);
     expect(body.splitA.total + body.splitB.total).toBe(body.totalRaces);
   });
 
@@ -318,6 +350,34 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     // Split B picks up immediately where split A's default range left off.
     expect(parseInt(fromB, 10)).toBe(parseInt(toA, 10) + 1);
     expect(parseInt(fromA, 10)).toBe(1);
+  });
+
+  test("the Split B 'to' input never shows a race number beyond the '/totalRaces' hint next to it", async ({ page }) => {
+    // Regression test: reported live via screenshot — the Split B "to"
+    // input box showed a race number (1334) that exceeded the "/675"
+    // total-races hint rendered right next to it on this same filter
+    // panel, and the result card below made the same claim ("(races
+    // 335–1334)" for a totalRaces of 675). A narrow one-week date filter
+    // reliably yields a matched set well under both the anonymous and
+    // authenticated race caps, reproducing the overshoot deterministically
+    // against this fixed historical dataset. minDate/maxDate in the URL
+    // count as "already applied" (see hadUrlParamsOnMount), so this loads
+    // pre-fetched — no separate Apply click needed.
+    await page.goto(`${APP_URL}isp?email=matthew%40backbet.co.uk&password=beyer&minDate=2024-01-01&maxDate=2024-01-07`);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+
+    const hintText = (await page.getByTestId("industry-sp-race-bound-a").textContent()) ?? "";
+    const totalRaces = parseInt(hintText.replace("/", ""), 10);
+    expect(totalRaces).toBeGreaterThan(0);
+
+    const toB = parseInt(await page.getByTestId("industry-sp-to-row-b").inputValue(), 10);
+    expect(toB).toBeLessThanOrEqual(totalRaces);
+
+    // The Split B result card must agree with the same total — its
+    // displayed race range can't claim a race beyond what exists either.
+    await expect(page.getByTestId("industry-sp-split-card-b")).not.toContainText(`–${totalRaces + 1}`);
   });
 
   test("logged-in home page shows Log Out, not a link to /events", async ({ page }) => {

@@ -253,7 +253,13 @@ jest.mock("../../config/database", () => ({
                     meetingName: "Ascot — 1 January 2025",
                   },
                 ],
-                total: [{ count: 1 }],
+                // 10000 (not 1) — large enough that it never dominates the
+                // raceCap-clamping tests below (getSplitStats now also
+                // clamps each split's toRow to the matched total, not just
+                // raceCap; a total of 1 would make every clamped toRow
+                // collapse to 1 regardless of raceCap, defeating the point
+                // of those tests).
+                total: [{ count: 10000 }],
                 pnlStats: [{ staked: 1, returns: 2, count: 1 }],
                 runnerCounts: [{ maxRunners: 12 }],
                 ispBounds: [{ maxIsp: 100, minIsp: 1.5 }],
@@ -1331,6 +1337,22 @@ describe("API Endpoints", () => {
 
       expect(response.body.splitA.toRow).toBe(1 + 1000 - 1);
       expect(response.body.splitB.toRow).toBe(6000 + 1000 - 1);
+    });
+
+    it("never clamps toRow beyond the matched totalRaces, even when raceCap would otherwise push it past the end", async () => {
+      // Regression: reported live — raceCap clamping computed toRow as
+      // fromRow + raceCap - 1 unconditionally, overshooting the real total
+      // whenever the matched set was smaller than raceCap (the common case
+      // for any filtered/date-scoped view). fromRowB=9500 + the
+      // authenticated raceCap (1000) would naively land at 10499, well
+      // past the mocked totalRaces of 10000.
+      const response = await request(app)
+        .get("/api/industry-sp/splits?fromRowA=1&toRowA=5000&fromRowB=9500")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.totalRaces).toBe(10000);
+      expect(response.body.splitB.toRow).toBe(10000);
     });
 
     it("accepts minDate/maxDate without erroring", async () => {

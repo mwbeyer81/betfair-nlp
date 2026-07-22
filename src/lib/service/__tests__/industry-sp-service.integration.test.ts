@@ -84,6 +84,29 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     expect(result.splitB.total).toBe(5);
   });
 
+  it("splitA/splitB's toRow never exceeds the true totalRaces, even when raceCap would otherwise push it beyond", async () => {
+    // Regression: reported live — raceCap clamping computed toRow as
+    // effFrom + raceCap - 1 unconditionally, overshooting the real total
+    // whenever the matched set is smaller than raceCap (the common case
+    // for any filtered/date-scoped view — e.g. reported with
+    // totalRaces=675 vs. a raceCap-derived toRowB of 1334). The underlying
+    // total/totalRunners counts were still correct (MongoDB's own
+    // $skip/$limit silently returns fewer rows than requested), but the
+    // displayed/returned toRow number implied a race range that didn't
+    // exist. A deliberately huge raceCap forces the overshoot condition
+    // regardless of the real dataset's size.
+    const result = await service.getSplitStats(
+      1, 30, [], 1, 1000, 1, 10000, null, null, null, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, 0, false, true, 100000000
+    );
+    expect(result.totalRaces).toBeGreaterThan(0);
+    expect(result.splitA.toRow).toBeLessThanOrEqual(result.totalRaces);
+    expect(result.splitB.toRow).toBeLessThanOrEqual(result.totalRaces);
+    // The split card's displayed race range should also account for the
+    // whole matched set — no gap between where A ends and B begins/ends.
+    expect(result.splitA.total + result.splitB.total).toBe(result.totalRaces);
+  });
+
   it("filters (e.g. country) apply identically to both the grand total and both splits", async () => {
     const countries = await service.getDistinctCountryCodes();
     expect(countries.length).toBeGreaterThan(0);

@@ -246,10 +246,19 @@ export class IndustrySpService {
     // default computes, while a large total (or an explicit caller-supplied
     // range) gets bounded to raceCap rather than the previous unbounded
     // "through the end" window. An open-ended toRow (null) becomes
-    // "exactly raceCap races", not "unlimited".
-    const maxToA = effFromA + raceCap - 1;
+    // "exactly raceCap races", not "unlimited" — but also never "more races
+    // than actually exist": also clamped to grand.total (already known at
+    // this point), otherwise whenever the matched total is smaller than
+    // raceCap (the common case for anything but a very wide filter — e.g.
+    // reported live with totalRaces=675 vs. a raceCap-derived toRowB of
+    // 1334) the displayed/returned toRow implied a race range that didn't
+    // exist, even though the underlying total/totalRunners counts were
+    // still correct (MongoDB's own $skip/$limit silently returns fewer
+    // rows than requested, so only the boundary *number* was wrong, not
+    // the actual query result).
+    const maxToA = Math.min(effFromA + raceCap - 1, grand.total);
     effToA = effToA == null ? maxToA : Math.min(effToA, maxToA);
-    const maxToB = effFromB + raceCap - 1;
+    const maxToB = Math.min(effFromB + raceCap - 1, grand.total);
     effToB = effToB == null ? maxToB : Math.min(effToB, maxToB);
 
     const [resultA, resultB] = await Promise.all([
