@@ -866,6 +866,154 @@ export class IndustrySpDAO {
   }
 
   /**
+   * Cumulative P&L convergence series, one point per qualifying runner from
+   * ordinal 1 up to toRunnerTarget (same global ordinal space as
+   * getRunnerRangeStats — raceTime ascending, then within-race order).
+   * Demonstrates how the running ROI% is volatile over a small sample and
+   * settles down as more runners are included — requested live to visualize
+   * "after a few runners it'll be wrong" alongside the split cards.
+   *
+   * raceRowBound caps how many races (from race 1) this scans/unwinds, same
+   * cost-control role as in getRunnerRangeStats.
+   */
+  public async getRunnerConvergenceSeries(
+    minRunners = 1,
+    maxRunners = 30,
+    countries: string[] = [],
+    minIsp = 1,
+    maxIsp = 1000,
+    minInIspRange = 1,
+    maxInIspRange = 1000,
+    minRaceTime: string | null = null,
+    maxRaceTime: string | null = null,
+    courses: string[] = [],
+    goings: string[] = [],
+    raceClasses: string[] = [],
+    raceTypes: string[] = [],
+    trainerSearch: string | null = null,
+    jockeySearch: string | null = null,
+    trainerFormMinWinRate = 0,
+    minTrainerFormRunners = 0,
+    maxTrainerFormRunners = 100,
+    minModelWinProbability = 0,
+    onlyModelBeatsSp = false,
+    toRunnerTarget: number,
+    raceRowBound: number
+  ): Promise<{ runnerOrdinal: number; cumulativeStaked: number; cumulativeReturns: number }[]> {
+    const dateMatchStage: Record<string, unknown>[] =
+      minRaceTime != null || maxRaceTime != null
+        ? [
+            {
+              $match: {
+                raceTime: {
+                  ...(minRaceTime != null ? { $gte: minRaceTime } : {}),
+                  ...(maxRaceTime != null ? { $lte: maxRaceTime } : {}),
+                },
+              },
+            },
+          ]
+        : [];
+
+    // Same qualifying-runner condition as getRunnerRangeStats — see that
+    // method's comment for why this is duplicated rather than shared with
+    // buildQualifyingRaceStages' own count-only fast path.
+    const trainerFormFilterActive = minTrainerFormRunners > 0 || maxTrainerFormRunners < 100;
+    const trainerFormCond = [
+      { $ne: ["$$r.trainerFormWinRate", null] },
+      { $gte: ["$$r.trainerFormWinRate", trainerFormMinWinRate] },
+    ];
+    const modelFilterActive = minModelWinProbability > 0;
+    const modelCond = [
+      { $ne: ["$$r.modelWinProbability", null] },
+      { $gte: ["$$r.modelWinProbability", minModelWinProbability] },
+    ];
+    const modelBeatsSpFilterActive = onlyModelBeatsSp;
+    const modelBeatsSpCond = [
+      { $ne: ["$$r.modelWinProbability", null] },
+      { $ne: ["$$r.isp", null] },
+      { $gt: ["$$r.isp", 0] },
+      { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
+    ];
+    const qualifyingRunnersArrayExpr = {
+      $map: {
+        input: {
+          $filter: {
+            input: "$runners",
+            as: "r",
+            cond: {
+              $and: [
+                { $ifNull: ["$$r.isp", false] },
+                { $gt: ["$$r.isp", 1] },
+                { $gte: ["$$r.isp", minIsp] },
+                { $lte: ["$$r.isp", maxIsp] },
+                ...(trainerFormFilterActive ? trainerFormCond : []),
+                ...(modelFilterActive ? modelCond : []),
+                ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
+              ],
+            },
+          },
+        },
+        as: "r",
+        in: { isp: "$$r.isp", status: "$$r.status" },
+      },
+    };
+
+    const stakeExpr = { $divide: [1, { $subtract: ["$qualifyingRunnersArray.isp", 1] }] };
+    const returnExpr = {
+      $cond: [
+        { $eq: ["$qualifyingRunnersArray.status", "WINNER"] },
+        { $add: [stakeExpr, 1] },
+        0,
+      ],
+    };
+
+    const points = await this.collection
+      .aggregate<{ runnerOrdinal: number; cumulativeStaked: number; cumulativeReturns: number }>(
+        [
+          ...dateMatchStage,
+          { $sort: { raceTime: 1 } },
+          ...this.buildQualifyingRaceStages({
+            countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
+            courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName: null,
+            trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+            minModelWinProbability, onlyModelBeatsSp,
+          }),
+          { $limit: Math.max(1, raceRowBound) },
+          {
+            $setWindowFields: {
+              sortBy: { raceTime: 1 },
+              output: { raceRowNumber: { $documentNumber: {} } },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              raceRowNumber: 1,
+              qualifyingRunnersArray: qualifyingRunnersArrayExpr,
+            },
+          },
+          { $unwind: { path: "$qualifyingRunnersArray", includeArrayIndex: "arrIdx" } },
+          {
+            $setWindowFields: {
+              sortBy: { raceRowNumber: 1, arrIdx: 1 },
+              output: {
+                runnerOrdinal: { $sum: 1, window: { documents: ["unbounded", "current"] } },
+                cumulativeStaked: { $sum: stakeExpr, window: { documents: ["unbounded", "current"] } },
+                cumulativeReturns: { $sum: returnExpr, window: { documents: ["unbounded", "current"] } },
+              },
+            },
+          },
+          { $match: { $expr: { $lte: ["$runnerOrdinal", toRunnerTarget] } } },
+          { $project: { _id: 0, runnerOrdinal: 1, cumulativeStaked: 1, cumulativeReturns: 1 } },
+        ],
+        { allowDiskUse: true }
+      )
+      .toArray();
+
+    return points;
+  }
+
+  /**
    * All races for one meeting (course + date), sorted by raceTime. A
    * meeting only ever has a handful of races, so no pagination or 32MB
    * sort-limit concerns here — this is a plain $match + $sort.

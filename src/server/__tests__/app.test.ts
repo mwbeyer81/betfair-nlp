@@ -216,6 +216,13 @@ jest.mock("../../config/database", () => ({
                 // splits) — a flat top-level doc, not nested in $facet.
                 fromRow: 1,
                 toRow: 8,
+                // getRunnerConvergenceSeries' per-point shape — this mock
+                // array only has one element, so the endpoint's response
+                // has exactly one convergence point in tests, which is
+                // enough to assert its field shape.
+                runnerOrdinal: 1,
+                cumulativeStaked: 1,
+                cumulativeReturns: 2,
                 // /api/events/:eventId/definitions (MarketDefinitionDocument shape)
                 // /api/events/:eventId/runners (Race shape)
                 marketId: "1.237066150",
@@ -1433,6 +1440,43 @@ describe("API Endpoints", () => {
       expect(response.body.success).toBe(true);
       expect(response.body.splitA).toHaveProperty("fromRow");
       expect(response.body.splitB).toHaveProperty("fromRow");
+    });
+  });
+
+  describe("GET /api/industry-sp/runner-convergence", () => {
+    it("returns 200 with success, a data array, and count matching data.length", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/runner-convergence?toRunner=1000")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    it("each point has runnerOrdinal, cumulative staked/returns/pnl, and roiPercent", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/runner-convergence?toRunner=1000")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+      const point = response.body.data[0];
+      expect(point).toHaveProperty("runnerOrdinal");
+      expect(point).toHaveProperty("cumulativeStaked");
+      expect(point).toHaveProperty("cumulativeReturns");
+      expect(point).toHaveProperty("cumulativePnl");
+      expect(point).toHaveProperty("roiPercent");
+    });
+
+    it("is public — returns 200 without auth", async () => {
+      await request(app).get("/api/industry-sp/runner-convergence?toRunner=1000").expect(200);
+    });
+
+    it("returns 400 when toRunner is missing", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/runner-convergence")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(400);
+      expect(response.body).toHaveProperty("error");
     });
   });
 

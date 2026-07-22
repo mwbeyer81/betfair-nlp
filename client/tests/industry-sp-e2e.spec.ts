@@ -337,6 +337,27 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     await expect(panel).not.toBeVisible();
   });
 
+  test("Graph button opens a P&L convergence chart spanning runner 1 up to Split B's upper limit", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+
+    await page.getByTestId("industry-sp-split-graph-button-a").click();
+    const panel = page.getByTestId("runner-convergence-panel");
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId("runner-convergence-loading")).not.toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId("runner-convergence-chart")).toBeVisible();
+    await expect(page.getByTestId("runner-convergence-final-roi")).toContainText("runners");
+
+    await page.getByTestId("runner-convergence-panel-close").click();
+    await expect(panel).not.toBeVisible();
+
+    // Split B's own Graph button opens the identical chart (same full
+    // runner-1-to-N range), not a separate one scoped to just Split B.
+    await page.getByTestId("industry-sp-split-graph-button-b").click();
+    await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
+    await expect(page.getByTestId("runner-convergence-chart")).toBeVisible({ timeout: 30000 });
+  });
+
   test("both Race A and Race B splits render their own card and View Races button, defaulting to the first/second half of the matching races", async ({ page }) => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });

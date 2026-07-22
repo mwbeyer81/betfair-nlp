@@ -159,6 +159,14 @@ export interface IspSplitResult {
   pnlStats: PnlStats;
 }
 
+export interface RunnerConvergencePoint {
+  runnerOrdinal: number;
+  cumulativeStaked: number;
+  cumulativeReturns: number;
+  cumulativePnl: number;
+  roiPercent: number;
+}
+
 export interface IspSplitsResponse {
   success: boolean;
   totalRaces: number;
@@ -553,6 +561,64 @@ class ChatApi {
       { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch industry SP splits");
+    return response.json();
+  }
+
+  // Cumulative ROI% convergence series for the "P&L graph" — one point per
+  // qualifying runner from ordinal 1 up to toRunner (the upper limit of
+  // Split B), showing how the running profit % is volatile over a small
+  // sample and settles down as more runners are included.
+  async getIndustrySpRunnerConvergence(
+    toRunner: number,
+    minRunners = 1,
+    maxRunners = 30,
+    countries: string[] = [],
+    minIsp = 1,
+    maxIsp = 1000,
+    minInIspRange = 1,
+    maxInIspRange = 10000,
+    minDate?: string,
+    maxDate?: string,
+    courses: string[] = [],
+    goings: string[] = [],
+    raceClasses: string[] = [],
+    raceTypes: string[] = [],
+    trainer?: string,
+    jockey?: string,
+    trainerFormMinWinRate?: number,
+    minTrainerFormRunners?: number,
+    maxTrainerFormRunners?: number,
+    minModelWinProbability?: number,
+    onlyModelBeatsSp?: boolean
+  ): Promise<{ success: boolean; data: RunnerConvergencePoint[]; count: number }> {
+    const params = new URLSearchParams({
+      toRunner: String(toRunner),
+      minRunners: String(minRunners),
+      maxRunners: String(maxRunners),
+      minIsp: String(minIsp),
+      maxIsp: String(maxIsp),
+      minInIspRange: String(minInIspRange),
+      maxInIspRange: String(maxInIspRange),
+    });
+    if (countries.length > 0) params.set("countries", countries.join(","));
+    if (minDate) params.set("minDate", minDate);
+    if (maxDate) params.set("maxDate", maxDate);
+    if (courses.length > 0) params.set("courses", courses.join(","));
+    if (goings.length > 0) params.set("goings", goings.join(","));
+    if (raceClasses.length > 0) params.set("raceClasses", raceClasses.join(","));
+    if (raceTypes.length > 0) params.set("raceTypes", raceTypes.join(","));
+    if (trainer) params.set("trainer", trainer);
+    if (jockey) params.set("jockey", jockey);
+    if (trainerFormMinWinRate != null) params.set("trainerFormMinWinRate", String(trainerFormMinWinRate));
+    if (minTrainerFormRunners != null) params.set("minTrainerFormRunners", String(minTrainerFormRunners));
+    if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
+    if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
+    if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    const response = await fetch(
+      `${this.baseUrl}/api/industry-sp/runner-convergence?${params}`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch runner convergence series");
     return response.json();
   }
 

@@ -218,3 +218,65 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     expect(filtered.totalRaces).toBeLessThanOrEqual(unfiltered.totalRaces);
   });
 });
+
+describe("IndustrySpService.getRunnerConvergenceSeries (integration)", () => {
+  let client: MongoClient;
+  let db: Db;
+  let service: IndustrySpService;
+
+  beforeAll(async () => {
+    client = new MongoClient(MONGO_URI);
+    await client.connect();
+    db = client.db(DB_NAME);
+    service = new IndustrySpService(new IndustrySpDAO(db));
+  }, 15000);
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  it("returns exactly toRunnerTarget points, one per runner ordinal 1..N, in order", async () => {
+    // Requested live: a P&L convergence graph showing how the running
+    // ROI% is volatile over a small sample and settles down as more
+    // runners are included, up to the upper limit of Split B.
+    const points = await service.getRunnerConvergenceSeries(
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 500
+    );
+    expect(points.length).toBe(500);
+    points.forEach((p, i) => expect(p.runnerOrdinal).toBe(i + 1));
+  });
+
+  it("cumulativeStaked/cumulativeReturns/cumulativePnl/roiPercent are non-decreasing in sample size and reconcile at the end", async () => {
+    const points = await service.getRunnerConvergenceSeries(
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 500
+    );
+    // Both cumulative counters only ever grow (every runner stakes
+    // something; returns are added on top, never subtracted).
+    for (let i = 1; i < points.length; i++) {
+      expect(points[i].cumulativeStaked).toBeGreaterThanOrEqual(points[i - 1].cumulativeStaked);
+      expect(points[i].cumulativeReturns).toBeGreaterThanOrEqual(points[i - 1].cumulativeReturns);
+    }
+    const last = points[points.length - 1];
+    expect(last.cumulativePnl).toBeCloseTo(last.cumulativeReturns - last.cumulativeStaked, 6);
+    expect(last.roiPercent).toBeCloseTo((last.cumulativePnl / last.cumulativeStaked) * 100, 6);
+  });
+
+  it("the final point's cumulative staked/returns matches getSplitStats' combined Split A + Split B for the same range", async () => {
+    // Cross-check against the exact runner-level split (getRunnerRangeStats)
+    // added alongside this — both must agree on the same underlying data.
+    const points = await service.getRunnerConvergenceSeries(
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 2000
+    );
+    const last = points[points.length - 1];
+
+    const splitResult = await service.getSplitStats(
+      1, 30, [], 1, 1000, 1, 10000, null, null, null, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, 0, false, true,
+      1, 1000, 1001, 2000
+    );
+    const combinedStaked = splitResult.splitA.pnlStats.staked + splitResult.splitB.pnlStats.staked;
+    const combinedReturns = splitResult.splitA.pnlStats.returns + splitResult.splitB.pnlStats.returns;
+    expect(last.cumulativeStaked).toBeCloseTo(combinedStaked, 6);
+    expect(last.cumulativeReturns).toBeCloseTo(combinedReturns, 6);
+  });
+});

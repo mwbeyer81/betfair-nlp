@@ -586,6 +586,28 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
     expect(splitsRequests.length).toBe(1);
   });
 
+  test("clicking Graph on either split card opens the same P&L convergence panel", async ({ page }) => {
+    await gotoIspAndApplyDefaults(page);
+
+    await page.getByTestId("industry-sp-split-graph-button-a").click();
+    await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
+    // The mock resolves fast enough that the loading indicator can come
+    // and go before an assertion catches it visible — only its eventual
+    // absence is asserted, not the transient visible state.
+    await expect(page.getByTestId("runner-convergence-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("runner-convergence-chart")).toBeVisible();
+    await expect(page.getByTestId("runner-convergence-final-roi")).toBeVisible();
+
+    await page.getByTestId("runner-convergence-panel-close").click();
+    await expect(page.getByTestId("runner-convergence-panel")).not.toBeVisible();
+
+    // Split B's own Graph button opens the identical panel/chart, not a
+    // separate one scoped to just Split B's own runner range.
+    await page.getByTestId("industry-sp-split-graph-button-b").click();
+    await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
+    await expect(page.getByTestId("runner-convergence-chart")).toBeVisible({ timeout: 10000 });
+  });
+
   test("pressing Apply always fetches fresh, even with unchanged filters", async ({ page }) => {
     const splitsRequests: string[] = [];
     page.on("request", req => {

@@ -148,6 +148,31 @@ function splitsHandler(opts?: {
   });
 }
 
+// Mirrors GET /api/industry-sp/runner-convergence — the "Graph" button on
+// either split card. A small, deterministic converging series is enough
+// for stories/tests; the real convergence shape was verified live against
+// production data separately.
+const runnerConvergenceHandler = http.get(`${BASE}/api/industry-sp/runner-convergence`, ({ request }) => {
+  const url = new URL(request.url);
+  const toRunner = Math.max(1, parseInt(url.searchParams.get("toRunner") ?? "1", 10));
+  let cumulativeStaked = 0;
+  let cumulativeReturns = 0;
+  const data = Array.from({ length: toRunner }, (_, i) => {
+    const ordinal = i + 1;
+    cumulativeStaked += 1;
+    if (ordinal % 3 === 0) cumulativeReturns += 1.8;
+    const cumulativePnl = cumulativeReturns - cumulativeStaked;
+    return {
+      runnerOrdinal: ordinal,
+      cumulativeStaked,
+      cumulativeReturns,
+      cumulativePnl,
+      roiPercent: (cumulativePnl / cumulativeStaked) * 100,
+    };
+  });
+  return HttpResponse.json({ success: true, data, count: data.length });
+});
+
 // Mirrors GET /api/auth/me — IndustrySpScreen fetches this whenever
 // isAuthenticated flips true, to drive the verify-email reminder banner
 // (verification status can't safely live inside the JWT itself, so it's
@@ -166,7 +191,7 @@ const resendVerificationHandler = http.post(`${BASE}/api/auth/resend-verificatio
 // the verify-email banner, so this keeps them exactly as they were before
 // that banner existed. The dedicated verify-banner stories below override
 // this with authMeHandler(false).
-const defaultHandlers = [splitsHandler(), countriesHandler, filterBoundsHandler, authMeHandler(true)];
+const defaultHandlers = [splitsHandler(), countriesHandler, filterBoundsHandler, authMeHandler(true), runnerConvergenceHandler];
 
 const meta: Meta<typeof IndustrySpScreen> = {
   title: "Components/IndustrySpScreen",
@@ -560,6 +585,26 @@ export const DetailsButtonOpensFullBreakdown: Story = {
     await expect(canvas.getByTestId("split-detail-row-staked-a")).toHaveTextContent("£3.97");
     await expect(canvas.getByTestId("split-detail-row-return-a")).toHaveTextContent("£5.55");
     await expect(canvas.getByTestId("split-detail-pnl-a")).toHaveTextContent("+£1.58");
+  },
+};
+
+export const GraphButtonOpensConvergencePanel: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitForLoaded(canvas);
+
+    await expect(canvas.queryByTestId("runner-convergence-panel")).not.toBeInTheDocument();
+    await userEvent.click(canvas.getByTestId("industry-sp-split-graph-button-a"));
+
+    const panel = await canvas.findByTestId("runner-convergence-panel");
+    await expect(panel).toBeInTheDocument();
+    await waitFor(() => {
+      expect(canvas.queryByTestId("runner-convergence-loading")).not.toBeInTheDocument();
+    }, { timeout: 5000 });
+    await expect(canvas.getByTestId("runner-convergence-chart")).toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId("runner-convergence-panel-close"));
+    await expect(canvas.queryByTestId("runner-convergence-panel")).not.toBeInTheDocument();
   },
 };
 

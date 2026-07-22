@@ -432,6 +432,55 @@ router.get("/api/industry-sp/splits", async (req, res) => {
   }
 });
 
+router.get("/api/industry-sp/runner-convergence", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
+    const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
+    const countries = req.query.countries ? (req.query.countries as string).split(",").map(c => c.trim()).filter(Boolean) : [];
+    const minIsp = Math.max(1, parseFloat(req.query.minIsp as string) || 1);
+    const maxIsp = Math.min(100000, parseFloat(req.query.maxIsp as string) || 1000);
+    const minInIspRange = Math.max(1, parseInt(req.query.minInIspRange as string) || 1);
+    const maxInIspRange = Math.min(10000, Math.max(1, parseInt(req.query.maxInIspRange as string) || 10000));
+    const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
+    const courses = parseCsvListParam(req.query.courses);
+    const goings = parseCsvListParam(req.query.goings);
+    const raceClasses = parseCsvListParam(req.query.raceClasses);
+    const raceTypes = parseCsvListParam(req.query.raceTypes);
+    const trainerSearch = typeof req.query.trainer === "string" && req.query.trainer.trim() ? req.query.trainer.trim() : null;
+    const jockeySearch = typeof req.query.jockey === "string" && req.query.jockey.trim() ? req.query.jockey.trim() : null;
+    const trainerFormMinWinRate = Math.min(100, Math.max(0, parseFloat(req.query.trainerFormMinWinRate as string) || 0));
+    const minTrainerFormRunners = Math.max(0, parseInt(req.query.minTrainerFormRunners as string) || 0);
+    const maxTrainerFormRunners = Math.min(100, Math.max(0, parseInt(req.query.maxTrainerFormRunners as string) || 100));
+    const minModelWinProbability = Math.min(100, Math.max(0, parseFloat(req.query.minModelWinProbability as string) || 0));
+    const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
+
+    const toRunnerRaw = parseInt(req.query.toRunner as string);
+    if (isNaN(toRunnerRaw) || toRunnerRaw < 1) {
+      return res.status(400).json({ success: false, error: "toRunner is required and must be a positive integer" });
+    }
+    const toRunner = toRunnerRaw;
+
+    // Set by optionalJwtAuth (registered on /api/industry-sp above) — same
+    // race cap the split cards themselves use, so the graph never scans
+    // further than a split could anyway.
+    const isAuth = res.locals.isAuthenticated === true;
+    const raceCap = isAuth ? 1000 : 100;
+
+    const data = await industrySpService.getRunnerConvergenceSeries(
+      minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
+      minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
+      trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
+      toRunner, raceCap
+    );
+    res.set("Cache-Control", "public, max-age=60");
+    res.status(200).json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error("getRunnerConvergenceSeries error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch runner convergence series" });
+  }
+});
+
 router.get("/api/industry-sp", async (req, res) => {
   try {
     if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });

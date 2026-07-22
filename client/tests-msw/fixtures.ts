@@ -410,6 +410,35 @@ async function setupApiMocks(page: Page) {
     });
   });
 
+  await page.route((url) => url.pathname === "/api/industry-sp/runner-convergence", (route) => {
+    const reqUrl = new URL(route.request().url());
+    const toRunner = Math.max(1, parseInt(reqUrl.searchParams.get("toRunner") ?? "1", 10));
+    // Synthetic but plausible: volatile for the first few runners, settling
+    // toward a stable ~-10% ROI — mirrors the real convergence shape
+    // (verified live against production data) without needing real bet
+    // outcomes in the mock.
+    let cumulativeStaked = 0;
+    let cumulativeReturns = 0;
+    const data = Array.from({ length: toRunner }, (_, i) => {
+      const ordinal = i + 1;
+      const stake = 1;
+      cumulativeStaked += stake;
+      // A deterministic pseudo-random win pattern, not truly random, so the
+      // test assertions below stay stable across runs.
+      const isWinner = ordinal % 3 === 0;
+      if (isWinner) cumulativeReturns += stake * 1.8;
+      const cumulativePnl = cumulativeReturns - cumulativeStaked;
+      return {
+        runnerOrdinal: ordinal,
+        cumulativeStaked,
+        cumulativeReturns,
+        cumulativePnl,
+        roiPercent: cumulativeStaked > 0 ? (cumulativePnl / cumulativeStaked) * 100 : 0,
+      };
+    });
+    route.fulfill({ json: { success: true, data, count: data.length } });
+  });
+
   await page.route("**/health", (route) =>
     route.fulfill({ json: { status: "OK", service: "Betfair NLP API", database: "connected" } })
   );

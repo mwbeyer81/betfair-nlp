@@ -17,8 +17,9 @@ import {
   ActivityIndicator,
   Icon,
 } from "react-native-paper";
-import { chatApi, IspFilterBounds, PnlStats } from "../services/chatApi";
+import { chatApi, IspFilterBounds, PnlStats, RunnerConvergencePoint } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
+import { RunnerConvergencePanel } from "./RunnerConvergencePanel";
 import { DateRangePicker } from "./DateRangePicker";
 import { PageContainer } from "./PageContainer";
 import { buildSplitsCacheKey, readSplitsCache, writeSplitsCache, CachedSplitsResult } from "../utils/ispSplitsCache";
@@ -272,6 +273,15 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [detailSplit, setDetailSplit] = useState<"a" | "b" | null>(null);
+
+  // "Graph" button on either split card — requested live to show how the
+  // running ROI% is volatile over a small sample and settles down as more
+  // runners are included, from runner 1 up to Split B's upper limit. Both
+  // split cards' Graph buttons open this same chart (see loadConvergence).
+  const [showConvergencePanel, setShowConvergencePanel] = useState(false);
+  const [convergencePoints, setConvergencePoints] = useState<RunnerConvergencePoint[]>([]);
+  const [convergenceLoading, setConvergenceLoading] = useState(false);
+  const [convergenceError, setConvergenceError] = useState<string | null>(null);
 
   // Two independent race-row splits, so a filter combination can be tested
   // on one slice of the historical data and checked for profit on another.
@@ -1104,6 +1114,30 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     });
   }
 
+  // Opens the P&L convergence graph — up to the upper limit of Split B
+  // (totalRunnersA + totalRunnersB), spanning both splits from runner 1.
+  // Both split cards' "Graph" buttons call this same function.
+  async function loadConvergence() {
+    setShowConvergencePanel(true);
+    setConvergenceLoading(true);
+    setConvergenceError(null);
+    const toRunner = totalRunnersA + totalRunnersB;
+    try {
+      const result = await chatApi.getIndustrySpRunnerConvergence(
+        toRunner, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, minRunnersInRange, maxRunnersInRange,
+        minDate, maxDate, [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
+        trainerSearch || undefined, jockeySearch || undefined,
+        trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+        minModelWinProbability, onlyModelBeatsSp
+      );
+      setConvergencePoints(result.data);
+    } catch (err) {
+      setConvergenceError(err instanceof Error ? err.message : "Failed to load convergence data.");
+    } finally {
+      setConvergenceLoading(false);
+    }
+  }
+
   function renderSplitCard(opts: {
     id: "a" | "b";
     label: string;
@@ -1175,6 +1209,17 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             labelStyle={styles.splitDetailsButtonLabel}
           >
             Details
+          </Button>
+          <Button
+            testID={`industry-sp-split-graph-button-${id}`}
+            mode="outlined"
+            compact
+            disabled={notReady}
+            onPress={loadConvergence}
+            style={styles.splitDetailsButton}
+            labelStyle={styles.splitDetailsButtonLabel}
+          >
+            Graph
           </Button>
           <Button
             testID={`industry-sp-view-races-button-${id}`}
@@ -1725,6 +1770,15 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             setDetailSplit(null);
             onViewRaces(fromRow, toRow);
           }}
+        />
+      )}
+
+      {showConvergencePanel && (
+        <RunnerConvergencePanel
+          points={convergencePoints}
+          loading={convergenceLoading}
+          error={convergenceError}
+          onClose={() => setShowConvergencePanel(false)}
         />
       )}
     </SafeAreaView>

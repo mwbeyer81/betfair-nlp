@@ -393,6 +393,70 @@ export class IndustrySpService {
     };
   }
 
+  // Cumulative ROI% convergence series for the "P&L graph" — requested
+  // live alongside the split cards to show how the running profit % is
+  // volatile over a small sample and settles down as more runners are
+  // included. toRunnerTarget is the upper limit of Split B (the caller
+  // passes fromRunnerA + totalRunnersA + totalRunnersB), and the series
+  // always starts from runner 1, spanning both splits at once.
+  public async getRunnerConvergenceSeries(
+    minRunners = 1,
+    maxRunners = 30,
+    countries: string[] = [],
+    minIsp = 1,
+    maxIsp = 1000,
+    minInIspRange = 1,
+    maxInIspRange = 1000,
+    minRaceTime: string | null = null,
+    maxRaceTime: string | null = null,
+    courses: string[] = [],
+    goings: string[] = [],
+    raceClasses: string[] = [],
+    raceTypes: string[] = [],
+    trainerSearch: string | null = null,
+    jockeySearch: string | null = null,
+    trainerFormMinWinRate = 0,
+    minTrainerFormRunners = 0,
+    maxTrainerFormRunners = 100,
+    minModelWinProbability = 0,
+    onlyModelBeatsSp = false,
+    toRunnerTarget: number,
+    raceCap = 1000
+  ): Promise<{ runnerOrdinal: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[]> {
+    const grand = await this.industrySpDAO.getAllRacesByRace(
+      1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null,
+      minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
+      trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
+      onlyModelBeatsSp
+    );
+
+    // Same "resolve a target ordinal to a race-row bound, then clamp to
+    // raceCap" shape as getSplitStats' own raceRowBoundFor — bounds how
+    // many races this scans regardless of how large toRunnerTarget is.
+    const { boundaryRowIndex } = await this.industrySpDAO.getQualifyingRunnerSplitBoundary(
+      minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
+      minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
+      trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+      minModelWinProbability, onlyModelBeatsSp, Math.max(1, toRunnerTarget)
+    );
+    const raceRowBound = Math.min(boundaryRowIndex ?? grand.total, raceCap, grand.total);
+
+    const points = await this.industrySpDAO.getRunnerConvergenceSeries(
+      minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
+      minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
+      trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
+      minModelWinProbability, onlyModelBeatsSp, Math.max(1, toRunnerTarget), raceRowBound
+    );
+
+    return points.map(p => ({
+      runnerOrdinal: p.runnerOrdinal,
+      cumulativeStaked: p.cumulativeStaked,
+      cumulativeReturns: p.cumulativeReturns,
+      cumulativePnl: p.cumulativeReturns - p.cumulativeStaked,
+      roiPercent: p.cumulativeStaked > 0 ? ((p.cumulativeReturns - p.cumulativeStaked) / p.cumulativeStaked) * 100 : 0,
+    }));
+  }
+
   public async getRacesByMeetingId(meetingId: string): Promise<IspRace[]> {
     return this.industrySpDAO.getRacesByMeetingId(meetingId);
   }
