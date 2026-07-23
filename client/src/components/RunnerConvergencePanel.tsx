@@ -15,6 +15,17 @@ interface RunnerConvergencePanelProps {
 const CHART_WIDTH = 1000;
 const CHART_HEIGHT = 320;
 const CHART_PADDING = 24;
+// How many leading points to exclude when computing the Y-axis scale.
+// Reported live: a single lucky/unlucky early result (e.g. a 12/1 winner
+// as literally the very first runner) can swing ROI% into the hundreds or
+// thousands of percent on a near-zero cumulative stake — mathematically
+// correct, but it stretches the axis so much that the actual "converging"
+// detail for the rest of the series becomes an invisible flat sliver.
+// Points before the warm-up still draw on the line (they can go off the
+// top/bottom of the visible chart), just don't influence how the axis is
+// scaled — the point of this graph is to show the converged/converging
+// behavior, not to let one early swing hide it.
+const SCALE_WARMUP_POINTS = 50;
 
 // Requested live: a chart showing how the running ROI% is wildly volatile
 // over a small sample of runners and settles down as more are included —
@@ -31,8 +42,15 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
 
   let pathD = "";
   let zeroLineY: number | null = null;
+  // True when the warm-up window actually excluded at least one point AND
+  // that exclusion changed the scale (i.e. an early point really was more
+  // extreme than anything after the warm-up) — used to caption the chart
+  // so it's clear the line may run off-screen briefly rather than looking
+  // like a rendering glitch.
+  let earlyPointsClipped = false;
   if (points.length > 1) {
-    const roiValues = points.map(p => p.roiPercent);
+    const scalePoints = points.length > SCALE_WARMUP_POINTS ? points.slice(SCALE_WARMUP_POINTS) : points;
+    const roiValues = scalePoints.map(p => p.roiPercent);
     const minRoi = Math.min(...roiValues);
     const maxRoi = Math.max(...roiValues);
     // Guards against a perfectly flat series (minRoi === maxRoi) collapsing
@@ -51,6 +69,10 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
     if (minRoi <= 0 && maxRoi >= 0) {
       zeroLineY = yFor(0);
     }
+
+    earlyPointsClipped = points
+      .slice(0, points.length - scalePoints.length)
+      .some(p => p.roiPercent < minRoi || p.roiPercent > maxRoi);
   }
 
   return (
@@ -125,6 +147,11 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
             <Text style={styles.axisCaption}>
               X axis: runners {firstOrdinal}–{lastOrdinal} · Y axis: cumulative ROI%
             </Text>
+            {earlyPointsClipped && (
+              <Text testID="runner-convergence-clip-note" style={styles.axisCaption}>
+                An early result swung far outside this range — the line may run off-screen briefly near the start.
+              </Text>
+            )}
           </>
         )}
       </ScrollView>

@@ -102,6 +102,73 @@ export const EmptyState: Story = {
   },
 };
 
+// Models a real one from production: the very first runner in the range
+// won at long odds, giving that single point an ROI% in the hundreds/
+// thousands (a tiny cumulative stake denominator makes early ROI% wildly
+// sensitive) — everything after settles into a much tighter band.
+function pointsWithEarlyOutlier(n: number): RunnerConvergencePoint[] {
+  const points: RunnerConvergencePoint[] = [];
+  for (let i = 0; i < n; i++) {
+    const ordinal = i + 1;
+    if (i === 0) {
+      points.push({ runnerOrdinal: ordinal, cumulativeStaked: 0.1, cumulativeReturns: 1.3, cumulativePnl: 1.2, roiPercent: 1200 });
+    } else {
+      // Settles into a -25%..+32% band well within the 50-point warm-up.
+      const roiPercent = -25 + ((i * 37) % 57);
+      points.push({ runnerOrdinal: ordinal, cumulativeStaked: i, cumulativeReturns: i * (1 + roiPercent / 100), cumulativePnl: i * (roiPercent / 100), roiPercent });
+    }
+  }
+  return points;
+}
+
+// A genuinely tight, stable series from the very first point — no cold
+// start below its eventual range (unlike a realistic win/loss series,
+// which is guaranteed to sit at -100% until its first win lands). Used to
+// confirm the clip note only appears when warm-up exclusion actually
+// matters, not on every series that happens to have a warm-up period.
+function wellBehavedPoints(n: number): RunnerConvergencePoint[] {
+  return Array.from({ length: n }, (_, i) => {
+    const roiPercent = -5 + (i % 7);
+    const cumulativeStaked = i + 1;
+    const cumulativePnl = (cumulativeStaked * roiPercent) / 100;
+    return {
+      runnerOrdinal: i + 1,
+      cumulativeStaked,
+      cumulativeReturns: cumulativeStaked + cumulativePnl,
+      cumulativePnl,
+      roiPercent,
+    };
+  });
+}
+
+export const NoClipNoteForAWellBehavedSeries: Story = {
+  args: {
+    points: wellBehavedPoints(200),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("runner-convergence-chart")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("runner-convergence-clip-note")).not.toBeInTheDocument();
+  },
+};
+
+export const EarlyOutlierDoesNotFlattenTheChart: Story = {
+  // Regression: reported live via screenshot — Split A's chart looked
+  // completely flat after an initial vertical drop, because its very
+  // first runner won at ~13/1 (+1200% ROI on a near-zero stake), and the
+  // Y axis was scaled to include that single point, squashing the real
+  // -25%..+32% convergence detail into an invisible sliver. The axis
+  // scale now excludes the first 50 points (SCALE_WARMUP_POINTS) — the
+  // clip-note must appear, acknowledging the line runs off-screen early.
+  args: {
+    points: pointsWithEarlyOutlier(200),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("runner-convergence-clip-note")).toBeInTheDocument();
+  },
+};
+
 export const ScopedToASplitsOwnRange: Story = {
   // Models Split B's own Graph button: a range that doesn't start at 1
   // (e.g. runners 1001-1200), reported live — "the graphs should
