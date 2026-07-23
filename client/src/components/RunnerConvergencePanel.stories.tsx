@@ -169,6 +169,25 @@ export const EarlyOutlierDoesNotFlattenTheChart: Story = {
   },
 };
 
+export const TappingTheChartShowsASnapTooltip: Story = {
+  // Requested live: tap anywhere on the graph and a marker snaps to the
+  // nearest point on the line, showing that runner's count and cumulative
+  // P&L at that spot.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByTestId("runner-convergence-tooltip")).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId("runner-convergence-chart"));
+
+    await expect(canvas.getByTestId("runner-convergence-snap-dot")).toBeInTheDocument();
+    await expect(canvas.getByTestId("runner-convergence-snap-guide")).toBeInTheDocument();
+    const tooltip = canvas.getByTestId("runner-convergence-tooltip");
+    await expect(tooltip).toBeInTheDocument();
+    await expect(tooltip).toHaveTextContent("Runner");
+    await expect(canvas.getByTestId("runner-convergence-tooltip-pnl")).toHaveTextContent("£");
+  },
+};
+
 export const ScopedToASplitsOwnRange: Story = {
   // Models Split B's own Graph button: a range that doesn't start at 1
   // (e.g. runners 1001-1200), reported live — "the graphs should

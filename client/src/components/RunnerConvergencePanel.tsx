@@ -1,9 +1,10 @@
-import React from "react";
-import { View, StyleSheet, ScrollView } from "react-native";
+import React, { useMemo, useRef, useState } from "react";
+import { View, StyleSheet, ScrollView, GestureResponderEvent } from "react-native";
 import { Text, Button, Surface, Divider, ActivityIndicator } from "react-native-paper";
-import Svg, { Path, Line as SvgLine } from "react-native-svg";
+import Svg, { Path, Line as SvgLine, Circle } from "react-native-svg";
 import { RunnerConvergencePoint } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
+import { formatPnl, formatPct } from "../utils/ispFormat";
 
 interface RunnerConvergencePanelProps {
   points: RunnerConvergencePoint[];
@@ -40,15 +41,22 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
   const lastOrdinal = points.length > 0 ? points[points.length - 1].runnerOrdinal : 0;
   const finalRoi = points.length > 0 ? points[points.length - 1].roiPercent : null;
 
-  let pathD = "";
-  let zeroLineY: number | null = null;
-  // True when the warm-up window actually excluded at least one point AND
-  // that exclusion changed the scale (i.e. an early point really was more
-  // extreme than anything after the warm-up) — used to caption the chart
-  // so it's clear the line may run off-screen briefly rather than looking
-  // like a rendering glitch.
-  let earlyPointsClipped = false;
-  if (points.length > 1) {
+  // Rendered on-screen width of the chart, in pixels — the Svg itself is
+  // drawn in a fixed CHART_WIDTH viewBox regardless of screen size, so a
+  // touch's pixel position needs this to convert into viewBox space. Kept
+  // in state (from onLayout) purely to position the tooltip box; the touch
+  // handler itself re-measures synchronously via chartRef (see handleTouch)
+  // rather than trusting this alone, since onLayout can still be pending
+  // on the very first tap right after mount.
+  const [chartWidth, setChartWidth] = useState(0);
+  const chartRef = useRef<View>(null);
+  // Index into `points` of the tap/drag-selected point — null until the
+  // user has touched the chart at least once.
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+
+  const chart = useMemo(() => {
+    if (points.length < 2) return null;
+
     const scalePoints = points.length > SCALE_WARMUP_POINTS ? points.slice(SCALE_WARMUP_POINTS) : points;
     const roiValues = scalePoints.map(p => p.roiPercent);
     const minRoi = Math.min(...roiValues);
@@ -62,18 +70,53 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
     const xFor = (i: number) => CHART_PADDING + (i / (points.length - 1)) * plotWidth;
     const yFor = (roi: number) => CHART_PADDING + plotHeight - ((roi - minRoi) / roiRange) * plotHeight;
 
-    pathD = points
+    const pathD = points
       .map((p, i) => `${i === 0 ? "M" : "L"} ${xFor(i).toFixed(2)} ${yFor(p.roiPercent).toFixed(2)}`)
       .join(" ");
 
-    if (minRoi <= 0 && maxRoi >= 0) {
-      zeroLineY = yFor(0);
-    }
+    const zeroLineY = minRoi <= 0 && maxRoi >= 0 ? yFor(0) : null;
 
-    earlyPointsClipped = points
+    // True when the warm-up window actually excluded at least one point AND
+    // that exclusion changed the scale (i.e. an early point really was more
+    // extreme than anything after the warm-up) — used to caption the chart
+    // so it's clear the line may run off-screen briefly rather than looking
+    // like a rendering glitch.
+    const earlyPointsClipped = points
       .slice(0, points.length - scalePoints.length)
       .some(p => p.roiPercent < minRoi || p.roiPercent > maxRoi);
+
+    return { pathD, zeroLineY, earlyPointsClipped, xFor, yFor, plotWidth };
+  }, [points]);
+
+  // Converts a touch's on-screen X position into the nearest point's
+  // index, then snaps the marker/tooltip to it — tap or drag anywhere on
+  // the chart to inspect the exact runner count and P&L at that spot on
+  // the line.
+  function handleTouch(e: GestureResponderEvent) {
+    if (!chart) return;
+    // Measured directly off the DOM node rather than trusting `chartWidth`
+    // alone — on web, a View's ref *is* its DOM node, so this works even
+    // if onLayout's own measurement hasn't landed yet (a real race on the
+    // very first tap right after the panel mounts).
+    const node = chartRef.current as unknown as { getBoundingClientRect?: () => { width: number } } | null;
+    const width = node?.getBoundingClientRect?.().width || chartWidth;
+    if (!width) return;
+    if (width !== chartWidth) setChartWidth(width);
+    const touchXInViewBox = (e.nativeEvent.locationX / width) * CHART_WIDTH;
+    const fraction = (touchXInViewBox - CHART_PADDING) / chart.plotWidth;
+    const idx = Math.round(fraction * (points.length - 1));
+    setSelectedIndex(Math.max(0, Math.min(points.length - 1, idx)));
   }
+
+  const selectedPoint = selectedIndex != null ? points[selectedIndex] : null;
+  // Clamped so the tooltip box doesn't run off either edge of the chart —
+  // TOOLTIP_WIDTH is an estimate (exact measured width isn't worth the
+  // extra render round-trip this would need).
+  const TOOLTIP_WIDTH = 150;
+  const tooltipLeft =
+    selectedIndex != null && chart && chartWidth > 0
+      ? Math.max(0, Math.min(chartWidth - TOOLTIP_WIDTH, (chart.xFor(selectedIndex) / CHART_WIDTH) * chartWidth - TOOLTIP_WIDTH / 2))
+      : 0;
 
   return (
     <Surface testID="runner-convergence-panel" style={styles.panel} elevation={3}>
@@ -128,30 +171,75 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
                 {finalRoi.toFixed(1)}% after {points.length} runners
               </Text>
             )}
-            <View testID="runner-convergence-chart" style={styles.chartContainer}>
+            <View
+              ref={chartRef}
+              testID="runner-convergence-chart"
+              style={styles.chartContainer}
+              onLayout={e => setChartWidth(e.nativeEvent.layout.width)}
+              onStartShouldSetResponder={() => true}
+              onMoveShouldSetResponder={() => true}
+              onResponderGrant={handleTouch}
+              onResponderMove={handleTouch}
+            >
               <Svg width="100%" height={CHART_HEIGHT} viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}>
-                {zeroLineY != null && (
+                {chart?.zeroLineY != null && (
                   <SvgLine
                     x1={CHART_PADDING}
-                    y1={zeroLineY}
+                    y1={chart.zeroLineY}
                     x2={CHART_WIDTH - CHART_PADDING}
-                    y2={zeroLineY}
+                    y2={chart.zeroLineY}
                     stroke={colors.textTertiary}
                     strokeDasharray="4,4"
                     strokeWidth={1}
                   />
                 )}
-                <Path d={pathD} stroke={colors.accent} strokeWidth={2} fill="none" />
+                <Path d={chart?.pathD ?? ""} stroke={colors.accent} strokeWidth={2} fill="none" />
+                {selectedPoint != null && selectedIndex != null && chart && (
+                  <>
+                    <SvgLine
+                      testID="runner-convergence-snap-guide"
+                      x1={chart.xFor(selectedIndex)}
+                      y1={CHART_PADDING}
+                      x2={chart.xFor(selectedIndex)}
+                      y2={CHART_HEIGHT - CHART_PADDING}
+                      stroke={colors.textTertiary}
+                      strokeDasharray="2,3"
+                      strokeWidth={1}
+                    />
+                    <Circle
+                      testID="runner-convergence-snap-dot"
+                      cx={chart.xFor(selectedIndex)}
+                      cy={chart.yFor(selectedPoint.roiPercent)}
+                      r={9}
+                      fill={colors.accent}
+                      stroke="white"
+                      strokeWidth={3}
+                    />
+                  </>
+                )}
               </Svg>
+              {selectedPoint != null && (
+                <View testID="runner-convergence-tooltip" style={[styles.tooltip, { left: tooltipLeft, width: TOOLTIP_WIDTH }]}>
+                  <Text style={styles.tooltipRunner}>Runner {selectedPoint.runnerOrdinal}</Text>
+                  <Text
+                    testID="runner-convergence-tooltip-pnl"
+                    style={[styles.tooltipPnl, selectedPoint.cumulativePnl >= 0 ? styles.pnlPos : styles.pnlNeg]}
+                  >
+                    {formatPnl(selectedPoint.cumulativePnl)}{" "}
+                    {formatPct(selectedPoint.cumulativePnl, selectedPoint.cumulativeStaked)}
+                  </Text>
+                </View>
+              )}
             </View>
             <Text style={styles.axisCaption}>
               X axis: runners {firstOrdinal}–{lastOrdinal} · Y axis: cumulative ROI%
             </Text>
-            {earlyPointsClipped && (
+            {chart?.earlyPointsClipped && (
               <Text testID="runner-convergence-clip-note" style={styles.axisCaption}>
                 An early result swung far outside this range — the line may run off-screen briefly near the start.
               </Text>
             )}
+            <Text style={styles.tapHint}>Tap or drag on the chart to inspect a runner.</Text>
           </>
         )}
       </ScrollView>
@@ -224,11 +312,35 @@ const styles = StyleSheet.create({
   },
   chartContainer: {
     width: "100%",
+    position: "relative",
+  },
+  tooltip: {
+    position: "absolute",
+    top: spacing.xs,
+    backgroundColor: colors.primary,
+    borderRadius: radii.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    alignItems: "center",
+  },
+  tooltipRunner: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.8)",
+  },
+  tooltipPnl: {
+    fontSize: 13,
+    fontWeight: "700",
   },
   axisCaption: {
     fontSize: 11,
     color: colors.textTertiary,
     textAlign: "center",
+  },
+  tapHint: {
+    fontSize: 11,
+    color: colors.textTertiary,
+    textAlign: "center",
+    fontStyle: "italic",
   },
   pnlPos: {
     color: colors.pnlPositive,

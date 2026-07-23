@@ -636,6 +636,64 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
     await expect(page.getByTestId("runner-convergence-range-subtitle")).toHaveText("Runners 501–1000");
   });
 
+  test("tapping the P&L convergence chart snaps a marker and tooltip to the nearest runner", async ({ page }) => {
+    // Requested live: "tap somewhere on the graph and a snap appears...
+    // for current profit loss and runner count on spot on the line."
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      await route.fulfill({
+        json: {
+          success: true, totalRaces: 900, totalRunners: 1000, raceCap: 1000,
+          filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+          countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
+          raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
+          splitA: { fromRow: 1, toRow: 450, total: 450, totalRunners: 500, pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } },
+          splitB: { fromRow: 451, toRow: 900, total: 450, totalRunners: 500, pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } },
+        },
+      });
+    });
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-split-graph-button-a").click();
+    await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
+    const chart = page.getByTestId("runner-convergence-chart");
+    await expect(chart).toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("runner-convergence-tooltip")).not.toBeVisible();
+
+    // Tap near the left edge — should snap to a low runner ordinal (Split
+    // A covers runners 1-500).
+    await chart.click({ position: { x: 5, y: 100 } });
+    await expect(page.getByTestId("runner-convergence-tooltip")).toBeVisible();
+    await expect(page.getByTestId("runner-convergence-snap-dot")).toBeVisible();
+    // Not .toBeVisible() — a near-vertical SVG <line> has a zero-width
+    // bounding box, which Playwright's visibility heuristic (width>0 &&
+    // height>0) reports as "hidden" even though it renders correctly.
+    await expect(page.getByTestId("runner-convergence-snap-guide")).toHaveCount(1);
+    const leftTooltipText = await page.getByTestId("runner-convergence-tooltip").textContent();
+    const leftMatch = leftTooltipText?.match(/Runner (\d+)/);
+    expect(leftMatch).toBeTruthy();
+    const leftOrdinal = Number(leftMatch![1]);
+    expect(leftOrdinal).toBeGreaterThanOrEqual(1);
+    expect(leftOrdinal).toBeLessThan(100);
+    await expect(page.getByTestId("runner-convergence-tooltip-pnl")).toContainText("£");
+
+    // Tap near the right edge — should snap to a much higher runner
+    // ordinal, proving the marker actually tracks the tap position rather
+    // than always landing on the same point.
+    const box = await chart.boundingBox();
+    await chart.click({ position: { x: (box?.width ?? 300) - 5, y: 100 } });
+    const rightTooltipText = await page.getByTestId("runner-convergence-tooltip").textContent();
+    const rightMatch = rightTooltipText?.match(/Runner (\d+)/);
+    expect(rightMatch).toBeTruthy();
+    const rightOrdinal = Number(rightMatch![1]);
+    expect(rightOrdinal).toBeGreaterThan(leftOrdinal);
+    expect(rightOrdinal).toBeGreaterThan(400);
+  });
+
   test("pressing Apply always fetches fresh, even with unchanged filters", async ({ page }) => {
     const splitsRequests: string[] = [];
     page.on("request", req => {
