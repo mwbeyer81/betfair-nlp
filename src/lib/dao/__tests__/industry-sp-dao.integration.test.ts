@@ -374,15 +374,34 @@ describe("IndustrySpDAO (integration)", () => {
   it("totalRunners (qualifyingRunnersCount-based) still matches the isp-range-only count when no optional filter is active", async () => {
     // Fast-path equivalence: buildQualifyingRaceStages' qualifyingRunnersCount
     // reuses inRangeRunnersCount directly whenever none of trainer-form/
-    // model/model-beats-SP are active. pnlStats.count is a good independent
-    // cross-check — it's untouched by this change and still sums
-    // inRangeRunnersCount directly (see the DAO's pnlStats fast path,
-    // deliberately left alone per product decision to not rescope P&L) — so
-    // with no optional filters and the default isp range (which takes the
-    // pnlStats fast path), the two must be exactly equal.
+    // model/model-beats-SP are active — and with no optional filters, the
+    // pnlStats fast path also applies (see below), so the two are the same
+    // computation and must be exactly equal.
     const result = await dao.getAllRacesByRace(1, 20, 1, 100);
     expect(result.totalRunners).toBeGreaterThan(0);
     expect(result.totalRunners).toBe(result.pnlStats.count);
+  });
+
+  it("pnlStats.count matches totalRunners exactly even when trainer-form/model/model-beats-SP narrows the runner set", async () => {
+    // Regression: reported live via screenshot — with "Model beats SP"
+    // checked, a split card's P&L% didn't match the same split's own P&L
+    // convergence graph (e.g. card said -13.2%, graph said -19.0%).
+    // pnlStats.count came out roughly double totalRunners (2992 vs 1589),
+    // because pnlStats' fast-path condition only ever checked the isp
+    // range — with model-beats-SP active but the isp range left wide open,
+    // it silently took the fast path anyway, whose precomputed
+    // raceStaked/raceReturns fields don't know about model-beats-SP at all
+    // and summed every isp-in-range runner instead of just the qualifying
+    // ones. Both the fast-path condition and the $unwind fallback's runner
+    // selection now also account for trainer-form/model/model-beats-SP, so
+    // pnlStats always reconciles with totalRunners regardless of which
+    // filters are active.
+    const result = await dao.getAllRacesByRace(
+      1, 20, 1, 20, [], 1, 501, "asc", 1, 30, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, null, 0, true
+    );
+    expect(result.totalRunners).toBeGreaterThan(0);
+    expect(result.pnlStats.count).toBe(result.totalRunners);
   });
 
   it("qualifyingRunnersCount-based totalRunners strictly narrows (or matches) as trainer-form/model filters stack, when seeded", async () => {

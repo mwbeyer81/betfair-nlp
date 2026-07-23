@@ -375,6 +375,19 @@ export class IndustrySpDAO {
     // inRangeRunnersCount, but doesn't expose it — trivial to recompute).
     const ispRangeCoversAllRealValues = minIsp <= 1 && maxIsp >= 1000;
 
+    // Same "any of the three optional runner-level filters active" check
+    // buildQualifyingRaceStages makes internally for qualifyingRunnersCount
+    // (also not exposed — recomputed here). Needed so pnlStats' own fast
+    // path only fires when NOTHING narrows the runner set below "every isp
+    // in range" — trainer-form/model/model-beats-SP being active must also
+    // force the $unwind fallback, same as a narrowed isp range does, or the
+    // precomputed raceStaked/raceReturns fields (which don't know about
+    // those filters at all) would silently include disqualified runners.
+    const trainerFormFilterActive = minTrainerFormRunners > 0 || maxTrainerFormRunners < 100;
+    const modelFilterActive = minModelWinProbability > 0;
+    const modelBeatsSpFilterActive = onlyModelBeatsSp;
+    const qualifyingRunnersFilterActive = trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive;
+
     // Only a per-race id + sort key + the qualifying counts survive into
     // the $facet — every other field (course, meetingName, runners, ...) is
     // re-fetched via $lookup after sorting/paginating down to a handful of
@@ -490,14 +503,22 @@ export class IndustrySpDAO {
             totalRunners: [{ $group: { _id: null, count: { $sum: "$qualifyingRunnersCount" } } }],
             // Fast path: raceStaked/raceReturns are precomputed at import time
             // over the same static isp>1 runner set as runnersWithIspCount, so
-            // whenever the isp range filter covers every real isp value this
-            // is a plain $sum over already-matched docs — no $lookup, no
-            // $unwind over every runner in every matched race (that $lookup
-            // was previously the single largest cost in this whole query,
-            // since it re-fetched all ~109k matched races' full runners
-            // arrays on every request). Narrowed isp ranges fall back to the
-            // original $lookup + $unwind + $group computation.
-            pnlStats: ispRangeCoversAllRealValues
+            // whenever NOTHING narrows the runner set below "every isp in
+            // range" — neither the isp range itself nor any of the trainer-
+            // form/model/model-beats-SP filters, none of which those
+            // precomputed fields know about — this is a plain $sum over
+            // already-matched docs. No $lookup, no $unwind over every runner
+            // in every matched race (that $lookup was previously the single
+            // largest cost in this whole query, since it re-fetched all
+            // ~109k matched races' full runners arrays on every request).
+            // Regression: reported live — pnlStats.count came out roughly
+            // double totalRunners (2992 vs 1589) with "Model beats SP"
+            // checked and an isp range that still covered every real value,
+            // because this condition only ever checked the isp range,
+            // silently taking the fast path (and its filter-blind
+            // precomputed fields) even though model-beats-SP was actively
+            // narrowing the runner set everywhere else.
+            pnlStats: ispRangeCoversAllRealValues && !qualifyingRunnersFilterActive
               ? [
                   {
                     $group: {
@@ -509,18 +530,69 @@ export class IndustrySpDAO {
                   },
                 ]
               : [
-                  ...reattachFullDoc,
-                  { $unwind: "$runners" },
-                  { $match: { "runners.isp": { $exists: true, $gt: 1 } } },
+                  // Deliberately its own $lookup + qualifying-runner $filter
+                  // rather than reusing reattachFullDoc's runners field —
+                  // that field is isp-range-filtered only (intentionally: it
+                  // also backs the `data` branch above, which must keep
+                  // showing every isp-in-range runner on /isp/races, not
+                  // just the narrower qualifying subset). pnlStats needs the
+                  // *qualifying* set specifically, to reconcile with
+                  // totalRunners' own qualifyingRunnersCount above — same
+                  // condition as buildQualifyingRaceStages' internal
+                  // qualifyingRunnersCountExpr, duplicated for the same
+                  // reason getRunnerRangeStats/getRunnerConvergenceSeries
+                  // duplicate it (that method's fast path skips $filter
+                  // entirely, so it has nothing to share here).
+                  { $lookup: { from: this.collectionName, localField: "_id", foreignField: "_id", as: "_docs" } },
+                  { $addFields: { _doc: { $arrayElemAt: ["$_docs", 0] } } },
+                  {
+                    $addFields: {
+                      qualifyingRunners: {
+                        $filter: {
+                          input: { $ifNull: ["$_doc.runners", []] },
+                          as: "r",
+                          cond: {
+                            $and: [
+                              { $ifNull: ["$$r.isp", false] },
+                              { $gt: ["$$r.isp", 1] },
+                              { $gte: ["$$r.isp", minIsp] },
+                              { $lte: ["$$r.isp", maxIsp] },
+                              ...(trainerFormFilterActive
+                                ? [
+                                    { $ne: ["$$r.trainerFormWinRate", null] },
+                                    { $gte: ["$$r.trainerFormWinRate", trainerFormMinWinRate] },
+                                  ]
+                                : []),
+                              ...(modelFilterActive
+                                ? [
+                                    { $ne: ["$$r.modelWinProbability", null] },
+                                    { $gte: ["$$r.modelWinProbability", minModelWinProbability] },
+                                  ]
+                                : []),
+                              ...(modelBeatsSpFilterActive
+                                ? [
+                                    { $ne: ["$$r.modelWinProbability", null] },
+                                    { $ne: ["$$r.isp", null] },
+                                    { $gt: ["$$r.isp", 0] },
+                                    { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
+                                  ]
+                                : []),
+                            ],
+                          },
+                        },
+                      },
+                    },
+                  },
+                  { $unwind: "$qualifyingRunners" },
                   {
                     $group: {
                       _id: null,
-                      staked: { $sum: { $divide: [1, { $subtract: ["$runners.isp", 1] }] } },
+                      staked: { $sum: { $divide: [1, { $subtract: ["$qualifyingRunners.isp", 1] }] } },
                       returns: {
                         $sum: {
                           $cond: [
-                            { $eq: ["$runners.status", "WINNER"] },
-                            { $add: [{ $divide: [1, { $subtract: ["$runners.isp", 1] }] }, 1] },
+                            { $eq: ["$qualifyingRunners.status", "WINNER"] },
+                            { $add: [{ $divide: [1, { $subtract: ["$qualifyingRunners.isp", 1] }] }, 1] },
                             0,
                           ],
                         },
