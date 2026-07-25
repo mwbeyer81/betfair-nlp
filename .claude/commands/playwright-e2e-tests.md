@@ -61,17 +61,6 @@ cd client && npx playwright test tests/<feature>-e2e.spec.ts
 
 Requires both the Expo dev server (`localhost:8081`) and the API server (`localhost:3000`) to be running. Use the `/dev-workflow` skill to start them.
 
----
+## No live servers available?
 
-## MSW mock suite (no live servers needed)
-
-For navigation and UI tests that don't need the real API, use the MSW suite in `client/tests-msw/`. All API calls are intercepted by Playwright's `page.route()` via `client/tests-msw/fixtures.ts`.
-
-```bash
-cd client && yarn build:web   # build static Expo web export to dist/ (~1s)
-cd client && yarn test:msw    # run 19 tests against static dist on port 3737
-```
-
-- Config: `playwright.msw.config.ts` — `webServer` serves `dist/` with `npx serve -s`
-- `metro.config.js` sets `resolver.useWatchman = false` so `expo export` never hangs
-- Rebuild `dist/` after frontend code changes; tests need no rebuild themselves
+For navigation/UI tests that don't need the real API or a running backend, use `/msw-playwright-tests` instead — it runs against a static build with all API calls mocked via `page.route()`.

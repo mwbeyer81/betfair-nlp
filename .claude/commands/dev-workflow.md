@@ -22,6 +22,12 @@ Returns `200` when healthy. If it fails, restart: `npm run server`
 
 ## Test suites and their prerequisites
 
+### Unit tests (no running servers needed)
+```bash
+npx jest src/lib/service/<file>.test.ts --no-coverage
+```
+See `/unit-tests` for the plain-Jest pattern (pure functions and mocked-collaborator classes).
+
 ### Supertest API tests (no running servers needed)
 ```bash
 npx jest src/server/__tests__/app.test.ts --no-coverage
@@ -47,6 +53,7 @@ cd client && npx playwright test tests/<feature>-e2e.spec.ts
 cd client && yarn build:web   # rebuild after any frontend changes
 cd client && yarn test:msw
 ```
+See `/msw-playwright-tests` for the routing/fixture pattern.
 
 ## TypeScript build check
 
