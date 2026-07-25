@@ -1620,4 +1620,39 @@ by this merge; the unpushed-local-`develop` side (the
 `ModelPerformanceDashboard` commits) is unaffected and still needs
 resolving by whoever owns that, independent of this branch.
 
+**Done — committed (`05fc1d9`), merged to `develop`, pushed, deployed.**
+Committed, then `origin/develop` had advanced again in the meantime (the
+`model-versioning-backend` feature landed) — merged that in too (only
+`AGENTS.md` conflicted, resolved by keeping both worktree-table rows),
+re-verified `tsc --noEmit` and `client && yarn build` clean and re-ran
+`app.test.ts`/`mongo-script-executor.test.ts` against the combined state
+(both touch `app.test.ts`) before pushing: fast-forward `feat/app-knowledge-chat
+-> develop` (`1e46596`). By the time the persistent `~/betfair-nlp-deploy-
+develop` worktree was fast-forwarded to deploy from, `origin/develop` had
+moved once more to `94105e7` (someone else's merge combining both features)
+— re-verified `tsc --noEmit` clean and `app.test.ts`/`mongo-script-executor
+.test.ts` (136 passed, 7 pre-existing skips) on that exact tip before
+running `apps/lambda/build.sh` from it (per the "deploy scripts must run
+from a worktree whose local HEAD actually is `origin/develop`" rule above —
+`~/betfair-nlp-deploy-develop` is a **detached-HEAD** worktree, since the
+primary checkout already holds the `develop` branch name; move it forward
+with `git checkout --detach origin/develop`, not `git checkout develop`).
+Confirmed no `config/local.json` present there, so the deploy correctly
+skipped touching the live `OPENAI_API_KEY`/`MONGODB_URI` env vars. Verified
+live via `aws lambda get-function --function-name hello-api`: fresh
+`LastModified` timestamp matching the deploy, `State: Active`,
+`LastUpdateStatus: Successful`.
+
+**Gotcha for whoever runs `/deploy-lambda` next:** its documented verify
+`curl` (Basic auth) is stale — this app moved to JWT Bearer auth a while
+back (`middleware.ts`'s `jwtAuth`), so `Authorization: Basic ...` 401s on
+every route including `/health`, not just `/api/*`. A clean structured
+`{"error":"Authentication required"}` JSON response (not a 500/timeout) is
+itself proof the Lambda is up and running the new code; the Lambda
+metadata check above is the more reliable verification until that skill
+doc is updated.
+
+Worktree removed, branch deleted (local + remote) — nothing left in
+progress.
+
 Not yet merged, not deployed, worktree left in place for user review.
