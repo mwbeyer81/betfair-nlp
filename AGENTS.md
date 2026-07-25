@@ -52,15 +52,15 @@ tiebreaker.
 | `/home/ubuntu/betfair-nlp` | `develop` | primary checkout | — |
 | `~/betfair-nlp-deploy-develop` | `develop` (detached) | persistent — `/deploy-web` builds from here | keep |
 | `~/betfair-nlp-deploy-main` | `main` (detached) | persistent — `/deploy-backbet` builds from here | keep |
-| `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged |
-| `~/betfair-nlp-convergence-tooltip` | `fix/convergence-tooltip-runner-count` | P&L convergence chart tooltip fix | in progress, not merged |
+| `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; likely stale/unrebased, will need careful reconciliation with the split-continuation and Apply-honoring fixes below before it merges |
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree |
 
-`account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`, and
-`social-auth` were merged, clean, and have been removed
-(`git worktree remove` + `git branch -d`) as of 2026-07-25 — this is what
-"clean up after merge" in the section above looks like in practice.
+`account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
+`social-auth`, `convergence-tooltip`, and `split-b-continuation` were
+merged, clean, and have been removed (`git worktree remove` + `git branch
+-d`, local and remote) as of 2026-07-25 — this is what "clean up after
+merge" in the section above looks like in practice.
 
 Older entries (2026-07-17 through the `auth-hardening` session) have been
 moved to `AGENTS-archive-2026-07.md` to keep this file readable — see there
@@ -402,3 +402,116 @@ fields).
   no email at all (that UI was built assuming every account has an
   email; it should degrade to showing the phone number instead, worth
   eyeballing once real credentials make this testable).
+
+---
+
+## 2026-07-25 — Agent in `~/betfair-nlp-convergence-tooltip` (branch `fix/convergence-tooltip-runner-count`)
+
+**Task:** User reported (screenshot) that the P&L Convergence chart's
+tap-to-inspect tooltip looked broken — headline said "Converges to
+-13.5% after 2980 runners" but the tooltip showed "Runner 5676", which
+reads as impossibly larger than the 2980 the headline just claimed.
+
+**Root cause:** not a bug in the arithmetic — both numbers are
+individually correct by design. `firstOrdinal`/`lastOrdinal` and the
+tooltip's `selectedPoint.runnerOrdinal` are all the TRUE global runner
+ordinal (deliberate, from the `dac3501`/`36b8b3c` work referenced
+earlier in this file — a split's own Graph button must show that
+split's real absolute runner numbers, e.g. 2984–5963, not a rebased
+1..N). The headline's "after N runners" is a deliberately *local* count
+(also deliberate, covered by the existing `ScopedToASplitsOwnRange`
+Storybook test). Two intentionally different numbering schemes sitting
+next to each other with no explanation reads as a contradiction to a
+user, even though nothing was actually wrong.
+
+**Fix:** added a second tooltip line — "`{localIndex+1} of {points.
+length} in this split`" — that ties the global ordinal above it back to
+the same local count the headline uses, without changing either
+existing number. `client/src/components/RunnerConvergencePanel.tsx`
+(new `tooltipPosition` Text + style) and its `.stories.tsx` (extended
+`TappingTheChartShowsASnapTooltip` and `ScopedToASplitsOwnRange` to
+assert on the new line). No backend, no `IndustrySpScreen.tsx` changes.
+
+**Verified:** `yarn build` clean. Storybook
+`RunnerConvergencePanel.stories.tsx`: 10/10 pass (via
+`test-storybook --url http://localhost:6006`, Storybook restarted from
+this worktree so it actually served the change — a Storybook process
+already running from a different worktree/checkout will silently keep
+serving stale code, worth remembering). MSW Playwright
+`industry-sp.spec.ts` full suite: 77/77 pass (includes the two
+convergence-specific tests and the previously-flaky `sort=asc is sent
+on initial load`, fixed in the immediately preceding commit on
+`develop`). Not deployed — text-only tooltip change, low risk, left for
+the user to trigger `/deploy-web` when ready.
+
+**Done — committed (`5bd787a`), merged to `develop`, pushed. Worktree
+removed, branch deleted (local + remote) — nothing left in progress.**
+
+---
+
+## 2026-07-25 (later) — Agent in `~/betfair-nlp-split-b-continuation` (branch `fix/split-b-continuation`)
+
+**Task:** User reported (screenshot) that editing only Split A's "to"
+runner box (extending it from 1586 out to 2983) and pressing Apply made
+Split A update correctly but Split B's underlying data didn't — the
+result card *labels* looked like a clean continuation ("2984–6156") but
+the numbers were off.
+
+**Root cause, confirmed via an MSW repro before touching any code:**
+`applyFilter` sent Split B's *stale* prior boundary (`fromRunnerB=1587`,
+left over from before A moved) instead of continuing right after A's new
+one (`2984`) — the two ranges silently overlapped (runners 1587–2983
+double-counted in both splits' P&L). The displayed "2984–6156" label was
+never actually queried; it's `splitA.totalRunners + splitB.totalRunners`
+arithmetic in `RunnerConvergencePanel`/card-render code, computed
+independently of what request was actually sent. This is a *different*
+bug from the earlier `03fa040` fix — that one was about the
+very-first-ever Apply losing a typed value when the total was still
+unknown; this one is about a *later* Apply, after a real total is
+known, where only one side gets edited.
+
+**Fix:** split the single shared `splitBoxesEditedRef` into
+`splitAEditedRef`/`splitBEditedRef` (wired through all 8 draft-box
+`onMinChange`/`onMaxChange` handlers, both race-mode and runner-mode).
+New `resolveSplitPair` (alongside the existing `resolveSplitBound`) in
+`IndustrySpScreen.tsx`: when exactly one side was actually edited, the
+other side is now recomputed as "everything else" (contiguous,
+non-overlapping) instead of read from its own possibly-stale box.
+Symmetric — editing only Split B carries Split A's end forward too.
+Touched **only** `client/src/components/IndustrySpScreen.tsx` and
+`client/tests-msw/industry-sp.spec.ts` — no backend changes.
+
+**Worth flagging for whoever picks up `isp-form-fields` next:** that
+worktree's `IndustrySpScreen.tsx` diverges by ~1500 lines from current
+`develop` (checked via `git diff origin/develop --stat`) — likely stale/
+unrebased. It will need to reconcile against this fix (and the
+`03fa040`/`5bd787a` fixes before it) when it eventually merges; flagged
+in the Active Worktrees table above rather than touched here.
+
+**Test-writing gotcha worth recording:** the two new regression tests
+initially lived inside the "Industry SP filters screen (MSW mocked)"
+describe block, reusing its shared `beforeEach` (which already does one
+real Apply against the fixture's tiny 3-runner default mock). That
+beforeEach's Apply already flips `hasLoadedOnce` true, so the test's
+*own* first Apply — even though it's the first thing the test body
+does — is no longer treated as a fresh default split; it's already
+"just another explicit Apply", which uses whatever's currently in the
+draft boxes (still the tiny mock's numbers) rather than the test's own
+large-total mock. Moved both tests to standalone `test(...)` blocks
+(outside any describe, own `page.goto`) so their *own* first Apply is
+genuinely the first one of the session — same pattern already used for
+`sort=asc is sent on initial load` a few entries back, for an unrelated
+but structurally identical reason.
+
+**Verified:** `yarn build` clean. MSW Playwright `industry-sp.spec.ts`
+full suite: 79/79 pass (77 previous + 2 new). Storybook
+`IndustrySpScreen.stories.tsx`: 54/56 pass — the 2 failures are the
+same pre-existing, unrelated course-chip bug documented in every prior
+entry touching this file (confirmed unrelated: those two stories don't
+touch split boxes, and the failure reproduces identically against an
+unmodified `IndustrySpScreen.stories.tsx` checked out from
+`origin/develop`). Not deployed — left for the user to trigger
+`/deploy-web` when ready.
+
+**Done — committed (`52c5c22`), merged to `develop`, pushed. Worktree
+removed, branch deleted (local + remote) — nothing left in progress.**
