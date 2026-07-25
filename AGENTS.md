@@ -515,3 +515,48 @@ unmodified `IndustrySpScreen.stories.tsx` checked out from
 
 **Done — committed (`52c5c22`), merged to `develop`, pushed. Worktree
 removed, branch deleted (local + remote) — nothing left in progress.**
+
+---
+
+## 2026-07-25 (later still) — Agent in `~/betfair-nlp-split-zero-guard` (branch `fix/split-zero-guard`)
+
+**Task:** User reported (two screenshots, before/after) a follow-on bug
+from the `52c5c22` fix above: with Split A already edited to 2983
+(carrying Split B forward to 2984), editing Split B's "from" box back
+down to 1 (claiming the whole dataset from the start) made Split A's box
+show "1 – 0" and its result card show a fabricated "runners 1–1" with a
+real, non-zero P&L — should have been empty.
+
+**Root cause, confirmed via MSW repro before touching code:**
+`resolveSplitPair`'s `bEdited && !aEdited` branch computes Split A's
+complementary range as `fromA=1, toA=fromB-1`; when `fromB<=1` that's
+`toA=0`, meant as "empty". But `toRunnerA=0` doesn't survive the round
+trip — the backend's explicit-runner-split boundary resolver
+(`resolveRunnerBoundary` in `industry-sp-service.ts`) does
+`Math.max(1, target)` on every "to" target (there to clamp a normal
+out-of-range positive target, not meant to carry an "empty" sentinel),
+so a target of 0 is silently treated as "up to runner 1" — one runner,
+not zero. Confirmed by capturing the actual outgoing request
+(`toRunnerA=0`) against a large-total mock before any fix.
+
+**Fix:** `resolveSplitPair`'s degenerate case (`fromB<=1`) no longer
+returns the inverted `toA=0` range at all — it falls through to
+resolving Split A independently from its own last-committed box (the
+same well-defined path already used when both sides are edited). Trades
+a real but minor A/B overlap in this one edge case for never sending a
+boundary the frontend and backend disagree on the meaning of. Touched
+only `client/src/components/IndustrySpScreen.tsx` (the one function) and
+its MSW test — no backend changes; a backend-side fix (e.g. a real
+"empty" sentinel distinct from 0) would be the more complete fix if this
+edge case ever needs to be airtight rather than just non-broken, flagging
+here in case someone wants to pick that up later.
+
+**Verified:** `yarn build` clean. MSW Playwright `industry-sp.spec.ts`
+full suite: 80/80 pass (79 previous + 1 new regression test, which fails
+against the pre-fix code and passes after). Not deployed at commit time
+— deployed immediately after by the same session, confirmed live via
+`build-commit` meta tag on `app.backbet.co.uk`.
+
+**Done — committed (`112e47f`), merged to `develop`, pushed, deployed.
+Worktree removed, branch deleted (local + remote) — nothing left in
+progress.**
