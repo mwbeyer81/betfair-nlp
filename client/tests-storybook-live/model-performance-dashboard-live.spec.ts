@@ -148,6 +148,17 @@ test.describe("backbet-storybook.s3-website — Model Performance Dashboard", ()
     await expect(previewFrame.getByTestId("model-performance-dashboard-table-header")).not.toBeVisible();
     await expect(previewFrame.getByTestId(LATEST_VERSION_ROW)).toBeVisible();
 
+    // Regression: reported live via screenshot from an actual phone — the
+    // narrow layout has no header row (unlike wide, where AUC-ROC/LogLoss/
+    // Brier tooltips live on the column headers), so a lay person looking
+    // at the stacked cards had no way to find out what those fields mean.
+    // Fixed with a dedicated metrics legend shown only on narrow layouts.
+    const legend = previewFrame.getByTestId("model-performance-dashboard-metrics-legend");
+    await expect(legend).toBeVisible();
+    await expect(previewFrame.getByTestId("model-performance-dashboard-tooltip-text-aucRoc")).not.toBeVisible();
+    await previewFrame.getByTestId("model-performance-dashboard-tooltip-toggle-aucRoc").click();
+    await expect(previewFrame.getByTestId("model-performance-dashboard-tooltip-text-aucRoc")).toContainText("coin flip");
+
     // Tapping a row still works to reach the detail view at this width.
     await previewFrame.getByTestId(LATEST_VERSION_ROW).click();
     await expect(previewFrame.getByTestId("model-performance-dashboard-training-params")).toBeVisible({ timeout: 20000 });

@@ -925,3 +925,39 @@ unchanged (same 4 pre-existing unrelated failures, 280 passed). Live
 Playwright suite against the redeployed site: still 10/10 (unaffected —
 none of those tests touch sort/tooltip UI). Redeployed via
 `apps/storybook-aws/deploy.sh`.
+
+**Follow-up same day — user sent a screenshot from an actual phone of the
+narrow (mobile) table view asking for the AUC/LogLoss/Brier tooltips,
+not realizing they'd only been wired up for the wide layout.** Real gap:
+the `aucRoc`/`logLoss`/`brierScore` "?" toggles from the previous entry
+only lived in the wide table's header row (`isTablet` branch) — the
+narrow stacked-card layout has no header row at all (each card shows its
+own inline "AUC 0.731  LogLoss 0.579  Brier 0.199"), so a narrow-viewport
+user had genuinely no way to reach an explanation.
+
+Fixed by adding a `model-performance-dashboard-metrics-legend` row
+(rendered only when `!isTablet`, mirroring the wide header's three
+toggles but without the Model/Trained/chevron columns) — same
+`PROPERTY_TOOLTIPS` keys, same shared `openTooltip` state, no new
+tooltip content needed. The tooltip-text render block that used to be
+gated `isTablet && (...)` is now unconditional, since either the header
+or the legend always renders one of the three keys' toggles now.
+
+Also strengthened the existing live narrow-viewport Playwright test
+(`table renders as stacked cards on a narrow (mobile) viewport` in
+`model-performance-dashboard-live.spec.ts`) to assert the legend is
+visible and that tapping its AUC-ROC toggle reveals the explanation —
+this exact regression (tooltip present in DOM at one breakpoint, absent
+at another) is precisely the kind of thing a Storybook interaction test
+can't catch, since **its fixed test-runner width only ever exercises the
+wide/isTablet branch** — same root cause as why the narrow-vs-wide
+layout checks live in Playwright at all (see the earlier entry on
+Storybook's broken `viewport` parameter).
+
+**Verified:** `yarn build` clean. Storybook test-runner: same 21/21 for
+this component (no new interaction stories added — the gap this fixes
+is invisible to the test-runner's fixed wide-ish width by construction),
+full suite unchanged (4 pre-existing failures, 280 passed). Live
+Playwright suite against the redeployed site: 10/10, including the
+strengthened narrow-viewport test. Redeployed via
+`apps/storybook-aws/deploy.sh`.

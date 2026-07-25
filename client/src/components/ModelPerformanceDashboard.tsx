@@ -445,7 +445,7 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
                   Trained: {sortOrder === "desc" ? "Newest first" : "Oldest first"} {sortOrder === "desc" ? "↓" : "↑"}
                 </Text>
               </TouchableOpacity>
-              {isTablet && (
+              {isTablet ? (
                 <View testID="model-performance-dashboard-table-header" style={styles.tableHeaderRow}>
                   <Text style={[styles.tableHeaderCell, styles.tableColModel]}>Model</Text>
                   <Text style={[styles.tableHeaderCell, styles.tableColDate]}>Trained</Text>
@@ -463,8 +463,21 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
                   </View>
                   <View style={styles.tableColChevron} />
                 </View>
+              ) : (
+                // Narrow layout has no header row (each metric is shown
+                // inline per card instead) — this legend is the only place
+                // a lay person can get an explanation of AUC-ROC/LogLoss/
+                // Brier without tapping into a specific model's detail view.
+                <View testID="model-performance-dashboard-metrics-legend" style={styles.metricsLegendRow}>
+                  <Text style={styles.metricsLegendLabel}>AUC-ROC</Text>
+                  {renderTooltipToggle("aucRoc")}
+                  <Text style={styles.metricsLegendLabel}>LogLoss</Text>
+                  {renderTooltipToggle("logLoss")}
+                  <Text style={styles.metricsLegendLabel}>Brier</Text>
+                  {renderTooltipToggle("brierScore")}
+                </View>
               )}
-              {isTablet && (renderTooltipText("aucRoc") || renderTooltipText("logLoss") || renderTooltipText("brierScore")) && (
+              {(renderTooltipText("aucRoc") || renderTooltipText("logLoss") || renderTooltipText("brierScore")) && (
                 <View style={styles.tableHeaderTooltipRow}>
                   {renderTooltipText("aucRoc")}
                   {renderTooltipText("logLoss")}
@@ -786,6 +799,20 @@ const styles = StyleSheet.create({
   },
   tableHeaderTooltipRow: {
     paddingHorizontal: spacing.md,
+  },
+  metricsLegendRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+  },
+  metricsLegendLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.textSecondary,
+    textTransform: "uppercase",
+    marginLeft: spacing.sm,
   },
   tableColModel: {
     flex: 2,
