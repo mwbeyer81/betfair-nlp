@@ -66,16 +66,16 @@ tiebreaker.
 | `/home/ubuntu/betfair-nlp` | `develop` | primary checkout | — |
 | `~/betfair-nlp-deploy-develop` | `develop` (detached) | persistent — `/deploy-web` builds from here | keep |
 | `~/betfair-nlp-deploy-main` | `main` (detached) | persistent — `/deploy-backbet` builds from here | keep |
-| `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; likely stale/unrebased, will need careful reconciliation with the split-continuation and Apply-honoring fixes below before it merges |
+| `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; **`develop` just moved significantly (`fd3f394`) — Split A/B's runner-index machinery (`splitByRunners`, `fromRunnerA/toRunnerA/...`) was entirely removed and `IndustrySpScreen.tsx` heavily rewritten, see the dated entry below** — expect this branch's divergence to be much worse now, plan for a careful manual reconciliation, not a plain rebase |
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
-| `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree |
-| `~/betfair-nlp-split-ab-race-revert` | `split-ab-race-revert` | Revert Split A/B to race-index splitting; rework P&L Convergence chart to race-ordinal (undoes the runner-split machinery from `e0b1a9e` onward) | implementation + local verification done (see dated entry below), **not yet merged/deployed (no deploy requested)**; touches `industry-sp-dao.ts` and `IndustrySpScreen.tsx`, the same hotspots as `isp-form-fields` and `rename-labels` above — expect merge conflicts with both, to be resolved when each merges |
+| `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
-`social-auth`, `convergence-tooltip`, and `split-b-continuation` were
-merged, clean, and have been removed (`git worktree remove` + `git branch
--d`, local and remote) as of 2026-07-25 — this is what "clean up after
-merge" in the section above looks like in practice.
+`social-auth`, `convergence-tooltip`, `split-b-continuation`, and
+`split-ab-race-revert` were merged, clean, and have been removed
+(`git worktree remove` + `git branch -d`, local and remote) as of
+2026-07-25 — this is what "clean up after merge" in the section above
+looks like in practice.
 
 Older entries (2026-07-17 through the `auth-hardening` session) have been
 moved to `AGENTS-archive-2026-07.md` to keep this file readable — see there
@@ -780,5 +780,22 @@ with Playwright — confirmed no runner checkbox, race-range boxes always
 visible, split cards read "races 1–15"/"16–30" (exact bisection of the 30
 seeded races), Graph button opens "Races 1–15", Details panel matches.
 
-**Not done — no deploy** (explicit user request: implementation + local
-verification only). Worktree left in place; not yet merged.
+**Update:** user then asked to commit, merge to `develop`, and deploy after
+all. Committed (`fd3f394`), fast-forward merged into `develop` (origin was
+still at the fork point, so no merge commit needed), pushed, deployed to
+both Lambda (`hello-api`) and the web app (`app.backbet.co.uk`) —
+build-branch/build-commit meta tags on the live site confirmed
+`develop`/`fd3f394`. Ran the persistent live e2e suite
+(`playwright.live.config.ts` / `tests-live/`) against the deployed site: 4
+passed, 21 skipped, 4 failed — all 4 pre-existing and unrelated (3 in
+`industry-sp-live.spec.ts` predate the "bare `/isp` load fetches nothing
+until Apply" feature by a day and were never updated for it, per `git log`;
+1 in `date-picker-live.spec.ts` expects a stale full-year date default).
+Since none of those reached the actual split behavior, ran an ad hoc
+Playwright check directly against `app.backbet.co.uk`: confirmed no runner
+checkbox, race-based split labels, and the convergence chart all working
+correctly against the real 109,726-race production dataset.
+
+**Done — committed (`fd3f394`), merged to `develop`, pushed, deployed.
+Worktree removed, branch deleted (local + remote) — nothing left in
+progress.**
