@@ -215,9 +215,23 @@ function resolveSplitPair(
   }
   if (bEdited && !aEdited) {
     const { from: fromB, to: toB } = resolveSplitBound(fromDraftB, toDraftB, total, true);
-    const fromA = 1;
-    const toA = fromB > 1 ? fromB - 1 : 0;
-    return { fromA, toA, fromB, toB };
+    // Reported live via screenshot: typing "1" into Split B's "from" box
+    // (claiming the entire dataset from the very start) left literally
+    // nothing before it for Split A — the naive complementary range would
+    // be fromA=1/toA=0, an inverted, empty range. That "0" doesn't survive
+    // the round trip, though: the backend's explicit-runner-split resolver
+    // floors any "to" target up to 1 (Math.max(1, target), for the normal
+    // case of clamping an out-of-range positive target) — so "empty" and
+    // "exactly runner 1" become indistinguishable, and Split A's card came
+    // back showing a fabricated 1-runner result instead of 0. Rather than
+    // send a boundary neither side of the pipe agrees on the meaning of,
+    // fall through below to resolving A independently from its own
+    // last-committed box (the same, always-well-defined behavior already
+    // used when both sides are edited) — a real but comparatively minor
+    // overlap with B in this one edge case, instead of a fabricated result.
+    if (fromB > 1) {
+      return { fromA: 1, toA: fromB - 1, fromB, toB };
+    }
   }
   const { from: fromA, to: toA } = resolveSplitBound(fromDraftA, toDraftA, total, aEdited);
   const { from: fromB, to: toB } = resolveSplitBound(fromDraftB, toDraftB, total, bEdited);

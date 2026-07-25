@@ -659,6 +659,52 @@ test("editing only Split B's box carries Split A forward to end right before it"
   await expect(page.getByTestId("industry-sp-to-runner-a")).toHaveValue("999");
 });
 
+test("editing Split B's from down to 1 (claiming the whole dataset) doesn't collapse Split A to a fabricated 1-runner result", async ({ page }) => {
+  // Regression: reported live via screenshot. Split A had already been
+  // edited to 2983 (carrying Split B forward to 2984, per the fix above).
+  // Editing Split B's "from" back down to 1 made the naive complementary
+  // range for Split A come out as fromA=1/toA=0 — an inverted, empty
+  // range. That "0" doesn't mean "empty" once it reaches the backend
+  // though: the explicit-runner-split resolver floors any "to" target up
+  // to 1 (Math.max(1, target)), so "empty" and "exactly runner 1" become
+  // indistinguishable — Split A's card came back showing a fabricated
+  // 1-runner result ("runners 1–1", a real P&L figure) instead of 0.
+  let lastUrl = "";
+  await page.route("**/api/industry-sp/splits*", async (route) => {
+    lastUrl = route.request().url();
+    await route.fulfill({
+      json: {
+        success: true, totalRaces: 900, totalRunners: 5963, raceCap: 1000,
+        filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+        countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
+        raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
+        splitA: { fromRow: 1, toRow: 850, total: 850, totalRunners: 2983, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+        splitB: { fromRow: 851, toRow: null, total: 50, totalRunners: 2980, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+      },
+    });
+  });
+
+  await page.goto("/isp");
+  await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+  await page.getByTestId("industry-sp-to-runner-a").fill("2983");
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+  await page.getByTestId("industry-sp-from-runner-b").fill("1");
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+  const url = new URL(lastUrl);
+  expect(url.searchParams.get("fromRunnerB")).toBe("1");
+  // toRunnerA must never be "0" — 0 gets silently floored to "runner 1" by
+  // the backend, fabricating a result instead of representing "empty".
+  expect(url.searchParams.get("toRunnerA")).not.toBe("0");
+  await expect(page.getByTestId("industry-sp-to-runner-a")).not.toHaveValue("0");
+});
+
 test.describe("Industry SP filters screen - session cache across navigation (MSW mocked)", () => {
   // Regression coverage for: navigating away from /isp and back used to
   // re-fetch /api/industry-sp/splits from scratch every time (component
