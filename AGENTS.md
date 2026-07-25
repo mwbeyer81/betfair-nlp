@@ -1434,3 +1434,51 @@ during merge conflict resolution — only the threading through
 `getAllRacesByRace`/`buildQualifyingRaceStages` (both still present)
 survived. See the merge-resolution entry below for what was actually
 kept and re-verified post-merge.
+
+---
+
+## 2026-07-25 (later still) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Task:** Merge `model-versioning-backend` into `develop`.
+
+**⚠️ Stashed, not yet reconciled: `stash@{0}` — "WIP before merging
+model-versioning-backend: train_and_predict.py feature-engineering +
+precompute scripts + unrelated files".** Before merging, the primary
+checkout had *separate uncommitted* local changes: a broader
+`ml/train_and_predict.py` feature-engineering pass (sex/hg/jockey-form/
+officialRating/wgt/age/daysSinceLastRun/horseCareerRuns/horseAvgRPR/TS/
+BeatenDistance) plus two untracked precompute scripts
+(`src/commands/precompute-horse-form.ts`,
+`src/commands/precompute-jockey-form.ts`) it depends on, and a few
+unrelated modified files (`client/playwright-report/index.html`,
+`package.json`, `src/commands/import-industry-sp.ts`,
+`client/assets/logo/`). These overlap with `train_and_predict.py`
+sections the merged branch also touches (`make_model()`/`evaluate()`/
+`save_evaluation()`), so popping this stash **will** conflict — it needs
+a deliberate, by-hand reconciliation (decide which `save_evaluation`/id
+scheme wins), not a blind `git stash pop`. Whoever does this: `git stash
+show -p stash@{0} -- ml/train_and_predict.py` to see exactly what's
+waiting, and check `git stash list` first in case index numbers have
+shifted since this was written.
+
+**Conflicts resolved:** `industry-sp-dao.ts` (the real one —
+`getRunnerRangeStats`/`getRunnerConvergenceSeries` deleted upstream,
+kept `modelVersionId` only on `getAllRacesByRace`/
+`buildQualifyingRaceStages`, passed `modelVersionId: null` through the
+new `getRaceConvergenceSeries`'s one `buildQualifyingRaceStages` call),
+`IndustrySpScreen.tsx` (import-only), `AGENTS.md` (append-only,
+concatenated).
+
+**Verified post-merge:** backend `npx tsc --noEmit` clean, full `jest`
+suite clean (my 9 DAO integration tests + 4 supertest cases all still
+pass, zero new regressions — pre-existing failure count actually
+*dropped* since `split-ab-race-revert` fixed some of what was broken
+before). Client `yarn build` clean. Storybook (own instance, port 6012,
+per the port-collision guidance above): `IndustrySpScreen.stories.tsx`
+54/56 (same 2 pre-existing course-chip failures), `ModelPerformanceDashboard.stories.tsx`
+21/21.
+
+**Done — committed (`489b187` on the branch, merge commit `d182e99` on
+`develop`).** Worktree (`~/betfair-nlp-model-versioning-backend`)
+deliberately **not** removed yet — see the follow-up entry below for
+push/deploy.
