@@ -2,6 +2,7 @@ import request from "supertest";
 import bcrypt from "bcryptjs";
 import { ObjectId } from "mongodb";
 import app from "../app";
+import { MongoScriptExecutor } from "../../lib/service/mongo-script-executor";
 
 let authToken: string;
 
@@ -48,15 +49,25 @@ beforeAll(async () => {
   authToken = res.body.token;
 });
 
-// Mock the OpenAI client to avoid real API calls in tests
+// Mock the OpenAI client to avoid real API calls in tests. Branches on the
+// query text so both the data-query path and the "about the app" path can
+// be exercised via the real /api/query -> NaturalLanguageService pipeline.
+const ABOUT_THE_APP_QUERY = "How is the win-probability model trained?";
+const ABOUT_THE_APP_EXPLANATION =
+  "The model is trained on historical races using a technique called gradient-boosted trees...";
 jest.mock("../../lib/service/openai-client", () => ({
   OpenAIClient: jest.fn().mockImplementation(() => ({
     createResponse: jest.fn().mockResolvedValue("Mocked AI analysis"),
-    createHorseQueryResponse: jest
-      .fn()
-      .mockResolvedValue(
-        '```javascript\ndb.market_definitions.find({"name": "Cheltenham Chase"})\n```'
-      ),
+    createHorseQueryResponse: jest.fn().mockImplementation(async (query: string) => {
+      if (query === ABOUT_THE_APP_QUERY) {
+        return { responseType: "about", explanation: ABOUT_THE_APP_EXPLANATION };
+      }
+      return {
+        responseType: "data",
+        mongoScript: 'db.market_definitions.find({"name": "Cheltenham Chase"})',
+        naturalLanguageInterpretation: "Finds the market named Cheltenham Chase.",
+      };
+    }),
   })),
 }));
 
@@ -617,6 +628,31 @@ describe("API Endpoints", () => {
 
       expect(response.body).toHaveProperty("success", true);
       expect(response.body).toHaveProperty("data");
+    });
+
+    it("answers an 'about the app' question with a plain-English explanation instead of a MongoDB script", async () => {
+      const executeScriptSpy = jest.spyOn(
+        MongoScriptExecutor.prototype,
+        "executeScript"
+      );
+
+      const response = await request(app)
+        .post("/api/query")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ query: ABOUT_THE_APP_QUERY })
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data.mongoScript).toBeUndefined();
+      expect(response.body.data.naturalLanguageInterpretation).toBe(
+        ABOUT_THE_APP_EXPLANATION
+      );
+      expect(response.body.data.formattedResults).toBe(ABOUT_THE_APP_EXPLANATION);
+      expect(response.body.data.noResultsFound).toBe(false);
+      // The whole point of the "about" path: it never touches the database.
+      expect(executeScriptSpy).not.toHaveBeenCalled();
+
+      executeScriptSpy.mockRestore();
     });
 
     it("should return 400 when query is missing", async () => {

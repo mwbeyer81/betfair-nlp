@@ -34,7 +34,11 @@ describe("MongoScriptExecutor", () => {
       expect(result.success).toBe(true);
       expect(result.data).toEqual(mockResults);
       expect(result.error).toBeUndefined();
-      expect(result.executionTime).toBeGreaterThan(0);
+      // toBeGreaterThanOrEqual, not toBeGreaterThan: Date.now() has ~1ms
+      // resolution and this mocked call can legitimately resolve within
+      // the same millisecond it started (pre-existing flake, unrelated to
+      // this file's read-only hardening).
+      expect(result.executionTime).toBeGreaterThanOrEqual(0);
     });
 
     it("should execute a script with projection", async () => {
@@ -85,21 +89,17 @@ describe("MongoScriptExecutor", () => {
       expect(result.data).toEqual(mockResults);
     });
 
-    it("should handle scripts with variables and multiple operations", async () => {
-      const mockResults = [{ _id: "1", name: "Test Horse" }];
-      const mockCursor = {
-        toArray: jest.fn().mockResolvedValue(mockResults),
-      };
-      mockCollection.find.mockReturnValue(mockCursor);
-
+    it("should reject scripts with variables or multiple statements (only a single db.<collection>.<method>(...) expression is allowed)", async () => {
       const script = `
         var horseName = "Test Horse";
         db.test.find({"name": horseName})
       `;
       const result = await executor.executeScript(script);
 
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual(mockResults);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe(
+        "Only read-only find/findOne/aggregate/countDocuments/distinct queries are allowed"
+      );
     });
 
     it("should clean markdown code blocks from scripts", async () => {
@@ -135,7 +135,41 @@ describe("MongoScriptExecutor", () => {
       for (const script of dangerousScripts) {
         const result = await executor.executeScript(script);
         expect(result.success).toBe(false);
-        expect(result.error).toBe("Invalid MongoDB script format");
+        expect(result.error).toBe(
+          "Only read-only find/findOne/aggregate/countDocuments/distinct queries are allowed"
+        );
+      }
+    });
+
+    it("should reject write/destructive operations and escape attempts, even when disguised as an otherwise-valid-looking call", async () => {
+      const rejectedScripts = [
+        // Non-space dropDatabase — the old blocklist regex only matched
+        // "drop database" with a space and missed this spelling.
+        "db.market_definitions.dropDatabase()",
+        // Non-empty-filter deleteMany — the old blocklist only matched an
+        // empty-filter `deleteMany({})`.
+        'db.users.deleteMany({"email": "someone@example.com"})',
+        "db.users.updateMany({}, {$set: {emailVerified: true}})",
+        "db.market_definitions.insertOne({fake: true})",
+        "db.market_definitions.findAndModify({query: {}, update: {}})",
+        // Chained statement bypass: a valid-looking read followed by a
+        // destructive statement.
+        'db.price_updates.find({}); db.price_updates.deleteMany({})',
+        // Server-side JS execution operators smuggled inside an otherwise
+        // "allowed" find/aggregate call.
+        'db.market_definitions.find({"$where": "sleep(10000) || true"})',
+        'db.market_definitions.aggregate([{"$merge": {"into": "market_definitions"}}])',
+        'db.market_definitions.aggregate([{"$out": "market_definitions"}])',
+        // Template literal / expression injection attempt.
+        "db.market_definitions.find({`x`: 1})",
+      ];
+
+      for (const script of rejectedScripts) {
+        const result = await executor.executeScript(script);
+        expect(result.success).toBe(false);
+        expect(result.error).toBe(
+          "Only read-only find/findOne/aggregate/countDocuments/distinct queries are allowed"
+        );
       }
     });
 
@@ -164,7 +198,9 @@ describe("MongoScriptExecutor", () => {
       const result = await executor.executeScript(script);
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe("Invalid MongoDB script format");
+      expect(result.error).toBe(
+        "Only read-only find/findOne/aggregate/countDocuments/distinct queries are allowed"
+      );
     });
   });
 
