@@ -157,6 +157,35 @@ test.describe("Industry SP filters screen — bare load applies nothing (MSW moc
     await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("runners 3–4");
   });
 
+  test("editing Split A/B before ever pressing Apply is still honored on that first Apply", async ({ page }) => {
+    // Regression: reported live via screenshot — a user who typed into the
+    // Split A/B runner boxes as their very first interaction (instead of
+    // applying the default split first) had their edit silently discarded;
+    // Apply just re-showed the auto-computed default split. Root cause was
+    // in applyFilter's split-bound math: totalRunners is still 0 before any
+    // fetch has ever resolved, so clamping the typed value against that
+    // unknown 0 ceiling crushed it down to 1 and then read that as "reached
+    // the end" (null / open-ended), indistinguishable from an untouched
+    // placeholder box. See splitBoxesEditedRef / resolveSplitBound in
+    // IndustrySpScreen.tsx.
+    let capturedToRunnerA: string | null | undefined;
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const url = new URL(route.request().url());
+      if (capturedToRunnerA === undefined) {
+        capturedToRunnerA = url.searchParams.get("toRunnerA");
+      }
+      await route.fallback();
+    });
+
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("industry-sp-to-runner-a").fill("1589");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    expect(capturedToRunnerA).toBe("1589");
+  });
+
   test("a URL that already carries filter params fetches immediately, without an extra Apply", async ({ page }) => {
     // Distinguishes a genuinely bare load from one arriving via a
     // bookmark/shared link/back-navigation, which already represents
@@ -1133,7 +1162,11 @@ test.describe("Industry SP races screen - sort order toggle (MSW mocked)", () =>
     await page.route("**/api/industry-sp*", async (route) => {
       const url = new URL(route.request().url());
       capturedSort = url.searchParams.get("sort");
-      await route.continue();
+      // .fallback() (not .continue()) defers to the fixture's own
+      // /api/industry-sp handler — .continue() sends the request straight
+      // to the real network (localhost:3000) instead, which the MSW suite
+      // has no business depending on being up.
+      await route.fallback();
     });
 
     await page.getByTestId("industry-sp-sort-toggle").click();
@@ -1141,25 +1174,38 @@ test.describe("Industry SP races screen - sort order toggle (MSW mocked)", () =>
     expect(capturedSort).toBe("desc");
   });
 
-  test("sort=asc is sent on initial load", async ({ page }) => {
-    const sorts: string[] = [];
-    await page.route("**/api/industry-sp*", async (route) => {
-      const url = new URL(route.request().url());
-      const s = url.searchParams.get("sort");
-      if (s) sorts.push(s);
-      await route.continue();
-    });
-
-    await page.goto("/isp/races");
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
-    expect(sorts.some(s => s === "asc")).toBe(true);
-  });
-
   test("loading /isp/races with sort=desc in the URL starts sorted descending", async ({ page }) => {
     await page.goto("/isp/races?sort=desc");
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("industry-sp-sort-toggle")).toHaveText("Last → First");
   });
+});
+
+// Standalone, deliberately outside the describe block above: that block's
+// beforeEach already navigates to /isp/races once for every test in it, so
+// observing the *initial* request would need a second page.goto to the
+// exact same URL — but Chromium/Playwright doesn't reliably fire a fresh
+// navigation (and therefore a fresh fetch) for a goto() whose target URL is
+// byte-identical to the page's current URL. Registering the route once and
+// navigating exactly once, before anything else has loaded the page, avoids
+// relying on that same-URL reload behavior entirely.
+//
+// Uses page.waitForRequest (a passive observer) instead of page.route: a
+// page.route handler registered here — even one that calls
+// route.fallback() to defer to the fixture's own /api/industry-sp mock —
+// intermittently swallowed this specific request without ever reaching
+// that fallback handler or firing Playwright's own "request" event,
+// leaving the app to hang past its loading state. waitForRequest doesn't
+// intercept anything, so it can't race the fixture's routing at all.
+test("sort=asc is sent on initial load", async ({ page }) => {
+  const [request] = await Promise.all([
+    page.waitForRequest(req => req.url().includes("/api/industry-sp?")),
+    page.goto("/isp/races"),
+  ]);
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+  const url = new URL(request.url());
+  expect(url.searchParams.get("sort")).toBe("asc");
 });
 
 test.describe("Industry SP meeting/race drill-down (MSW mocked)", () => {
