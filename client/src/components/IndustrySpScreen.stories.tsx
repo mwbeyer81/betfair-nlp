@@ -1068,7 +1068,7 @@ export const ApplyingACustomDateRangeSendsItToTheApi: Story = {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
 
-    // Within the one-month cap, so it applies exactly as picked.
+    // Within the one-year cap, so it applies exactly as picked.
     await pickDateRangeInCanvas(canvas, "2023-01-01", "2023-01-20");
 
     capturedDateParams = { minDate: null, maxDate: null };
@@ -1081,7 +1081,7 @@ export const ApplyingACustomDateRangeSendsItToTheApi: Story = {
   },
 };
 
-export const DateRangeWiderThanOneMonthIsClampedOnApply: Story = {
+export const DateRangeWiderThanOneYearIsClampedOnApply: Story = {
   parameters: {
     msw: {
       handlers: [
@@ -1114,21 +1114,21 @@ export const DateRangeWiderThanOneMonthIsClampedOnApply: Story = {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
 
-    // A 6-month pick gets silently pulled back to minDate + 1 month on
+    // A 14-month pick gets silently pulled back to minDate + 1 year on
     // Apply, same as every other range filter self-correcting instead of
     // erroring on an out-of-bounds value.
-    await pickDateRangeInCanvas(canvas, "2023-01-01", "2023-06-30");
+    await pickDateRangeInCanvas(canvas, "2023-01-01", "2024-03-01");
 
     capturedDateParams = { minDate: null, maxDate: null };
     await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
 
     await waitFor(() => {
       expect(capturedDateParams.minDate).toBe("2023-01-01");
-      expect(capturedDateParams.maxDate).toBe("2023-02-01");
+      expect(capturedDateParams.maxDate).toBe("2024-01-01");
     }, { timeout: 3000 });
 
     const trigger = canvas.getByTestId("industry-sp-date-range-picker");
-    await expect(trigger).toHaveTextContent("Feb 1, 2023");
+    await expect(trigger).toHaveTextContent("Jan 1, 2024");
   },
 };
 

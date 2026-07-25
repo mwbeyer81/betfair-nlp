@@ -6,6 +6,17 @@ work or duplicate-debug the same infra issues. **Read this before touching
 `src/lib/dao/industry-sp-dao.ts`, `client/src/components/IndustrySpScreen.tsx`,
 `client/src/utils/ispUrlParams.ts`, or shared local infra (ports 3000/27019/80).**
 
+**Storybook port:** don't assume 6006 or 6007 is free — with several agents
+active at once, one of them is very likely already bound to whichever
+default you reach for first (this has caused silent test-runner failures
+and false "everything failed" results, see the dated entries below). Before
+starting Storybook for local testing, run `ps aux | grep storybook` (not
+`lsof` — unreliable in this sandbox, see the dated entry on that) to see
+what's already running, then start yours on a port nothing else is using,
+e.g. `npx storybook dev --port 6009 --ci` / `test-storybook --url
+http://localhost:6009`. Don't kill another agent's Storybook process to
+free up a port — pick a different one instead.
+
 If you're an agent starting work here: add a new dated entry below (don't
 edit/delete others' entries), and re-read this file before you push/merge.
 
@@ -1103,3 +1114,57 @@ code touched — same 4 pre-existing unrelated failures). Live Playwright
 suite against the redeployed site: 11/11 pass (10 previous + the new
 cache-header regression test). Redeployed via
 `apps/storybook-aws/deploy.sh`.
+
+---
+
+## 2026-07-25 (still yet later) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Task:** Remove the ISP date filter's one-month max span cap, increase
+it to one year. Small, contained change — done directly in the primary
+checkout rather than a worktree, but **touches
+`client/src/components/IndustrySpScreen.tsx`**, so flagging here per the
+top-of-file rule, especially for whoever eventually reconciles
+`~/betfair-nlp-isp-form-fields` (noted above as ~1500 lines diverged from
+`develop` as of today) — that merge will need to account for this change
+too.
+
+**What changed:** `addOneMonth()` → `addOneYear()` (adds a calendar year
+instead of a month), and the `applyFilter()` clamp that pins `maxDate` to
+`minDate` + cap now pins to `minDate` + 1 year instead of + 1 month.
+Updated the `date` filter tooltip copy and surrounding comments to match.
+**Not changed:** `FILTER_DEFAULTS.minDate`/`maxDate` — the *default* view
+on first load is still the single month Jan 2024 (that's a separate,
+deliberate latency guardrail against Atlas M0's shared free tier, see the
+comment above `FILTER_DEFAULTS`); only the *ceiling* on how wide a range
+Apply will accept moved from 1 month to 1 year.
+
+**Storybook gotcha hit while updating tests:** the renamed
+`DateRangeWiderThanOneYearIsClampedOnApply` story (previously
+`...OneMonth...`) had *two* separate assertions on the old 1-month
+behavior — the `capturedDateParams` check (updated first) and a second,
+easy-to-miss `expect(trigger).toHaveTextContent("Feb 1, 2023")` a few
+lines further down checking the picker's own displayed text. Updating
+only the first left the test failing for a stale-assertion reason
+unrelated to the actual fix. Worth double-checking a story for more than
+one assertion tied to the same old behavior before declaring it updated.
+
+**Port collision while testing:** hit the exact "Storybook seems to not
+be running" false negative documented in earlier entries below, except
+this time root-caused as a genuine collision — a different agent's
+Storybook (from `~/betfair-nlp-model-versioning-backend`) had taken over
+port 6007 after mine exited. Added the "Storybook port" note near the
+top of this file so agents pick a free port up front (`ps aux | grep
+storybook`) instead of colliding on 6006/6007.
+
+**Verified:** `cd client && yarn build` clean. Storybook test-runner
+(own instance on port 6008, to avoid the collision above) for
+`IndustrySpScreen.stories.tsx`: the updated clamp story now passes; the
+only remaining failures in that file are the 2 pre-existing course-chip
+bugs already documented in earlier entries (unrelated to this change).
+Full suite: 280/286 pass (6 failed — those same 2, plus the 4
+pre-existing unrelated failures in `AllRunnersScreen`/`EventsScreen`/
+`RunnerDetailScreen` also noted in earlier entries).
+
+**Not yet done:** uncommitted in the primary checkout — holding for
+explicit user confirmation before committing, per this repo's commit
+policy.

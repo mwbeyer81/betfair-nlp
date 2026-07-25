@@ -58,9 +58,9 @@ interface IndustrySpScreenProps {
 // Restricting the *default* view to a much smaller date window directly
 // shrinks the matched-race count for the query MongoDB actually has to
 // run, rather than just avoiding self-inflicted request concurrency the
-// way the /splits combining fix did. This also has to fit the one-month
+// way the /splits combining fix did. This also has to fit the one-year
 // max span enforced in applyFilter() below — move the window any time via
-// Apply, but it can never be widened past one month.
+// Apply, but it can never be widened past one year.
 const FILTER_DEFAULTS = {
   minRunners: 1,
   maxRunners: 20,
@@ -107,7 +107,7 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   isp: "Only show races where the runner's official starting price (ISP) falls in this range.",
   runners: "Only show races with this many total runners taking part.",
   inIsp: "Only show races with this many runners priced inside the ISP range above, out of the full field.",
-  date: "Only show races in this date range (YYYY-MM-DD), up to one month wide. Move the window any time via Apply.",
+  date: "Only show races in this date range (YYYY-MM-DD), up to one year wide. Move the window any time via Apply.",
   raceA: "The first split — defaults to roughly the first half of the matching races or runners (whichever \"Split by runners\" is set to), so you can test a filter combination here first. Edit the range to test a specific slice instead.",
   raceB: "The second split — defaults to the rest of the matching races or runners. Check whether the same filters are still profitable here before trusting them.",
   course: "Only show races run at the selected course(s) — course specialists and course bias are a classic handicapping factor.",
@@ -125,16 +125,16 @@ const FILTER_TOOLTIPS: Record<string, string> = {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// Adds one calendar month to a YYYY-MM-DD string, used to cap the date
+// Adds one calendar year to a YYYY-MM-DD string, used to cap the date
 // filter's span in applyFilter() below. Parsed/computed in UTC so this
 // can't shift by a day depending on the browser's local timezone. Note JS
-// Date's own month-rollover quirk applies here same as everywhere else
-// (e.g. 2024-01-31 + 1 month lands on 2024-03-02, not a clamped "Feb 29"),
+// Date's own leap-day rollover quirk applies here same as everywhere else
+// (e.g. 2024-02-29 + 1 year lands on 2025-03-01, not a clamped "Feb 28"),
 // which is an acceptable approximation for a filter-width cap.
-function addOneMonth(dateStr: string): string {
+function addOneYear(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCMonth(dt.getUTCMonth() + 1);
+  dt.setUTCFullYear(dt.getUTCFullYear() + 1);
   return dt.toISOString().slice(0, 10);
 }
 
@@ -535,16 +535,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     // Malformed input (wrong shape, or min after max) falls back to the
     // full absolute range rather than silently keeping the last-applied
     // value — clearer to the user than a filter that looks applied but
-    // quietly didn't change. The date range is then capped to one month
+    // quietly didn't change. The date range is then capped to one year
     // wide (same latency reasoning as the FILTER_DEFAULTS comment above) —
-    // a maxDate more than a month past minDate is silently pulled back to
-    // minDate + 1 month rather than rejected, matching how every other
+    // a maxDate more than a year past minDate is silently pulled back to
+    // minDate + 1 year rather than rejected, matching how every other
     // range filter here self-corrects on Apply instead of erroring.
     const dMin = DATE_RE.test(draftMinDate) ? draftMinDate : ABSOLUTE_MIN_DATE;
     const dMaxRaw = DATE_RE.test(draftMaxDate) ? draftMaxDate : ABSOLUTE_MAX_DATE;
     const dMaxAfterMin = dMaxRaw < dMin ? dMin : dMaxRaw;
-    const oneMonthCap = addOneMonth(dMin);
-    const dMax = dMaxAfterMin > oneMonthCap ? oneMonthCap : dMaxAfterMin;
+    const oneYearCap = addOneYear(dMin);
+    const dMax = dMaxAfterMin > oneYearCap ? oneYearCap : dMaxAfterMin;
     setDraftMinDate(dMin);
     setDraftMaxDate(dMax);
     setMinDate(dMin);
