@@ -13,6 +13,20 @@ the model should produce an independent view, not a recalibration of the
 market's own price. Also excludes pos/status (the label itself) and
 sortPriority (redundant with num).
 
+Also deliberately excludes the runner's own rpr/ts/beatenDistance (Racing
+Post Rating / Topspeed / beaten distance) — those are POST-RACE performance
+figures for the very race being predicted, so using them directly would
+leak the outcome. horseAvgRPR/horseAvgTS/horseAvgBeatenDistance below are
+the leakage-safe versions: trailing averages from the horse's prior runs
+only, precomputed in src/commands/precompute-horse-form.ts.
+
+Same leakage rule applies to horseAvgExcuseScore/horseTroubleInRunningRate/
+horseTravelledWellRate: these come from tagging the free-text `comment`
+field (Racing Post-style in-running commentary) with a keyword lexicon
+(src/lib/dao/comment-lexicon.ts) and trailing-averaging over the horse's
+last 3 prior runs, same as horseAvgRPR/TS — the current race's own comment
+is never used directly, only prior-run history.
+
 Usage:
     MONGODB_URI=... MONGODB_DB_NAME=... ml/venv/bin/python ml/train_and_predict.py
 """
@@ -20,6 +34,7 @@ Usage:
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -29,12 +44,22 @@ from pymongo import MongoClient, UpdateOne
 from sklearn.metrics import roc_auc_score, log_loss, brier_score_loss
 
 COLLECTION_NAME = "industry_starting_prices"
+EVALUATIONS_COLLECTION_NAME = "model_evaluations"
 BATCH_SIZE = 1000
 MODEL_DIR = Path(__file__).parent / "models"
 MODEL_PATH = MODEL_DIR / "win_probability_model.json"
+RUN_LABEL = os.environ.get("RUN_LABEL", "unlabeled")
 
-CAT_COLS = ["course", "going", "raceType", "raceClass", "trainer", "jockey"]
-NUM_COLS = ["distanceFurlongs", "ran", "num", "draw", "trainerFormRuns", "trainerFormWinRate", "trainerFormROI"]
+CAT_COLS = ["course", "going", "raceType", "raceClass", "trainer", "jockey", "sex", "hg"]
+NUM_COLS = [
+    "distanceFurlongs", "ran", "num", "draw",
+    "trainerFormRuns", "trainerFormWinRate", "trainerFormROI",
+    "jockeyFormRuns", "jockeyFormWinRate", "jockeyFormROI",
+    "officialRating", "wgt", "age",
+    "daysSinceLastRun", "horseCareerRuns", "horseCareerWinRate",
+    "horseAvgRPR", "horseAvgTS", "horseAvgBeatenDistance",
+    "horseAvgExcuseScore", "horseTroubleInRunningRate", "horseTravelledWellRate",
+]
 FEATURE_COLS = CAT_COLS + NUM_COLS
 
 _DISTANCE_RE = re.compile(r"^(?:(\d+)m)?(?:(\d*)(½)?f)?$")
@@ -83,9 +108,14 @@ def load_dataframe(collection) -> pd.DataFrame:
         for runner in race.get("runners", []):
             trainer_staked = runner.get("trainerFormStaked")
             trainer_returns = runner.get("trainerFormReturns")
-            roi = np.nan
+            trainer_roi = np.nan
             if trainer_staked:
-                roi = (trainer_returns or 0) / trainer_staked
+                trainer_roi = (trainer_returns or 0) / trainer_staked
+            jockey_staked = runner.get("jockeyFormStaked")
+            jockey_returns = runner.get("jockeyFormReturns")
+            jockey_roi = np.nan
+            if jockey_staked:
+                jockey_roi = (jockey_returns or 0) / jockey_staked
             rows.append({
                 "raceId": race["raceId"],
                 "raceDate": race["raceDate"],
@@ -96,13 +126,30 @@ def load_dataframe(collection) -> pd.DataFrame:
                 "going": race.get("going"),
                 "trainer": runner.get("trainer"),
                 "jockey": runner.get("jockey"),
+                "sex": runner.get("sex"),
+                "hg": runner.get("hg"),
                 "distanceFurlongs": distance_furlongs,
                 "ran": race.get("ran"),
                 "num": runner.get("num"),
                 "draw": runner.get("draw"),
                 "trainerFormRuns": runner.get("trainerFormRuns"),
                 "trainerFormWinRate": runner.get("trainerFormWinRate"),
-                "trainerFormROI": roi,
+                "trainerFormROI": trainer_roi,
+                "jockeyFormRuns": runner.get("jockeyFormRuns"),
+                "jockeyFormWinRate": runner.get("jockeyFormWinRate"),
+                "jockeyFormROI": jockey_roi,
+                "officialRating": runner.get("officialRating"),
+                "wgt": runner.get("wgt"),
+                "age": runner.get("age"),
+                "daysSinceLastRun": runner.get("daysSinceLastRun"),
+                "horseCareerRuns": runner.get("horseCareerRuns"),
+                "horseCareerWinRate": runner.get("horseCareerWinRate"),
+                "horseAvgRPR": runner.get("horseAvgRPR"),
+                "horseAvgTS": runner.get("horseAvgTS"),
+                "horseAvgBeatenDistance": runner.get("horseAvgBeatenDistance"),
+                "horseAvgExcuseScore": runner.get("horseAvgExcuseScore"),
+                "horseTroubleInRunningRate": runner.get("horseTroubleInRunningRate"),
+                "horseTravelledWellRate": runner.get("horseTravelledWellRate"),
                 "label": 1 if runner.get("status") == "WINNER" else 0,
             })
     df = pd.DataFrame(rows)
@@ -138,11 +185,14 @@ def make_model(early_stopping: bool) -> xgb.XGBClassifier:
     return xgb.XGBClassifier(**kwargs)
 
 
-def evaluate(model: xgb.XGBClassifier, test_df: pd.DataFrame):
+def evaluate(model: xgb.XGBClassifier, test_df: pd.DataFrame, evaluations_collection, run_meta: dict):
     p = model.predict_proba(test_df[FEATURE_COLS])[:, 1]
-    print(f"AUC-ROC:  {roc_auc_score(test_df['label'], p):.4f}")
-    print(f"LogLoss:  {log_loss(test_df['label'], p):.4f}")
-    print(f"Brier:    {brier_score_loss(test_df['label'], p):.4f}")
+    auc = roc_auc_score(test_df["label"], p)
+    ll = log_loss(test_df["label"], p)
+    brier = brier_score_loss(test_df["label"], p)
+    print(f"AUC-ROC:  {auc:.4f}")
+    print(f"LogLoss:  {ll:.4f}")
+    print(f"Brier:    {brier:.4f}")
 
     calib = test_df.assign(p=p)
     calib["decile"] = pd.qcut(calib["p"], 10, duplicates="drop")
@@ -154,6 +204,28 @@ def evaluate(model: xgb.XGBClassifier, test_df: pd.DataFrame):
     print("\nCalibration (predicted vs actual win rate by decile):")
     print(table.to_string())
 
+    calibration_table = [
+        {
+            "meanPredicted": round(float(row["mean_predicted"]), 6),
+            "actualWinRate": round(float(row["actual_win_rate"]), 6),
+            "n": int(row["n"]),
+        }
+        for _, row in table.reset_index(drop=True).iterrows()
+    ]
+    save_evaluation(evaluations_collection, {
+        **run_meta,
+        "aucRoc": round(float(auc), 6),
+        "logLoss": round(float(ll), 6),
+        "brierScore": round(float(brier), 6),
+        "calibrationTable": calibration_table,
+    })
+
+
+def save_evaluation(evaluations_collection, doc: dict):
+    doc = {"runAt": datetime.now(timezone.utc).isoformat(), **doc}
+    evaluations_collection.insert_one(doc)
+    print(f"\nSaved evaluation to {EVALUATIONS_COLLECTION_NAME} (runLabel={doc.get('runLabel')})")
+
 
 def run():
     uri = os.environ["MONGODB_URI"]
@@ -162,6 +234,7 @@ def run():
     client = MongoClient(uri)
     db = client[db_name]
     collection = db[COLLECTION_NAME]
+    evaluations_collection = db[EVALUATIONS_COLLECTION_NAME]
 
     print("Loading data...")
     df = load_dataframe(collection)
@@ -185,7 +258,16 @@ def run():
     print(f"Early stopping selected n_estimators={best_n}")
 
     print("\n--- Held-out chronological test evaluation ---")
-    evaluate(es_model, test_df)
+    run_meta = {
+        "runLabel": RUN_LABEL,
+        "featureCols": FEATURE_COLS,
+        "trainRows": len(fit_df) + len(val_df),
+        "testRows": len(test_df),
+        "trainDateMax": str(train_df["raceDate"].max()),
+        "testDateMin": str(test_df["raceDate"].min()),
+        "bestIteration": int(best_n),
+    }
+    evaluate(es_model, test_df, evaluations_collection, run_meta)
 
     print(f"\nRefitting on all {len(df)} rows (train+test) at n_estimators={best_n} for the deployed model...")
     final_model = make_model(early_stopping=False)
