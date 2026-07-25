@@ -39,6 +39,12 @@ export interface IspRunner {
   // Populated for every runner (no cold-start gap like trainerForm), so
   // undefined only means the precompute hasn't been run at all yet.
   modelWinProbability?: number | null;
+  // Which training run produced modelWinProbability — set alongside it in
+  // ml/train_and_predict.py's per-runner array_filters update. Only ever
+  // reflects the MOST RECENT run that scored this runner (each run
+  // overwrites both fields together); historical runs can't be
+  // reconstructed for runners scored before this field existed.
+  modelVersionId?: string | null;
 }
 
 export interface IspRace {
@@ -106,6 +112,7 @@ export class IndustrySpDAO {
     maxTrainerFormRunners: number;
     minModelWinProbability: number;
     onlyModelBeatsSp: boolean;
+    modelVersionId: string | null;
   }): Record<string, unknown>[] {
     const countryMatch = p.countries.length > 0 ? { countryCode: { $in: p.countries } } : {};
     const courseMatch = p.courses.length > 0 ? { course: { $in: p.courses } } : {};
@@ -180,6 +187,17 @@ export class IndustrySpDAO {
       ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: modelBeatsSpCond } } } }
       : 0;
 
+    // Which training run scored a runner — set alongside modelWinProbability
+    // in ml/train_and_predict.py, so only ever reflects the most recent run
+    // (see the modelVersionId comment on IspRunner). Filtering by it lets the
+    // dashboard scope a version's own P&L to runners it actually scored,
+    // rather than every runner regardless of which run touched them last.
+    const modelVersionFilterActive = p.modelVersionId != null;
+    const modelVersionCond = [{ $eq: ["$$r.modelVersionId", p.modelVersionId] }];
+    const modelVersionQualifyingCountExpr = modelVersionFilterActive
+      ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: modelVersionCond } } } }
+      : 0;
+
     // Combined per-runner qualifying count: isp-in-range AND every currently
     // active runner-level filter, jointly (not independently) — mirrors
     // IspRacesScreen.tsx's client-side qualifyingRunners() exactly, unlike
@@ -188,7 +206,8 @@ export class IndustrySpDAO {
     // at once). Backs both the totalRunners stat and the runner-count split
     // boundary (getQualifyingRunnerSplitBoundary). Fast path: identical to
     // inRangeRunnersCount when none of the three optional filters are active.
-    const qualifyingRunnersFilterActive = trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive;
+    const qualifyingRunnersFilterActive =
+      trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive || modelVersionFilterActive;
     const qualifyingRunnersCountExpr = qualifyingRunnersFilterActive
       ? {
           $size: {
@@ -204,6 +223,7 @@ export class IndustrySpDAO {
                   ...(trainerFormFilterActive ? trainerFormCond : []),
                   ...(modelFilterActive ? modelCond : []),
                   ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
+                  ...(modelVersionFilterActive ? modelVersionCond : []),
                 ],
               },
             },
@@ -230,6 +250,7 @@ export class IndustrySpDAO {
           trainerFormQualifyingCount: trainerFormQualifyingCountExpr,
           modelQualifyingCount: modelQualifyingCountExpr,
           modelBeatsSpQualifyingCount: modelBeatsSpQualifyingCountExpr,
+          modelVersionQualifyingCount: modelVersionQualifyingCountExpr,
           qualifyingRunnersCount: qualifyingRunnersCountExpr,
         },
       },
@@ -243,6 +264,7 @@ export class IndustrySpDAO {
               { $lte: ["$trainerFormQualifyingCount", p.maxTrainerFormRunners] },
               { $gte: ["$modelQualifyingCount", modelFilterActive ? 1 : 0] },
               { $gte: ["$modelBeatsSpQualifyingCount", modelBeatsSpFilterActive ? 1 : 0] },
+              { $gte: ["$modelVersionQualifyingCount", modelVersionFilterActive ? 1 : 0] },
             ],
           },
         },
@@ -281,7 +303,8 @@ export class IndustrySpDAO {
     maxTrainerFormRunners = 100,
     runnerName: string | null = null,
     minModelWinProbability = 0,
-    onlyModelBeatsSp = false
+    onlyModelBeatsSp = false,
+    modelVersionId: string | null = null
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -386,7 +409,9 @@ export class IndustrySpDAO {
     const trainerFormFilterActive = minTrainerFormRunners > 0 || maxTrainerFormRunners < 100;
     const modelFilterActive = minModelWinProbability > 0;
     const modelBeatsSpFilterActive = onlyModelBeatsSp;
-    const qualifyingRunnersFilterActive = trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive;
+    const modelVersionFilterActive = modelVersionId != null;
+    const qualifyingRunnersFilterActive =
+      trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive || modelVersionFilterActive;
 
     // Only a per-race id + sort key + the qualifying counts survive into
     // the $facet — every other field (course, meetingName, runners, ...) is
@@ -404,7 +429,7 @@ export class IndustrySpDAO {
         countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
         courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp,
+        minModelWinProbability, onlyModelBeatsSp, modelVersionId,
       }),
       {
         $project: {
@@ -577,6 +602,7 @@ export class IndustrySpDAO {
                                     { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
                                   ]
                                 : []),
+                              ...(modelVersionFilterActive ? [{ $eq: ["$$r.modelVersionId", modelVersionId] }] : []),
                             ],
                           },
                         },
@@ -684,7 +710,7 @@ export class IndustrySpDAO {
             countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
             courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName: null,
             trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-            minModelWinProbability, onlyModelBeatsSp,
+            minModelWinProbability, onlyModelBeatsSp, modelVersionId: null,
           }),
           // Project down to a ~40-60 byte doc before $setWindowFields — it
           // can't reuse the {raceTime:1} index the leading $sort above
@@ -775,7 +801,8 @@ export class IndustrySpDAO {
     onlyModelBeatsSp = false,
     fromRunnerTarget: number,
     toRunnerTarget: number | null,
-    raceRowBound: number
+    raceRowBound: number,
+    modelVersionId: string | null = null
   ): Promise<{
     fromRow: number;
     toRow: number | null;
@@ -814,6 +841,8 @@ export class IndustrySpDAO {
       { $gt: ["$$r.isp", 0] },
       { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
     ];
+    const modelVersionFilterActive = modelVersionId != null;
+    const modelVersionCond = [{ $eq: ["$$r.modelVersionId", modelVersionId] }];
     // Mirrors buildQualifyingRaceStages' own qualifying condition exactly —
     // duplicated rather than shared, because that method's fast path skips
     // $filter entirely via a precomputed scalar count field whenever
@@ -835,6 +864,7 @@ export class IndustrySpDAO {
                 ...(trainerFormFilterActive ? trainerFormCond : []),
                 ...(modelFilterActive ? modelCond : []),
                 ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
+                ...(modelVersionFilterActive ? modelVersionCond : []),
               ],
             },
           },
@@ -857,7 +887,7 @@ export class IndustrySpDAO {
             countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
             courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName: null,
             trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-            minModelWinProbability, onlyModelBeatsSp,
+            minModelWinProbability, onlyModelBeatsSp, modelVersionId,
           }),
           { $limit: Math.max(1, raceRowBound) },
           {
@@ -983,7 +1013,8 @@ export class IndustrySpDAO {
     onlyModelBeatsSp = false,
     fromRunnerTarget: number,
     toRunnerTarget: number,
-    raceRowBound: number
+    raceRowBound: number,
+    modelVersionId: string | null = null
   ): Promise<{ runnerOrdinal: number; cumulativeStaked: number; cumulativeReturns: number }[]> {
     const dateMatchStage: Record<string, unknown>[] =
       minRaceTime != null || maxRaceTime != null
@@ -1019,6 +1050,8 @@ export class IndustrySpDAO {
       { $gt: ["$$r.isp", 0] },
       { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
     ];
+    const modelVersionFilterActive = modelVersionId != null;
+    const modelVersionCond = [{ $eq: ["$$r.modelVersionId", modelVersionId] }];
     const qualifyingRunnersArrayExpr = {
       $map: {
         input: {
@@ -1034,6 +1067,7 @@ export class IndustrySpDAO {
                 ...(trainerFormFilterActive ? trainerFormCond : []),
                 ...(modelFilterActive ? modelCond : []),
                 ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
+                ...(modelVersionFilterActive ? modelVersionCond : []),
               ],
             },
           },
@@ -1061,7 +1095,7 @@ export class IndustrySpDAO {
             countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
             courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName: null,
             trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-            minModelWinProbability, onlyModelBeatsSp,
+            minModelWinProbability, onlyModelBeatsSp, modelVersionId,
           }),
           { $limit: Math.max(1, raceRowBound) },
           {

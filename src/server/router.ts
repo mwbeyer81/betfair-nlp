@@ -5,6 +5,7 @@ import { NaturalLanguageService } from "../lib/service/natural-language-service"
 import { BetfairService } from "../lib/service/betfair-service";
 import { IndustrySpService } from "../lib/service/industry-sp-service";
 import { TrainerFormService } from "../lib/service/trainer-form-service";
+import { ModelVersionService } from "../lib/service/model-version-service";
 import { AuthService, AuthError } from "../lib/service/auth-service";
 import { DatabaseConnection } from "../config/database";
 import { jwtAuth, optionalJwtAuth } from "./middleware";
@@ -18,6 +19,7 @@ let naturalLanguageService: NaturalLanguageService | null = null;
 let betfairService: BetfairService | null = null;
 let industrySpService: IndustrySpService | null = null;
 let trainerFormService: TrainerFormService | null = null;
+let modelVersionService: ModelVersionService | null = null;
 let authService: AuthService | null = null;
 
 export const initializeServices = async () => {
@@ -45,6 +47,7 @@ export const initializeServices = async () => {
     } catch (indexError) {
       console.warn("trainer-form createIndexes failed (non-fatal, queries may be slower):", indexError);
     }
+    modelVersionService = new ModelVersionService();
     authService = new AuthService(dbConnection.getDb());
     try {
       await authService.createIndexes();
@@ -349,6 +352,17 @@ router.get("/api/industry-sp/race-types", async (_req, res) => {
   }
 });
 
+router.get("/api/model-versions", async (_req, res) => {
+  try {
+    if (!modelVersionService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const data = await modelVersionService.getAllModelVersions();
+    res.status(200).json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error("getAllModelVersions error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch model versions" });
+  }
+});
+
 router.get("/api/industry-sp/splits", async (req, res) => {
   try {
     if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
@@ -524,7 +538,8 @@ router.get("/api/industry-sp", async (req, res) => {
     const runnerName = typeof req.query.runnerName === "string" && req.query.runnerName.trim() ? req.query.runnerName.trim() : null;
     const minModelWinProbability = Math.min(100, Math.max(0, parseFloat(req.query.minModelWinProbability as string) || 0));
     const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
-    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp);
+    const modelVersionId = typeof req.query.modelVersionId === "string" && req.query.modelVersionId.trim() ? req.query.modelVersionId.trim() : null;
+    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId);
     res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
   } catch (error) {
     console.error("getAllRacesByRace error:", error);

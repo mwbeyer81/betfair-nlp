@@ -85,6 +85,12 @@ export interface IspRunner {
   // runners sum to 100) — precomputed in ml/train_and_predict.py,
   // deliberately trained without isp/ispFraction/isFavourite as inputs.
   modelWinProbability?: number | null;
+  // Which training run produced modelWinProbability — set alongside it in
+  // ml/train_and_predict.py. Only ever reflects the MOST RECENT run that
+  // scored this runner (each run overwrites both fields together);
+  // historical runs can't be reconstructed for runners scored before this
+  // field existed.
+  modelVersionId?: string | null;
 }
 
 export interface IspRace {
@@ -140,6 +146,54 @@ export interface IspPage {
   totalPages: number;
   totalRunners: number;
   pnlStats: PnlStats;
+}
+
+export interface ModelTrainingParams {
+  nEstimators: number;
+  learningRate: number;
+  maxDepth: number;
+  subsample: number;
+  colsampleBytree: number;
+  minChildWeight: number;
+  randomState: number;
+  earlyStoppingRounds: number;
+}
+
+export interface ModelRunMeta {
+  featureCols: string[];
+  trainRows: number;
+  testRows: number;
+  trainDateMax: string;
+  testDateMin: string;
+  bestIteration: number;
+}
+
+export interface CalibrationBucket {
+  meanPredicted: number;
+  actualWinRate: number;
+  n: number;
+}
+
+export interface ModelPerformanceMetrics {
+  aucRoc: number;
+  logLoss: number;
+  brierScore: number;
+  calibrationTable: CalibrationBucket[];
+}
+
+export interface ModelVersion {
+  id: string;
+  runLabel: string;
+  runAt: string;
+  trainingParams: ModelTrainingParams;
+  runMeta: ModelRunMeta;
+  performanceMetrics: ModelPerformanceMetrics;
+}
+
+export interface ModelVersionsResponse {
+  success: boolean;
+  data: ModelVersion[];
+  count: number;
 }
 
 export interface AuthResult {
@@ -440,7 +494,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean): Promise<IspPage> {
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -469,11 +523,23 @@ class ChatApi {
     if (runnerName) params.set("runnerName", runnerName);
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    if (modelVersionId) params.set("modelVersionId", modelVersionId);
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp?${params}`,
       { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch industry SP");
+    return response.json();
+  }
+
+  // Every model version (training params + performance metrics), newest
+  // first — backs the Model Performance Dashboard's version table.
+  async getModelVersions(): Promise<ModelVersionsResponse> {
+    const response = await fetch(
+      `${this.baseUrl}/api/model-versions`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch model versions");
     return response.json();
   }
 

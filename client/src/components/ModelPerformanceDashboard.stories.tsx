@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { within, userEvent, expect, fn, waitFor } from "@storybook/test";
-import { ModelPerformanceDashboard, ModelVersion, CalibrationBucket } from "./ModelPerformanceDashboard";
-import { IspRace, IspRunner } from "../services/chatApi";
+import { ModelPerformanceDashboard } from "./ModelPerformanceDashboard";
+import { IspRace, IspRunner, ModelVersion, CalibrationBucket } from "../services/chatApi";
 import { computeRangePnl, computeModelFilteredPnl } from "../utils/ispFormat";
 
 // Deterministic PRNG (not Math.random()) so every story run — and every CI

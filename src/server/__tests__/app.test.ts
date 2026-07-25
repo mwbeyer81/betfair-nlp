@@ -175,6 +175,43 @@ jest.mock("../../config/database", () => ({
               }),
             };
           }
+          if (name === "model_evaluations") {
+            return {
+              find: jest.fn().mockReturnValue({
+                sort: jest.fn().mockReturnThis(),
+                toArray: jest.fn().mockResolvedValue([
+                  {
+                    modelVersionId: "xgb-20260301-090000",
+                    runLabel: "unlabeled",
+                    runAt: "2026-03-01T09:00:00.000Z",
+                    trainingParams: {
+                      nEstimators: 2000,
+                      learningRate: 0.03,
+                      maxDepth: 5,
+                      subsample: 0.8,
+                      colsampleBytree: 0.8,
+                      minChildWeight: 8,
+                      randomState: 42,
+                      earlyStoppingRounds: 50,
+                    },
+                    featureCols: ["course", "going", "trainer", "jockey"],
+                    trainRows: 180000,
+                    testRows: 20000,
+                    trainDateMax: "2026-02-25",
+                    testDateMin: "2026-02-26",
+                    bestIteration: 842,
+                    aucRoc: 0.731,
+                    logLoss: 0.579,
+                    brierScore: 0.199,
+                    calibrationTable: [
+                      { meanPredicted: 10, actualWinRate: 12, n: 2000 },
+                      { meanPredicted: 90, actualWinRate: 85, n: 2100 },
+                    ],
+                  },
+                ]),
+              }),
+            };
+          }
           return {
             distinct: jest.fn().mockResolvedValue(["GB", "IE"]),
           find: jest.fn().mockReturnValue({
@@ -1168,6 +1205,50 @@ describe("API Endpoints", () => {
       const race = response.body.data[0];
       expect(race).toHaveProperty("raceClass");
       expect(race).toHaveProperty("going");
+    });
+  });
+
+  describe("GET /api/model-versions", () => {
+    it("returns 200 with success and a data array", async () => {
+      const response = await request(app)
+        .get("/api/model-versions")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("count equals data.length", async () => {
+      const response = await request(app)
+        .get("/api/model-versions")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    it("is public — returns 200 without auth", async () => {
+      const response = await request(app).get("/api/model-versions").expect(200);
+      expect(response.body).toHaveProperty("success", true);
+    });
+
+    it("each version has id, runLabel, runAt, trainingParams, runMeta, performanceMetrics", async () => {
+      const response = await request(app)
+        .get("/api/model-versions")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const version = response.body.data[0];
+      expect(typeof version.id).toBe("string");
+      expect(typeof version.runLabel).toBe("string");
+      expect(typeof version.runAt).toBe("string");
+      expect(typeof version.trainingParams.nEstimators).toBe("number");
+      expect(typeof version.trainingParams.earlyStoppingRounds).toBe("number");
+      expect(Array.isArray(version.runMeta.featureCols)).toBe(true);
+      expect(typeof version.runMeta.trainRows).toBe("number");
+      expect(typeof version.performanceMetrics.aucRoc).toBe("number");
+      expect(Array.isArray(version.performanceMetrics.calibrationTable)).toBe(true);
     });
   });
 
