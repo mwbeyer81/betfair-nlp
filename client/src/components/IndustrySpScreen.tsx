@@ -17,9 +17,9 @@ import {
   ActivityIndicator,
   Icon,
 } from "react-native-paper";
-import { chatApi, IspFilterBounds, PnlStats, RunnerConvergencePoint } from "../services/chatApi";
+import { chatApi, IspFilterBounds, PnlStats, RaceConvergencePoint } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
-import { RunnerConvergencePanel } from "./RunnerConvergencePanel";
+import { PnlConvergencePanel } from "./PnlConvergencePanel";
 import { DateRangePicker } from "./DateRangePicker";
 import { PageContainer } from "./PageContainer";
 import { buildSplitsCacheKey, readSplitsCache, writeSplitsCache, CachedSplitsResult } from "../utils/ispSplitsCache";
@@ -120,7 +120,6 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   hasTrainerForm: "Only show races with at least one runner whose trainer has a recent-form sample available (they've run at least once in the last 14 days). Runners with \"No recent form sample\" are excluded.",
   minModelWinProbability: "Only show races with a runner whose XGBoost-predicted win probability is at least this percentage. The model is trained on course/going/class/distance/draw/trainer-form/jockey — deliberately not on ISP, so it's an independent view, not a recalibration of the market's own price.",
   onlyModelBeatsSp: "Only show races with a runner whose model win probability is higher than the win probability implied by their own industry SP (100/isp) — i.e. the model rates them a better chance than the market's own price does.",
-  splitByRunners: "When on (default), Split A and Split B's auto-computed boundary divides the matching runners in half, so both splits compare a similar number of qualifying bets — not just a similar number of races, which can vary a lot in runner count once other filters are active. Turn off to go back to splitting by race count instead. Only affects the auto-computed default split — a manually edited split (below) is always by race range.",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -327,14 +326,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // it's boolean-only, same shape as hasTrainerForm.
   const [draftOnlyModelBeatsSp, setDraftOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
   const [onlyModelBeatsSp, setOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
-  // "Split by runners" — whether the auto/default Split A/B boundary
-  // bisects by qualifying-runner count (the default) or by race count (the
-  // original behavior, an explicit opt-out). True unless the URL carries an
-  // explicit "false" — inverted from the other checkboxes here (which
-  // default false/unchecked), since runner-count bisection is the current
-  // shipped default and only needs a URL param when the user opts out.
-  const [draftSplitByRunners, setDraftSplitByRunners] = useState(() => urlStringParam("splitByRunners", "") !== "false");
-  const [splitByRunners, setSplitByRunners] = useState(() => urlStringParam("splitByRunners", "") !== "false");
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
@@ -360,10 +351,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
   // "Graph" button on either split card — requested live to show how the
   // running ROI% is volatile over a small sample and settles down as more
-  // runners are included, from runner 1 up to Split B's upper limit. Both
+  // races are included, from race 1 up to Split B's upper limit. Both
   // split cards' Graph buttons open this same chart (see loadConvergence).
   const [showConvergencePanel, setShowConvergencePanel] = useState(false);
-  const [convergencePoints, setConvergencePoints] = useState<RunnerConvergencePoint[]>([]);
+  const [convergencePoints, setConvergencePoints] = useState<RaceConvergencePoint[]>([]);
   const [convergenceLoading, setConvergenceLoading] = useState(false);
   const [convergenceError, setConvergenceError] = useState<string | null>(null);
 
@@ -375,7 +366,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // guarantees both splits are populated even for a small total (the date
   // filter caps the default view to one month, see FILTER_DEFAULTS above),
   // unlike a fixed-size window that could leave split B empty.
-  const splitsAreDefaultRef = useRef(!urlHasParam("fromRowA") && !urlHasParam("fromRunnerA"));
+  const splitsAreDefaultRef = useRef(!urlHasParam("fromRowA"));
   // Tracks whether the user has actually typed into Split A's or Split B's
   // own boxes (as opposed to those boxes still holding their pre-fetch
   // placeholder values, or a stale value left over from a *previous* Apply).
@@ -415,35 +406,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [draftFromB, setDraftFromB] = useState(() => String(urlIntParam("fromRowB", 1)));
   const [draftToB, setDraftToB] = useState(() => {
     const t = urlToRowParam("toRowB");
-    return t != null ? String(t) : "0";
-  });
-
-  // Runner-mode equivalent of fromRowA/toRowA/fromRowB/toRowB above — the
-  // Split A/B boxes edit these instead when "Split by runners" is checked.
-  // Applied state is resolved server-side into race indices (fromRowA/etc.
-  // above still end up holding the resolved race range either way, since
-  // that's what View Races / SplitDetailPanel always need); this is purely
-  // what the user actually typed/asked for, in runner terms, so it can be
-  // redisplayed and persisted (URL, cache key) without re-deriving it from
-  // a race range on every render.
-  const [fromRunnerA, setFromRunnerA] = useState<number | null>(() => urlToRowParam("fromRunnerA"));
-  const [toRunnerA, setToRunnerA] = useState<number | null>(() => urlToRowParam("toRunnerA"));
-  const [draftFromRunnerA, setDraftFromRunnerA] = useState(() => {
-    const f = urlToRowParam("fromRunnerA");
-    return f != null ? String(f) : "1";
-  });
-  const [draftToRunnerA, setDraftToRunnerA] = useState(() => {
-    const t = urlToRowParam("toRunnerA");
-    return t != null ? String(t) : "0";
-  });
-  const [fromRunnerB, setFromRunnerB] = useState<number | null>(() => urlToRowParam("fromRunnerB"));
-  const [toRunnerB, setToRunnerB] = useState<number | null>(() => urlToRowParam("toRunnerB"));
-  const [draftFromRunnerB, setDraftFromRunnerB] = useState(() => {
-    const f = urlToRowParam("fromRunnerB");
-    return f != null ? String(f) : "1";
-  });
-  const [draftToRunnerB, setDraftToRunnerB] = useState(() => {
-    const t = urlToRowParam("toRunnerB");
     return t != null ? String(t) : "0";
   });
 
@@ -570,7 +532,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMinModelWinProbability(modelWinProb);
 
     setOnlyModelBeatsSp(draftOnlyModelBeatsSp);
-    setSplitByRunners(draftSplitByRunners);
 
     // Commit every chip filter's draft (pending) selection to the applied
     // set actually used for fetching — this is the point where a chip's
@@ -603,38 +564,18 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       splitsAreDefaultRef.current = false;
     }
 
-    // Whichever unit is currently active (checkbox state at Apply time)
-    // becomes the committed split; the other unit's boxes get refreshed
-    // from the fetch response afterward (see applyResult below) so they
-    // show the equivalent range if the user switches units later, without
-    // needing to be computed here too.
-    if (draftSplitByRunners) {
-      const { fromA, toA, fromB, toB } = resolveSplitPair(
-        draftFromRunnerA, draftToRunnerA, draftFromRunnerB, draftToRunnerB, totalRunners, aEdited, bEdited
-      );
-      setDraftFromRunnerA(String(fromA));
-      setDraftToRunnerA(String(toA ?? totalRunners));
-      setFromRunnerA(fromA);
-      setToRunnerA(toA);
+    const { fromA, toA, fromB, toB } = resolveSplitPair(
+      draftFromA, draftToA, draftFromB, draftToB, totalRaces, aEdited, bEdited
+    );
+    setDraftFromA(String(fromA));
+    setDraftToA(String(toA ?? totalRaces));
+    setFromRowA(fromA);
+    setToRowA(toA);
 
-      setDraftFromRunnerB(String(fromB));
-      setDraftToRunnerB(String(toB ?? totalRunners));
-      setFromRunnerB(fromB);
-      setToRunnerB(toB);
-    } else {
-      const { fromA, toA, fromB, toB } = resolveSplitPair(
-        draftFromA, draftToA, draftFromB, draftToB, totalRaces, aEdited, bEdited
-      );
-      setDraftFromA(String(fromA));
-      setDraftToA(String(toA ?? totalRaces));
-      setFromRowA(fromA);
-      setToRowA(toA);
-
-      setDraftFromB(String(fromB));
-      setDraftToB(String(toB ?? totalRaces));
-      setFromRowB(fromB);
-      setToRowB(toB);
-    }
+    setDraftFromB(String(fromB));
+    setDraftToB(String(toB ?? totalRaces));
+    setFromRowB(fromB);
+    setToRowB(toB);
 
     setFetchTrigger(t => t + 1);
   }
@@ -679,8 +620,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMinModelWinProbability(FILTER_DEFAULTS.minModelWinProbability);
     setDraftOnlyModelBeatsSp(false);
     setOnlyModelBeatsSp(false);
-    setDraftSplitByRunners(true);
-    setSplitByRunners(true);
 
     // Hand the two splits back to auto (half/half) mode — the next fetch
     // recomputes them from the fresh grand total.
@@ -695,14 +634,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setToRowB(null);
     setDraftFromB("1");
     setDraftToB("0");
-    setFromRunnerA(null);
-    setToRunnerA(null);
-    setDraftFromRunnerA("1");
-    setDraftToRunnerA("0");
-    setFromRunnerB(null);
-    setToRunnerB(null);
-    setDraftFromRunnerB("1");
-    setDraftToRunnerB("0");
 
     setFetchTrigger(t => t + 1);
   }
@@ -710,20 +641,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   useEffect(() => {
     let cancelled = false;
 
-    // isRunnerExplicit: true when this fetch was driven by the user's own
-    // typed runner range (fromRunnerA/etc, not the auto default or a
-    // race-index range). In that case the draft runner boxes must NOT be
-    // overwritten with the *resolved* totalRunners-derived values below —
-    // races are the atomic unit, so an arbitrary runner target (e.g. 1000)
-    // almost never lands exactly on a race boundary and gets resolved to
-    // whatever the nearest one actually is (e.g. 1003); silently replacing
-    // the user's typed "1000" with "1003" after every Apply was reported
-    // live as the box "changing on its own". The applied (non-draft)
-    // fromRunnerA/toRunnerA still always reflect the resolved values —
-    // those back the cache key and must stay consistent with what a
-    // remount reconstructs from the URL (see the cache-key comments
-    // below) — only the user-facing editable text is preserved here.
-    function applyResult(result: CachedSplitsResult, isRunnerExplicit: boolean) {
+    function applyResult(result: CachedSplitsResult) {
       setHasLoadedOnce(true);
       setTotalRaces(result.totalRaces);
       setTotalRunners(result.totalRunners);
@@ -749,57 +667,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       setDraftToA(String(result.splitA.toRow ?? result.totalRaces));
       setDraftFromB(String(result.splitB.fromRow));
       setDraftToB(String(result.splitB.toRow ?? result.totalRaces));
-
-      // Runner-mode equivalent of the resolved split above — always
-      // refreshed from each split's own totalRunners (not re-derived via a
-      // separate request), so switching to "Split by runners" always shows
-      // the current split's runner range, even if it was set/reached via
-      // race-index editing or the auto default.
-      //
-      // Two different ways to derive it, depending on isRunnerExplicit:
-      // - Auto-computed default: the backend picked the boundary (an even
-      //   bisection starting at runner 1), and the frontend genuinely
-      //   doesn't know it until this response arrives — A is exactly
-      //   1..totalRunnersA, and B, being a true contiguous continuation by
-      //   construction, is exactly totalRunnersA+1..+totalRunnersB.
-      // - Explicit split: fromRunnerA/fromRunnerB already hold exactly
-      //   what was sent (set moments ago by applyFilter, still correct) —
-      //   reuse them directly rather than re-deriving via the same
-      //   "A:1.., B:totalRunnersA+1.." arithmetic, which silently
-      //   fabricates Split B's displayed range by ASSUMING it always
-      //   starts exactly where Split A ends. Reported live via screenshot:
-      //   an explicit Split B deliberately re-including runner 1 (typed
-      //   into its own "from" box, overlapping Split A on purpose per the
-      //   zero-guard fallback) still showed a card labeled "2984-8946" — a
-      //   range that was never actually queried; the box said "1" the
-      //   whole time. Only the *end* needs deriving here (from+count-1) —
-      //   the backend doesn't separately echo back a resolved "from" for
-      //   an explicit runner target, but doesn't need to: unlike an
-      //   explicit *race*-index target, a runner-index "from" is used
-      //   exactly as given (see getRunnerRangeStats), never snapped to a
-      //   boundary the way a "to" target can be.
-      let resolvedFromA: number, resolvedToA: number, resolvedFromB: number, resolvedToB: number;
-      if (isRunnerExplicit) {
-        resolvedFromA = fromRunnerA ?? 1;
-        resolvedToA = resolvedFromA + Math.max(0, result.splitA.totalRunners - 1);
-        resolvedFromB = fromRunnerB ?? 1;
-        resolvedToB = resolvedFromB + Math.max(0, result.splitB.totalRunners - 1);
-      } else {
-        resolvedFromA = 1;
-        resolvedToA = result.splitA.totalRunners;
-        resolvedFromB = result.splitA.totalRunners + 1;
-        resolvedToB = result.splitA.totalRunners + result.splitB.totalRunners;
-      }
-      setFromRunnerA(resolvedFromA);
-      setToRunnerA(resolvedToA);
-      setFromRunnerB(resolvedFromB);
-      setToRunnerB(resolvedToB);
-      if (!isRunnerExplicit) {
-        setDraftFromRunnerA("1");
-        setDraftToRunnerA(String(resolvedToA));
-        setDraftFromRunnerB(String(resolvedFromB));
-        setDraftToRunnerB(String(resolvedToB));
-      }
 
       setTotalRacesA(result.splitA.total);
       setTotalRunnersA(result.splitA.totalRunners);
@@ -843,9 +710,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         hasTrainerForm: hasTrainerForm ? "true" : undefined,
         minModelWinProbability: minModelWinProbability !== FILTER_DEFAULTS.minModelWinProbability ? String(minModelWinProbability) : undefined,
         onlyModelBeatsSp: onlyModelBeatsSp ? "true" : undefined,
-        // True is the default (matches the shipped runner-count bisection);
-        // only write the param when the user has opted out to "Races" mode.
-        splitByRunners: !splitByRunners ? "false" : undefined,
         // Only write the split boundaries once the user has explicitly
         // applied a custom split — writing the auto-computed default here
         // too would make the *next* mount think a custom split was already
@@ -854,24 +718,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         // this exact fromRowA/toRowA": a differently shaped request that
         // couldn't reuse the sessionStorage cache, even though nothing had
         // actually changed since the previous visit.
-        // Only one unit's params are ever written at a time, matching
-        // whichever is currently active — otherwise a stale fromRowA from
-        // a previous races-mode split could linger in the URL alongside a
-        // fresh runners-mode one, ambiguous about which actually governs.
-        fromRowA: !isDefault && !splitByRunners ? String(result.splitA.fromRow) : undefined,
-        toRowA: !isDefault && !splitByRunners && result.splitA.toRow != null ? String(result.splitA.toRow) : undefined,
-        fromRowB: !isDefault && !splitByRunners ? String(result.splitB.fromRow) : undefined,
-        toRowB: !isDefault && !splitByRunners && result.splitB.toRow != null ? String(result.splitB.toRow) : undefined,
-        // Computed fresh from `result` here (not read from the fromRunnerA/
-        // etc. component state) for the same reason the race params above
-        // read from `result` too — those setters ran moments ago inside
-        // applyResult(), in this same synchronous effect body, so the
-        // component state closure this function captured is still stale
-        // until the next render.
-        fromRunnerA: !isDefault && splitByRunners ? "1" : undefined,
-        toRunnerA: !isDefault && splitByRunners ? String(result.splitA.totalRunners) : undefined,
-        fromRunnerB: !isDefault && splitByRunners ? String(result.splitA.totalRunners + 1) : undefined,
-        toRunnerB: !isDefault && splitByRunners ? String(result.splitA.totalRunners + result.splitB.totalRunners) : undefined,
+        fromRowA: !isDefault ? String(result.splitA.fromRow) : undefined,
+        toRowA: !isDefault && result.splitA.toRow != null ? String(result.splitA.toRow) : undefined,
+        fromRowB: !isDefault ? String(result.splitB.fromRow) : undefined,
+        toRowB: !isDefault && result.splitB.toRow != null ? String(result.splitB.toRow) : undefined,
       });
     }
 
@@ -898,18 +748,11 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       const cacheKey = buildSplitsCacheKey({
         minRunners, maxRunners, countries: [...selectedCountries], minIsp, maxIsp,
         minRunnersInRange, maxRunnersInRange, minDate, maxDate, isDefault,
-        fromRowA: splitByRunners ? 1 : fromRowA,
-        toRowA: splitByRunners ? null : toRowA,
-        fromRowB: splitByRunners ? 1 : fromRowB,
-        toRowB: splitByRunners ? null : toRowB,
-        fromRunnerA: splitByRunners ? fromRunnerA : null,
-        toRunnerA: splitByRunners ? toRunnerA : null,
-        fromRunnerB: splitByRunners ? fromRunnerB : null,
-        toRunnerB: splitByRunners ? toRunnerB : null,
+        fromRowA, toRowA, fromRowB, toRowB,
         courses: [...selectedCourses], goings: [...selectedGoings],
         raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
         trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp, splitByRunners,
+        minModelWinProbability, onlyModelBeatsSp,
         isAuthenticated,
       });
 
@@ -933,7 +776,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         // time (this bucket's own key already guarantees it was computed
         // fresh, so there's nothing to re-derive from a different total).
         if (cached && (isDefault || !isStaleSplit(cached.splitB.fromRow, cached.totalRaces))) {
-          applyResult(cached, !isDefault && splitByRunners);
+          applyResult(cached);
           syncUrl(cached, isDefault);
           setIsLoading(false);
           return;
@@ -947,25 +790,19 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         // why this used to be 3 separate concurrent requests (each risking
         // its own Lambda cold start / Atlas M0 connection contention) and
         // isn't anymore. Omitting every explicit boundary lets the backend
-        // compute the half/half default itself. Only one unit's explicit
-        // boundaries are ever sent — whichever is currently active — the
-        // backend resolves runner-index ones into race indices itself.
+        // compute the half/half default itself.
         const result = await chatApi.getIndustrySpSplits(
           minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, minRunnersInRange, maxRunnersInRange,
-          isDefault || splitByRunners ? undefined : fromRowA,
-          isDefault || splitByRunners ? undefined : (toRowA ?? undefined),
-          isDefault || splitByRunners ? undefined : fromRowB,
-          isDefault || splitByRunners ? undefined : (toRowB ?? undefined),
+          isDefault ? undefined : fromRowA,
+          isDefault ? undefined : (toRowA ?? undefined),
+          isDefault ? undefined : fromRowB,
+          isDefault ? undefined : (toRowB ?? undefined),
           minDate,
           maxDate,
           [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
           trainerSearch || undefined, jockeySearch || undefined,
           trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp, splitByRunners,
-          isDefault || !splitByRunners ? undefined : (fromRunnerA ?? undefined),
-          isDefault || !splitByRunners ? undefined : (toRunnerA ?? undefined),
-          isDefault || !splitByRunners ? undefined : (fromRunnerB ?? undefined),
-          isDefault || !splitByRunners ? undefined : (toRunnerB ?? undefined)
+          minModelWinProbability, onlyModelBeatsSp
         );
         if (cancelled) return;
         // An explicit (non-default) split's row numbers are only meaningful
@@ -988,7 +825,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           setFetchTrigger(t => t + 1);
           return;
         }
-        applyResult(result, !isDefault && splitByRunners);
+        applyResult(result);
         syncUrl(result, isDefault);
         // Written under a key reflecting the *resolved* boundary values —
         // exactly what syncUrl just wrote to the URL — not the pre-fetch
@@ -1002,18 +839,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         const writeCacheKey = buildSplitsCacheKey({
           minRunners, maxRunners, countries: [...selectedCountries], minIsp, maxIsp,
           minRunnersInRange, maxRunnersInRange, minDate, maxDate, isDefault,
-          fromRowA: splitByRunners ? 1 : result.splitA.fromRow,
-          toRowA: splitByRunners ? null : result.splitA.toRow,
-          fromRowB: splitByRunners ? 1 : result.splitB.fromRow,
-          toRowB: splitByRunners ? null : result.splitB.toRow,
-          fromRunnerA: splitByRunners ? 1 : null,
-          toRunnerA: splitByRunners ? result.splitA.totalRunners : null,
-          fromRunnerB: splitByRunners ? result.splitA.totalRunners + 1 : null,
-          toRunnerB: splitByRunners ? result.splitA.totalRunners + result.splitB.totalRunners : null,
+          fromRowA: result.splitA.fromRow,
+          toRowA: result.splitA.toRow,
+          fromRowB: result.splitB.fromRow,
+          toRowB: result.splitB.toRow,
           courses: [...selectedCourses], goings: [...selectedGoings],
           raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
           trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp, splitByRunners,
+          minModelWinProbability, onlyModelBeatsSp,
           isAuthenticated,
         });
         writeSplitsCache(writeCacheKey, result);
@@ -1256,37 +1089,28 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     });
   }
 
-  // Opens the P&L convergence graph for one split's own runner range —
-  // reads the same resolved fromRunnerA/toRunnerA/fromRunnerB/toRunnerB
-  // state the result card itself renders from (see renderSplitCard's call
-  // sites), not a separately re-derived "A:1..totalRunnersA, B:
-  // totalRunnersA+1..+totalRunnersB" guess. That guess is only correct for
-  // the auto-computed default (genuinely contiguous, starting at 1) — for
-  // an explicit split it silently diverges from what the box/card show.
-  // Reported live via screenshot: Split B's box and card both correctly
-  // read "1–3000" after an explicit edit, but its Graph button still
-  // opened "Runners 1001–3173" — the exact same class of bug already fixed
-  // for the result card itself, just a third independent copy of the same
-  // formula that got missed. Each split's graph is its own independent
-  // convergence test starting fresh at its own first runner, not a shared
-  // dataset-wide line — see getRunnerConvergenceSeries on the backend for
-  // why.
+  // Opens the P&L convergence graph for one split's own race range — reads
+  // the same fromRowA/toRowA/fromRowB/toRowB state the result card itself
+  // renders from, so the graph's range always matches what the card/box
+  // show exactly, with no separately re-derived formula to drift out of
+  // sync. Each split's graph is its own independent convergence test
+  // starting fresh at its own first race, not a shared dataset-wide line.
   async function loadConvergence(id: "a" | "b") {
     setShowConvergencePanel(true);
     setConvergenceError(null);
-    const fromRunner = id === "a" ? (fromRunnerA ?? 1) : (fromRunnerB ?? totalRunnersA + 1);
-    const toRunner = id === "a" ? (toRunnerA ?? totalRunnersA) : (toRunnerB ?? totalRunnersA + totalRunnersB);
-    // A split with zero runners (e.g. an empty result) has nothing to
-    // graph — the backend requires toRunner >= 1, so skip the request
+    const fromRow = id === "a" ? fromRowA : fromRowB;
+    const toRow = (id === "a" ? toRowA : toRowB) ?? totalRaces;
+    // A split with zero races (e.g. an empty result) has nothing to
+    // graph — the backend requires toRow >= 1, so skip the request
     // entirely rather than firing one that's guaranteed to fail.
-    if (toRunner < fromRunner) {
+    if (toRow < fromRow) {
       setConvergencePoints([]);
       return;
     }
     setConvergenceLoading(true);
     try {
-      const result = await chatApi.getIndustrySpRunnerConvergence(
-        toRunner, fromRunner, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, minRunnersInRange, maxRunnersInRange,
+      const result = await chatApi.getIndustrySpRaceConvergence(
+        toRow, fromRow, minRunners, maxRunners, [...selectedCountries], minIsp, maxIsp, minRunnersInRange, maxRunnersInRange,
         minDate, maxDate, [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
         trainerSearch || undefined, jockeySearch || undefined,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
@@ -1307,12 +1131,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     toRow: number | null;
     totalRaces: number;
     totalRunners: number;
-    // 1-based runner-index range this split covers, e.g. Split A: 1..totalRunnersA,
-    // Split B: totalRunnersA+1..totalRunnersA+totalRunnersB. Purely a display
-    // concern (computed by the caller from already-returned totalRunners
-    // figures) — doesn't affect what's actually fetched.
-    runnerFrom: number;
-    runnerTo: number;
     pnl: PnlStats;
     // idle: no fetch has ever run (bare page load, Apply never pressed) —
     // nothing to show, waiting on the user. pending: a fetch is currently
@@ -1320,20 +1138,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     // any Apply/Reset refetch). loaded: real numbers are in.
     status: "idle" | "pending" | "loaded";
   }) {
-    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, runnerFrom, runnerTo, pnl, status } = opts;
+    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl, status } = opts;
     const effectiveTo = toRow ?? totalRaces;
     const notReady = status !== "loaded";
     return (
       <View testID={`industry-sp-split-card-${id}`} style={[styles.splitCard, isDesktop && styles.splitCardFlex, notReady && styles.splitCardPending]}>
-        {splitByRunners && status === "loaded" && splitTotalRunners > 0 ? (
-          <Text testID={`industry-sp-split-runner-range-${id}`} style={styles.splitCardLabel}>
-            {label} — runners {runnerFrom}–{runnerTo}
-          </Text>
-        ) : (
-          <Text style={styles.splitCardLabel}>
-            {label} — races {fromRow}–{effectiveTo}
-          </Text>
-        )}
+        <Text style={styles.splitCardLabel}>
+          {label} — races {fromRow}–{effectiveTo}
+        </Text>
         {status === "idle" ? (
           // Shown from first paint on a bare load — no fetch has happened
           // at all, so this is neither "loading" nor "no matches", just
@@ -1690,22 +1502,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           filter) so this is a pure UI hide, not a functional removal —
           same pattern as the hidden country filter above.
         */}
-        {renderCheckboxFilterRow({
-          filterKey: "splitByRunners",
-          label: "Split by runners",
-          testId: "industry-sp-split-by-runners",
-          checked: draftSplitByRunners,
-          onToggle: () => setDraftSplitByRunners(v => !v),
-        })}
-        {/*
-          Split A/B's manual edit boxes always match the current mode —
-          race indices in "Split by races", runner indices in "Split by
-          runners" — so the numbers on screen never contradict the
-          runner-range framing shown on the result cards below. Follows the
-          draft (not yet applied) checkbox so toggling reveals the right
-          set immediately, before Apply.
-        */}
-        {!draftSplitByRunners && renderFilterRow({
+        {renderFilterRow({
           filterKey: "raceA",
           label: "Split A",
           minValue: draftFromA,
@@ -1719,7 +1516,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           hint: totalRaces > 0 ? `/${totalRaces}` : null,
           hintTestId: "industry-sp-race-bound-a",
         })}
-        {!draftSplitByRunners && renderFilterRow({
+        {renderFilterRow({
           filterKey: "raceB",
           label: "Split B",
           minValue: draftFromB,
@@ -1732,34 +1529,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           maxLength: 6,
           hint: totalRaces > 0 ? `/${totalRaces}` : null,
           hintTestId: "industry-sp-race-bound-b",
-        })}
-        {draftSplitByRunners && renderFilterRow({
-          filterKey: "raceA",
-          label: "Split A",
-          minValue: draftFromRunnerA,
-          onMinChange: v => { splitAEditedRef.current = true; setDraftFromRunnerA(v); },
-          minTestId: "industry-sp-from-runner-a",
-          maxValue: draftToRunnerA,
-          onMaxChange: v => { splitAEditedRef.current = true; setDraftToRunnerA(v); },
-          maxTestId: "industry-sp-to-runner-a",
-          keyboardType: "numeric",
-          maxLength: 7,
-          hint: totalRunners > 0 ? `/${totalRunners}` : null,
-          hintTestId: "industry-sp-runner-bound-a",
-        })}
-        {draftSplitByRunners && renderFilterRow({
-          filterKey: "raceB",
-          label: "Split B",
-          minValue: draftFromRunnerB,
-          onMinChange: v => { splitBEditedRef.current = true; setDraftFromRunnerB(v); },
-          minTestId: "industry-sp-from-runner-b",
-          maxValue: draftToRunnerB,
-          onMaxChange: v => { splitBEditedRef.current = true; setDraftToRunnerB(v); },
-          maxTestId: "industry-sp-to-runner-b",
-          keyboardType: "numeric",
-          maxLength: 7,
-          hint: totalRunners > 0 ? `/${totalRunners}` : null,
-          hintTestId: "industry-sp-runner-bound-b",
         })}
         {/*
           Country filter is intentionally not rendered — every race in this
@@ -1890,16 +1659,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               toRow: toRowA,
               totalRaces: totalRacesA,
               totalRunners: totalRunnersA,
-              // Reads the resolved fromRunnerA/toRunnerA state (set by
-              // applyResult from what was actually queried) rather than
-              // re-deriving "1..totalRunnersA" here independently — that
-              // inline formula happened to be correct for the common case
-              // (Split A always starting at runner 1) but is exactly the
-              // kind of duplicated, easy-to-drift-out-of-sync computation
-              // that let Split B's version of it (see below) silently
-              // fabricate a range that was never actually queried.
-              runnerFrom: fromRunnerA ?? 1,
-              runnerTo: toRunnerA ?? totalRunnersA,
               pnl: pnlStatsA,
               status: splitCardStatus,
             })}
@@ -1908,16 +1667,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               label: "Split B",
               fromRow: fromRowB,
               toRow: toRowB,
-              // Reported live via screenshot: this used to read
-              // "totalRunnersA+1..totalRunnersA+totalRunnersB" — assumes
-              // Split B always starts exactly where Split A ends, which
-              // silently fabricated a range like "2984-8946" for a Split B
-              // whose own "from" box plainly said "1" (a deliberate,
-              // explicit overlap with A — see the zero-guard fix). Reads
-              // the resolved fromRunnerB/toRunnerB state instead, which
-              // reflects whatever was actually queried either way.
-              runnerFrom: fromRunnerB ?? (totalRunnersA + 1),
-              runnerTo: toRunnerB ?? (totalRunnersA + totalRunnersB),
               totalRaces: totalRacesB,
               totalRunners: totalRunnersB,
               pnl: pnlStatsB,
@@ -1937,13 +1686,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           toRow={(detailSplit === "a" ? toRowA : toRowB) ?? totalRaces}
           totalRaces={detailSplit === "a" ? totalRacesA : totalRacesB}
           totalRunners={detailSplit === "a" ? totalRunnersA : totalRunnersB}
-          // Same fix as the two split cards and loadConvergence above —
-          // reads the resolved fromRunnerA/toRunnerA/fromRunnerB/toRunnerB
-          // state rather than re-deriving yet another independent copy of
-          // the "A:1.., B:totalRunnersA+1.." formula.
-          runnerFrom={detailSplit === "a" ? (fromRunnerA ?? 1) : (fromRunnerB ?? totalRunnersA + 1)}
-          runnerTo={detailSplit === "a" ? (toRunnerA ?? totalRunnersA) : (toRunnerB ?? totalRunnersA + totalRunnersB)}
-          splitByRunners={splitByRunners}
           pnl={detailSplit === "a" ? pnlStatsA : pnlStatsB}
           onClose={() => setDetailSplit(null)}
           onViewRaces={() => {
@@ -1956,7 +1698,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       )}
 
       {showConvergencePanel && (
-        <RunnerConvergencePanel
+        <PnlConvergencePanel
           points={convergencePoints}
           loading={convergenceLoading}
           error={convergenceError}

@@ -21,17 +21,14 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     await client.close();
   });
 
-  it("defaults to an even first-half/second-half split of the current total, bisected by qualifying-runner count", async () => {
-    // The default split boundary is chosen by cumulative *qualifying
-    // runner* count (getQualifyingRunnerSplitBoundary), not race count — a
-    // race-count bisection can leave the two splits with very uneven
-    // runner counts once trainer-form/model/model-beats-SP filters are
-    // active (not exercised here, but the invariant holds regardless).
+  it("defaults to an even first-half/second-half split of the current total, bisected by race count", async () => {
     const result = await service.getSplitStats();
     expect(result.totalRaces).toBeGreaterThan(0);
     expect(result.totalRunners).toBeGreaterThan(0);
 
+    const half = Math.floor(result.totalRaces / 2);
     expect(result.splitA.fromRow).toBe(1);
+    expect(result.splitA.toRow).toBe(Math.min(half, result.totalRaces));
     expect(result.splitB.fromRow).toBe(result.splitA.toRow! + 1);
     // No longer literally null — raceCap clamping (1000 races for an
     // authenticated caller, the default here) always concretizes an
@@ -44,88 +41,6 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     // runner — exactly once, no gap or double-count.
     expect(result.splitA.total + result.splitB.total).toBe(result.totalRaces);
     expect(result.splitA.totalRunners + result.splitB.totalRunners).toBe(result.totalRunners);
-
-    // The crossover race is the first (in raceTime order) whose cumulative
-    // qualifying-runner count reaches half — so Split A's runner count is
-    // always >= the target, and Split B's is always <= the remainder.
-    const target = Math.ceil(result.totalRunners / 2);
-    expect(result.splitA.totalRunners).toBeGreaterThanOrEqual(target);
-    expect(result.splitB.totalRunners).toBeLessThanOrEqual(Math.floor(result.totalRunners / 2));
-  });
-
-  it("splitByRunners=false reverts the default split to the original race-count bisection", async () => {
-    const result = await service.getSplitStats(
-      1, 30, [], 1, 1000, 1, 10000, null, null, null, null, null, null,
-      [], [], [], [], null, null, 0, 0, 100, 0, false, false
-    );
-    expect(result.totalRaces).toBeGreaterThan(0);
-    const half = Math.floor(result.totalRaces / 2);
-    expect(result.splitA.toRow).toBe(half);
-    expect(result.splitB.fromRow).toBe(half + 1);
-    expect(result.splitA.total).toBe(half);
-    expect(result.splitB.total).toBe(result.totalRaces - half);
-  });
-
-  it("resolves an explicit runner-index split (fromRunnerA/toRunnerA/fromRunnerB/toRunnerB) to an EXACT runner count", async () => {
-    // The user wanted to choose the runner split boundary directly, the
-    // same way the race boundary was already editable, AND wanted the
-    // resulting split to hold exactly the number of runners typed — not
-    // rounded up to whatever race happens to contain that ordinal.
-    // getRunnerRangeStats selects individual qualifying runners (not whole
-    // races), so this is exact rather than an approximation.
-    const grand = await service.getSplitStats();
-    expect(grand.totalRunners).toBeGreaterThan(0);
-    const target = Math.min(2500, Math.floor(grand.totalRunners / 2));
-
-    const result = await service.getSplitStats(
-      1, 30, [], 1, 1000, 1, 10000, null, null, null, null, null, null,
-      [], [], [], [], null, null, 0, 0, 100, 0, false, true,
-      1, target, target + 1, null
-    );
-    expect(result.splitA.totalRunners).toBe(target);
-    expect(result.splitA.pnlStats.count).toBe(target);
-  });
-
-  it("an explicit contiguous runner-range split gives each side an EXACT, non-overlapping runner count", async () => {
-    // Regression: reported live via screenshot, twice — first as double-
-    // counting (Split A and Split B's combined stats didn't reconcile with
-    // the grand total, because two nearby runner targets like 1000/1001
-    // commonly round up to the *same* race), then again as "still not
-    // matching" once the double-count was fixed but the displayed range
-    // still didn't equal what was typed (1-1000 showed as 1-1005, since a
-    // race-rounded boundary overshoots). getRunnerRangeStats fixes both:
-    // it selects exactly [fromRunnerTarget, toRunnerTarget] at the
-    // individual-runner level, so the counts are exact and the two ranges
-    // can never overlap regardless of race boundaries.
-    const grand = await service.getSplitStats();
-    expect(grand.totalRunners).toBeGreaterThan(2000);
-
-    const result = await service.getSplitStats(
-      1, 30, [], 1, 1000, 1, 10000, null, null, null, null, null, null,
-      [], [], [], [], null, null, 0, 0, 100, 0, false, true,
-      1, 1000, 1001, 2000
-    );
-    expect(result.splitA.totalRunners).toBe(1000);
-    expect(result.splitB.totalRunners).toBe(1000);
-    expect(result.splitA.pnlStats.count).toBe(1000);
-    expect(result.splitB.pnlStats.count).toBe(1000);
-    // The two splits' combined P&L must reconcile exactly to 2000 runners
-    // worth of stakes/returns — no runner counted in both, none dropped.
-    expect(result.splitA.pnlStats.count + result.splitB.pnlStats.count).toBe(2000);
-  });
-
-  it("the boundary race can legitimately appear in both splits' race-navigation window when it straddles the exact runner cutoff", async () => {
-    // Accepted trade-off (confirmed with the user): a single race can
-    // contain both the last runner of Split A and the first runner of
-    // Split B, so its race index may appear in both splits' [fromRow,toRow]
-    // — that's expected now that splits are exact at the runner level
-    // rather than always claiming a whole race for one side.
-    const result = await service.getSplitStats(
-      1, 30, [], 1, 1000, 1, 10000, null, null, null, null, null, null,
-      [], [], [], [], null, null, 0, 0, 100, 0, false, true,
-      1, 1000, 1001, 2000
-    );
-    expect(result.splitB.fromRow).toBeLessThanOrEqual(result.splitA.toRow!);
   });
 
   it("splits are independent — each carries its own pnlStats", async () => {
@@ -162,7 +77,7 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     // regardless of the real dataset's size.
     const result = await service.getSplitStats(
       1, 30, [], 1, 1000, 1, 10000, null, null, null, null, null, null,
-      [], [], [], [], null, null, 0, 0, 100, 0, false, true, 100000000
+      [], [], [], [], null, null, 0, 0, 100, 0, false, 100000000
     );
     expect(result.totalRaces).toBeGreaterThan(0);
     expect(result.splitA.toRow).toBeLessThanOrEqual(result.totalRaces);
@@ -219,7 +134,7 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
   });
 });
 
-describe("IndustrySpService.getRunnerConvergenceSeries (integration)", () => {
+describe("IndustrySpService.getRaceConvergenceSeries (integration)", () => {
   let client: MongoClient;
   let db: Db;
   let service: IndustrySpService;
@@ -235,22 +150,28 @@ describe("IndustrySpService.getRunnerConvergenceSeries (integration)", () => {
     await client.close();
   });
 
-  it("returns exactly toRunnerTarget points, one per runner ordinal 1..N, in order, when fromRunnerTarget is 1", async () => {
+  it("returns exactly toRow points, one per race row 1..N, in order, when fromRow is 1", async () => {
     // Requested live: a P&L convergence graph showing how the running
-    // ROI% is volatile over a small sample and settles down as more
-    // runners are included, up to the upper limit of Split B.
-    const points = await service.getRunnerConvergenceSeries(
-      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1, 500
+    // ROI% is volatile over a small sample and settles down as more races
+    // are included, up to the upper limit of a split.
+    const grand = await service.getSplitStats();
+    if (grand.totalRaces < 10) return;
+    const toRow = Math.min(10, grand.totalRaces);
+    const points = await service.getRaceConvergenceSeries(
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1, toRow
     );
-    expect(points.length).toBe(500);
-    points.forEach((p, i) => expect(p.runnerOrdinal).toBe(i + 1));
+    expect(points.length).toBe(toRow);
+    points.forEach((p, i) => expect(p.raceRowNumber).toBe(i + 1));
   });
 
   it("cumulativeStaked/cumulativeReturns/cumulativePnl/roiPercent are non-decreasing in sample size and reconcile at the end", async () => {
-    const points = await service.getRunnerConvergenceSeries(
-      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1, 500
+    const grand = await service.getSplitStats();
+    if (grand.totalRaces < 10) return;
+    const toRow = Math.min(10, grand.totalRaces);
+    const points = await service.getRaceConvergenceSeries(
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1, toRow
     );
-    // Both cumulative counters only ever grow (every runner stakes
+    // Both cumulative counters only ever grow (every race stakes
     // something; returns are added on top, never subtracted).
     for (let i = 1; i < points.length; i++) {
       expect(points[i].cumulativeStaked).toBeGreaterThanOrEqual(points[i - 1].cumulativeStaked);
@@ -261,45 +182,39 @@ describe("IndustrySpService.getRunnerConvergenceSeries (integration)", () => {
     expect(last.roiPercent).toBeCloseTo((last.cumulativePnl / last.cumulativeStaked) * 100, 6);
   });
 
-  it("the final point's cumulative staked/returns matches getSplitStats' combined Split A + Split B for the same range", async () => {
-    // Cross-check against the exact runner-level split (getRunnerRangeStats)
-    // added alongside this — both must agree on the same underlying data.
-    const points = await service.getRunnerConvergenceSeries(
-      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1, 2000
+  it("the final point's cumulative staked/returns matches getSplitStats' Split A pnlStats for the same range", async () => {
+    const grand = await service.getSplitStats();
+    if (grand.totalRaces < 10) return;
+    const toRow = Math.min(10, grand.totalRaces);
+    const points = await service.getRaceConvergenceSeries(
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1, toRow
     );
     const last = points[points.length - 1];
 
-    const splitResult = await service.getSplitStats(
-      1, 30, [], 1, 1000, 1, 10000, null, null, null, null, null, null,
-      [], [], [], [], null, null, 0, 0, 100, 0, false, true,
-      1, 1000, 1001, 2000
-    );
-    const combinedStaked = splitResult.splitA.pnlStats.staked + splitResult.splitB.pnlStats.staked;
-    const combinedReturns = splitResult.splitA.pnlStats.returns + splitResult.splitB.pnlStats.returns;
-    expect(last.cumulativeStaked).toBeCloseTo(combinedStaked, 6);
-    expect(last.cumulativeReturns).toBeCloseTo(combinedReturns, 6);
+    const splitResult = await service.getSplitStats(1, 30, [], 1, 1000, 1, 10000, 1, toRow, toRow + 1, null);
+    expect(last.cumulativeStaked).toBeCloseTo(splitResult.splitA.pnlStats.staked, 6);
+    expect(last.cumulativeReturns).toBeCloseTo(splitResult.splitA.pnlStats.returns, 6);
   });
 
-  it("a range not starting at 1 (e.g. Split B's own 1001-2000) restarts the cumulative sum fresh, but keeps true global runnerOrdinal labels", async () => {
+  it("a range not starting at 1 (e.g. Split B's own race range) restarts the cumulative sum fresh, but keeps true raceRowNumber labels", async () => {
     // Regression: reported live — Split A and Split B's graphs should use
-    // "the same race numbers on its x axis, eg 1 to 500, or 1000 to 2000",
-    // not both starting at a re-based 1. Split B's own convergence line
-    // must also demonstrate its own early volatility (restart near the
-    // single-runner extreme), not continue whatever total Split A's range
-    // had already settled to.
-    const pointsA = await service.getRunnerConvergenceSeries(
-      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1, 1000
+    // the same race numbers on their own x axis, not both starting at a
+    // re-based 1. Split B's own convergence line must also demonstrate its
+    // own early volatility (restart near the single-race extreme), not
+    // continue whatever total Split A's range had already settled to.
+    const grand = await service.getSplitStats();
+    if (grand.totalRaces < 20) return;
+    const pointsA = await service.getRaceConvergenceSeries(
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1, 10
     );
-    const pointsB = await service.getRunnerConvergenceSeries(
-      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 1001, 2000
+    const pointsB = await service.getRaceConvergenceSeries(
+      1, 30, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 11, 20
     );
-    expect(pointsB.length).toBe(1000);
-    expect(pointsB[0].runnerOrdinal).toBe(1001);
-    expect(pointsB[pointsB.length - 1].runnerOrdinal).toBe(2000);
-    // Split B's own cumulative starts fresh — its first point's staked
-    // total is one runner's worth (a small single stake), nowhere near
-    // Split A's already-accumulated 1000-runner total.
-    expect(pointsB[0].cumulativeStaked).toBeLessThan(5);
+    expect(pointsB.length).toBe(10);
+    expect(pointsB[0].raceRowNumber).toBe(11);
+    expect(pointsB[pointsB.length - 1].raceRowNumber).toBe(20);
+    // Split B's own cumulative starts fresh — its first point is one
+    // race's worth, nowhere near Split A's already-accumulated total.
     expect(pointsB[0].cumulativeStaked).toBeLessThan(pointsA[pointsA.length - 1].cumulativeStaked);
   });
 });

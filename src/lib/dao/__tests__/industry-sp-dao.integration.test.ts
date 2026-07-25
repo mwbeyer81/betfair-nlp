@@ -426,61 +426,72 @@ describe("IndustrySpDAO (integration)", () => {
     expect(modelAndBeatsSp.totalRunners).toBeLessThanOrEqual(modelOnly.totalRunners);
   });
 
-  it("getQualifyingRunnerSplitBoundary partitions totalRunners exactly, with no filters active", async () => {
+  it("getRaceConvergenceSeries covers exactly [fromRow, toRow], in raceTime order, with no filters active", async () => {
     const grand = await dao.getAllRacesByRace(1, 1, 1, 100);
-    if (grand.totalRunners === 0) return;
-    const target = Math.ceil(grand.totalRunners / 2);
-    const { boundaryRowIndex } = await dao.getQualifyingRunnerSplitBoundary(
-      1, 100, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, target
+    if (grand.total < 10) return;
+    const fromRow = 3;
+    const toRow = Math.min(10, grand.total);
+    const points = await dao.getRaceConvergenceSeries(
+      1, 100, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, fromRow, toRow
     );
-    expect(boundaryRowIndex).not.toBeNull();
-
-    const splitA = await dao.getAllRacesByRace(1, 1, 1, 100, [], 1, 1000, "asc", 1, 10000, 1, boundaryRowIndex!);
-    const splitB = await dao.getAllRacesByRace(1, 1, 1, 100, [], 1, 1000, "asc", 1, 10000, boundaryRowIndex! + 1, null);
-
-    // Exact partition — no gap or double-count across the boundary.
-    expect(splitA.total + splitB.total).toBe(grand.total);
-    expect(splitA.totalRunners + splitB.totalRunners).toBe(grand.totalRunners);
-    // The boundary is the first race whose cumulative count reaches the
-    // target, so Split A always has at least the target, Split B at most
-    // the remainder.
-    expect(splitA.totalRunners).toBeGreaterThanOrEqual(target);
-    expect(splitB.totalRunners).toBeLessThanOrEqual(Math.floor(grand.totalRunners / 2));
+    expect(points.length).toBe(toRow - fromRow + 1);
+    expect(points.map(p => p.raceRowNumber)).toEqual(
+      Array.from({ length: toRow - fromRow + 1 }, (_, i) => fromRow + i)
+    );
   });
 
-  it("getQualifyingRunnerSplitBoundary still partitions exactly with trainer-form + model filters both active, when seeded", async () => {
-    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
-    const hasTrainerFormData = sample[0]?.runners.some(
-      r => (r as unknown as { trainerFormRuns?: number }).trainerFormRuns != null
+  it("getRaceConvergenceSeries' cumulative sums are monotonically non-decreasing and its last point matches getAllRacesByRace's own pnlStats for the same range", async () => {
+    const grand = await dao.getAllRacesByRace(1, 1, 1, 100);
+    if (grand.total < 10) return;
+    const fromRow = 1;
+    const toRow = Math.min(10, grand.total);
+    const points = await dao.getRaceConvergenceSeries(
+      1, 100, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, fromRow, toRow
     );
+    for (let i = 1; i < points.length; i++) {
+      expect(points[i].cumulativeStaked).toBeGreaterThanOrEqual(points[i - 1].cumulativeStaked);
+      expect(points[i].cumulativeReturns).toBeGreaterThanOrEqual(points[i - 1].cumulativeReturns);
+    }
+
+    const rangeStats = await dao.getAllRacesByRace(1, 1, 1, 100, [], 1, 1000, "asc", 1, 10000, fromRow, toRow);
+    const last = points[points.length - 1];
+    expect(last.cumulativeStaked).toBeCloseTo(rangeStats.pnlStats.staked, 5);
+    expect(last.cumulativeReturns).toBeCloseTo(rangeStats.pnlStats.returns, 5);
+  });
+
+  it("getRaceConvergenceSeries' slow path (a model filter active) still reconciles with getAllRacesByRace's own pnlStats for the same range, when seeded", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
     const hasModelData = sample[0]?.runners.some(
       r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
     );
-    if (!hasTrainerFormData || !hasModelData) return;
+    if (!hasModelData) return;
 
     const grand = await dao.getAllRacesByRace(
       1, 1, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, null, null, null,
-      [], [], [], [], null, null, 0, 1, 30, null, 10
+      [], [], [], [], null, null, 0, 0, 100, null, 30
     );
-    if (grand.totalRunners === 0) return;
-    const target = Math.ceil(grand.totalRunners / 2);
-    const { boundaryRowIndex } = await dao.getQualifyingRunnerSplitBoundary(
-      1, 100, [], 1, 100000, 1, 10000, null, null, [], [], [], [], null, null, 0, 1, 30, 10, false, target
+    if (grand.total < 5) return;
+    const fromRow = 1;
+    const toRow = Math.min(5, grand.total);
+    const points = await dao.getRaceConvergenceSeries(
+      1, 100, [], 1, 100000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 30, false, fromRow, toRow
     );
-    expect(boundaryRowIndex).not.toBeNull();
+    expect(points.length).toBe(toRow - fromRow + 1);
 
-    const splitA = await dao.getAllRacesByRace(
-      1, 1, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, boundaryRowIndex!, null, null,
-      [], [], [], [], null, null, 0, 1, 30, null, 10
+    const rangeStats = await dao.getAllRacesByRace(
+      1, 1, 1, 100, [], 1, 100000, "asc", 1, 10000, fromRow, toRow, null, null,
+      [], [], [], [], null, null, 0, 0, 100, null, 30
     );
-    const splitB = await dao.getAllRacesByRace(
-      1, 1, 1, 100, [], 1, 100000, "asc", 1, 10000, boundaryRowIndex! + 1, null, null, null,
-      [], [], [], [], null, null, 0, 1, 30, null, 10
-    );
+    const last = points[points.length - 1];
+    expect(last.cumulativeStaked).toBeCloseTo(rangeStats.pnlStats.staked, 5);
+    expect(last.cumulativeReturns).toBeCloseTo(rangeStats.pnlStats.returns, 5);
+  });
 
-    expect(splitA.total + splitB.total).toBe(grand.total);
-    expect(splitA.totalRunners + splitB.totalRunners).toBe(grand.totalRunners);
-    expect(splitA.totalRunners).toBeGreaterThanOrEqual(target);
+  it("getRaceConvergenceSeries returns an empty array when toRow < fromRow", async () => {
+    const points = await dao.getRaceConvergenceSeries(
+      1, 100, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 10, 5
+    );
+    expect(points).toEqual([]);
   });
 
   it("filters by exact runner (horse) name, case-insensitive", async () => {

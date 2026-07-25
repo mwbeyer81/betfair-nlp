@@ -375,16 +375,6 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const toRowA = isNaN(toRowARaw) ? null : Math.max(1, toRowARaw);
     const fromRowB = isNaN(fromRowBRaw) ? null : Math.max(1, fromRowBRaw);
     const toRowB = isNaN(toRowBRaw) ? null : Math.max(1, toRowBRaw);
-    // Runner-index equivalent of fromRowA/toRowA/fromRowB/toRowB above —
-    // same clamping, resolved to race indices server-side in getSplitStats.
-    const fromRunnerARaw = parseInt(req.query.fromRunnerA as string);
-    const toRunnerARaw = parseInt(req.query.toRunnerA as string);
-    const fromRunnerBRaw = parseInt(req.query.fromRunnerB as string);
-    const toRunnerBRaw = parseInt(req.query.toRunnerB as string);
-    const fromRunnerA = isNaN(fromRunnerARaw) ? null : Math.max(1, fromRunnerARaw);
-    const toRunnerA = isNaN(toRunnerARaw) ? null : Math.max(1, toRunnerARaw);
-    const fromRunnerB = isNaN(fromRunnerBRaw) ? null : Math.max(1, fromRunnerBRaw);
-    const toRunnerB = isNaN(toRunnerBRaw) ? null : Math.max(1, toRunnerBRaw);
     const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
     const courses = parseCsvListParam(req.query.courses);
     const goings = parseCsvListParam(req.query.goings);
@@ -397,10 +387,6 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const maxTrainerFormRunners = Math.min(100, Math.max(0, parseInt(req.query.maxTrainerFormRunners as string) || 100));
     const minModelWinProbability = Math.min(100, Math.max(0, parseFloat(req.query.minModelWinProbability as string) || 0));
     const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
-    // Defaults true (bisect the default split by qualifying-runner count) —
-    // only an explicit "false" opts back into the original race-count
-    // bisection, so an absent/malformed param can't silently regress.
-    const splitByRunners = req.query.splitByRunners !== "false";
 
     // Set by optionalJwtAuth (registered on /api/industry-sp above) —
     // decides the Split A/Split B race cap: 100 anonymous, 1000 logged in.
@@ -411,7 +397,7 @@ router.get("/api/industry-sp/splits", async (req, res) => {
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
-      splitByRunners, fromRunnerA, toRunnerA, fromRunnerB, toRunnerB, raceCap
+      raceCap
     );
     // Smoke-tested live: combined into one request and warm (no cold
     // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
@@ -432,7 +418,7 @@ router.get("/api/industry-sp/splits", async (req, res) => {
   }
 });
 
-router.get("/api/industry-sp/runner-convergence", async (req, res) => {
+router.get("/api/industry-sp/race-convergence", async (req, res) => {
   try {
     if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
     const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
@@ -455,21 +441,20 @@ router.get("/api/industry-sp/runner-convergence", async (req, res) => {
     const minModelWinProbability = Math.min(100, Math.max(0, parseFloat(req.query.minModelWinProbability as string) || 0));
     const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
 
-    const toRunnerRaw = parseInt(req.query.toRunner as string);
-    if (isNaN(toRunnerRaw) || toRunnerRaw < 1) {
-      return res.status(400).json({ success: false, error: "toRunner is required and must be a positive integer" });
+    const toRowRaw = parseInt(req.query.toRow as string);
+    if (isNaN(toRowRaw) || toRowRaw < 1) {
+      return res.status(400).json({ success: false, error: "toRow is required and must be a positive integer" });
     }
-    const toRunner = toRunnerRaw;
     // Defaults to 1 (the dataset's true start) when omitted — a caller
-    // asking for the graph without a fromRunner gets the same behavior as
-    // before fromRunner existed. Split A's own Graph button always sends 1
-    // explicitly; Split B's sends its own first runner's ordinal, so its
+    // asking for the graph without a fromRow gets the same behavior as
+    // before fromRow existed. Split A's own Graph button always sends 1
+    // explicitly; Split B's sends its own first race's row number, so its
     // convergence line restarts fresh there instead of continuing Split
-    // A's already-settled running total (see getRunnerConvergenceSeries).
-    const fromRunnerRaw = parseInt(req.query.fromRunner as string);
-    const fromRunner = isNaN(fromRunnerRaw) || fromRunnerRaw < 1 ? 1 : fromRunnerRaw;
-    if (fromRunner > toRunner) {
-      return res.status(400).json({ success: false, error: "fromRunner must not exceed toRunner" });
+    // A's already-settled running total.
+    const fromRowRaw = parseInt(req.query.fromRow as string);
+    const fromRow = isNaN(fromRowRaw) || fromRowRaw < 1 ? 1 : fromRowRaw;
+    if (fromRow > toRowRaw) {
+      return res.status(400).json({ success: false, error: "fromRow must not exceed toRow" });
     }
 
     // Set by optionalJwtAuth (registered on /api/industry-sp above) — same
@@ -477,18 +462,19 @@ router.get("/api/industry-sp/runner-convergence", async (req, res) => {
     // further than a split could anyway.
     const isAuth = res.locals.isAuthenticated === true;
     const raceCap = isAuth ? 1000 : 100;
+    const toRow = Math.min(toRowRaw, fromRow + raceCap - 1);
 
-    const data = await industrySpService.getRunnerConvergenceSeries(
+    const data = await industrySpService.getRaceConvergenceSeries(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
-      fromRunner, toRunner, raceCap
+      fromRow, toRow
     );
     res.set("Cache-Control", "public, max-age=60");
     res.status(200).json({ success: true, data, count: data.length });
   } catch (error) {
-    console.error("getRunnerConvergenceSeries error:", error);
-    res.status(500).json({ success: false, error: "Failed to fetch runner convergence series" });
+    console.error("getRaceConvergenceSeries error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch race convergence series" });
   }
 });
 

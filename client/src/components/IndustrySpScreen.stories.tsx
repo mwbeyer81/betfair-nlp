@@ -148,27 +148,27 @@ function splitsHandler(opts?: {
   });
 }
 
-// Mirrors GET /api/industry-sp/runner-convergence — the "Graph" button on
+// Mirrors GET /api/industry-sp/race-convergence — the "Graph" button on
 // either split card. A small, deterministic converging series is enough
 // for stories/tests; the real convergence shape was verified live against
 // production data separately.
-const runnerConvergenceHandler = http.get(`${BASE}/api/industry-sp/runner-convergence`, ({ request }) => {
+const raceConvergenceHandler = http.get(`${BASE}/api/industry-sp/race-convergence`, ({ request }) => {
   const url = new URL(request.url);
-  const toRunner = Math.max(1, parseInt(url.searchParams.get("toRunner") ?? "1", 10));
-  // Defaults to 1 — Split A's own Graph button always sends fromRunner=1
-  // explicitly; Split B's sends its own first runner's ordinal, so its own
-  // line restarts fresh rather than continuing Split A's already-settled
-  // total (mirrors the real backend — see getRunnerConvergenceSeries).
-  const fromRunner = Math.max(1, parseInt(url.searchParams.get("fromRunner") ?? "1", 10));
+  const toRow = Math.max(1, parseInt(url.searchParams.get("toRow") ?? "1", 10));
+  // Defaults to 1 — Split A's own Graph button always sends fromRow=1
+  // explicitly; Split B's sends its own first race's row number, so its
+  // own line restarts fresh rather than continuing Split A's already-
+  // settled total (mirrors the real backend — see getRaceConvergenceSeries).
+  const fromRow = Math.max(1, parseInt(url.searchParams.get("fromRow") ?? "1", 10));
   let cumulativeStaked = 0;
   let cumulativeReturns = 0;
   const data = [];
-  for (let ordinal = fromRunner; ordinal <= toRunner; ordinal++) {
+  for (let raceRowNumber = fromRow; raceRowNumber <= toRow; raceRowNumber++) {
     cumulativeStaked += 1;
-    if (ordinal % 3 === 0) cumulativeReturns += 1.8;
+    if (raceRowNumber % 3 === 0) cumulativeReturns += 1.8;
     const cumulativePnl = cumulativeReturns - cumulativeStaked;
     data.push({
-      runnerOrdinal: ordinal,
+      raceRowNumber,
       cumulativeStaked,
       cumulativeReturns,
       cumulativePnl,
@@ -196,7 +196,7 @@ const resendVerificationHandler = http.post(`${BASE}/api/auth/resend-verificatio
 // the verify-email banner, so this keeps them exactly as they were before
 // that banner existed. The dedicated verify-banner stories below override
 // this with authMeHandler(false).
-const defaultHandlers = [splitsHandler(), countriesHandler, filterBoundsHandler, authMeHandler(true), runnerConvergenceHandler];
+const defaultHandlers = [splitsHandler(), countriesHandler, filterBoundsHandler, authMeHandler(true), raceConvergenceHandler];
 
 const meta: Meta<typeof IndustrySpScreen> = {
   title: "Components/IndustrySpScreen",
@@ -359,12 +359,6 @@ export const DefaultSplitsAreHalfAndHalf: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
-
-    // The manual race-range boxes are only rendered in "Split by races"
-    // mode (checked by default) — unchecking it reveals them without
-    // re-fetching (a pure local draft-state toggle), so this still reads
-    // the values from the load that already happened above.
-    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     // Mock total is 2500 (see splitsHandler's default) — half/half is
     // 1-1250 / 1251-<end>. The "to" box shows the grand total (2500) as
@@ -598,30 +592,30 @@ export const GraphButtonOpensConvergencePanel: Story = {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
 
-    await expect(canvas.queryByTestId("runner-convergence-panel")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("pnl-convergence-panel")).not.toBeInTheDocument();
     await userEvent.click(canvas.getByTestId("industry-sp-split-graph-button-a"));
 
-    const panel = await canvas.findByTestId("runner-convergence-panel");
+    const panel = await canvas.findByTestId("pnl-convergence-panel");
     await expect(panel).toBeInTheDocument();
     await waitFor(() => {
-      expect(canvas.queryByTestId("runner-convergence-loading")).not.toBeInTheDocument();
+      expect(canvas.queryByTestId("pnl-convergence-loading")).not.toBeInTheDocument();
     }, { timeout: 5000 });
-    await expect(canvas.getByTestId("runner-convergence-chart")).toBeInTheDocument();
-    // Mock's default split totals are 2 runners each — Split A's own graph
-    // is runners 1-2, not the mock's combined 1-4 total.
-    await expect(canvas.getByTestId("runner-convergence-range-subtitle")).toHaveTextContent("Runners 1–2");
+    await expect(canvas.getByTestId("pnl-convergence-chart")).toBeInTheDocument();
+    // Mock total is 2500 (see splitsHandler's default) — half/half is
+    // 1-1250 / 1251-2500. Split A's own graph is races 1-1250.
+    await expect(canvas.getByTestId("pnl-convergence-range-subtitle")).toHaveTextContent("Races 1–1250");
 
-    await userEvent.click(canvas.getByTestId("runner-convergence-panel-close"));
-    await expect(canvas.queryByTestId("runner-convergence-panel")).not.toBeInTheDocument();
+    await userEvent.click(canvas.getByTestId("pnl-convergence-panel-close"));
+    await expect(canvas.queryByTestId("pnl-convergence-panel")).not.toBeInTheDocument();
 
     // Split B's own Graph button opens a panel scoped to its own range —
-    // 3-4, not a repeat of Split A's 1-2 and not the combined 1-4.
+    // 1251-2500, not a repeat of Split A's 1-1250.
     await userEvent.click(canvas.getByTestId("industry-sp-split-graph-button-b"));
-    await canvas.findByTestId("runner-convergence-panel");
+    await canvas.findByTestId("pnl-convergence-panel");
     await waitFor(() => {
-      expect(canvas.queryByTestId("runner-convergence-loading")).not.toBeInTheDocument();
+      expect(canvas.queryByTestId("pnl-convergence-loading")).not.toBeInTheDocument();
     }, { timeout: 5000 });
-    await expect(canvas.getByTestId("runner-convergence-range-subtitle")).toHaveTextContent("Runners 3–4");
+    await expect(canvas.getByTestId("pnl-convergence-range-subtitle")).toHaveTextContent("Races 1251–2500");
   },
 };
 
@@ -727,8 +721,6 @@ export const FilterRowsAreGridAligned: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
-    // Split A/B's race-range boxes only render in "Split by races" mode.
-    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     // The whole point of the grid redesign: every row's min-input starts at
     // the same x position, so columns read as aligned rather than each row
@@ -746,8 +738,6 @@ export const GridInputsAreLargeEnoughToType: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
-    // Split A/B's race-range boxes only render in "Split by races" mode.
-    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     for (const testId of [
       "industry-sp-min-isp", "industry-sp-max-isp",
@@ -782,9 +772,6 @@ export const TooltipTogglesShowAndHideExplanation: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
-    // Split A/B's race-range rows (and their tooltip toggles) only render
-    // in "Split by races" mode.
-    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     await expect(canvas.queryByTestId("industry-sp-tooltip-text-runners")).not.toBeInTheDocument();
 
@@ -813,8 +800,6 @@ export const TooltipDoesNotShiftFilterLayout: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
-    // Split A/B's race-range boxes only render in "Split by races" mode.
-    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     const applyButton = canvas.getByTestId("industry-sp-filter-apply");
     const raceLabelBefore = canvas.getByTestId("industry-sp-from-row-a").getBoundingClientRect().top;
@@ -849,9 +834,6 @@ export const TooltipToggleHasAdequateTapTarget: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
-    // Split A/B's race-range rows (and their tooltip toggles) only render
-    // in "Split by races" mode.
-    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     for (const key of ["isp", "runners", "inIsp", "raceA", "raceB"]) {
       const toggle = canvas.getByTestId(`industry-sp-tooltip-toggle-${key}`);
@@ -951,8 +933,6 @@ export const ApplyingCustomSplitUpdatesUrlWithBothRanges: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
-    // Manual split-range editing only exists in "Split by races" mode.
-    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
 
     const toRowA = canvas.getByTestId("industry-sp-to-row-a");
     await userEvent.clear(toRowA);
@@ -987,11 +967,6 @@ export const ResetButtonRestoresDefaultsAndClearsUrl: Story = {
       expect(window.location.search).not.toContain("maxInIspRange");
     }, { timeout: 3000 });
 
-    // Reset also hands "Split by runners" back to checked, hiding the
-    // race-range boxes again — reveal them to read the recomputed values.
-    await expect(canvas.getByTestId("industry-sp-split-by-runners")).toHaveAttribute("aria-checked", "true");
-    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
-
     // Reset also hands the split boundaries back to auto mode — they
     // recompute to the fresh half/half default (mock total 2500 -> 1251).
     await waitFor(() => {
@@ -1015,9 +990,6 @@ export const RaceBoundsDisplayedForBothSplits: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitForLoaded(canvas);
-    // The race-bound hints live on the race-range boxes, only rendered in
-    // "Split by races" mode.
-    await userEvent.click(canvas.getByTestId("industry-sp-split-by-runners"));
     const boundA = await canvas.findByTestId("industry-sp-race-bound-a");
     const boundB = await canvas.findByTestId("industry-sp-race-bound-b");
     await expect(boundA).toHaveTextContent("/2500");

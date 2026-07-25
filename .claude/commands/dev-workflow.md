@@ -37,6 +37,8 @@ npx jest src/server/__tests__/app.test.ts --no-coverage
 ```bash
 npx jest --testPathPattern="integration" --no-coverage --runInBand
 ```
+This is a plain local `mongod` process (not Docker) — see `/mongo-integration-tests` for
+how to start/seed it if `localhost:27019` isn't already up.
 
 ### Storybook interaction tests (Storybook at localhost:6007 needed)
 ```bash

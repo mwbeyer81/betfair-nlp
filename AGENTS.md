@@ -9,6 +9,20 @@ work or duplicate-debug the same infra issues. **Read this before touching
 If you're an agent starting work here: add a new dated entry below (don't
 edit/delete others' entries), and re-read this file before you push/merge.
 
+## Local infra: MongoDB at localhost:27019
+
+As of 2026-07-25 this is a **plain local `mongod` process on this VM, not
+Docker** — binary lives at `/home/ubuntu/mongodb-local`, data dir at
+`/home/ubuntu/mongo-data-27019`, started with `--port 27019 --bind_ip
+127.0.0.1 --fork`. It's shared across every worktree on this VM, so don't
+kill it unless you're sure nothing else is using it. `docker-compose.mongo-
+only.yml` (the old Docker-based way to get a `localhost:27019` mongo) has
+been deleted as unused/superseded — see `.claude/commands/mongo-
+integration-tests.md` for how to start/seed it if it's ever down.
+`docker-compose.local.yml` (the combined API-server + MongoDB Docker stack
+behind `yarn server:docker`/`mongo:up`/etc.) is untouched and still works
+independently of this.
+
 ## Working in a worktree
 
 Do non-trivial work in its own git worktree, not in the primary checkout —
@@ -55,6 +69,7 @@ tiebreaker.
 | `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; likely stale/unrebased, will need careful reconciliation with the split-continuation and Apply-honoring fixes below before it merges |
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree |
+| `~/betfair-nlp-split-ab-race-revert` | `split-ab-race-revert` | Revert Split A/B to race-index splitting; rework P&L Convergence chart to race-ordinal (undoes the runner-split machinery from `e0b1a9e` onward) | implementation + local verification done (see dated entry below), **not yet merged/deployed (no deploy requested)**; touches `industry-sp-dao.ts` and `IndustrySpScreen.tsx`, the same hotspots as `isp-form-fields` and `rename-labels` above — expect merge conflicts with both, to be resolved when each merges |
 
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, and `split-b-continuation` were
@@ -706,3 +721,64 @@ to confirm nothing broke).
 **Done — committed (`aa3f85d`), merged to `develop`, pushed, deployed.
 Worktree removed, branch deleted (local + remote) — nothing left in
 progress.**
+
+## 2026-07-25 (later again) — Agent in `~/betfair-nlp-split-ab-race-revert` (branch `split-ab-race-revert`)
+
+**Task:** User asked to revert Split A/B back to pure race-count splitting
+(the original behavior before commit `e0b1a9e` introduced qualifying-runner-
+count bisection), and to rework the P&L Convergence chart (which was
+runner-ordinal based from birth, commit `f997615`) to plot by race instead,
+since there's no earlier race-based version of that chart to revert to.
+
+**Implementation:**
+- Backend: removed `getQualifyingRunnerSplitBoundary`, `getRunnerRangeStats`,
+  `getRunnerConvergenceSeries` from `industry-sp-dao.ts`; added
+  `getRaceConvergenceSeries` (one point per race in `[fromRow,toRow]`, fast/
+  slow path mirroring `getAllRacesByRace`'s pnlStats logic, no `$lookup`
+  needed since `runners` is still on the doc at that point in the pipeline).
+  `industry-sp-service.ts`'s `getSplitStats` stripped back to pure race-index
+  (`splitByRunners`/`fromRunnerA` etc. params gone; default bisection is
+  always `Math.floor(total/2)`). Router: `/api/industry-sp/splits` no longer
+  parses runner params; `/api/industry-sp/runner-convergence` renamed to
+  `/api/industry-sp/race-convergence` with `fromRow`/`toRow` (matches
+  `getAllRacesByRace`'s existing convention).
+- Frontend: `IndustrySpScreen.tsx` — removed the "Split by runners" checkbox,
+  all `fromRunnerA/toRunnerA/...` state, and the runner-mode branches in
+  `applyFilter`/`resetFilters`/the fetch effect/`renderSplitCard`; race-range
+  boxes are now always visible (no toggle). `loadConvergence` now reads the
+  split's own `fromRowA/toRowA`/`fromRowB/toRowB` directly (no more separate
+  "resolved runner range" state to drift out of sync — this was the root
+  cause of several of the regressions the runner-ordinal era had to patch
+  around, e.g. `dd7f00d`/`4d95415`). `RunnerConvergencePanel.tsx` renamed to
+  `PnlConvergencePanel.tsx`, reworked to `raceRowNumber`/"Races X–Y" instead
+  of `runnerOrdinal`/"Runners X–Y", `pnl-convergence-*` testIDs, warm-up
+  constant lowered (10 vs 50 — race counts per split are much smaller than
+  runner counts). `chatApi.ts`/`SplitDetailPanel.tsx`/`ispUrlParams.ts`/
+  `ispSplitsCache.ts` updated to match.
+- Also (per explicit user request, tangential to the split revert): deleted
+  the unused `docker-compose.mongo-only.yml` and set up a **native, non-
+  Docker** local `mongod` on this VM for the `localhost:27019` dev/test
+  instance (see the "Local infra" section at the top of this file) — updated
+  `.claude/commands/mongo-integration-tests.md`/`dev-workflow.md` and
+  `README-local-development.md` to document it. `docker-compose.local.yml`
+  (the combined API+Mongo Docker stack behind `yarn server:docker`/
+  `mongo:up`/etc.) was deliberately left alone — out of scope, still works
+  independently.
+
+**Verified:** Backend `npx tsc --noEmit` clean. DAO integration tests (35/35,
+including 4 new `getRaceConvergenceSeries` tests exercising both fast/slow
+paths against a seeded synthetic 30-race dataset on the new local mongod) and
+service integration tests (12/12) pass. Supertest `app.test.ts`: 118 passed,
+7 skipped. Frontend `yarn build` clean. MSW Playwright `industry-sp.spec.ts`:
+80/80 pass; full MSW suite (`tests-msw/`): 167/168 (1 pre-existing, unrelated
+failure in `all-runners.spec.ts` — confirmed via `git diff origin/develop`
+that file/its component were never touched by this branch). `industry-sp-
+e2e.spec.ts` updated for race-based assertions but not run (needs a real
+production-scale dataset, not the synthetic local one). Manual smoke test:
+started the real backend + Expo web against the local mongod, drove `/isp`
+with Playwright — confirmed no runner checkbox, race-range boxes always
+visible, split cards read "races 1–15"/"16–30" (exact bisection of the 30
+seeded races), Graph button opens "Races 1–15", Details panel matches.
+
+**Not done — no deploy** (explicit user request: implementation + local
+verification only). Worktree left in place; not yet merged.

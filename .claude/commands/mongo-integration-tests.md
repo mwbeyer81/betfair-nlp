@@ -50,4 +50,27 @@ describe("PriceUpdateDAO.getByEventIdAndRunnerId (integration)", () => {
 npx jest --testPathPattern="integration" --no-coverage --runInBand
 ```
 
-Integration tests require MongoDB running at `localhost:27019` (the dev instance).
+Integration tests require MongoDB running at `localhost:27019` (the dev instance) — a
+**plain local `mongod` process, not Docker**. If it's not already running:
+
+```bash
+# One-time setup (already done on this VM under /home/ubuntu/mongodb-local)
+curl -sS -o mongodb.tgz https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2204-7.0.14.tgz
+mkdir -p /home/ubuntu/mongodb-local && tar xzf mongodb.tgz --strip-components=1 -C /home/ubuntu/mongodb-local
+
+# Start it (background, persists until the VM reboots or it's killed)
+mkdir -p /home/ubuntu/mongo-data-27019
+/home/ubuntu/mongodb-local/bin/mongod --dbpath /home/ubuntu/mongo-data-27019 \
+  --port 27019 --bind_ip 127.0.0.1 --fork --logpath /home/ubuntu/mongo-data-27019/mongod.log
+
+# Verify
+node -e "require('mongodb').MongoClient.connect('mongodb://localhost:27019').then(c => (console.log('ok'), c.close()))"
+```
+
+If the collection is empty (a fresh data directory has no seeded ISP data), most of these
+tests short-circuit gracefully (`if (grand.total < N) return;`), but they won't actually
+exercise the aggregation logic. `/home/ubuntu/mongodb-local/seed-local-mongo.js` inserts a
+small synthetic `industry_starting_prices` dataset (30 races, with trainer-form/model
+fields populated) so both the fast and slow aggregation paths get real coverage — run it
+once with `node seed-local-mongo.js` from within a worktree that has the `mongodb` package
+installed (it does a no-op if the collection already has documents).

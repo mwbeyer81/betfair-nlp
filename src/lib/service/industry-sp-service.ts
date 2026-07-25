@@ -130,26 +130,6 @@ export class IndustrySpService {
     maxTrainerFormRunners = 100,
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
-    // Whether the default (auto-computed) split bisects by qualifying-
-    // runner count (true, the current default — matches what shipped
-    // before this toggle existed) or by race count (false, the original
-    // behavior, exposed as an explicit UI opt-out). Has no effect when the
-    // caller supplies explicit fromRowA/toRowA/etc. — those always stay
-    // race-index, regardless of this flag.
-    splitByRunners = true,
-    // Explicit runner-index split boundaries — the runner-mode equivalent
-    // of fromRowA/toRowA/fromRowB/toRowB above. When any of these four are
-    // set, they take priority over fromRowA/etc. (mirrors "explicit beats
-    // default", just for the other unit) and get resolved into race-index
-    // bounds via getQualifyingRunnerSplitBoundary before anything else in
-    // this method runs — after that resolution, every line below (raceCap
-    // clamping, the actual getAllRacesByRace calls) is completely
-    // unchanged, since it only ever deals in race indices regardless of
-    // which unit the caller asked in.
-    fromRunnerA: number | null = null,
-    toRunnerA: number | null = null,
-    fromRunnerB: number | null = null,
-    toRunnerB: number | null = null,
     // Per-window race cap: 1000 for an authenticated caller (the
     // longstanding default), 100 for an anonymous one. Applied to both the
     // auto-computed default window below and any explicit
@@ -206,100 +186,13 @@ export class IndustrySpService {
         this.industrySpDAO.getDistinctRaceTypes(),
       ]);
 
-    // Resolves a runner-index target (e.g. "the runner at cumulative
-    // position 2500") to the race-index of the first race (in raceTime
-    // order) whose cumulative qualifying-runner count reaches it — the
-    // same lookup the default-split bisection uses below, just exposed for
-    // an arbitrary caller-supplied target instead of a single fixed
-    // bisection point. Falls back to the given race-index bound (1 for a
-    // "from" target, the grand total for a "to" target) if the target is
-    // out of range (e.g. asking for runner 999999 in a field of 500).
-    const resolveRunnerBoundary = async (target: number, fallback: number): Promise<number> => {
-      const { boundaryRowIndex } = await this.industrySpDAO.getQualifyingRunnerSplitBoundary(
-        minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
-        minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
-        trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp, Math.max(1, target)
-      );
-      return boundaryRowIndex ?? fallback;
-    };
-
     // Splits default to an even first-half/second-half divide of whatever
     // the current total is, whenever the caller doesn't pin down explicit
-    // boundaries in either unit (a fresh page load, or after Reset).
-    // Bisected by *qualifying runner count*, not race count — a race-count
-    // bisection (the old behavior) can leave Split A and Split B with very
-    // uneven numbers of runners that actually match the active filters
-    // once trainer-form/model/model-beats-SP are on, since qualifying-
-    // runner count per race varies once those filters cut some runners
-    // out. effToB is left open-ended (null, "through the end") rather than
-    // an explicit number so it never needs reclamping as the total changes
-    // with the filters.
-    const hasExplicitRunnerSplit = fromRunnerA != null || toRunnerA != null || fromRunnerB != null || toRunnerB != null;
+    // fromRowA/toRowA/fromRowB/toRowB boundaries (a fresh page load, or
+    // after Reset). effToB is left open-ended (null, "through the end")
+    // rather than an explicit number so it never needs reclamping as the
+    // total changes with the filters.
     const hasExplicitRaceSplit = fromRowA != null || toRowA != null || fromRowB != null || toRowB != null;
-    const splitsAreDefault = !hasExplicitRunnerSplit && !hasExplicitRaceSplit;
-
-    if (hasExplicitRunnerSplit) {
-      // Explicit runner-index split — selects individual qualifying runners
-      // directly via getRunnerRangeStats rather than resolving each target
-      // to a race and handing whole races to getAllRacesByRace. That older
-      // approach rounded every target up to the next full race (since a
-      // race is the smallest unit getAllRacesByRace can hand to one split),
-      // so typing "1-1000" / "1001-2000" never showed exactly 1000/1000 —
-      // reported live as the result cards "still not matching" what was
-      // typed even after the double-counting bug (see git history) was
-      // fixed. Selecting at the runner level instead gives an exact count
-      // for each split with no rounding and no possibility of the two
-      // ranges overlapping, as long as the caller's own from/to targets
-      // don't overlap.
-      const effFromRunnerA = Math.max(1, fromRunnerA ?? 1);
-      const effFromRunnerB = Math.max(1, fromRunnerB ?? 1);
-
-      // raceRowBound only bounds how many races this scans/unwinds (cost
-      // control) — it is NOT the split boundary itself, unlike the old
-      // effToA/effToB. Resolved via the existing (cheap, tiny-doc) boundary
-      // lookup for an explicit "to" target, or raceCap alone when the
-      // target is open-ended ("through the end").
-      const raceRowBoundFor = async (toTarget: number | null): Promise<number> => {
-        if (toTarget == null) return Math.min(raceCap, grand.total);
-        const boundaryRow = await resolveRunnerBoundary(toTarget, grand.total);
-        return Math.min(boundaryRow, raceCap, grand.total);
-      };
-
-      const [raceRowBoundA, raceRowBoundB] = await Promise.all([
-        raceRowBoundFor(toRunnerA),
-        raceRowBoundFor(toRunnerB),
-      ]);
-
-      const [splitA, splitB] = await Promise.all([
-        this.industrySpDAO.getRunnerRangeStats(
-          minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
-          minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
-          trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp, effFromRunnerA, toRunnerA, raceRowBoundA
-        ),
-        this.industrySpDAO.getRunnerRangeStats(
-          minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
-          minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
-          trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp, effFromRunnerB, toRunnerB, raceRowBoundB
-        ),
-      ]);
-
-      return {
-        totalRaces: grand.total,
-        totalRunners: grand.totalRunners,
-        raceCap,
-        filterBounds,
-        countries: countryCodes,
-        courses: courseValues,
-        goings: goingValues,
-        raceClasses: raceClassValues,
-        raceTypes: raceTypeValues,
-        splitA,
-        splitB,
-      };
-    }
 
     let effFromA: number;
     let effToA: number | null;
@@ -314,26 +207,7 @@ export class IndustrySpService {
       effFromB = fromRowB ?? 1;
       effToB = toRowB;
     } else {
-      let half: number;
-      if (splitByRunners && grand.totalRunners > 0) {
-        const target = Math.ceil(grand.totalRunners / 2);
-        const { boundaryRowIndex } = await this.industrySpDAO.getQualifyingRunnerSplitBoundary(
-          minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
-          minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
-          trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp, target
-        );
-        // Defensive fallback only — boundaryRowIndex should always resolve
-        // when grand.totalRunners > 0 (the same matched set produced that
-        // total), but a race-count bisection is a safe degradation if it
-        // somehow doesn't.
-        half = boundaryRowIndex ?? Math.floor(grand.total / 2);
-      } else {
-        // Either splitByRunners is off (explicit UI opt-out to the original
-        // race-count bisection) or there are no qualifying runners at all
-        // (both splits stay empty either way, so skip the extra query).
-        half = Math.floor(grand.total / 2);
-      }
+      const half = Math.floor(grand.total / 2);
       effFromA = 1;
       effToA = half;
       effFromB = half + 1;
@@ -393,16 +267,16 @@ export class IndustrySpService {
     };
   }
 
-  // Cumulative ROI% convergence series for the "P&L graph" — requested
-  // live alongside the split cards to show how the running profit % is
-  // volatile over a small sample and settles down as more runners are
-  // included. fromRunnerTarget/toRunnerTarget are one split's own runner
-  // range (e.g. Split B's 1001..2000) — each split's graph is its own
-  // independent convergence test starting fresh at fromRunnerTarget, not a
-  // slice of one dataset-wide running total (see getRunnerConvergenceSeries
-  // on the DAO for why). runnerOrdinal in the returned points is still the
-  // true global ordinal, matching what that split's own card shows.
-  public async getRunnerConvergenceSeries(
+  // Cumulative ROI% convergence series for the "P&L graph" — requested live
+  // alongside the split cards to show how the running profit % is volatile
+  // over a small sample and settles down as more races are included.
+  // fromRow/toRow are one split's own race range (e.g. Split B's 501..1000,
+  // the same fromRow/toRow its own card shows) — no boundary-resolution
+  // round trip is needed before calling the DAO, since the caller already
+  // knows exactly which race range it wants (unlike the runner-ordinal
+  // version this replaced, which had to scan from race 1 to translate a
+  // runner target into a race-row bound).
+  public async getRaceConvergenceSeries(
     minRunners = 1,
     maxRunners = 30,
     countries: string[] = [],
@@ -423,40 +297,18 @@ export class IndustrySpService {
     maxTrainerFormRunners = 100,
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
-    fromRunnerTarget: number,
-    toRunnerTarget: number,
-    raceCap = 1000
-  ): Promise<{ runnerOrdinal: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[]> {
-    const grand = await this.industrySpDAO.getAllRacesByRace(
-      1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null,
-      minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
-      trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-      onlyModelBeatsSp
-    );
-
-    // Same "resolve a target ordinal to a race-row bound, then clamp to
-    // raceCap" shape as getSplitStats' own raceRowBoundFor — bounds how
-    // many races this scans regardless of how large toRunnerTarget is.
-    // Still resolved from toRunnerTarget alone (not fromRunnerTarget) — the
-    // scan always starts at race 1 to identify true global ordinals, see
-    // the DAO method's own comment.
-    const { boundaryRowIndex } = await this.industrySpDAO.getQualifyingRunnerSplitBoundary(
+    fromRow = 1,
+    toRow: number
+  ): Promise<{ raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[]> {
+    const points = await this.industrySpDAO.getRaceConvergenceSeries(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-      minModelWinProbability, onlyModelBeatsSp, Math.max(1, toRunnerTarget)
-    );
-    const raceRowBound = Math.min(boundaryRowIndex ?? grand.total, raceCap, grand.total);
-
-    const points = await this.industrySpDAO.getRunnerConvergenceSeries(
-      minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
-      minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
-      trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-      minModelWinProbability, onlyModelBeatsSp, Math.max(1, fromRunnerTarget), Math.max(1, toRunnerTarget), raceRowBound
+      minModelWinProbability, onlyModelBeatsSp, Math.max(1, fromRow), toRow
     );
 
     return points.map(p => ({
-      runnerOrdinal: p.runnerOrdinal,
+      raceRowNumber: p.raceRowNumber,
       cumulativeStaked: p.cumulativeStaked,
       cumulativeReturns: p.cumulativeReturns,
       cumulativePnl: p.cumulativeReturns - p.cumulativeStaked,

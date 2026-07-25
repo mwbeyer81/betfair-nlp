@@ -159,8 +159,8 @@ export interface IspSplitResult {
   pnlStats: PnlStats;
 }
 
-export interface RunnerConvergencePoint {
-  runnerOrdinal: number;
+export interface RaceConvergencePoint {
+  raceRowNumber: number;
   cumulativeStaked: number;
   cumulativeReturns: number;
   cumulativePnl: number;
@@ -515,12 +515,7 @@ class ChatApi {
     minTrainerFormRunners?: number,
     maxTrainerFormRunners?: number,
     minModelWinProbability?: number,
-    onlyModelBeatsSp?: boolean,
-    splitByRunners?: boolean,
-    fromRunnerA?: number,
-    toRunnerA?: number,
-    fromRunnerB?: number,
-    toRunnerB?: number
+    onlyModelBeatsSp?: boolean
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -548,14 +543,6 @@ class ChatApi {
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
-    // Defaults true server-side — only sent when explicitly false (the
-    // "Split by races" opt-out), so the common case's URL/cache key stays
-    // as short as every other true-is-default toggle in this app.
-    if (splitByRunners === false) params.set("splitByRunners", "false");
-    if (fromRunnerA != null) params.set("fromRunnerA", String(fromRunnerA));
-    if (toRunnerA != null) params.set("toRunnerA", String(toRunnerA));
-    if (fromRunnerB != null) params.set("fromRunnerB", String(fromRunnerB));
-    if (toRunnerB != null) params.set("toRunnerB", String(toRunnerB));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
       { headers: this.authHeader() }
@@ -565,12 +552,12 @@ class ChatApi {
   }
 
   // Cumulative ROI% convergence series for the "P&L graph" — one point per
-  // qualifying runner from ordinal 1 up to toRunner (the upper limit of
-  // Split B), showing how the running profit % is volatile over a small
-  // sample and settles down as more runners are included.
-  async getIndustrySpRunnerConvergence(
-    toRunner: number,
-    fromRunner = 1,
+  // race from row 1 up to toRow (the upper limit of Split B), showing how
+  // the running profit % is volatile over a small sample and settles down
+  // as more races are included.
+  async getIndustrySpRaceConvergence(
+    toRow: number,
+    fromRow = 1,
     minRunners = 1,
     maxRunners = 30,
     countries: string[] = [],
@@ -591,10 +578,10 @@ class ChatApi {
     maxTrainerFormRunners?: number,
     minModelWinProbability?: number,
     onlyModelBeatsSp?: boolean
-  ): Promise<{ success: boolean; data: RunnerConvergencePoint[]; count: number }> {
+  ): Promise<{ success: boolean; data: RaceConvergencePoint[]; count: number }> {
     const params = new URLSearchParams({
-      toRunner: String(toRunner),
-      fromRunner: String(fromRunner),
+      toRow: String(toRow),
+      fromRow: String(fromRow),
       minRunners: String(minRunners),
       maxRunners: String(maxRunners),
       minIsp: String(minIsp),
@@ -617,10 +604,10 @@ class ChatApi {
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
     const response = await fetch(
-      `${this.baseUrl}/api/industry-sp/runner-convergence?${params}`,
+      `${this.baseUrl}/api/industry-sp/race-convergence?${params}`,
       { headers: this.authHeader() }
     );
-    if (!response.ok) throw new Error("Failed to fetch runner convergence series");
+    if (!response.ok) throw new Error("Failed to fetch race convergence series");
     return response.json();
   }
 
