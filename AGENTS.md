@@ -771,3 +771,60 @@ versions/training runs, DAO/service/API routes, wiring
 constructor hyperparams (today it only writes eval metrics +
 free-text `runLabel` to `model_evaluations` — no stable id), and
 connecting the dashboard to real data instead of the mock generator.
+
+**Follow-up same day — user viewed the live S3 page on an actual phone
+and reported two real bugs the Storybook interaction tests never caught:
+the panel's header rendered but everything below it was blank, and text
+used a fallback serif font instead of Inter.** Both turned out to be
+**pre-existing gaps in `.storybook/preview-head.html`/`preview.tsx`, not
+specific to this component** — likely affecting every other
+`position:absolute` "fullscreen panel" story in this repo
+(`RunnerConvergencePanel`, `EventDocsPanel`, `SplitDetailPanel`, etc.)
+that nobody had visually screenshotted before, since Storybook's own
+interaction tests only assert `toBeInTheDocument()` (DOM presence), which
+doesn't catch a zero-height element.
+
+- **Blank content root cause:** two pass-through wrapper `<div>`s sit
+  between `#storybook-root` and every story's own root (Storybook's own
+  decorator root + `PaperProvider`'s wrapper `View` from the global
+  decorator in `preview.tsx`) — neither had a height of its own, so they
+  collapsed to 0px. A `position:absolute; inset:0` panel takes no space
+  in normal flow, so it can't stretch a 0-height parent to fill; it needs
+  an ancestor with a *real* height to anchor `top`/`bottom:0` against.
+  Fixed with a CSS rule in `preview-head.html` forcing `height:100%`
+  through exactly those 2 wrapper divs — **deliberately not deeper than
+  2 levels**: a first attempt at 4 levels reached into the story's own
+  internal divs (e.g. a panel's header row) and corrupted their own
+  content-sized layout, which is its own regression class to watch for
+  if this ever needs touching again.
+- **Font root cause:** `App.tsx` loads Inter via
+  `@expo-google-fonts/inter`'s `useFonts()` before the real app renders;
+  `preview.tsx`'s decorator never did, so every `fontFamily:
+  "Inter_400Regular"/"Inter_500Medium"` in `theme.ts` silently fell back
+  to the browser default. Fixed by copying the same package's
+  `Inter_400Regular.ttf`/`Inter_500Medium.ttf` into `client/public/fonts`
+  (served by `staticDirs` in both dev and the static build) and adding
+  `@font-face` rules under those exact family names in
+  `preview-head.html` — zero changes needed to `theme.ts` or any
+  component.
+
+**Also added:** `client/tests-storybook-live/model-performance-dashboard-live.spec.ts`
+— Playwright smoke tests against the actual deployed S3 URL (not just
+local Storybook), using the same pattern as the existing
+`storybook-live.spec.ts` (which targets a separate, older
+`punt-storybook.pages.dev` Cloudflare Pages deployment from before this
+app was renamed — still there, untouched, unrelated to this task). Two
+of the 7 new tests are real-bounding-box / computed-font-family checks
+specifically because `toBeInTheDocument()`-style assertions are exactly
+what let both bugs above ship unnoticed — Playwright's `.toBeVisible()`
+plus an explicit `boundingBox()` height check is what actually would
+have caught them.
+
+**Verified again:** `yarn build` clean. Full Storybook test-runner suite
+re-run after the CSS/font fix: same 6 failing tests as before (the 4
+pre-existing unrelated files), 275 passed (was 277 before this session
+un-exported two accidentally-public consts that Storybook had been
+indexing as bogus extra stories — net no regression from this fix).
+All 7 new live Playwright tests pass against the redeployed site.
+Redeployed via `apps/storybook-aws/deploy.sh` after the fix — the live
+URL above now reflects the corrected build.

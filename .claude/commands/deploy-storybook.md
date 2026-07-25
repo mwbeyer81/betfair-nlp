@@ -75,3 +75,24 @@ curl -sI http://backbet-storybook.s3-website.eu-north-1.amazonaws.com/
 curl -s http://backbet-storybook.s3-website.eu-north-1.amazonaws.com/index.json | head -c 200
 # Expect: Storybook's story index JSON
 ```
+
+For an actual visual/behavioral check against the live deployed site (not
+just local Storybook), run the Playwright suite in
+`client/tests-storybook-live/`:
+
+```bash
+cd client && npx playwright test --config playwright.storybook-live.config.ts \
+  tests-storybook-live/model-performance-dashboard-live.spec.ts
+```
+
+This is the layer that catches regressions Storybook's own interaction
+tests can't — `toBeInTheDocument()`-style assertions only prove an
+element exists in the DOM, not that it actually renders with real height
+or the right font. Both happened here (2026-07-25): a fullscreen panel's
+content was in the DOM but zero-height due to a wrapper-div height
+collapse, and text silently fell back to a serif font because Storybook
+never loaded Inter — see the `preview-head.html` fix and the AGENTS.md
+entry for the full story. `storybook-live.spec.ts` in the same directory
+targets a separate, older `punt-storybook.pages.dev` Cloudflare Pages
+deployment (pre-dates the app's rename to Backbet) — unrelated to this
+S3 bucket, left as-is.
