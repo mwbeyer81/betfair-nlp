@@ -623,3 +623,53 @@ channel-connection error.
 **Done — committed (`de7ab20`), merged to `develop`, pushed, deployed.
 Worktree removed, branch deleted (local + remote) — nothing left in
 progress.**
+
+---
+
+## 2026-07-25 (still later) — Agent in `~/betfair-nlp-graph-range` (branch `fix/graph-range`)
+
+**Task:** User reported (screenshots) a third occurrence of the same bug
+class as `de7ab20`: Split B's box and card correctly showed "runners
+1–3000" after an explicit edit, but its **Graph** button opened a P&L
+convergence panel labeled "Runners 1001–3173" — again, a range that was
+never actually queried.
+
+**Root cause:** `loadConvergence` (the Graph button's handler) had its
+own, third independent copy of the "A:1..totalRunnersA, B:
+totalRunnersA+1..+totalRunnersB" formula — `de7ab20` fixed
+`applyResult` and the two `renderSplitCard` call sites but never touched
+this one. Grepping the whole file for the rest of that formula
+(`totalRunnersA + 1`) after fixing `loadConvergence` turned up a
+**fourth** copy, in the `SplitDetailPanel` props (the "Details" button)
+a few lines below — fixed that too in the same commit.
+
+**Fix:** both now read `fromRunnerA ?? 1` / `toRunnerA ?? totalRunnersA`
+and the Split B equivalents directly from state — the same resolved
+values the result cards themselves already read, one source of truth
+instead of four duplicated copies of the same formula.
+
+**Process note for whoever hits this bug class a fifth time:** `grep -n
+"totalRunnersA + 1\|totalRunnersA + totalRunnersB"` across
+`IndustrySpScreen.tsx` before considering this fully fixed — that's
+exactly how the fourth copy (Details panel) got caught here, and it's
+cheap insurance against a fifth one existing that nobody's tapped yet.
+
+**Correction to the previous entry's Storybook-debugging tip:** `lsof
+-i:6006` is **not reliable in this sandbox** — it silently returned zero
+rows even while `curl localhost:6006` succeeded and `ps aux | grep
+storybook` showed a live process bound to the port (confirmed twice this
+session, including one case where an `lsof -ti:6006 | xargs kill` "kill"
+silently did nothing and the stale process was still there minutes
+later). **Use `ps aux | grep storybook` and kill by PID directly** — do
+not trust `lsof` for anything port-related here.
+
+**Verified:** `yarn build` clean. MSW Playwright `industry-sp.spec.ts`
+full suite: 82/82 pass (81 previous + 1 new). Storybook
+`IndustrySpScreen.stories.tsx`: 54/56 — same 2 pre-existing course-chip
+failures as every prior entry (confirmed via the `ps`-based process
+check above, not `lsof`, after two false "everything failed" scares from
+stale processes on port 6006 from already-deleted worktrees).
+
+**Done — committed (`4d95415`), merged to `develop`, pushed, deployed.
+Worktree removed, branch deleted (local + remote) — nothing left in
+progress.**
