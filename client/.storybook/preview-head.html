@@ -19,4 +19,48 @@
   body {
     margin: 0;
   }
+  /* Reported live (screenshot): a "fullscreen" panel styled with
+     position:absolute + top/left/right/bottom:0 (RunnerConvergencePanel,
+     ModelPerformanceDashboard, etc.) rendered as a blank page below the
+     header — DOM content was all there, just zero height. An absolutely
+     positioned element takes no space in its parent's normal flow, so it
+     can't stretch a parent that only sizes to its children's content; it
+     needs an ancestor with a *real* height to anchor top:0/bottom:0
+     against. #storybook-root already gets height:100% above, but
+     Storybook's own decorator-root wrapper and PaperProvider's own
+     wrapper <View> (the decorator in preview.tsx) sit between it and the
+     actual story — exactly 2 levels, confirmed by inspecting the
+     rendered DOM — and were never given a height of their own, so they
+     collapsed to 0 and broke the chain. This forces height:100% through
+     just those 2 pass-through wrapper divs. Deliberately NOT deeper than
+     that: going a level further starts matching the story's OWN internal
+     divs (e.g. a panel's header row), forcing height:100% onto those too
+     and corrupting their own content-sized layout — that regression is
+     exactly what going 4 levels deep instead of 2 caused here first.
+  */
+  #storybook-root > div,
+  #storybook-root > div > div {
+    height: 100%;
+  }
+  /* Reported live (screenshot): text rendered in the browser's fallback
+     serif font instead of Inter. App.tsx loads Inter via
+     @expo-google-fonts/inter's useFonts() hook before the real app
+     renders, but Storybook's preview.tsx decorator never calls it — so
+     every fontFamily: "Inter_400Regular"/"Inter_500Medium" in theme.ts
+     silently fell back to the browser default. These @font-face rules
+     register the exact same family names theme.ts already references
+     (the .ttf files are the same ones that package ships, copied into
+     client/public/fonts so both the dev server and the static build
+     serve them), so no component/theme code needs to change.
+  */
+  @font-face {
+    font-family: "Inter_400Regular";
+    src: url("/fonts/Inter_400Regular.ttf") format("truetype");
+    font-weight: 400;
+  }
+  @font-face {
+    font-family: "Inter_500Medium";
+    src: url("/fonts/Inter_500Medium.ttf") format("truetype");
+    font-weight: 500;
+  }
 </style>
