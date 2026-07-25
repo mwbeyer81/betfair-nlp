@@ -14,9 +14,27 @@ cd /home/ubuntu/betfair-nlp && bash apps/storybook-aws/deploy.sh
 
 1. `cd client && yarn install --frozen-lockfile && yarn storybook:build` — builds
    `storybook-static/` from whatever's currently checked out
-2. Syncs all static assets to `s3://backbet-storybook` with long-lived immutable
-   cache headers
-3. Uploads `index.html` with `no-cache` so the entry point is always fresh
+2. Force-uploads (`aws s3 cp --recursive`, not `sync`) **everything** to
+   `s3://backbet-storybook` with `no-cache, no-store, must-revalidate` —
+   unconditional, every deploy, regardless of whether a file's content changed
+3. Re-uploads just the content-hashed `*.iframe.bundle.js` chunks with a
+   long, safe `immutable` cache (their filename changes whenever their
+   content does, so long-caching them is genuinely safe)
+4. A final `aws s3 sync --delete` pass removes any objects orphaned by a
+   previous build (safe no-op for headers by this point — everything
+   already matches from steps 2–3)
+
+**Why force-upload instead of a plain `sync --cache-control`:** `aws s3
+sync`'s `--cache-control` flag only applies to objects it actually
+re-uploads (content-diffed) — a file whose content is byte-identical to
+what's already in the bucket (a favicon, `project.json` if the Storybook
+version hasn't changed) silently keeps whatever Cache-Control it already
+has from a previous deploy. Found this the hard way (2026-07-25, see
+AGENTS.md): `iframe.html`/`index.json`/`project.json` keep the same
+filename every build, so an earlier version of this script that only
+special-cased `index.html` left them `immutable`-cached — a browser that
+loaded `iframe.html` once would never revalidate it again for a year, no
+matter how many redeploys landed underneath it.
 
 ## AWS resources
 
@@ -74,7 +92,18 @@ curl -sI http://backbet-storybook.s3-website.eu-north-1.amazonaws.com/
 
 curl -s http://backbet-storybook.s3-website.eu-north-1.amazonaws.com/index.json | head -c 200
 # Expect: Storybook's story index JSON
+
+curl -sI http://backbet-storybook.s3-website.eu-north-1.amazonaws.com/iframe.html | grep -i cache-control
+# Expect: no-cache,no-store,must-revalidate (NEVER "immutable" — see the
+# caching bug above if this ever shows immutable again)
 ```
+
+**A browser that already loaded a page under the old (buggy) immutable
+cache policy won't see a new deploy until it hard-refreshes or clears
+site data for that URL** — there's no way to retroactively un-poison an
+already-cached client from the server side. If someone reports "I
+redeployed but still see the old version," check their browser cache
+before assuming the deploy itself failed.
 
 For an actual visual/behavioral check against the live deployed site (not
 just local Storybook), run the Playwright suite in

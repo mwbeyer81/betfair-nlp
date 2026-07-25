@@ -35,6 +35,35 @@ test.describe("backbet-storybook.s3-website — Model Performance Dashboard", ()
     expect(ct).toContain("text/html");
   });
 
+  // Regression: reported live via screenshot from an actual phone — a
+  // redeploy landed, but the phone kept showing stale component code.
+  // Root cause: iframe.html/index.json/project.json keep the same
+  // filename every build (unlike the content-hashed *.iframe.bundle.js
+  // chunks), but an earlier deploy script cached them with
+  // max-age=31536000, immutable anyway — a browser that loaded iframe.html
+  // once would never even revalidate it again for a year, no matter how
+  // many redeploys happened underneath it. Fixed in
+  // apps/storybook-aws/deploy.sh (force-upload every entry point with
+  // no-cache on every deploy; only the genuinely hash-named bundle chunks
+  // keep the long cache). This guards against that split ever regressing.
+  test("entry-point files are never long-cached, only hash-named bundle chunks are", async ({ request }) => {
+    const nonCacheable = ["iframe.html", "index.html", "index.json", "project.json"];
+    for (const path of nonCacheable) {
+      const response = await request.get(`${BASE_URL}/${path}`);
+      const cacheControl = response.headers()["cache-control"] ?? "";
+      expect(cacheControl, `${path} must not be long-cached`).not.toContain("immutable");
+      expect(cacheControl).toContain("no-cache");
+    }
+
+    // Find one real content-hashed bundle chunk by reading iframe.html's own
+    // script tags, rather than hardcoding a filename that changes every build.
+    const iframeHtml = await (await request.get(`${BASE_URL}/iframe.html`)).text();
+    const match = iframeHtml.match(/[\w.~-]+\.iframe\.bundle\.js/);
+    expect(match, "expected to find at least one *.iframe.bundle.js reference in iframe.html").not.toBeNull();
+    const bundleResponse = await request.get(`${BASE_URL}/${match![0]}`);
+    expect(bundleResponse.headers()["cache-control"]).toContain("immutable");
+  });
+
   test("no uncaught JS errors when loading the dashboard", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", err => errors.push(err.message));

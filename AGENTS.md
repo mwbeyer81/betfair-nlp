@@ -55,6 +55,7 @@ tiebreaker.
 | `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; likely stale/unrebased, will need careful reconciliation with the split-continuation and Apply-honoring fixes below before it merges |
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree |
+| `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | in progress, not merged — see dated entry below |
 
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, and `split-b-continuation` were
@@ -960,4 +961,145 @@ is invisible to the test-runner's fixed wide-ish width by construction),
 full suite unchanged (4 pre-existing failures, 280 passed). Live
 Playwright suite against the redeployed site: 10/10, including the
 strengthened narrow-viewport test. Redeployed via
+`apps/storybook-aws/deploy.sh`.
+
+---
+
+## 2026-07-25 (even later still) — Agent in `~/betfair-nlp-comment-nlp-features` (branch `comment-nlp-features`)
+
+**Task:** Advanced ML feature for `ml/train_and_predict.py`'s win-probability
+model — mine the free-text `comment` column from the raw training CSV
+(Racing Post-style in-running commentary, e.g. "hampered", "travelled
+strongly", "no extra", "hung left") into structured, leakage-safe trailing
+per-horse signals, following the exact same Phase A/B trailing-average
+pattern `precompute-horse-form.ts` already uses for `horseAvgRPR`/
+`horseAvgTS`. Plan at
+`~/.claude/plans/plan-an-advanced-feature-immutable-quilt.md` if useful
+context for follow-up work.
+
+**Important pre-existing-state note for whoever owns the trainer/jockey/
+horse-form precompute work:** when this task started, the **primary
+checkout already had substantial uncommitted, untracked changes** —
+`ml/train_and_predict.py`, `src/commands/import-industry-sp.ts`,
+`package.json` (modified) and `src/commands/precompute-horse-form.ts` /
+`precompute-jockey-form.ts` (new, untracked) — implementing the trainer/
+jockey/horse trailing-form features (`horseAvgRPR`, `jockeyFormWinRate`,
+etc.) that the "latest" dashboard entry above flagged as a "deliberate
+follow-up task." That work was never mentioned as in-progress here and is
+still sitting **uncommitted in the primary checkout** as of this entry —
+please commit it (or fold it into this PR if it's meant to land together;
+this branch's diff is additive on top of it and doesn't conflict). This
+agent did **not** edit or touch the primary checkout at all — it only
+copied those uncommitted files into the new worktree below as a required
+baseline (since this feature extends `precompute-horse-form.ts`), so
+primary's working tree is untouched and exactly as it was found.
+
+**Implementation** (all in the worktree, on top of the copied baseline
+above):
+- `src/commands/import-industry-sp.ts` — captures the raw `comment` field
+  onto `RunnerDoc` (same leakage category as `rpr`/`ts`/`beatenDistance` —
+  never fed into the model directly, only via trailing history).
+- `src/lib/dao/comment-lexicon.ts` (new) — pure `tagComment()` function,
+  a curated keyword/regex lexicon (trouble-in-running / travelled-well /
+  weakened / green-inexperience categories, composite `excuseScore`).
+  Deliberately a lexicon, not a learned text model, for v1 — interpretable,
+  no new ML infra. 11 unit tests in
+  `src/lib/dao/__tests__/comment-lexicon.test.ts`, including a regression
+  guard that "held up" (neutral positioning) isn't misread as "weakened".
+- `src/commands/precompute-horse-form.ts` — extended (not a new script) to
+  tag each historical run's comment and aggregate `horseAvgExcuseScore`,
+  `horseTroubleInRunningRate`, `horseTravelledWellRate` over the same
+  last-3-prior-runs window as `horseAvgRPR`/`horseAvgTS`, same Phase A/B
+  leakage guard.
+- `ml/train_and_predict.py` — added the three fields to `NUM_COLS` +
+  `load_dataframe` passthroughs.
+
+**Verified against local Mongo only — prod Atlas never touched.** Used the
+shared local `mongod` on port 27019 (see top-of-file infra note) with a
+**dedicated, isolated dev database** (`betfair_nlp_dev_comment_nlp`, not
+the shared `betfair_nlp_dev`) populated with a **subset** of the raw CSV
+(`FROM_DATE=2023-01-01 TO_DATE=2025-05-27`, 23,598 UK races / 206,729
+runners — the full CSV is 1.85M rows back to 2015). Ran the full precompute
+chain (`trainer-form` → `jockey-form` → `horse-form`) against that subset,
+then trained twice via `RUN_LABEL`:
+- `baseline` (pre-feature): AUC-ROC 0.6997, LogLoss 0.3393, Brier 0.0994
+- `with-comment-nlp`: AUC-ROC 0.7017, LogLoss 0.3388, Brier 0.0993
+
+All three metrics moved favorably (small but consistent). Feature-gain
+check on the trained booster placed the three new columns mid-pack
+(`horseTravelledWellRate` ~19 gain, above `officialRating`; `horseAvgExcuseScore`
+~13; `horseTroubleInRunningRate` ~8) — plausible, not dominating (which
+would have suggested a leakage bug), not dead-last (no signal). Full
+`model_evaluations` docs for both runs are in the local
+`betfair_nlp_dev_comment_nlp` database for anyone who wants to inspect the
+calibration tables.
+
+**Not yet done:** re-running the eval against the full 2015–present dataset
+(this was deliberately a fast local dev-subset validation, not a
+production-scale run); committing this worktree's changes; a real
+`yarn import:industry-sp` reseed of prod/shared Atlas with the `comment`
+field (needs the primary-checkout backend work above to land first, then a
+full reseed + re-run of all three precompute scripts, matching the
+already-documented "reseed wipes derived fields" gotcha).
+
+---
+
+## 2026-07-25 (yet later) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Task:** User sent a second phone screenshot of the Model Performance
+Dashboard's narrow table view — the sort toggle and metrics legend from
+the previous entry were both missing, even though they'd already been
+deployed and verified working. Asked to "replicate E2E storybook
+playwright test" and "fix deploy."
+
+**Root cause — a real caching bug in `apps/storybook-aws/deploy.sh`, not
+a missing feature.** `iframe.html`, `index.json`, and `project.json`
+keep the exact same filename on every Storybook build (unlike the
+`*.iframe.bundle.js` chunks, which are content-hashed), but the deploy
+script's `aws s3 sync ... --exclude "index.html"` only special-cased
+`index.html` — everything else, including those three, got
+`Cache-Control: public, max-age=31536000, immutable`. Once a browser
+loaded `iframe.html` once, it would never even revalidate it again for a
+year, no matter how many redeploys landed in the bucket underneath it.
+Confirmed via `curl -I` on the live URL before touching anything.
+
+**A second, subtler gotcha found while fixing it:** `aws s3 sync`'s own
+`--cache-control` flag only applies to objects it actually re-uploads
+(content-diffed) — a file whose content is byte-identical to what's
+already in the bucket (a favicon, `project.json` if the Storybook
+version hasn't changed) silently **keeps its existing Cache-Control**
+from a previous deploy. So this couldn't be fixed "going forward" by
+just changing the flag on the next sync; every deploy now
+unconditionally force-uploads (`aws s3 cp --recursive`, not `sync`) so
+every object's Cache-Control header is genuinely reset every time,
+regardless of whether its content changed. A final `sync --delete` pass
+still runs afterward purely to clean up objects orphaned by a previous
+build (safe — by then everything matches, so it only ever deletes, never
+re-uploads with a different header).
+
+**Verification added:** a new live test in
+`model-performance-dashboard-live.spec.ts` —
+`entry-point files are never long-cached, only hash-named bundle chunks
+are` — asserts `iframe.html`/`index.html`/`index.json`/`project.json`
+never carry `immutable`, and (by regex-extracting a real filename out of
+`iframe.html` rather than hardcoding one, since the hash changes every
+build) that an actual `*.iframe.bundle.js` chunk still does. This is the
+"replicate E2E playwright test" ask — a permanent regression guard
+against this exact class of bug recurring, not just a one-off fix.
+
+**Important caveat communicated to the user:** fixing the deploy script
+only protects *future* visits. A browser (like the reporting user's own
+phone) that already cached `iframe.html` under the old immutable policy
+will not see today's fix until it hard-refreshes or clears site data for
+that URL — there is no way to retroactively un-poison an already-cached
+client from the server side.
+
+**Verified:** `yarn build` clean. Confirmed via `curl -I` against the
+live URL that `iframe.html`/`index.html`/`index.json`/`project.json` now
+return `no-cache,no-store,must-revalidate` and a sample hash-named
+bundle chunk still returns the long `immutable` cache. Full local
+Storybook test-runner suite unaffected (deploy-only change, no component
+code touched — same 4 pre-existing unrelated failures). Live Playwright
+suite against the redeployed site: 11/11 pass (10 previous + the new
+cache-header regression test). Redeployed via
 `apps/storybook-aws/deploy.sh`.
