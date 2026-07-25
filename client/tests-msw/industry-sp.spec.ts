@@ -568,6 +568,97 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
   });
 });
 
+// Standalone, deliberately outside the describe block above and its shared
+// beforeEach: that beforeEach's own Apply (against the fixture's tiny
+// 3-runner default mock) already counts as "a real load happened", so a
+// *second* Apply inside a test body — even the very first thing that test
+// does — is no longer the fresh, auto-computed default split (see
+// hasLoadedOnce/splitsAreDefaultRef in IndustrySpScreen.tsx's applyFilter).
+// These tests need that first, real Apply to go through their OWN
+// large-total mock (see resolveSplitPair's comment) so Split A/B's boxes
+// actually populate with the 1586/1587-style numbers the regression needs —
+// reusing the shared beforeEach's tiny mock for that first load would
+// silently mask the bug these exist to catch.
+test("editing only Split A's box carries Split B forward to continue right after it, not its own stale value", async ({ page }) => {
+  // Regression: reported live via screenshot — editing only Split A's "to"
+  // box (extending it from a prior 1586 out to 2983) and pressing Apply
+  // sent Split B's *stale* prior boundary (still 1587, left over from
+  // before A moved) instead of continuing right after A's new one. The two
+  // ranges silently overlapped — runners 1587-2983 got counted in both
+  // splits' P&L — while the result card's label for Split B (built from
+  // splitA.totalRunners + splitB.totalRunners, not from what was actually
+  // queried) looked like a clean, non-overlapping continuation even though
+  // the underlying request wasn't.
+  let lastUrl = "";
+  await page.route("**/api/industry-sp/splits*", async (route) => {
+    lastUrl = route.request().url();
+    await route.fulfill({
+      json: {
+        success: true, totalRaces: 900, totalRunners: 3173, raceCap: 1000,
+        filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+        countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
+        raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
+        splitA: { fromRow: 1, toRow: 850, total: 850, totalRunners: 1586, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+        splitB: { fromRow: 851, toRow: null, total: 50, totalRunners: 1587, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+      },
+    });
+  });
+
+  await page.goto("/isp");
+  await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+  // Split B's own box, left untouched, shows its default continuation from
+  // that first (genuinely default, auto-computed) apply.
+  await expect(page.getByTestId("industry-sp-from-runner-b")).toHaveValue("1587");
+
+  await page.getByTestId("industry-sp-to-runner-a").fill("2983");
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+  const url = new URL(lastUrl);
+  expect(url.searchParams.get("fromRunnerA")).toBe("1");
+  expect(url.searchParams.get("toRunnerA")).toBe("2983");
+  expect(url.searchParams.get("fromRunnerB")).toBe("2984");
+  expect(url.searchParams.get("toRunnerB")).toBeNull();
+  await expect(page.getByTestId("industry-sp-from-runner-b")).toHaveValue("2984");
+});
+
+test("editing only Split B's box carries Split A forward to end right before it", async ({ page }) => {
+  // Symmetric case of the regression above — editing Split B instead of
+  // Split A must carry Split A's own end forward the same way.
+  let lastUrl = "";
+  await page.route("**/api/industry-sp/splits*", async (route) => {
+    lastUrl = route.request().url();
+    await route.fulfill({
+      json: {
+        success: true, totalRaces: 900, totalRunners: 3173, raceCap: 1000,
+        filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+        countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
+        raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
+        splitA: { fromRow: 1, toRow: 850, total: 850, totalRunners: 1586, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+        splitB: { fromRow: 851, toRow: null, total: 50, totalRunners: 1587, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+      },
+    });
+  });
+
+  await page.goto("/isp");
+  await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+  await page.getByTestId("industry-sp-from-runner-b").fill("1000");
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+  const url = new URL(lastUrl);
+  expect(url.searchParams.get("fromRunnerB")).toBe("1000");
+  expect(url.searchParams.get("fromRunnerA")).toBe("1");
+  expect(url.searchParams.get("toRunnerA")).toBe("999");
+  await expect(page.getByTestId("industry-sp-to-runner-a")).toHaveValue("999");
+});
+
 test.describe("Industry SP filters screen - session cache across navigation (MSW mocked)", () => {
   // Regression coverage for: navigating away from /isp and back used to
   // re-fetch /api/industry-sp/splits from scratch every time (component

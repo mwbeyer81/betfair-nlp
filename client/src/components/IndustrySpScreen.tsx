@@ -181,6 +181,49 @@ function resolveSplitBound(
   return { from, to };
 }
 
+// Resolves BOTH Split A and Split B's draft boxes together, rather than
+// each in isolation via resolveSplitBound — needed so that editing only
+// one side can carry the other, untouched side forward to stay contiguous.
+//
+// Reported live via screenshot: editing only Split A's "to" box (extending
+// it from 1586 to 2983) and pressing Apply sent Split B's *stale* prior
+// boundary (still 1587, left over from before A moved) instead of
+// continuing right after A's new one. The two ranges silently overlapped —
+// runners 1587-2983 got counted in both splits' P&L — while the result
+// card's label for Split B (fabricated from splitA.totalRunners +
+// splitB.totalRunners, not from what was actually queried) looked like a
+// clean, non-overlapping continuation even though it wasn't.
+//
+// When exactly one side was actually edited, the other side is recomputed
+// as "everything else" (1..edited side's start, or edited side's end+1..the
+// total) rather than read from its own possibly-stale box. When both sides
+// were edited (or neither — the auto-compute default path), each side is
+// resolved independently exactly as resolveSplitBound already did.
+function resolveSplitPair(
+  fromDraftA: string,
+  toDraftA: string,
+  fromDraftB: string,
+  toDraftB: string,
+  total: number,
+  aEdited: boolean,
+  bEdited: boolean
+): { fromA: number; toA: number | null; fromB: number; toB: number | null } {
+  if (aEdited && !bEdited) {
+    const { from: fromA, to: toA } = resolveSplitBound(fromDraftA, toDraftA, total, true);
+    const fromB = toA != null ? toA + 1 : (total > 0 ? total + 1 : fromA + 1);
+    return { fromA, toA, fromB, toB: null };
+  }
+  if (bEdited && !aEdited) {
+    const { from: fromB, to: toB } = resolveSplitBound(fromDraftB, toDraftB, total, true);
+    const fromA = 1;
+    const toA = fromB > 1 ? fromB - 1 : 0;
+    return { fromA, toA, fromB, toB };
+  }
+  const { from: fromA, to: toA } = resolveSplitBound(fromDraftA, toDraftA, total, aEdited);
+  const { from: fromB, to: toB } = resolveSplitBound(fromDraftB, toDraftB, total, bEdited);
+  return { fromA, toA, fromB, toB };
+}
+
 export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   isAuthenticated,
   onRequestAuth,
@@ -319,17 +362,33 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // filter caps the default view to one month, see FILTER_DEFAULTS above),
   // unlike a fixed-size window that could leave split B empty.
   const splitsAreDefaultRef = useRef(!urlHasParam("fromRowA") && !urlHasParam("fromRunnerA"));
-  // Tracks whether the user has actually typed into one of the Split A/B
-  // boxes (as opposed to those boxes still holding their pre-fetch
-  // placeholder values). Apply needs this to tell "the user's very first
-  // interaction with this screen was editing a split box, then Apply" (their
-  // typed value must be honored) apart from "boxes are untouched
-  // placeholders on a bare first Apply" (must stay on the auto-compute path
-  // — see the hasLoadedOnce comment below). hasLoadedOnce alone can't make
-  // that distinction: it only flips after a fetch resolves, so an edit-then-
-  // Apply before any fetch has ever completed was previously indistinguishable
-  // from an untouched box, and got silently discarded as "still default".
-  const splitBoxesEditedRef = useRef(false);
+  // Tracks whether the user has actually typed into Split A's or Split B's
+  // own boxes (as opposed to those boxes still holding their pre-fetch
+  // placeholder values, or a stale value left over from a *previous* Apply).
+  // Two separate refs, not one shared flag — Apply needs to know not just
+  // "did *something* get edited" but *which side*, for two different
+  // reasons:
+  // 1. Distinguishing "the user's very first interaction with this screen
+  //    was editing a split box, then Apply" (their typed value must be
+  //    honored) from "boxes are untouched placeholders on a bare first
+  //    Apply" (must stay on the auto-compute path — see the hasLoadedOnce
+  //    comment below). hasLoadedOnce alone can't make that distinction: it
+  //    only flips after a fetch resolves, so an edit-then-Apply before any
+  //    fetch has ever completed was previously indistinguishable from an
+  //    untouched box, and got silently discarded as "still default".
+  // 2. Reported live via screenshot: editing only Split A's "to" box (e.g.
+  //    extending it from 1586 to 2983) and pressing Apply sent Split B's
+  //    *stale* prior boundary (still 1587, from before A moved) instead of
+  //    continuing right after A's new one — the two ranges silently
+  //    overlapped (1587–2983 double-counted in both splits' P&L), while the
+  //    result card's *label* for Split B was fabricated from
+  //    splitA.totalRunners + splitB.totalRunners and looked like a clean,
+  //    non-overlapping continuation even though the underlying query wasn't.
+  //    Knowing *which single side* changed lets Apply auto-carry the other,
+  //    untouched side forward to stay contiguous — see the "only one side
+  //    edited" branch below.
+  const splitAEditedRef = useRef(false);
+  const splitBEditedRef = useRef(false);
   const [fromRowA, setFromRowA] = useState(() => urlIntParam("fromRowA", 1));
   const [toRowA, setToRowA] = useState<number | null>(() => urlToRowParam("toRowA"));
   const [draftFromA, setDraftFromA] = useState(() => String(urlIntParam("fromRowA", 1)));
@@ -524,7 +583,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     // lets the backend derive the real half/half split from the total it
     // returns, same as a fresh mount would; only an edit *after* a real
     // load has happened is genuine explicit user intent.
-    if (hasLoadedOnce || splitBoxesEditedRef.current) {
+    const aEdited = splitAEditedRef.current;
+    const bEdited = splitBEditedRef.current;
+    if (hasLoadedOnce || aEdited || bEdited) {
       splitsAreDefaultRef.current = false;
     }
 
@@ -534,25 +595,27 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     // show the equivalent range if the user switches units later, without
     // needing to be computed here too.
     if (draftSplitByRunners) {
-      const { from: fromA, to: toA } = resolveSplitBound(draftFromRunnerA, draftToRunnerA, totalRunners, splitBoxesEditedRef.current);
+      const { fromA, toA, fromB, toB } = resolveSplitPair(
+        draftFromRunnerA, draftToRunnerA, draftFromRunnerB, draftToRunnerB, totalRunners, aEdited, bEdited
+      );
       setDraftFromRunnerA(String(fromA));
       setDraftToRunnerA(String(toA ?? totalRunners));
       setFromRunnerA(fromA);
       setToRunnerA(toA);
 
-      const { from: fromB, to: toB } = resolveSplitBound(draftFromRunnerB, draftToRunnerB, totalRunners, splitBoxesEditedRef.current);
       setDraftFromRunnerB(String(fromB));
       setDraftToRunnerB(String(toB ?? totalRunners));
       setFromRunnerB(fromB);
       setToRunnerB(toB);
     } else {
-      const { from: fromA, to: toA } = resolveSplitBound(draftFromA, draftToA, totalRaces, splitBoxesEditedRef.current);
+      const { fromA, toA, fromB, toB } = resolveSplitPair(
+        draftFromA, draftToA, draftFromB, draftToB, totalRaces, aEdited, bEdited
+      );
       setDraftFromA(String(fromA));
       setDraftToA(String(toA ?? totalRaces));
       setFromRowA(fromA);
       setToRowA(toA);
 
-      const { from: fromB, to: toB } = resolveSplitBound(draftFromB, draftToB, totalRaces, splitBoxesEditedRef.current);
       setDraftFromB(String(fromB));
       setDraftToB(String(toB ?? totalRaces));
       setFromRowB(fromB);
@@ -608,7 +671,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     // Hand the two splits back to auto (half/half) mode — the next fetch
     // recomputes them from the fresh grand total.
     splitsAreDefaultRef.current = true;
-    splitBoxesEditedRef.current = false;
+    splitAEditedRef.current = false;
+    splitBEditedRef.current = false;
     setFromRowA(1);
     setToRowA(null);
     setDraftFromA("1");
@@ -1589,10 +1653,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           filterKey: "raceA",
           label: "Split A",
           minValue: draftFromA,
-          onMinChange: v => { splitBoxesEditedRef.current = true; setDraftFromA(v); },
+          onMinChange: v => { splitAEditedRef.current = true; setDraftFromA(v); },
           minTestId: "industry-sp-from-row-a",
           maxValue: draftToA,
-          onMaxChange: v => { splitBoxesEditedRef.current = true; setDraftToA(v); },
+          onMaxChange: v => { splitAEditedRef.current = true; setDraftToA(v); },
           maxTestId: "industry-sp-to-row-a",
           keyboardType: "numeric",
           maxLength: 6,
@@ -1603,10 +1667,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           filterKey: "raceB",
           label: "Split B",
           minValue: draftFromB,
-          onMinChange: v => { splitBoxesEditedRef.current = true; setDraftFromB(v); },
+          onMinChange: v => { splitBEditedRef.current = true; setDraftFromB(v); },
           minTestId: "industry-sp-from-row-b",
           maxValue: draftToB,
-          onMaxChange: v => { splitBoxesEditedRef.current = true; setDraftToB(v); },
+          onMaxChange: v => { splitBEditedRef.current = true; setDraftToB(v); },
           maxTestId: "industry-sp-to-row-b",
           keyboardType: "numeric",
           maxLength: 6,
@@ -1617,10 +1681,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           filterKey: "raceA",
           label: "Split A",
           minValue: draftFromRunnerA,
-          onMinChange: v => { splitBoxesEditedRef.current = true; setDraftFromRunnerA(v); },
+          onMinChange: v => { splitAEditedRef.current = true; setDraftFromRunnerA(v); },
           minTestId: "industry-sp-from-runner-a",
           maxValue: draftToRunnerA,
-          onMaxChange: v => { splitBoxesEditedRef.current = true; setDraftToRunnerA(v); },
+          onMaxChange: v => { splitAEditedRef.current = true; setDraftToRunnerA(v); },
           maxTestId: "industry-sp-to-runner-a",
           keyboardType: "numeric",
           maxLength: 7,
@@ -1631,10 +1695,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           filterKey: "raceB",
           label: "Split B",
           minValue: draftFromRunnerB,
-          onMinChange: v => { splitBoxesEditedRef.current = true; setDraftFromRunnerB(v); },
+          onMinChange: v => { splitBEditedRef.current = true; setDraftFromRunnerB(v); },
           minTestId: "industry-sp-from-runner-b",
           maxValue: draftToRunnerB,
-          onMaxChange: v => { splitBoxesEditedRef.current = true; setDraftToRunnerB(v); },
+          onMaxChange: v => { splitBEditedRef.current = true; setDraftToRunnerB(v); },
           maxTestId: "industry-sp-to-runner-b",
           keyboardType: "numeric",
           maxLength: 7,
