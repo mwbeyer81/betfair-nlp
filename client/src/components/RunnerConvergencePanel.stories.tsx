@@ -221,3 +221,66 @@ export const ScopedToASplitsOwnRange: Story = {
     expect(localPosition).toBeLessThanOrEqual(200);
   },
 };
+
+export const JumpToRunnerInputSnapsToTheExactRunner: Story = {
+  // Requested live: dragging a finger along the chart to land on one
+  // exact runner is imprecise, especially on a small screen — typing the
+  // runner number directly should snap the marker/tooltip exactly like a
+  // tap would, no dragging required.
+  args: {
+    points: samplePoints(200, 1001),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByTestId("runner-convergence-tooltip")).not.toBeInTheDocument();
+
+    await userEvent.type(canvas.getByTestId("runner-convergence-jump-input"), "1057");
+    await userEvent.click(canvas.getByTestId("runner-convergence-jump-button"));
+
+    await expect(canvas.getByTestId("runner-convergence-snap-dot")).toBeInTheDocument();
+    await expect(canvas.getByTestId("runner-convergence-snap-guide")).toBeInTheDocument();
+    const tooltip = canvas.getByTestId("runner-convergence-tooltip");
+    await expect(tooltip).toBeInTheDocument();
+    await expect(tooltip).toHaveTextContent("Runner 1057");
+  },
+};
+
+export const JumpToRunnerViaKeyboardSubmit: Story = {
+  // Pressing Enter (onSubmitEditing) must work the same as tapping the
+  // Go button, so the whole interaction can happen without leaving the
+  // keyboard.
+  args: {
+    points: samplePoints(200, 1001),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = canvas.getByTestId("runner-convergence-jump-input");
+    await userEvent.type(input, "1100{enter}");
+
+    const tooltip = canvas.getByTestId("runner-convergence-tooltip");
+    await expect(tooltip).toBeInTheDocument();
+    await expect(tooltip).toHaveTextContent("Runner 1100");
+  },
+};
+
+export const JumpToRunnerOutsideRangeSnapsToTheNearestEnd: Story = {
+  // A target below firstOrdinal or above lastOrdinal still resolves
+  // sensibly — snaps to whichever end of the split's own range is closer,
+  // same "snap to nearest" behavior a tap already has at the chart edges.
+  args: {
+    points: samplePoints(200, 1001),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(canvas.getByTestId("runner-convergence-jump-input"), "1");
+    await userEvent.click(canvas.getByTestId("runner-convergence-jump-button"));
+    await expect(canvas.getByTestId("runner-convergence-tooltip")).toHaveTextContent("Runner 1001");
+  },
+};
+
+export const JumpToRunnerButtonDisabledWhenInputEmpty: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("runner-convergence-jump-button")).toBeDisabled();
+  },
+};

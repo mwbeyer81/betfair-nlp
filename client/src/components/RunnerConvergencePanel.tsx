@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { View, StyleSheet, ScrollView, GestureResponderEvent } from "react-native";
+import { View, StyleSheet, ScrollView, GestureResponderEvent, TextInput as RNTextInput } from "react-native";
 import { Text, Button, Surface, Divider, ActivityIndicator } from "react-native-paper";
 import Svg, { Path, Line as SvgLine, Circle } from "react-native-svg";
 import { RunnerConvergencePoint } from "../services/chatApi";
@@ -53,6 +53,14 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
   // Index into `points` of the tap/drag-selected point — null until the
   // user has touched the chart at least once.
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  // Requested live: dragging a finger along the chart to land on one exact
+  // runner is imprecise, especially for a wide range on a small screen —
+  // an explicit "jump to runner" input lets the user type the runner
+  // ordinal they actually want and land on it directly. Sets the exact
+  // same selectedIndex a tap/drag would, so the marker/guide-line/tooltip
+  // that follow are unchanged — this is just an alternate, precise way to
+  // choose the index, not a separate display path.
+  const [jumpInput, setJumpInput] = useState("");
 
   const chart = useMemo(() => {
     if (points.length < 2) return null;
@@ -106,6 +114,26 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
     const fraction = (touchXInViewBox - CHART_PADDING) / chart.plotWidth;
     const idx = Math.round(fraction * (points.length - 1));
     setSelectedIndex(Math.max(0, Math.min(points.length - 1, idx)));
+  }
+
+  // Snaps to whichever point's runnerOrdinal is closest to the typed
+  // target — same "snap to nearest" behavior as a tap, just driven by a
+  // number instead of a screen position. A target outside the split's own
+  // range (below firstOrdinal or above lastOrdinal) still resolves
+  // sensibly: closest is simply the first or last point.
+  function jumpToRunner() {
+    const target = parseInt(jumpInput, 10);
+    if (!Number.isFinite(target) || points.length === 0) return;
+    let closestIndex = 0;
+    let closestDiff = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const diff = Math.abs(points[i].runnerOrdinal - target);
+      if (diff < closestDiff) {
+        closestDiff = diff;
+        closestIndex = i;
+      }
+    }
+    setSelectedIndex(closestIndex);
   }
 
   const selectedPoint = selectedIndex != null ? points[selectedIndex] : null;
@@ -171,6 +199,32 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
                 {finalRoi.toFixed(1)}% after {points.length} runners
               </Text>
             )}
+            <View style={styles.jumpRow}>
+              <Text style={styles.jumpLabel}>Jump to runner</Text>
+              <RNTextInput
+                testID="runner-convergence-jump-input"
+                style={styles.jumpInput}
+                value={jumpInput}
+                onChangeText={setJumpInput}
+                onSubmitEditing={jumpToRunner}
+                keyboardType="numeric"
+                maxLength={7}
+                placeholder={`${firstOrdinal}-${lastOrdinal}`}
+                placeholderTextColor={colors.textTertiary}
+              />
+              <Button
+                testID="runner-convergence-jump-button"
+                mode="contained"
+                compact
+                buttonColor={colors.accent}
+                onPress={jumpToRunner}
+                disabled={jumpInput.trim() === ""}
+                style={styles.jumpButton}
+                labelStyle={styles.jumpButtonLabel}
+              >
+                Go
+              </Button>
+            </View>
             <View
               ref={chartRef}
               testID="runner-convergence-chart"
@@ -324,6 +378,34 @@ const styles = StyleSheet.create({
   chartContainer: {
     width: "100%",
     position: "relative",
+  },
+  jumpRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    justifyContent: "center",
+  },
+  jumpLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  jumpInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    fontSize: 13,
+    color: colors.text,
+    width: 90,
+    textAlign: "center",
+  },
+  jumpButton: {
+    borderRadius: radii.sm,
+  },
+  jumpButtonLabel: {
+    fontSize: 12,
+    fontWeight: "600",
   },
   tooltip: {
     position: "absolute",
