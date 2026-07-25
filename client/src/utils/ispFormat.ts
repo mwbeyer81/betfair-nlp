@@ -45,6 +45,32 @@ export function computeRangePnl(races: IspRace[]): PnlStats {
   return { staked, returns, pnl: returns - staked, count };
 }
 
+// "With model" P&L: same staking math as computeRangePnl, but only counts a
+// runner when the model both clears the caller's own confidence threshold
+// AND rates it above the market's own implied probability (modelBeatsSp) —
+// a runner the model likes less than the market thinks it likes itself
+// isn't a model-driven bet, it's just backing the favourite.
+export function computeModelFilteredPnl(races: IspRace[], minModelWinProbability: number): PnlStats {
+  let staked = 0, returns = 0, count = 0;
+  for (const race of races) {
+    for (const runner of race.runners) {
+      if (
+        runner.isp != null &&
+        runner.isp > 1 &&
+        runner.modelWinProbability != null &&
+        runner.modelWinProbability >= minModelWinProbability &&
+        modelBeatsSp(runner)
+      ) {
+        count++;
+        const stake = 1 / (runner.isp - 1);
+        staked += stake;
+        if (runner.status === "WINNER") returns += stake + 1;
+      }
+    }
+  }
+  return { staked, returns, pnl: returns - staked, count };
+}
+
 export function runnerPnl(runner: IspRunner): number | null {
   if (runner.isp == null) return null;
   return runner.status === "WINNER" ? 1 : -stakeToWin1(runner.isp);

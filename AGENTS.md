@@ -706,3 +706,68 @@ to confirm nothing broke).
 **Done — committed (`aa3f85d`), merged to `develop`, pushed, deployed.
 Worktree removed, branch deleted (local + remote) — nothing left in
 progress.**
+
+---
+
+## 2026-07-25 (latest) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Task:** User asked for a "Model Performance Dashboard" to eventually
+track per-retraining model versions, training params, and P&L (with vs.
+without the model) across UI filters, stored in a new Mongo collection.
+Scoped down via clarifying questions to **frontend-only, mocked data,
+Storybook stories only** this round — no Mongo collection, DAO, service,
+API route, or `ml/train_and_predict.py` change yet. Backend wiring is a
+deliberate follow-up task once the UX is validated.
+
+**Not done in a worktree** — new, isolated files only (no edits to any
+of the contested files this doc calls out at the top), so the
+worktree-per-agent isolation this file recommends wasn't load-bearing
+here. Future non-trivial work should still default to a worktree per the
+section above.
+
+**Implementation:**
+- `client/src/utils/ispFormat.ts` — added `computeModelFilteredPnl`
+  (the "with model" P&L calc: same staking math as the existing
+  `computeRangePnl`, gated on `modelWinProbability >= threshold &&
+  modelBeatsSp(runner)`).
+- `client/src/components/ModelPerformanceDashboard.tsx` (new) — model-
+  version selector cards, training-params panel (mirrors
+  `ml/train_and_predict.py`'s real hyperparam names/values), performance
+  metrics + a hand-rolled SVG calibration chart (same style as
+  `RunnerConvergencePanel.tsx` — no charting library in this repo),
+  filters reusing `DateRangePicker.tsx` and the chip/checkbox
+  draft-vs-applied pattern from `IndustrySpScreen.tsx`, and two P&L stat
+  cards ("without model" / "with model").
+- `client/src/components/ModelPerformanceDashboard.stories.tsx` (new) —
+  16 stories (6 baseline + 10 dashboard-specific) with a deterministic
+  (seeded, not `Math.random()`) mock generator: 3 fake model versions
+  with improving AUC over time, ~130 races each, `modelWinProbability`
+  noise inversely tied to each version's AUC so the highest-AUC
+  version's "with model" P&L visibly beats its "without model" baseline
+  — the actual point of the demo.
+- Deploy: no Cloudflare Pages project existed for Storybook yet, and no
+  `CLOUDFLARE_API_TOKEN` was available this session — user redirected to
+  AWS (creds already configured on this box) instead. Created a new S3
+  bucket `backbet-storybook` (eu-north-1, public-read, static website
+  hosting, no CloudFront/custom domain — a review tool, not the
+  production app) and `apps/storybook-aws/deploy.sh` to rebuild+sync it.
+  `apps/storybook-cf/deploy.sh` was also written (mirrors
+  `apps/web-cf/deploy-dev.sh`) but is untested/unused until a Cloudflare
+  token exists — see `/deploy-storybook` for both.
+
+**Verified:** `yarn build` clean. Storybook test-runner:
+`ModelPerformanceDashboard.stories.tsx` 16/16 pass. Full suite otherwise
+unaffected — 4 pre-existing failures in files this task never touched
+(`IndustrySpScreen`, `AllRunnersScreen`, `EventsScreen`,
+`RunnerDetailScreen` stories).
+
+**Live at:** http://backbet-storybook.s3-website.eu-north-1.amazonaws.com
+(direct link to the new stories:
+http://backbet-storybook.s3-website.eu-north-1.amazonaws.com/?path=/story/components-modelperformancedashboard--panel-visible)
+
+**Not yet done (deliberately, next task):** Mongo collection for model
+versions/training runs, DAO/service/API routes, wiring
+`ml/train_and_predict.py` to emit a real per-run id + persist its own
+constructor hyperparams (today it only writes eval metrics +
+free-text `runLabel` to `model_evaluations` — no stable id), and
+connecting the dashboard to real data instead of the mock generator.
