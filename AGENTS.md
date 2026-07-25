@@ -560,3 +560,66 @@ against the pre-fix code and passes after). Not deployed at commit time
 **Done — committed (`112e47f`), merged to `develop`, pushed, deployed.
 Worktree removed, branch deleted (local + remote) — nothing left in
 progress.**
+
+---
+
+## 2026-07-25 (yet later) — Agent in `~/betfair-nlp-split-b-label` (branch `fix/split-b-label`)
+
+**Task:** User reported (screenshot) a follow-on to the `112e47f` fix
+above: with Split A edited to 2983 and Split B's "from" box explicitly
+set back to 1 (deliberately overlapping A), the *box* correctly showed
+"1" but the *result card* still said "Split B — runners 2984–8946" — a
+range that was never actually queried.
+
+**Root cause, confirmed via MSW repro before touching code — two
+compounding bugs, not one:**
+1. `applyResult` always re-derived `fromRunnerA/toRunnerA/fromRunnerB/
+   toRunnerB` via "A:1..totalRunnersA, B:totalRunnersA+1..+
+   totalRunnersB" arithmetic. Correct for the true auto-computed default
+   (genuinely contiguous, starting at 1) — fabricated for any explicit
+   split that isn't. Fixed this first, reran the repro — **no visible
+   change**, which is what surfaced bug 2:
+2. The result cards' own `renderSplitCard` call sites (in the JSX, not
+   `applyResult`) had a **second, independent copy** of that exact same
+   formula computed inline, reading `totalRunnersA`/`totalRunnersB`
+   directly and never touching `fromRunnerA/toRunnerA/fromRunnerB/
+   toRunnerB` state at all. Fixing `applyResult` alone was a no-op
+   because the card was never reading what it fixed.
+
+**Fix:** `applyResult` now branches on `isRunnerExplicit` — the default
+path keeps the original contiguous-arithmetic derivation, the explicit
+path reuses the already-correct `fromRunnerA`/`fromRunnerB` (set by
+`applyFilter` moments earlier) combined with each split's own returned
+`totalRunners` count to derive just the resolved end. Both
+`renderSplitCard` call sites now pass `fromRunnerA ?? 1`/`toRunnerA ??
+totalRunnersA` and the Split B equivalents directly, instead of
+re-deriving their own guess.
+
+**Debugging note for whoever hits this pattern again:** always grep for
+a second, independent copy of a formula before concluding a
+single-location fix didn't work — the "no visible change after a
+correct-looking fix" symptom here was the tell. `grep -n "totalRunnersA
++ 1"` (or similar) across the whole file would have found both spots
+immediately; I found the second one by tracing the actual prop each
+`renderSplitCard` call site passes, one call site at a time.
+
+**Verified:** `yarn build` clean. MSW Playwright `industry-sp.spec.ts`
+full suite: 81/81 pass (80 previous + 1 new). Storybook
+`IndustrySpScreen.stories.tsx`: 54/56 — same 2 pre-existing course-chip
+failures as every prior entry. **Gotcha hit and resolved along the
+way:** a stale Storybook process from the already-deleted
+`split-b-continuation` worktree (killed via `git worktree remove`, but
+its `storybook dev --port 6006` process kept running orphaned) was still
+holding port 6006 alongside a freshly-started one from this worktree —
+every single story failed with a generic "could not access the
+Storybook channel" error (not a real regression). `lsof -i:6006` showed
+two processes bound to the port; killing both and restarting cleanly
+from this worktree fixed it. **Always `lsof -i:6006` (or check `ps aux |
+grep storybook`) before trusting an "everything failed" Storybook
+result** — a real regression fails specific tests with specific
+assertion errors, not literally every story with the same
+channel-connection error.
+
+**Done — committed (`de7ab20`), merged to `develop`, pushed, deployed.
+Worktree removed, branch deleted (local + remote) — nothing left in
+progress.**
