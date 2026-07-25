@@ -1257,16 +1257,25 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   }
 
   // Opens the P&L convergence graph for one split's own runner range —
-  // Split A: 1..totalRunnersA, Split B: totalRunnersA+1..totalRunnersA+
-  // totalRunnersB (the exact same numbers that split's own card shows).
-  // Each split's graph is its own independent convergence test starting
-  // fresh at its own first runner, not a shared dataset-wide line — see
-  // getRunnerConvergenceSeries on the backend for why.
+  // reads the same resolved fromRunnerA/toRunnerA/fromRunnerB/toRunnerB
+  // state the result card itself renders from (see renderSplitCard's call
+  // sites), not a separately re-derived "A:1..totalRunnersA, B:
+  // totalRunnersA+1..+totalRunnersB" guess. That guess is only correct for
+  // the auto-computed default (genuinely contiguous, starting at 1) — for
+  // an explicit split it silently diverges from what the box/card show.
+  // Reported live via screenshot: Split B's box and card both correctly
+  // read "1–3000" after an explicit edit, but its Graph button still
+  // opened "Runners 1001–3173" — the exact same class of bug already fixed
+  // for the result card itself, just a third independent copy of the same
+  // formula that got missed. Each split's graph is its own independent
+  // convergence test starting fresh at its own first runner, not a shared
+  // dataset-wide line — see getRunnerConvergenceSeries on the backend for
+  // why.
   async function loadConvergence(id: "a" | "b") {
     setShowConvergencePanel(true);
     setConvergenceError(null);
-    const fromRunner = id === "a" ? 1 : totalRunnersA + 1;
-    const toRunner = id === "a" ? totalRunnersA : totalRunnersA + totalRunnersB;
+    const fromRunner = id === "a" ? (fromRunnerA ?? 1) : (fromRunnerB ?? totalRunnersA + 1);
+    const toRunner = id === "a" ? (toRunnerA ?? totalRunnersA) : (toRunnerB ?? totalRunnersA + totalRunnersB);
     // A split with zero runners (e.g. an empty result) has nothing to
     // graph — the backend requires toRunner >= 1, so skip the request
     // entirely rather than firing one that's guaranteed to fail.
@@ -1928,8 +1937,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           toRow={(detailSplit === "a" ? toRowA : toRowB) ?? totalRaces}
           totalRaces={detailSplit === "a" ? totalRacesA : totalRacesB}
           totalRunners={detailSplit === "a" ? totalRunnersA : totalRunnersB}
-          runnerFrom={detailSplit === "a" ? 1 : totalRunnersA + 1}
-          runnerTo={detailSplit === "a" ? totalRunnersA : totalRunnersA + totalRunnersB}
+          // Same fix as the two split cards and loadConvergence above —
+          // reads the resolved fromRunnerA/toRunnerA/fromRunnerB/toRunnerB
+          // state rather than re-deriving yet another independent copy of
+          // the "A:1.., B:totalRunnersA+1.." formula.
+          runnerFrom={detailSplit === "a" ? (fromRunnerA ?? 1) : (fromRunnerB ?? totalRunnersA + 1)}
+          runnerTo={detailSplit === "a" ? (toRunnerA ?? totalRunnersA) : (toRunnerB ?? totalRunnersA + totalRunnersB)}
           splitByRunners={splitByRunners}
           pnl={detailSplit === "a" ? pnlStatsA : pnlStatsB}
           onClose={() => setDetailSplit(null)}

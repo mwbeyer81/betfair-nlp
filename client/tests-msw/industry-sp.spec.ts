@@ -841,6 +841,62 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
     await expect(page.getByTestId("runner-convergence-range-subtitle")).toHaveText("Runners 501–1000");
   });
 
+  test("Split B's Graph button uses the range that was actually applied, not a fabricated continuation from Split A", async ({ page }) => {
+    // Regression: reported live via screenshot. Split A was edited to
+    // 1-1000 and Split B explicitly edited to 1-3000 (deliberately
+    // overlapping A) — the box and result card both correctly showed
+    // "runners 1–3000" (per the split-b-label fix), but the Graph button
+    // still opened "Runners 1001–3173": loadConvergence had its own,
+    // separate copy of the "A:1..totalRunnersA, B:totalRunnersA+1..+
+    // totalRunnersB" formula, never updated when the card's own copies
+    // were fixed. Same for the Details panel (SplitDetailPanel) a few
+    // lines below in IndustrySpScreen.tsx — a third and fourth independent
+    // copy of the exact same formula.
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      await route.fulfill({
+        json: {
+          success: true, totalRaces: 900, totalRunners: 3173, raceCap: 1000,
+          filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+          countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
+          raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
+          splitA: { fromRow: 1, toRow: 300, total: 211, totalRunners: 1000, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+          splitB: { fromRow: 1, toRow: null, total: 637, totalRunners: 3000, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+        },
+      });
+    });
+    let convergenceUrl = "";
+    await page.route("**/api/industry-sp/runner-convergence*", async (route) => {
+      convergenceUrl = route.request().url();
+      await route.fulfill({
+        json: { success: true, data: [{ runnerOrdinal: 1, cumulativeStaked: 1, cumulativeReturns: 0.5, cumulativePnl: -0.5, roiPercent: -50 }] },
+      });
+    });
+
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-to-runner-a").fill("1000");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-from-runner-b").fill("1");
+    await page.getByTestId("industry-sp-to-runner-b").fill("3000");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("runners 1–3000");
+
+    await page.getByTestId("industry-sp-split-graph-button-b").click();
+    await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
+
+    const url = new URL(convergenceUrl);
+    expect(url.searchParams.get("fromRunner")).toBe("1");
+    expect(url.searchParams.get("toRunner")).toBe("3000");
+  });
+
   test("tapping the P&L convergence chart snaps a marker and tooltip to the nearest runner", async ({ page }) => {
     // Requested live: "tap somewhere on the graph and a snap appears...
     // for current profit loss and runner count on spot on the line."
