@@ -1656,3 +1656,37 @@ Worktree removed, branch deleted (local + remote) — nothing left in
 progress.
 
 Not yet merged, not deployed, worktree left in place for user review.
+
+---
+
+## 2026-07-25 (still later) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Task:** Finish the `model-versioning-backend` merge and deploy.
+
+Merged `origin/develop` (this branch's own `feat/app-knowledge-chat`
+work, already pushed by the time this ran) into local `develop` —
+committed (`94105e7`). Only real conflict was `AGENTS.md` (append-only,
+concatenated both entries + updated the active-worktrees table);
+`src/server/__tests__/app.test.ts` auto-merged cleanly despite both
+branches touching it heavily. Re-verified: backend `tsc` + full `jest`
+clean (model-versioning-backend's own 9 DAO integration tests +
+`GET /api/model-versions` supertest cases still pass), pre-existing
+failure count unchanged.
+
+Pushed `develop` to origin (`94105e7`). Deployed:
+- **Lambda** (`apps/lambda/build.sh`) — confirmed live:
+  `curl .../api/model-versions` → `{"success":true,"data":[],"count":0}`
+  (empty as expected, no real training run has populated
+  `modelVersionId` yet).
+- **Web app** (`apps/web/deploy.sh`, `develop` → `app.backbet.co.uk`) —
+  confirmed live: `build-branch=develop`, `build-commit=94105e7`.
+
+**Not deployed/reconciled:** `main`/`backbet.co.uk` (out of scope — only
+`develop` was asked for). The stashed `train_and_predict.py`
+feature-engineering work (`stash@{0}` as of the previous entry) is still
+stashed, untouched — nobody has asked for that reconciliation yet.
+
+**Done — `develop` merged, pushed, deployed (both Lambda and web).**
+`~/betfair-nlp-model-versioning-backend` worktree removed, branch
+deleted (local — not on remote, since it was never pushed as its own
+branch). Nothing left in progress for this specific task.
