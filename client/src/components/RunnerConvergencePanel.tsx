@@ -218,9 +218,20 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
                   </>
                 )}
               </Svg>
-              {selectedPoint != null && (
+              {selectedPoint != null && selectedIndex != null && (
                 <View testID="runner-convergence-tooltip" style={[styles.tooltip, { left: tooltipLeft, width: TOOLTIP_WIDTH }]}>
                   <Text style={styles.tooltipRunner}>Runner {selectedPoint.runnerOrdinal}</Text>
+                  {/* Regression: reported live — the headline reads "after
+                      2980 runners" (a count local to this split), while the
+                      ordinal above is the TRUE global runner number (can be
+                      much larger, e.g. 5676, for a split that doesn't start
+                      at 1 — see the file-level comment on firstOrdinal).
+                      Juxtaposed with no context, that reads as a bug rather
+                      than two intentionally different numbers. This line
+                      ties them together explicitly. */}
+                  <Text testID="runner-convergence-tooltip-position" style={styles.tooltipPosition}>
+                    {selectedIndex + 1} of {points.length} in this split
+                  </Text>
                   <Text
                     testID="runner-convergence-tooltip-pnl"
                     style={[styles.tooltipPnl, selectedPoint.cumulativePnl >= 0 ? styles.pnlPos : styles.pnlNeg]}
@@ -326,6 +337,11 @@ const styles = StyleSheet.create({
   tooltipRunner: {
     fontSize: 11,
     color: "rgba(255,255,255,0.8)",
+  },
+  tooltipPosition: {
+    fontSize: 9,
+    color: "rgba(255,255,255,0.6)",
+    textAlign: "center",
   },
   tooltipPnl: {
     fontSize: 13,

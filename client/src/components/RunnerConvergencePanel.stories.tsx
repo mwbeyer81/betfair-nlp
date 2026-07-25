@@ -185,6 +185,7 @@ export const TappingTheChartShowsASnapTooltip: Story = {
     await expect(tooltip).toBeInTheDocument();
     await expect(tooltip).toHaveTextContent("Runner");
     await expect(canvas.getByTestId("runner-convergence-tooltip-pnl")).toHaveTextContent("£");
+    await expect(canvas.getByTestId("runner-convergence-tooltip-position")).toHaveTextContent("of");
   },
 };
 
@@ -203,5 +204,20 @@ export const ScopedToASplitsOwnRange: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByTestId("runner-convergence-range-subtitle")).toHaveTextContent("Runners 1001–1200");
     await expect(canvas.getByTestId("runner-convergence-final-roi")).toHaveTextContent("after 200 runners");
+
+    // Regression: reported live — tapping near the right edge showed a
+    // tooltip ordinal (e.g. "Runner 1187", the TRUE global number) that
+    // looked impossibly large next to the headline's "after 200 runners"
+    // (a count local to this split). The tooltip's position line must tie
+    // the two together — "N of 200" always stays within the local count,
+    // even while the ordinal above it is a much larger global number.
+    await userEvent.click(canvas.getByTestId("runner-convergence-chart"));
+    const position = canvas.getByTestId("runner-convergence-tooltip-position");
+    await expect(position).toHaveTextContent("of 200 in this split");
+    const match = position.textContent?.match(/^(\d+) of 200/);
+    expect(match).toBeTruthy();
+    const localPosition = Number(match![1]);
+    expect(localPosition).toBeGreaterThanOrEqual(1);
+    expect(localPosition).toBeLessThanOrEqual(200);
   },
 };
