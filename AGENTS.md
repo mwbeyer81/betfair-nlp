@@ -1180,9 +1180,13 @@ Full suite: 280/286 pass (6 failed — those same 2, plus the 4
 pre-existing unrelated failures in `AllRunnersScreen`/`EventsScreen`/
 `RunnerDetailScreen` also noted in earlier entries).
 
-**Not yet done:** uncommitted in the primary checkout — holding for
-explicit user confirmation before committing, per this repo's commit
-policy.
+**Done — committed (`c3dbe5c`), merged with the concurrently-landed
+`split-ab-race-revert` (`aaf7fd3`, conflicts in `AGENTS.md` only —
+`IndustrySpScreen.tsx`/`.stories.tsx` auto-merged cleanly since the two
+changes touched disjoint regions), pushed, deployed via
+`apps/web/deploy.sh` (no backend changes this round, so no Lambda
+deploy needed). Confirmed live: `curl https://app.backbet.co.uk/` shows
+`build-branch=develop`, `build-commit=aaf7fd3`.**
 
 ---
 
