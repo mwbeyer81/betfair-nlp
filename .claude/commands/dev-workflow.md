@@ -61,3 +61,24 @@ Run after every frontend change before committing:
 ```bash
 cd client && yarn build
 ```
+
+## Git worktree hygiene
+
+This repo runs multiple concurrent agents in sibling git worktrees — see
+`AGENTS.md`'s "Working in a worktree" section for how to create one. The
+other half of that convention matters just as much: **once your branch is
+merged (and, for anything user-facing, deployed), remove the worktree**
+rather than leaving it on disk.
+
+```bash
+git worktree remove ~/betfair-nlp-<slug>   # after confirming git status is clean
+git branch -d <slug>                       # -d (not -D) refuses if unmerged, as a safety check
+```
+
+A stale merged worktree isn't just clutter — it's a live, editable checkout
+of old code that the next agent might stumble into and mistake for active
+work, and it silently drifts as `develop` moves on without it. Check
+`AGENTS.md`'s "Active worktrees" table before assuming a worktree is safe to
+remove: if it shows uncommitted changes (`git status --short` inside it),
+that's very likely someone's real in-progress work, not cruft — leave it
+and flag it instead of removing it.

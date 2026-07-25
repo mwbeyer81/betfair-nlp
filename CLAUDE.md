@@ -4,6 +4,15 @@
 Full-stack TypeScript app: Express/MongoDB backend + Expo (React Native Web) frontend.
 Backend: `src/` · Frontend: `client/src/` · Tests: `src/**/__tests__/` and `client/tests/`.
 
+## Multi-agent coordination
+
+Before starting non-trivial work, read `AGENTS.md` — it's the coordination
+log for concurrent agents working in sibling git worktrees (shared infra
+gotchas, in-progress work on shared files, an active-worktrees table). Do
+substantial work in its own `git worktree` per `AGENTS.md`'s "Working in a
+worktree" section rather than in the primary checkout, and add/update your
+entry there before you push or merge.
+
 ---
 
 ## Adding a new panel/button to the EventGroupsPanel
