@@ -148,42 +148,39 @@ test.describe("Industry SP filters screen — bare load applies nothing (MSW moc
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
 
-    // "Split by runners" is checked by default, so the card shows the
-    // runner range (1–2 / 3–4, from this mock's splitA/splitB
-    // totalRunners of 2 each) rather than the race range — still two
-    // distinct, non-overlapping ranges, which is what this test actually
-    // guards against (the same full range appearing twice).
-    await expect(page.getByTestId("industry-sp-split-card-a")).toContainText("runners 1–2");
-    await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("runners 3–4");
+    // Two distinct, non-overlapping race ranges, which is what this test
+    // actually guards against (the same full range appearing twice).
+    await expect(page.getByTestId("industry-sp-split-card-a")).toContainText("races 1–1250");
+    await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("races 1251–2500");
   });
 
   test("editing Split A/B before ever pressing Apply is still honored on that first Apply", async ({ page }) => {
     // Regression: reported live via screenshot — a user who typed into the
-    // Split A/B runner boxes as their very first interaction (instead of
+    // Split A/B race boxes as their very first interaction (instead of
     // applying the default split first) had their edit silently discarded;
     // Apply just re-showed the auto-computed default split. Root cause was
-    // in applyFilter's split-bound math: totalRunners is still 0 before any
+    // in applyFilter's split-bound math: totalRaces is still 0 before any
     // fetch has ever resolved, so clamping the typed value against that
     // unknown 0 ceiling crushed it down to 1 and then read that as "reached
     // the end" (null / open-ended), indistinguishable from an untouched
     // placeholder box. See splitBoxesEditedRef / resolveSplitBound in
     // IndustrySpScreen.tsx.
-    let capturedToRunnerA: string | null | undefined;
+    let capturedToRowA: string | null | undefined;
     await page.route("**/api/industry-sp/splits*", async (route) => {
       const url = new URL(route.request().url());
-      if (capturedToRunnerA === undefined) {
-        capturedToRunnerA = url.searchParams.get("toRunnerA");
+      if (capturedToRowA === undefined) {
+        capturedToRowA = url.searchParams.get("toRowA");
       }
       await route.fallback();
     });
 
     await page.goto("/isp");
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("industry-sp-to-runner-a").fill("1589");
+    await page.getByTestId("industry-sp-to-row-a").fill("1589");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
 
-    expect(capturedToRunnerA).toBe("1589");
+    expect(capturedToRowA).toBe("1589");
   });
 
   test("a URL that already carries filter params fetches immediately, without an extra Apply", async ({ page }) => {
@@ -334,152 +331,108 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-only-model-beats-sp")).not.toHaveAttribute("aria-checked", "true");
   });
 
-  test("'Split by runners' checkbox defaults to checked, and unchecking it sends splitByRunners=false", async ({ page }) => {
-    // Unlike every other checkbox on this screen, this one defaults to
-    // checked (true) — it matches the currently-shipped default-split
-    // behavior (bisect by qualifying-runner count), so only opting OUT
-    // (unchecking) needs to be visible in the URL/request.
-    await expect(page.getByTestId("industry-sp-split-by-runners")).toBeVisible();
-    await expect(page.getByTestId("industry-sp-split-by-runners")).toHaveAttribute("aria-checked", "true");
-
-    let captured: string | null = null;
-    await page.route("**/api/industry-sp/splits*", async (route) => {
-      const url = new URL(route.request().url());
-      captured = url.searchParams.get("splitByRunners");
-      await route.continue();
-    });
-
-    await page.getByTestId("industry-sp-split-by-runners").click();
-    await expect(page.getByTestId("industry-sp-split-by-runners")).not.toHaveAttribute("aria-checked", "true");
-    await page.getByTestId("industry-sp-filter-apply").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
-    expect(captured).toBe("false");
-
-    await page.getByTestId("industry-sp-filter-reset").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-split-by-runners")).toHaveAttribute("aria-checked", "true");
-  });
-
-  test("in 'Split by runners' mode, Split A/B edit runner numbers (with a '/totalRunners' hint), not race numbers", async ({ page }) => {
-    // Regression: the user asked to be able to choose the runner split
-    // boundary directly, the same way race boundaries were already
-    // editable — confirms the runner-specific boxes (distinct testIDs from
-    // the race ones) are what's shown by default, since "Split by runners"
-    // is checked out of the box.
-    await expect(page.getByTestId("industry-sp-from-runner-a")).toBeVisible();
-    await expect(page.getByTestId("industry-sp-to-runner-a")).toBeVisible();
-    await expect(page.getByTestId("industry-sp-from-runner-b")).toBeVisible();
-    await expect(page.getByTestId("industry-sp-to-runner-b")).toBeVisible();
-    await expect(page.getByTestId("industry-sp-from-row-a")).not.toBeVisible();
-    await expect(page.getByTestId("industry-sp-runner-bound-a")).toContainText("/");
-
-    // Switching to "Split by races" swaps in the race-index boxes instead.
-    await page.getByTestId("industry-sp-split-by-runners").click();
+  test("Split A/B's race-range boxes are always visible, with a '/totalRaces' hint", async ({ page }) => {
     await expect(page.getByTestId("industry-sp-from-row-a")).toBeVisible();
-    await expect(page.getByTestId("industry-sp-from-runner-a")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-to-row-a")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-from-row-b")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-to-row-b")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-race-bound-a")).toContainText("/");
   });
 
-  test("typing a custom runner range and applying sends fromRunnerA/toRunnerA/fromRunnerB/toRunnerB, not fromRowA/etc", async ({ page }) => {
-    // route.fallback() (not .continue()) is what defers to the fixture's
-    // own splits handler registered earlier — .continue() sends the
-    // request straight to the network instead, bypassing it entirely.
+  test("typing a custom race range and applying sends fromRowA/toRowA/fromRowB", async ({ page }) => {
+    // Overrides the shared beforeEach's tiny 1-race default fixture with a
+    // real multi-race total, needed for THIS test's very first Apply too —
+    // resolveSplitBound (IndustrySpScreen.tsx) clamps a typed "to" value
+    // down to the open-ended (null) sentinel once it reaches the
+    // currently-known total, and a 1-race total leaves no room for any
+    // typed value at all.
+    // Echoes back whatever fromRowA/toRowA/fromRowB the request actually
+    // carried (falling back to a fixed 1250/2500 half/half default when
+    // none are present) — the URL is synced from the *response*
+    // (syncUrl reads result.splitA.fromRow/toRow), so a mock that just
+    // returns fixed numbers regardless of the request would make the URL
+    // reflect the mock's canned values instead of what was actually typed.
     let captured: Record<string, string | null> = {};
     await page.route("**/api/industry-sp/splits*", async (route) => {
       const url = new URL(route.request().url());
       captured = {
-        fromRunnerA: url.searchParams.get("fromRunnerA"),
-        toRunnerA: url.searchParams.get("toRunnerA"),
-        fromRunnerB: url.searchParams.get("fromRunnerB"),
         fromRowA: url.searchParams.get("fromRowA"),
+        toRowA: url.searchParams.get("toRowA"),
+        fromRowB: url.searchParams.get("fromRowB"),
       };
-      await route.fallback();
-    });
-
-    await page.getByTestId("industry-sp-to-runner-a").fill("1");
-    await page.getByTestId("industry-sp-filter-apply").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
-
-    expect(captured.fromRunnerA).toBe("1");
-    expect(captured.toRunnerA).toBe("1");
-    expect(captured.fromRowA).toBeNull();
-    // The mock doesn't replicate the real backend's runner-to-race
-    // resolution (that's verified separately, directly against real data),
-    // but the URL should carry *some* toRunnerA — proving the applied
-    // split is persisted as a runner-index range, not silently dropped.
-    expect(page.url()).toContain("toRunnerA=");
-    expect(page.url()).not.toContain("fromRowA");
-  });
-
-  test("the typed runner range stays visible in the box after Apply — not silently replaced by the resolved value", async ({ page }) => {
-    // Regression: reported live via screenshot — typing "1–1000" / "1001–
-    // 2000" into Split A/B then clicking Apply caused the boxes to change
-    // to "1–1003" / "1004–2005" (the *resolved*, race-boundary-snapped
-    // values) instead of keeping what was actually typed. Races are the
-    // atomic unit, so an arbitrary runner target rarely lands exactly on a
-    // race boundary and gets resolved to whatever the nearest one actually
-    // is — that resolved range is correctly shown on the result card below
-    // ("Split A — runners 1–1003"), but the *edit box* silently overwriting
-    // the user's own request made it look like the app was ignoring input.
-    //
-    // A large mock total (the default fixture's is only 3 runners, too
-    // small to test this — typing 1000 against a total of 3 legitimately
-    // clamps down to 3, a different, correct behavior that would mask this
-    // regression) so the typed value is well within range and the mock's
-    // own (unrelated to what was typed) resolved total is clearly distinct
-    // from it — if the fix regresses, the box would show "2500" (the
-    // mock's canned splitA.totalRunners) instead of what was typed.
-    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const totalRaces = 2500;
+      const fromRowARaw = url.searchParams.get("fromRowA");
+      let fromRowA: number, toRowA: number | null, fromRowB: number, toRowB: number | null;
+      if (fromRowARaw == null) {
+        fromRowA = 1; toRowA = 1250; fromRowB = 1251; toRowB = null;
+      } else {
+        fromRowA = parseInt(fromRowARaw, 10);
+        toRowA = url.searchParams.get("toRowA") != null ? parseInt(url.searchParams.get("toRowA")!, 10) : null;
+        fromRowB = url.searchParams.get("fromRowB") != null ? parseInt(url.searchParams.get("fromRowB")!, 10) : 1;
+        toRowB = url.searchParams.get("toRowB") != null ? parseInt(url.searchParams.get("toRowB")!, 10) : null;
+      }
+      const pnl = { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 };
       await route.fulfill({
         json: {
-          success: true, totalRaces: 2500, totalRunners: 5000, raceCap: 1000,
+          success: true, totalRaces, totalRunners: totalRaces * 2, raceCap: 1000,
           filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
           countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
           raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
-          splitA: { fromRow: 1, toRow: 1250, total: 1250, totalRunners: 2500, pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } },
-          splitB: { fromRow: 1251, toRow: null, total: 1250, totalRunners: 2500, pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } },
+          splitA: { fromRow: fromRowA, toRow: toRowA, total: (toRowA ?? totalRaces) - fromRowA + 1, totalRunners: 4, pnlStats: pnl },
+          splitB: { fromRow: fromRowB, toRow: toRowB, total: (toRowB ?? totalRaces) - fromRowB + 1, totalRunners: 4, pnlStats: pnl },
         },
       });
     });
+
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-sp-to-runner-a").fill("1000");
+    await page.getByTestId("industry-sp-to-row-a").fill("700");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-    await expect(page.getByTestId("industry-sp-to-runner-a")).toHaveValue("1000");
+    expect(captured.fromRowA).toBe("1");
+    expect(captured.toRowA).toBe("700");
+    expect(page.url()).toContain("toRowA=700");
   });
 
-  test("reloading a URL with an explicit runner-range split restores it as the active split (not the default)", async ({ page }) => {
-    // Asserts on the *outgoing request*, not the redisplayed box values —
-    // the mock (unlike the real backend) doesn't implement runner-to-race
-    // boundary resolution, so it can't honor an explicit runner target
-    // faithfully; the real resolution is verified separately, directly
-    // against production-scale data (see industry-sp-service.integration.
-    // test.ts). What this test actually guards is the frontend wiring: a
-    // URL carrying an explicit runner range must be read and re-sent as
-    // that same explicit range, not silently replaced by the auto default.
+  test("reloading a URL with an explicit race-range split restores it as the active split (not the default)", async ({ page }) => {
+    // A large enough mocked totalRaces that splitB.fromRow=3 doesn't
+    // exceed it — otherwise the "stale explicit split" self-heal
+    // (isStaleSplit in IndustrySpScreen.tsx) correctly kicks in and
+    // discards the explicit params on an automatic follow-up fetch, which
+    // is real, intentional behavior this test isn't about.
     let captured: Record<string, string | null> = {};
     await page.route("**/api/industry-sp/splits*", async (route) => {
       const url = new URL(route.request().url());
       captured = {
-        fromRunnerA: url.searchParams.get("fromRunnerA"),
-        toRunnerA: url.searchParams.get("toRunnerA"),
-        fromRunnerB: url.searchParams.get("fromRunnerB"),
-        toRunnerB: url.searchParams.get("toRunnerB"),
+        fromRowA: url.searchParams.get("fromRowA"),
+        toRowA: url.searchParams.get("toRowA"),
+        fromRowB: url.searchParams.get("fromRowB"),
+        toRowB: url.searchParams.get("toRowB"),
       };
-      await route.fallback();
+      await route.fulfill({
+        json: {
+          success: true, totalRaces: 900, totalRunners: 1800, raceCap: 1000,
+          filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+          countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
+          raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
+          splitA: { fromRow: 1, toRow: 2, total: 2, totalRunners: 4, pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } },
+          splitB: { fromRow: 3, toRow: 3, total: 1, totalRunners: 2, pnlStats: { staked: 1, returns: 2, pnl: 1, count: 2 } },
+        },
+      });
     });
 
-    await page.goto("/isp?fromRunnerA=1&toRunnerA=2&fromRunnerB=3&toRunnerB=3");
+    await page.goto("/isp?fromRowA=1&toRowA=2&fromRowB=3&toRowB=3");
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
 
-    expect(captured.fromRunnerA).toBe("1");
-    expect(captured.toRunnerA).toBe("2");
-    expect(captured.fromRunnerB).toBe("3");
-    expect(captured.toRunnerB).toBe("3");
-    await expect(page.getByTestId("industry-sp-split-by-runners")).toHaveAttribute("aria-checked", "true");
+    expect(captured.fromRowA).toBe("1");
+    expect(captured.toRowA).toBe("2");
+    expect(captured.fromRowB).toBe("3");
+    expect(captured.toRowB).toBe("3");
   });
 
   test("setting maxRunnersInRange=2 zeroes out the aggregate (mocked race has 3 runners in range)", async ({ page }) => {
@@ -576,30 +529,50 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
 // hasLoadedOnce/splitsAreDefaultRef in IndustrySpScreen.tsx's applyFilter).
 // These tests need that first, real Apply to go through their OWN
 // large-total mock (see resolveSplitPair's comment) so Split A/B's boxes
-// actually populate with the 1586/1587-style numbers the regression needs —
+// actually populate with the 850/851-style numbers the regression needs —
 // reusing the shared beforeEach's tiny mock for that first load would
 // silently mask the bug these exist to catch.
 test("editing only Split A's box carries Split B forward to continue right after it, not its own stale value", async ({ page }) => {
   // Regression: reported live via screenshot — editing only Split A's "to"
-  // box (extending it from a prior 1586 out to 2983) and pressing Apply
-  // sent Split B's *stale* prior boundary (still 1587, left over from
-  // before A moved) instead of continuing right after A's new one. The two
-  // ranges silently overlapped — runners 1587-2983 got counted in both
-  // splits' P&L — while the result card's label for Split B (built from
-  // splitA.totalRunners + splitB.totalRunners, not from what was actually
-  // queried) looked like a clean, non-overlapping continuation even though
-  // the underlying request wasn't.
+  // box (extending it from a prior 850 out to 700) and pressing Apply sent
+  // Split B's *stale* prior boundary (still 851, left over from before A
+  // moved) instead of continuing right after A's new one. The two ranges
+  // silently overlapped — races 701-850 got counted in both splits' P&L —
+  // while the result card's label for Split B (built independently, not
+  // from what was actually queried) looked like a clean, non-overlapping
+  // continuation even though the underlying request wasn't.
+  // Echoes back whatever fromRowA/toRowA/fromRowB/toRowB the request
+  // actually carried (falling back to a fixed 850/851 default split when
+  // none are present, i.e. the very first Apply) — race mode has no
+  // server-side snapping/resolution step, so a faithful mock (like the
+  // real backend) just reflects the request straight back, letting the
+  // displayed boxes (synced from the response in applyResult) actually
+  // prove what was carried forward, not just what applyFilter itself
+  // computed client-side a moment earlier.
   let lastUrl = "";
   await page.route("**/api/industry-sp/splits*", async (route) => {
     lastUrl = route.request().url();
+    const url = new URL(lastUrl);
+    const totalRaces = 900;
+    const fromRowARaw = url.searchParams.get("fromRowA");
+    let fromRowA: number, toRowA: number | null, fromRowB: number, toRowB: number | null;
+    if (fromRowARaw == null) {
+      fromRowA = 1; toRowA = 850; fromRowB = 851; toRowB = null;
+    } else {
+      fromRowA = parseInt(fromRowARaw, 10);
+      toRowA = url.searchParams.get("toRowA") != null ? parseInt(url.searchParams.get("toRowA")!, 10) : null;
+      fromRowB = url.searchParams.get("fromRowB") != null ? parseInt(url.searchParams.get("fromRowB")!, 10) : 1;
+      toRowB = url.searchParams.get("toRowB") != null ? parseInt(url.searchParams.get("toRowB")!, 10) : null;
+    }
+    const pnl = { staked: 10, returns: 9, pnl: -1, count: 5 };
     await route.fulfill({
       json: {
-        success: true, totalRaces: 900, totalRunners: 3173, raceCap: 1000,
+        success: true, totalRaces, totalRunners: totalRaces * 2, raceCap: 1000,
         filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
         countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
         raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
-        splitA: { fromRow: 1, toRow: 850, total: 850, totalRunners: 1586, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
-        splitB: { fromRow: 851, toRow: null, total: 50, totalRunners: 1587, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+        splitA: { fromRow: fromRowA, toRow: toRowA, total: (toRowA ?? totalRaces) - fromRowA + 1, totalRunners: 2, pnlStats: pnl },
+        splitB: { fromRow: fromRowB, toRow: toRowB, total: (toRowB ?? totalRaces) - fromRowB + 1, totalRunners: 2, pnlStats: pnl },
       },
     });
   });
@@ -611,34 +584,48 @@ test("editing only Split A's box carries Split B forward to continue right after
 
   // Split B's own box, left untouched, shows its default continuation from
   // that first (genuinely default, auto-computed) apply.
-  await expect(page.getByTestId("industry-sp-from-runner-b")).toHaveValue("1587");
+  await expect(page.getByTestId("industry-sp-from-row-b")).toHaveValue("851");
 
-  await page.getByTestId("industry-sp-to-runner-a").fill("2983");
+  await page.getByTestId("industry-sp-to-row-a").fill("700");
   await page.getByTestId("industry-sp-filter-apply").click();
   await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
   const url = new URL(lastUrl);
-  expect(url.searchParams.get("fromRunnerA")).toBe("1");
-  expect(url.searchParams.get("toRunnerA")).toBe("2983");
-  expect(url.searchParams.get("fromRunnerB")).toBe("2984");
-  expect(url.searchParams.get("toRunnerB")).toBeNull();
-  await expect(page.getByTestId("industry-sp-from-runner-b")).toHaveValue("2984");
+  expect(url.searchParams.get("fromRowA")).toBe("1");
+  expect(url.searchParams.get("toRowA")).toBe("700");
+  expect(url.searchParams.get("fromRowB")).toBe("701");
+  expect(url.searchParams.get("toRowB")).toBeNull();
+  await expect(page.getByTestId("industry-sp-from-row-b")).toHaveValue("701");
 });
 
 test("editing only Split B's box carries Split A forward to end right before it", async ({ page }) => {
   // Symmetric case of the regression above — editing Split B instead of
-  // Split A must carry Split A's own end forward the same way.
+  // Split A must carry Split A's own end forward the same way. Same
+  // echo-the-request mock as above.
   let lastUrl = "";
   await page.route("**/api/industry-sp/splits*", async (route) => {
     lastUrl = route.request().url();
+    const url = new URL(lastUrl);
+    const totalRaces = 900;
+    const fromRowARaw = url.searchParams.get("fromRowA");
+    let fromRowA: number, toRowA: number | null, fromRowB: number, toRowB: number | null;
+    if (fromRowARaw == null) {
+      fromRowA = 1; toRowA = 850; fromRowB = 851; toRowB = null;
+    } else {
+      fromRowA = parseInt(fromRowARaw, 10);
+      toRowA = url.searchParams.get("toRowA") != null ? parseInt(url.searchParams.get("toRowA")!, 10) : null;
+      fromRowB = url.searchParams.get("fromRowB") != null ? parseInt(url.searchParams.get("fromRowB")!, 10) : 1;
+      toRowB = url.searchParams.get("toRowB") != null ? parseInt(url.searchParams.get("toRowB")!, 10) : null;
+    }
+    const pnl = { staked: 10, returns: 9, pnl: -1, count: 5 };
     await route.fulfill({
       json: {
-        success: true, totalRaces: 900, totalRunners: 3173, raceCap: 1000,
+        success: true, totalRaces, totalRunners: totalRaces * 2, raceCap: 1000,
         filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
         countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
         raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
-        splitA: { fromRow: 1, toRow: 850, total: 850, totalRunners: 1586, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
-        splitB: { fromRow: 851, toRow: null, total: 50, totalRunners: 1587, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+        splitA: { fromRow: fromRowA, toRow: toRowA, total: (toRowA ?? totalRaces) - fromRowA + 1, totalRunners: 2, pnlStats: pnl },
+        splitB: { fromRow: fromRowB, toRow: toRowB, total: (toRowB ?? totalRaces) - fromRowB + 1, totalRunners: 2, pnlStats: pnl },
       },
     });
   });
@@ -648,27 +635,27 @@ test("editing only Split B's box carries Split A forward to end right before it"
   await page.getByTestId("industry-sp-filter-apply").click();
   await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-  await page.getByTestId("industry-sp-from-runner-b").fill("1000");
+  await page.getByTestId("industry-sp-from-row-b").fill("400");
   await page.getByTestId("industry-sp-filter-apply").click();
   await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
   const url = new URL(lastUrl);
-  expect(url.searchParams.get("fromRunnerB")).toBe("1000");
-  expect(url.searchParams.get("fromRunnerA")).toBe("1");
-  expect(url.searchParams.get("toRunnerA")).toBe("999");
-  await expect(page.getByTestId("industry-sp-to-runner-a")).toHaveValue("999");
+  expect(url.searchParams.get("fromRowB")).toBe("400");
+  expect(url.searchParams.get("fromRowA")).toBe("1");
+  expect(url.searchParams.get("toRowA")).toBe("399");
+  await expect(page.getByTestId("industry-sp-to-row-a")).toHaveValue("399");
 });
 
-test("editing Split B's from down to 1 (claiming the whole dataset) doesn't collapse Split A to a fabricated 1-runner result", async ({ page }) => {
+test("editing Split B's from down to 1 (claiming the whole dataset) doesn't collapse Split A to an empty range", async ({ page }) => {
   // Regression: reported live via screenshot. Split A had already been
-  // edited to 2983 (carrying Split B forward to 2984, per the fix above).
+  // edited to 700 (carrying Split B forward to 701, per the fix above).
   // Editing Split B's "from" back down to 1 made the naive complementary
   // range for Split A come out as fromA=1/toA=0 — an inverted, empty
-  // range. That "0" doesn't mean "empty" once it reaches the backend
-  // though: the explicit-runner-split resolver floors any "to" target up
-  // to 1 (Math.max(1, target)), so "empty" and "exactly runner 1" become
-  // indistinguishable — Split A's card came back showing a fabricated
-  // 1-runner result ("runners 1–1", a real P&L figure) instead of 0.
+  // range that would have silently wiped out whatever Split A's own box
+  // actually held. resolveSplitPair falls back to resolving Split A
+  // independently from its own last-committed box in this case, instead
+  // of sending a "0" that means "empty" to a range Split A never asked to
+  // give up.
   let lastUrl = "";
   await page.route("**/api/industry-sp/splits*", async (route) => {
     lastUrl = route.request().url();
@@ -689,32 +676,29 @@ test("editing Split B's from down to 1 (claiming the whole dataset) doesn't coll
   await page.getByTestId("industry-sp-filter-apply").click();
   await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-  await page.getByTestId("industry-sp-to-runner-a").fill("2983");
+  await page.getByTestId("industry-sp-to-row-a").fill("700");
   await page.getByTestId("industry-sp-filter-apply").click();
   await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-  await page.getByTestId("industry-sp-from-runner-b").fill("1");
+  await page.getByTestId("industry-sp-from-row-b").fill("1");
   await page.getByTestId("industry-sp-filter-apply").click();
   await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
   const url = new URL(lastUrl);
-  expect(url.searchParams.get("fromRunnerB")).toBe("1");
-  // toRunnerA must never be "0" — 0 gets silently floored to "runner 1" by
-  // the backend, fabricating a result instead of representing "empty".
-  expect(url.searchParams.get("toRunnerA")).not.toBe("0");
-  await expect(page.getByTestId("industry-sp-to-runner-a")).not.toHaveValue("0");
+  expect(url.searchParams.get("fromRowB")).toBe("1");
+  // toRowA must never be "0" — that would silently empty Split A instead
+  // of keeping its own last-committed range.
+  expect(url.searchParams.get("toRowA")).not.toBe("0");
+  await expect(page.getByTestId("industry-sp-to-row-a")).not.toHaveValue("0");
 });
 
 test("Split B's result card shows the range that was actually queried, not a fabricated continuation from Split A", async ({ page }) => {
   // Regression: reported live via screenshot. With Split A already edited
-  // to 2983 and Split B's "from" box explicitly set back down to 1
+  // to 700 and Split B's "from" box explicitly set back down to 1
   // (deliberately overlapping A, per the zero-guard fallback above), the
-  // card still showed "Split B — runners 2984–8946" — computed inline at
-  // the card's own call site as "totalRunnersA+1..totalRunnersA+
-  // totalRunnersB", which assumes B always starts exactly where A ends.
-  // The box plainly said "1" the whole time. The card must read the same
-  // resolved fromRunnerB/toRunnerB the request itself was built from, not
-  // re-derive its own guess.
+  // card still showed a fabricated range computed inline at the card's own
+  // call site instead of reading the resolved fromRow/toRow the request
+  // itself was built from.
   await page.route("**/api/industry-sp/splits*", async (route) => {
     await route.fulfill({
       json: {
@@ -723,7 +707,7 @@ test("Split B's result card shows the range that was actually queried, not a fab
         countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
         raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
         splitA: { fromRow: 1, toRow: 850, total: 850, totalRunners: 2983, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
-        splitB: { fromRow: 1, toRow: null, total: 900, totalRunners: 5963, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+        splitB: { fromRow: 1, toRow: 900, total: 900, totalRunners: 5963, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
       },
     });
   });
@@ -733,15 +717,15 @@ test("Split B's result card shows the range that was actually queried, not a fab
   await page.getByTestId("industry-sp-filter-apply").click();
   await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-  await page.getByTestId("industry-sp-to-runner-a").fill("2983");
+  await page.getByTestId("industry-sp-to-row-a").fill("700");
   await page.getByTestId("industry-sp-filter-apply").click();
   await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-  await page.getByTestId("industry-sp-from-runner-b").fill("1");
+  await page.getByTestId("industry-sp-from-row-b").fill("1");
   await page.getByTestId("industry-sp-filter-apply").click();
   await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-  await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("runners 1–5963");
+  await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("races 1–900");
 });
 
 test.describe("Industry SP filters screen - session cache across navigation (MSW mocked)", () => {
@@ -791,16 +775,14 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
     expect(splitsRequests.length).toBe(1);
   });
 
-  test("each split card's Graph button opens its own P&L convergence panel, scoped to its own runner range", async ({ page }) => {
+  test("each split card's Graph button opens its own P&L convergence panel, scoped to its own race range", async ({ page }) => {
     await page.goto("/isp");
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
 
-    // Regression: reported live — "the graphs should actually use the same
-    // race numbers on its x axis, eg 1 to 500, or 1000 to 2000." A large,
-    // well-defined mock total (the default fixture's default split totals
-    // happen to be 0/3 runners here, too degenerate to show two distinct
-    // meaningful ranges) so Split A and Split B clearly have their own,
-    // different, non-trivial runner ranges.
+    // A large, well-defined mock total (the default fixture's default split
+    // totals happen to be 0/1 races here, too degenerate to show two
+    // distinct meaningful ranges) so Split A and Split B clearly have their
+    // own, different, non-trivial race ranges.
     await page.route("**/api/industry-sp/splits*", async (route) => {
       await route.fulfill({
         json: {
@@ -817,41 +799,40 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
     await page.getByTestId("industry-sp-split-graph-button-a").click();
-    await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-panel")).toBeVisible();
     // The mock resolves fast enough that the loading indicator can come
     // and go before an assertion catches it visible — only its eventual
     // absence is asserted, not the transient visible state.
-    await expect(page.getByTestId("runner-convergence-loading")).not.toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("runner-convergence-chart")).toBeVisible();
-    await expect(page.getByTestId("runner-convergence-final-roi")).toBeVisible();
-    // Split A's own graph is runners 1-500 (its own totalRunners), like
-    // the user's own "eg 1 to 500" example.
-    await expect(page.getByTestId("runner-convergence-range-subtitle")).toHaveText("Runners 1–500");
+    await expect(page.getByTestId("pnl-convergence-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("pnl-convergence-chart")).toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-final-roi")).toBeVisible();
+    // Split A's own graph is races 1-450 (its own fromRow/toRow).
+    await expect(page.getByTestId("pnl-convergence-range-subtitle")).toHaveText("Races 1–450");
 
-    await page.getByTestId("runner-convergence-panel-close").click();
-    await expect(page.getByTestId("runner-convergence-panel")).not.toBeVisible();
+    await page.getByTestId("pnl-convergence-panel-close").click();
+    await expect(page.getByTestId("pnl-convergence-panel")).not.toBeVisible();
 
     // Split B's own Graph button opens a panel scoped to its own range —
-    // 501-1000, continuing directly after Split A's own 1-500, not
-    // restarting at 1 and not showing the combined 1-1000 range on both
+    // 451-900, continuing directly after Split A's own 1-450, not
+    // restarting at 1 and not showing the combined 1-900 range on both
     // buttons.
     await page.getByTestId("industry-sp-split-graph-button-b").click();
-    await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
-    await expect(page.getByTestId("runner-convergence-chart")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("runner-convergence-range-subtitle")).toHaveText("Runners 501–1000");
+    await expect(page.getByTestId("pnl-convergence-panel")).toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-chart")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("pnl-convergence-range-subtitle")).toHaveText("Races 451–900");
   });
 
   test("Split B's Graph button uses the range that was actually applied, not a fabricated continuation from Split A", async ({ page }) => {
     // Regression: reported live via screenshot. Split A was edited to
     // 1-1000 and Split B explicitly edited to 1-3000 (deliberately
     // overlapping A) — the box and result card both correctly showed
-    // "runners 1–3000" (per the split-b-label fix), but the Graph button
-    // still opened "Runners 1001–3173": loadConvergence had its own,
-    // separate copy of the "A:1..totalRunnersA, B:totalRunnersA+1..+
-    // totalRunnersB" formula, never updated when the card's own copies
-    // were fixed. Same for the Details panel (SplitDetailPanel) a few
-    // lines below in IndustrySpScreen.tsx — a third and fourth independent
-    // copy of the exact same formula.
+    // "races 1–3000" (per the split-b-label fix), but the Graph button
+    // still opened a different, fabricated range: loadConvergence had its
+    // own, separate copy of a "derive B's range from A's totals" formula,
+    // never updated when the card's own copy was fixed. Same for the
+    // Details panel (SplitDetailPanel) a few lines below in
+    // IndustrySpScreen.tsx — a third and fourth independent copy of the
+    // exact same formula.
     await page.goto("/isp");
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
 
@@ -863,43 +844,43 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
           countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
           raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
           splitA: { fromRow: 1, toRow: 300, total: 211, totalRunners: 1000, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
-          splitB: { fromRow: 1, toRow: null, total: 637, totalRunners: 3000, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+          splitB: { fromRow: 1, toRow: 3000, total: 637, totalRunners: 3000, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
         },
       });
     });
     let convergenceUrl = "";
-    await page.route("**/api/industry-sp/runner-convergence*", async (route) => {
+    await page.route("**/api/industry-sp/race-convergence*", async (route) => {
       convergenceUrl = route.request().url();
       await route.fulfill({
-        json: { success: true, data: [{ runnerOrdinal: 1, cumulativeStaked: 1, cumulativeReturns: 0.5, cumulativePnl: -0.5, roiPercent: -50 }] },
+        json: { success: true, data: [{ raceRowNumber: 1, cumulativeStaked: 1, cumulativeReturns: 0.5, cumulativePnl: -0.5, roiPercent: -50 }] },
       });
     });
 
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-sp-to-runner-a").fill("1000");
+    await page.getByTestId("industry-sp-to-row-a").fill("1000");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-sp-from-runner-b").fill("1");
-    await page.getByTestId("industry-sp-to-runner-b").fill("3000");
+    await page.getByTestId("industry-sp-from-row-b").fill("1");
+    await page.getByTestId("industry-sp-to-row-b").fill("3000");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-    await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("runners 1–3000");
+    await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("races 1–3000");
 
     await page.getByTestId("industry-sp-split-graph-button-b").click();
-    await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-panel")).toBeVisible();
 
     const url = new URL(convergenceUrl);
-    expect(url.searchParams.get("fromRunner")).toBe("1");
-    expect(url.searchParams.get("toRunner")).toBe("3000");
+    expect(url.searchParams.get("fromRow")).toBe("1");
+    expect(url.searchParams.get("toRow")).toBe("3000");
   });
 
-  test("tapping the P&L convergence chart snaps a marker and tooltip to the nearest runner", async ({ page }) => {
+  test("tapping the P&L convergence chart snaps a marker and tooltip to the nearest race", async ({ page }) => {
     // Requested live: "tap somewhere on the graph and a snap appears...
-    // for current profit loss and runner count on spot on the line."
+    // for current profit loss and race count on spot on the line."
     await page.goto("/isp");
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
 
@@ -919,40 +900,40 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
     await page.getByTestId("industry-sp-split-graph-button-a").click();
-    await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
-    const chart = page.getByTestId("runner-convergence-chart");
+    await expect(page.getByTestId("pnl-convergence-panel")).toBeVisible();
+    const chart = page.getByTestId("pnl-convergence-chart");
     await expect(chart).toBeVisible({ timeout: 10000 });
 
-    await expect(page.getByTestId("runner-convergence-tooltip")).not.toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-tooltip")).not.toBeVisible();
 
-    // Tap near the left edge — should snap to a low runner ordinal (Split
-    // A covers runners 1-500).
+    // Tap near the left edge — should snap to a low race row number (Split
+    // A covers races 1-450).
     await chart.click({ position: { x: 5, y: 100 } });
-    await expect(page.getByTestId("runner-convergence-tooltip")).toBeVisible();
-    await expect(page.getByTestId("runner-convergence-snap-dot")).toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-tooltip")).toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-snap-dot")).toBeVisible();
     // Not .toBeVisible() — a near-vertical SVG <line> has a zero-width
     // bounding box, which Playwright's visibility heuristic (width>0 &&
     // height>0) reports as "hidden" even though it renders correctly.
-    await expect(page.getByTestId("runner-convergence-snap-guide")).toHaveCount(1);
-    const leftTooltipText = await page.getByTestId("runner-convergence-tooltip").textContent();
-    const leftMatch = leftTooltipText?.match(/Runner (\d+)/);
+    await expect(page.getByTestId("pnl-convergence-snap-guide")).toHaveCount(1);
+    const leftTooltipText = await page.getByTestId("pnl-convergence-tooltip").textContent();
+    const leftMatch = leftTooltipText?.match(/Race (\d+)/);
     expect(leftMatch).toBeTruthy();
-    const leftOrdinal = Number(leftMatch![1]);
-    expect(leftOrdinal).toBeGreaterThanOrEqual(1);
-    expect(leftOrdinal).toBeLessThan(100);
-    await expect(page.getByTestId("runner-convergence-tooltip-pnl")).toContainText("£");
+    const leftRowNumber = Number(leftMatch![1]);
+    expect(leftRowNumber).toBeGreaterThanOrEqual(1);
+    expect(leftRowNumber).toBeLessThan(100);
+    await expect(page.getByTestId("pnl-convergence-tooltip-pnl")).toContainText("£");
 
-    // Tap near the right edge — should snap to a much higher runner
-    // ordinal, proving the marker actually tracks the tap position rather
+    // Tap near the right edge — should snap to a much higher race row
+    // number, proving the marker actually tracks the tap position rather
     // than always landing on the same point.
     const box = await chart.boundingBox();
     await chart.click({ position: { x: (box?.width ?? 300) - 5, y: 100 } });
-    const rightTooltipText = await page.getByTestId("runner-convergence-tooltip").textContent();
-    const rightMatch = rightTooltipText?.match(/Runner (\d+)/);
+    const rightTooltipText = await page.getByTestId("pnl-convergence-tooltip").textContent();
+    const rightMatch = rightTooltipText?.match(/Race (\d+)/);
     expect(rightMatch).toBeTruthy();
-    const rightOrdinal = Number(rightMatch![1]);
-    expect(rightOrdinal).toBeGreaterThan(leftOrdinal);
-    expect(rightOrdinal).toBeGreaterThan(400);
+    const rightRowNumber = Number(rightMatch![1]);
+    expect(rightRowNumber).toBeGreaterThan(leftRowNumber);
+    expect(rightRowNumber).toBeGreaterThan(400);
   });
 
   test("pressing Apply always fetches fresh, even with unchanged filters", async ({ page }) => {
@@ -1147,10 +1128,10 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     await expect(page.getByTestId("industry-sp-split-empty-b")).not.toBeVisible();
   });
 
-  test("split cards show only a 'runners X–Y' label when 'Split by runners' is on (no race numbers), and revert to 'races X–Y' when off", async ({ page }) => {
+  test("split cards always show a 'races X–Y' label", async ({ page }) => {
     // Custom route with a real multi-race total (unlike the default 1-race
     // fixture, where Split A is always empty) so both splits have
-    // non-trivial, distinct runner counts to display.
+    // non-trivial, distinct race ranges to display.
     await page.route("**/api/industry-sp/splits*", async (route) => {
       const totalRaces = 2500;
       const totalRunners = 5000;
@@ -1175,41 +1156,13 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
-    // Default (checked): only the runner range is shown — no race numbers
-    // anywhere on the card, since they'd contradict "Split by runners".
-    await expect(page.getByTestId("industry-sp-split-runner-range-a")).toContainText("runners 1–2500");
-    await expect(page.getByTestId("industry-sp-split-card-a")).not.toContainText("races");
-    await expect(page.getByTestId("industry-sp-split-runner-range-b")).toContainText("runners 2501–5000");
-    await expect(page.getByTestId("industry-sp-split-card-b")).not.toContainText("races");
-
-    // Unchecking reverts both cards to the original single-line race label.
-    await page.getByTestId("industry-sp-split-by-runners").click();
-    await page.getByTestId("industry-sp-filter-apply").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-split-runner-range-a")).not.toBeVisible();
     await expect(page.getByTestId("industry-sp-split-card-a")).toContainText("races 1–1250");
+    await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("races 1251–2500");
   });
 
-  test("manual Split A/Split B race-range editing boxes are hidden while 'Split by runners' is checked, and appear when unchecked", async ({ page }) => {
-    // Regression: reported live via screenshot — race-index numbers were
-    // visible in the manual edit boxes (and a "/totalRaces" hint) even
-    // while "Split by runners" was checked, contradicting the runner-range
-    // framing shown on the result cards below. These boxes always edit
-    // race indices (custom splits stay race-based even in Runners mode),
-    // so they're now only shown in Races mode.
-    await expect(page.getByTestId("industry-sp-from-row-a")).not.toBeVisible();
-    await expect(page.getByTestId("industry-sp-from-row-b")).not.toBeVisible();
-
-    // Unchecking (even before Apply — this follows the draft state)
-    // reveals them immediately.
-    await page.getByTestId("industry-sp-split-by-runners").click();
+  test("manual Split A/Split B race-range editing boxes are always visible", async ({ page }) => {
     await expect(page.getByTestId("industry-sp-from-row-a")).toBeVisible();
     await expect(page.getByTestId("industry-sp-from-row-b")).toBeVisible();
-
-    // Re-checking hides them again.
-    await page.getByTestId("industry-sp-split-by-runners").click();
-    await expect(page.getByTestId("industry-sp-from-row-a")).not.toBeVisible();
-    await expect(page.getByTestId("industry-sp-from-row-b")).not.toBeVisible();
   });
 });
 

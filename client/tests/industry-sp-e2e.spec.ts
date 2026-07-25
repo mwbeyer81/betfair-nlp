@@ -152,13 +152,12 @@ test.describe("GET /api/industry-sp/splits (live server @ localhost:3000)", () =
     }
   });
 
-  test("defaults to a split of the real dataset bisected by qualifying-runner count, with race ranges that never exceed the total", async ({ request }) => {
-    // Split A/B's default boundary is chosen by cumulative qualifying-
-    // runner count (not a plain race-count bisection), and raceCap
-    // clamping means neither split's toRow is ever literally null anymore
-    // — both get concretized to a real race index. See the dedicated
-    // overshoot regression test below for the specific bug this also
-    // covers (a clamped toRow exceeding the true totalRaces).
+  test("defaults to a split of the real dataset bisected by race count, with race ranges that never exceed the total", async ({ request }) => {
+    // Split A/B's default boundary is a plain race-count bisection, and
+    // raceCap clamping means neither split's toRow is ever literally null
+    // anymore — both get concretized to a real race index. See the
+    // dedicated overshoot regression test below for the specific bug this
+    // also covers (a clamped toRow exceeding the true totalRaces).
     const token = await getBearerToken(request);
     const res = await request.get(`${API_URL}/api/industry-sp/splits`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -337,35 +336,33 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     await expect(panel).not.toBeVisible();
   });
 
-  test("each split card's Graph button opens a P&L convergence chart scoped to that split's own runner range", async ({ page }) => {
+  test("each split card's Graph button opens a P&L convergence chart scoped to that split's own race range", async ({ page }) => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
 
     await page.getByTestId("industry-sp-split-graph-button-a").click();
-    const panel = page.getByTestId("runner-convergence-panel");
+    const panel = page.getByTestId("pnl-convergence-panel");
     await expect(panel).toBeVisible();
-    await expect(page.getByTestId("runner-convergence-loading")).not.toBeVisible({ timeout: 30000 });
-    await expect(page.getByTestId("runner-convergence-chart")).toBeVisible();
-    await expect(page.getByTestId("runner-convergence-final-roi")).toContainText("runners");
-    const rangeA = await page.getByTestId("runner-convergence-range-subtitle").textContent();
-    const matchA = rangeA?.match(/Runners (\d+)–(\d+)/);
+    await expect(page.getByTestId("pnl-convergence-loading")).not.toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId("pnl-convergence-chart")).toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-final-roi")).toContainText("races");
+    const rangeA = await page.getByTestId("pnl-convergence-range-subtitle").textContent();
+    const matchA = rangeA?.match(/Races (\d+)–(\d+)/);
     expect(matchA).toBeTruthy();
-    // Split A's own graph always starts at runner 1.
+    // Split A's own graph always starts at race 1.
     expect(matchA![1]).toBe("1");
 
-    await page.getByTestId("runner-convergence-panel-close").click();
+    await page.getByTestId("pnl-convergence-panel-close").click();
     await expect(panel).not.toBeVisible();
 
     // Split B's own Graph button opens a chart scoped to its own range —
     // starting right after Split A's own range ends, not restarting at 1
-    // and not repeating Split A's combined range. Regression: reported
-    // live — "the graphs should actually use the same race numbers on its
-    // x axis, eg 1 to 500, or 1000 to 2000."
+    // and not repeating Split A's combined range.
     await page.getByTestId("industry-sp-split-graph-button-b").click();
-    await expect(page.getByTestId("runner-convergence-panel")).toBeVisible();
-    await expect(page.getByTestId("runner-convergence-chart")).toBeVisible({ timeout: 30000 });
-    const rangeB = await page.getByTestId("runner-convergence-range-subtitle").textContent();
-    const matchB = rangeB?.match(/Runners (\d+)–(\d+)/);
+    await expect(page.getByTestId("pnl-convergence-panel")).toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-chart")).toBeVisible({ timeout: 30000 });
+    const rangeB = await page.getByTestId("pnl-convergence-range-subtitle").textContent();
+    const matchB = rangeB?.match(/Races (\d+)–(\d+)/);
     expect(matchB).toBeTruthy();
     expect(matchB![1]).toBe(String(Number(matchA![2]) + 1));
   });

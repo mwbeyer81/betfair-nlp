@@ -79,8 +79,8 @@ export class IndustrySpDAO {
 
   /**
    * Builds the race-matching + per-race qualifying-count stages shared by
-   * getAllRacesByRace and getQualifyingRunnerSplitBoundary — extracted so
-   * the two can never drift apart on what counts as "a matching race" /
+   * getAllRacesByRace and getRaceConvergenceSeries — extracted so the two
+   * can never drift apart on what counts as "a matching race" /
    * "a qualifying runner". Returns the $match (scalar filters + isp-range
    * runner count) + $addFields (qualifying-count expressions) + $match
    * (threshold expr) trio; callers add their own leading date/sort stages
@@ -185,8 +185,7 @@ export class IndustrySpDAO {
     // IspRacesScreen.tsx's client-side qualifyingRunners() exactly, unlike
     // the three counts above (each only proves "at least one runner
     // satisfies THIS filter", not that a single runner satisfies all of them
-    // at once). Backs both the totalRunners stat and the runner-count split
-    // boundary (getQualifyingRunnerSplitBoundary). Fast path: identical to
+    // at once). Backs the totalRunners stat. Fast path: identical to
     // inRangeRunnersCount when none of the three optional filters are active.
     const qualifyingRunnersFilterActive = trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive;
     const qualifyingRunnersCountExpr = qualifyingRunnersFilterActive
@@ -540,9 +539,9 @@ export class IndustrySpDAO {
                   // totalRunners' own qualifyingRunnersCount above — same
                   // condition as buildQualifyingRaceStages' internal
                   // qualifyingRunnersCountExpr, duplicated for the same
-                  // reason getRunnerRangeStats/getRunnerConvergenceSeries
-                  // duplicate it (that method's fast path skips $filter
-                  // entirely, so it has nothing to share here).
+                  // reason getRaceConvergenceSeries duplicates it (that
+                  // method's fast path skips $filter entirely, so it has
+                  // nothing to share here).
                   { $lookup: { from: this.collectionName, localField: "_id", foreignField: "_id", as: "_docs" } },
                   { $addFields: { _doc: { $arrayElemAt: ["$_docs", 0] } } },
                   {
@@ -619,22 +618,22 @@ export class IndustrySpDAO {
   }
 
   /**
-   * Finds the race-index (1-based, same "row N of the current sort order"
-   * meaning as getAllRacesByRace's fromRow/toRow) at which the cumulative
-   * count of qualifying runners — in ascending raceTime order — first
-   * reaches targetCumulativeCount. Used by IndustrySpService.getSplitStats
-   * to bisect Split A / Split B by runner count rather than race count, so
-   * both splits end up with a comparable number of runners that actually
-   * match every active filter (not just a comparable number of races, which
-   * can vary wildly in qualifying-runner count once trainer-form/model
-   * filters are active). Returns null only if the matched set is empty.
+   * Cumulative P&L convergence series, one point per race in [fromRow, toRow]
+   * (same 1-based "row N of the current sort order" meaning as
+   * getAllRacesByRace's fromRow/toRow). Demonstrates how the running ROI% is
+   * volatile over a small sample and settles down as more races are
+   * included — shown alongside the split cards as the "P&L Convergence"
+   * graph.
    *
-   * Deliberately a separate method rather than an overload of
-   * getAllRacesByRace — "find the boundary for a target cumulative count"
-   * is a different query shape ($setWindowFields cumulative sum) from
-   * "give me races N..M" ($skip/$limit).
+   * Unlike a runner-ordinal series, no boundary-resolution pass is needed
+   * here: buildQualifyingRaceStages already emits one document per race, so
+   * [fromRow, toRow] can be selected with a plain $skip/$limit right after
+   * the leading $sort, same as getAllRacesByRace's own row-range handling.
+   * The runners array is still present on each doc at this point in the
+   * pipeline (no $project has stripped it yet), so the slow path below can
+   * filter it directly with no $lookup back to the full document.
    */
-  public async getQualifyingRunnerSplitBoundary(
+  public async getRaceConvergenceSeries(
     minRunners = 1,
     maxRunners = 30,
     countries: string[] = [],
@@ -655,12 +654,12 @@ export class IndustrySpDAO {
     maxTrainerFormRunners = 100,
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
-    targetCumulativeCount: number
-  ): Promise<{ boundaryRowIndex: number | null }> {
-    // Same date-narrowing-before-everything-else reasoning as
-    // getAllRacesByRace's own dateMatchStage (see its comment) — lets this
-    // and the leading $sort below both work off one bounded walk of the
-    // {raceTime:1} index.
+    fromRowRaw = 1,
+    toRow: number
+  ): Promise<{ raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number }[]> {
+    const fromRow = Math.max(1, fromRowRaw);
+    if (toRow < fromRow) return [];
+
     const dateMatchStage: Record<string, unknown>[] =
       minRaceTime != null || maxRaceTime != null
         ? [
@@ -675,128 +674,10 @@ export class IndustrySpDAO {
           ]
         : [];
 
-    const [result] = await this.collection
-      .aggregate<{ rowNumber: number }>(
-        [
-          ...dateMatchStage,
-          { $sort: { raceTime: 1 } },
-          ...this.buildQualifyingRaceStages({
-            countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
-            courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName: null,
-            trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-            minModelWinProbability, onlyModelBeatsSp,
-          }),
-          // Project down to a ~40-60 byte doc before $setWindowFields — it
-          // can't reuse the {raceTime:1} index the leading $sort above
-          // benefits from (its own ordering pass always buffers the
-          // matched set), but at this doc size that's only ~5MB even
-          // across the full ~109k-race collection, comfortably under even
-          // the old Atlas M0 32MB in-memory-sort ceiling — the same
-          // tiny-projected-doc discipline used everywhere else in this
-          // file, just applied to a windowed sum instead of a per-document
-          // $filter/$size.
-          { $project: { _id: 0, raceTime: 1, qualifyingRunnersCount: 1 } },
-          {
-            $setWindowFields: {
-              sortBy: { raceTime: 1 },
-              output: {
-                cumulativeQualifyingRunners: {
-                  $sum: "$qualifyingRunnersCount",
-                  window: { documents: ["unbounded", "current"] },
-                },
-                rowNumber: { $documentNumber: {} },
-              },
-            },
-          },
-          // The first race (in sort order) whose cumulative count reaches
-          // the target is the boundary — everything up to and including it
-          // is Split A. Same tiny-doc byte-size reasoning applies to this
-          // second sort/limit pass.
-          { $match: { cumulativeQualifyingRunners: { $gte: targetCumulativeCount } } },
-          { $sort: { rowNumber: 1 } },
-          { $limit: 1 },
-          { $project: { _id: 0, rowNumber: 1 } },
-        ],
-        { allowDiskUse: true }
-      )
-      .toArray();
-
-    return { boundaryRowIndex: result?.rowNumber ?? null };
-  }
-
-  /**
-   * Runner-level exact split: given absolute cumulative-runner-ordinal
-   * targets (1-based, same ordinal space getQualifyingRunnerSplitBoundary
-   * resolves against — raceTime ascending, then within-race qualifying
-   * order), returns pnlStats/totalRunners for exactly the runners in
-   * [fromRunnerTarget, toRunnerTarget] (toRunnerTarget=null means "through
-   * the end of raceRowBound"). Unlike getAllRacesByRace (which always
-   * assigns a whole race to one split, rounding up to the next full race
-   * whenever a target lands mid-race), this selects individual qualifying
-   * runners directly — so a race straddling a split boundary can
-   * contribute some runners to this split and the rest to the other,
-   * giving an exact count instead of an approximation.
-   *
-   * Regression: reported live — typing "1-1000" for Split A and "1001-
-   * 2000" for Split B never showed exactly 1000/1000, since both targets
-   * commonly round up to the same shared boundary race.
-   *
-   * fromRow/toRow in the result are the race-index span actually touched
-   * by the selected runners (for "View N Races" navigation) — they can
-   * overlap with the other split's span when a boundary race is shared
-   * between the two splits' runner ranges, which is the accepted
-   * trade-off for exact runner counts.
-   *
-   * raceRowBound caps how many races (from race 1) this scans/unwinds —
-   * callers resolve it via getQualifyingRunnerSplitBoundary(toTarget) and
-   * the usual raceCap ceiling, so cost stays bounded regardless of how far
-   * out toRunnerTarget is.
-   */
-  public async getRunnerRangeStats(
-    minRunners = 1,
-    maxRunners = 30,
-    countries: string[] = [],
-    minIsp = 1,
-    maxIsp = 1000,
-    minInIspRange = 1,
-    maxInIspRange = 1000,
-    minRaceTime: string | null = null,
-    maxRaceTime: string | null = null,
-    courses: string[] = [],
-    goings: string[] = [],
-    raceClasses: string[] = [],
-    raceTypes: string[] = [],
-    trainerSearch: string | null = null,
-    jockeySearch: string | null = null,
-    trainerFormMinWinRate = 0,
-    minTrainerFormRunners = 0,
-    maxTrainerFormRunners = 100,
-    minModelWinProbability = 0,
-    onlyModelBeatsSp = false,
-    fromRunnerTarget: number,
-    toRunnerTarget: number | null,
-    raceRowBound: number
-  ): Promise<{
-    fromRow: number;
-    toRow: number | null;
-    total: number;
-    totalRunners: number;
-    pnlStats: { staked: number; returns: number; pnl: number; count: number };
-  }> {
-    const dateMatchStage: Record<string, unknown>[] =
-      minRaceTime != null || maxRaceTime != null
-        ? [
-            {
-              $match: {
-                raceTime: {
-                  ...(minRaceTime != null ? { $gte: minRaceTime } : {}),
-                  ...(maxRaceTime != null ? { $lte: maxRaceTime } : {}),
-                },
-              },
-            },
-          ]
-        : [];
-
+    // Same qualifying-runner condition as getAllRacesByRace's pnlStats slow
+    // path — duplicated rather than shared, because buildQualifyingRaceStages'
+    // fast path only exposes a scalar count, not the matching runner
+    // subdocuments (isp/status) this needs.
     const trainerFormFilterActive = minTrainerFormRunners > 0 || maxTrainerFormRunners < 100;
     const trainerFormCond = [
       { $ne: ["$$r.trainerFormWinRate", null] },
@@ -814,246 +695,67 @@ export class IndustrySpDAO {
       { $gt: ["$$r.isp", 0] },
       { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
     ];
-    // Mirrors buildQualifyingRaceStages' own qualifying condition exactly —
-    // duplicated rather than shared, because that method's fast path skips
-    // $filter entirely via a precomputed scalar count field whenever
-    // possible, whereas this method always needs the actual matching
-    // runner subdocuments (isp/status), not just a count, so the fast path
-    // doesn't apply here regardless.
+    const qualifyingRunnersFilterActive = trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive;
     const qualifyingRunnersArrayExpr = {
-      $map: {
-        input: {
-          $filter: {
-            input: "$runners",
-            as: "r",
-            cond: {
-              $and: [
-                { $ifNull: ["$$r.isp", false] },
-                { $gt: ["$$r.isp", 1] },
-                { $gte: ["$$r.isp", minIsp] },
-                { $lte: ["$$r.isp", maxIsp] },
-                ...(trainerFormFilterActive ? trainerFormCond : []),
-                ...(modelFilterActive ? modelCond : []),
-                ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
-              ],
-            },
-          },
-        },
+      $filter: {
+        input: "$runners",
         as: "r",
-        // Trimmed to just the two fields pnlStats needs — this array is
-        // about to be $unwind-ed, which duplicates every other field on
-        // the parent doc per element, so keeping it minimal (rather than
-        // the full runner subdocument) is what keeps that unwind cheap.
-        in: { isp: "$$r.isp", status: "$$r.status" },
+        cond: {
+          $and: [
+            { $ifNull: ["$$r.isp", false] },
+            { $gt: ["$$r.isp", 1] },
+            { $gte: ["$$r.isp", minIsp] },
+            { $lte: ["$$r.isp", maxIsp] },
+            ...(trainerFormFilterActive ? trainerFormCond : []),
+            ...(modelFilterActive ? modelCond : []),
+            ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
+          ],
+        },
       },
     };
 
-    const [result] = await this.collection
-      .aggregate<{ fromRow: number; toRow: number; staked: number; returns: number; count: number }>(
-        [
-          ...dateMatchStage,
-          { $sort: { raceTime: 1 } },
-          ...this.buildQualifyingRaceStages({
-            countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
-            courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName: null,
-            trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-            minModelWinProbability, onlyModelBeatsSp,
-          }),
-          { $limit: Math.max(1, raceRowBound) },
-          {
-            $setWindowFields: {
-              sortBy: { raceTime: 1 },
-              output: { raceRowNumber: { $documentNumber: {} } },
-            },
+    // Fast path (no runner-level filter active): raceStaked/raceReturns are
+    // precomputed at import time over the same static isp>1 runner set, so
+    // this is a plain field reference. Slow path re-derives per-race
+    // staked/returns from the qualifying runners array via $reduce rather
+    // than $unwind, since this needs exactly one output document per race
+    // (no fan-out) to keep the cumulative-sum window function below a
+    // single race-ordered pass.
+    const stakedFieldExpr = qualifyingRunnersFilterActive
+      ? {
+          $reduce: {
+            input: qualifyingRunnersArrayExpr,
+            initialValue: 0,
+            in: { $add: ["$$value", { $divide: [1, { $subtract: ["$$this.isp", 1] }] }] },
           },
-          {
-            $project: {
-              _id: 0,
-              raceRowNumber: 1,
-              qualifyingRunnersArray: qualifyingRunnersArrayExpr,
-            },
-          },
-          { $unwind: { path: "$qualifyingRunnersArray", includeArrayIndex: "arrIdx" } },
-          {
-            // $documentNumber only accepts a single-field sortBy — this
-            // needs two (race order, then within-race order) — so a
-            // cumulative $sum of a constant 1 over the same window
-            // (unboundedPreceding..current) gives the identical 1-based
-            // running ordinal instead.
-            $setWindowFields: {
-              sortBy: { raceRowNumber: 1, arrIdx: 1 },
-              output: { globalOrdinal: { $sum: 1, window: { documents: ["unbounded", "current"] } } },
-            },
-          },
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $gte: ["$globalOrdinal", Math.max(1, fromRunnerTarget)] },
-                  ...(toRunnerTarget != null ? [{ $lte: ["$globalOrdinal", toRunnerTarget] }] : []),
-                ],
-              },
-            },
-          },
-          {
-            $group: {
-              _id: null,
-              fromRow: { $min: "$raceRowNumber" },
-              toRow: { $max: "$raceRowNumber" },
-              staked: { $sum: { $divide: [1, { $subtract: ["$qualifyingRunnersArray.isp", 1] }] } },
-              returns: {
-                $sum: {
+        }
+      : "$raceStaked";
+    const returnsFieldExpr = qualifyingRunnersFilterActive
+      ? {
+          $reduce: {
+            input: qualifyingRunnersArrayExpr,
+            initialValue: 0,
+            in: {
+              $add: [
+                "$$value",
+                {
                   $cond: [
-                    { $eq: ["$qualifyingRunnersArray.status", "WINNER"] },
-                    { $add: [{ $divide: [1, { $subtract: ["$qualifyingRunnersArray.isp", 1] }] }, 1] },
+                    { $eq: ["$$this.status", "WINNER"] },
+                    { $add: [{ $divide: [1, { $subtract: ["$$this.isp", 1] }] }, 1] },
                     0,
                   ],
                 },
-              },
-              count: { $sum: 1 },
-            },
-          },
-        ],
-        { allowDiskUse: true }
-      )
-      .toArray();
-
-    if (!result) {
-      return {
-        fromRow: Math.max(1, fromRunnerTarget),
-        toRow: null,
-        total: 0,
-        totalRunners: 0,
-        pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
-      };
-    }
-
-    return {
-      fromRow: result.fromRow,
-      toRow: result.toRow,
-      total: result.toRow - result.fromRow + 1,
-      totalRunners: result.count,
-      pnlStats: { staked: result.staked, returns: result.returns, pnl: result.returns - result.staked, count: result.count },
-    };
-  }
-
-  /**
-   * Cumulative P&L convergence series, one point per qualifying runner in
-   * [fromRunnerTarget, toRunnerTarget] (same global ordinal space as
-   * getRunnerRangeStats — raceTime ascending, then within-race order).
-   * Demonstrates how the running ROI% is volatile over a small sample and
-   * settles down as more runners are included — requested live to visualize
-   * "after a few runners it'll be wrong" alongside the split cards.
-   *
-   * runnerOrdinal in each returned point is always the TRUE global ordinal
-   * (e.g. 1001, 1002, ... for a Split B call starting at 1001) — matching
-   * the same numbers shown on that split's own card — but
-   * cumulativeStaked/cumulativeReturns restart at zero at fromRunnerTarget,
-   * not from the true start of the dataset. Each split's graph is meant to
-   * be its own independent convergence test over its own runners, not a
-   * slice of one dataset-wide running total (which would already be flat/
-   * stable by the time Split B's range begins, showing none of the early
-   * volatility this graph exists to visualize).
-   *
-   * raceRowBound caps how many races (from race 1) this scans/unwinds, same
-   * cost-control role as in getRunnerRangeStats — the scan still always
-   * starts at race 1 regardless of fromRunnerTarget, since identifying the
-   * true global ordinal of any runner requires counting from the start.
-   */
-  public async getRunnerConvergenceSeries(
-    minRunners = 1,
-    maxRunners = 30,
-    countries: string[] = [],
-    minIsp = 1,
-    maxIsp = 1000,
-    minInIspRange = 1,
-    maxInIspRange = 1000,
-    minRaceTime: string | null = null,
-    maxRaceTime: string | null = null,
-    courses: string[] = [],
-    goings: string[] = [],
-    raceClasses: string[] = [],
-    raceTypes: string[] = [],
-    trainerSearch: string | null = null,
-    jockeySearch: string | null = null,
-    trainerFormMinWinRate = 0,
-    minTrainerFormRunners = 0,
-    maxTrainerFormRunners = 100,
-    minModelWinProbability = 0,
-    onlyModelBeatsSp = false,
-    fromRunnerTarget: number,
-    toRunnerTarget: number,
-    raceRowBound: number
-  ): Promise<{ runnerOrdinal: number; cumulativeStaked: number; cumulativeReturns: number }[]> {
-    const dateMatchStage: Record<string, unknown>[] =
-      minRaceTime != null || maxRaceTime != null
-        ? [
-            {
-              $match: {
-                raceTime: {
-                  ...(minRaceTime != null ? { $gte: minRaceTime } : {}),
-                  ...(maxRaceTime != null ? { $lte: maxRaceTime } : {}),
-                },
-              },
-            },
-          ]
-        : [];
-
-    // Same qualifying-runner condition as getRunnerRangeStats — see that
-    // method's comment for why this is duplicated rather than shared with
-    // buildQualifyingRaceStages' own count-only fast path.
-    const trainerFormFilterActive = minTrainerFormRunners > 0 || maxTrainerFormRunners < 100;
-    const trainerFormCond = [
-      { $ne: ["$$r.trainerFormWinRate", null] },
-      { $gte: ["$$r.trainerFormWinRate", trainerFormMinWinRate] },
-    ];
-    const modelFilterActive = minModelWinProbability > 0;
-    const modelCond = [
-      { $ne: ["$$r.modelWinProbability", null] },
-      { $gte: ["$$r.modelWinProbability", minModelWinProbability] },
-    ];
-    const modelBeatsSpFilterActive = onlyModelBeatsSp;
-    const modelBeatsSpCond = [
-      { $ne: ["$$r.modelWinProbability", null] },
-      { $ne: ["$$r.isp", null] },
-      { $gt: ["$$r.isp", 0] },
-      { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
-    ];
-    const qualifyingRunnersArrayExpr = {
-      $map: {
-        input: {
-          $filter: {
-            input: "$runners",
-            as: "r",
-            cond: {
-              $and: [
-                { $ifNull: ["$$r.isp", false] },
-                { $gt: ["$$r.isp", 1] },
-                { $gte: ["$$r.isp", minIsp] },
-                { $lte: ["$$r.isp", maxIsp] },
-                ...(trainerFormFilterActive ? trainerFormCond : []),
-                ...(modelFilterActive ? modelCond : []),
-                ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
               ],
             },
           },
-        },
-        as: "r",
-        in: { isp: "$$r.isp", status: "$$r.status" },
-      },
-    };
+        }
+      : "$raceReturns";
 
-    const stakeExpr = { $divide: [1, { $subtract: ["$qualifyingRunnersArray.isp", 1] }] };
-    const returnExpr = {
-      $cond: [
-        { $eq: ["$qualifyingRunnersArray.status", "WINNER"] },
-        { $add: [stakeExpr, 1] },
-        0,
-      ],
-    };
+    const rowSkip = fromRow - 1;
+    const rowLimit = toRow - fromRow + 1;
 
     const points = await this.collection
-      .aggregate<{ runnerOrdinal: number; cumulativeStaked: number; cumulativeReturns: number }>(
+      .aggregate<{ raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number }>(
         [
           ...dateMatchStage,
           { $sort: { raceTime: 1 } },
@@ -1063,61 +765,20 @@ export class IndustrySpDAO {
             trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
             minModelWinProbability, onlyModelBeatsSp,
           }),
-          { $limit: Math.max(1, raceRowBound) },
+          { $skip: rowSkip },
+          { $limit: rowLimit },
           {
             $setWindowFields: {
               sortBy: { raceTime: 1 },
-              output: { raceRowNumber: { $documentNumber: {} } },
-            },
-          },
-          {
-            $project: {
-              _id: 0,
-              raceRowNumber: 1,
-              qualifyingRunnersArray: qualifyingRunnersArrayExpr,
-            },
-          },
-          { $unwind: { path: "$qualifyingRunnersArray", includeArrayIndex: "arrIdx" } },
-          // Pass 1: the TRUE global ordinal of every runner from race 1
-          // onward — needed to identify exactly which runners fall in
-          // [fromRunnerTarget, toRunnerTarget], regardless of where that
-          // range starts.
-          {
-            $setWindowFields: {
-              sortBy: { raceRowNumber: 1, arrIdx: 1 },
               output: {
-                runnerOrdinal: { $sum: 1, window: { documents: ["unbounded", "current"] } },
+                relRowNumber: { $sum: 1, window: { documents: ["unbounded", "current"] } },
+                cumulativeStaked: { $sum: stakedFieldExpr, window: { documents: ["unbounded", "current"] } },
+                cumulativeReturns: { $sum: returnsFieldExpr, window: { documents: ["unbounded", "current"] } },
               },
             },
           },
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $gte: ["$runnerOrdinal", Math.max(1, fromRunnerTarget)] },
-                  { $lte: ["$runnerOrdinal", toRunnerTarget] },
-                ],
-              },
-            },
-          },
-          {
-            $addFields: { staked: stakeExpr, returns: returnExpr },
-          },
-          // Pass 2: cumulative sum restarted at zero over just the filtered
-          // subset above (still ordered by the same true global ordinal),
-          // so this split's own convergence line starts fresh at its own
-          // first runner rather than continuing whatever total the dataset
-          // had already accumulated before fromRunnerTarget.
-          {
-            $setWindowFields: {
-              sortBy: { runnerOrdinal: 1 },
-              output: {
-                cumulativeStaked: { $sum: "$staked", window: { documents: ["unbounded", "current"] } },
-                cumulativeReturns: { $sum: "$returns", window: { documents: ["unbounded", "current"] } },
-              },
-            },
-          },
-          { $project: { _id: 0, runnerOrdinal: 1, cumulativeStaked: 1, cumulativeReturns: 1 } },
+          { $addFields: { raceRowNumber: { $add: ["$relRowNumber", rowSkip] } } },
+          { $project: { _id: 0, raceRowNumber: 1, cumulativeStaked: 1, cumulativeReturns: 1 } },
         ],
         { allowDiskUse: true }
       )

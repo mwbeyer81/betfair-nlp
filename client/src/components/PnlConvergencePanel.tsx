@@ -2,12 +2,12 @@ import React, { useMemo, useRef, useState } from "react";
 import { View, StyleSheet, ScrollView, GestureResponderEvent, TextInput as RNTextInput } from "react-native";
 import { Text, Button, Surface, Divider, ActivityIndicator } from "react-native-paper";
 import Svg, { Path, Line as SvgLine, Circle } from "react-native-svg";
-import { RunnerConvergencePoint } from "../services/chatApi";
+import { RaceConvergencePoint } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import { formatPnl, formatPct } from "../utils/ispFormat";
 
-interface RunnerConvergencePanelProps {
-  points: RunnerConvergencePoint[];
+interface PnlConvergencePanelProps {
+  points: RaceConvergencePoint[];
   loading: boolean;
   error: string | null;
   onClose: () => void;
@@ -18,27 +18,30 @@ const CHART_HEIGHT = 320;
 const CHART_PADDING = 24;
 // How many leading points to exclude when computing the Y-axis scale.
 // Reported live: a single lucky/unlucky early result (e.g. a 12/1 winner
-// as literally the very first runner) can swing ROI% into the hundreds or
+// as literally the very first race) can swing ROI% into the hundreds or
 // thousands of percent on a near-zero cumulative stake — mathematically
 // correct, but it stretches the axis so much that the actual "converging"
 // detail for the rest of the series becomes an invisible flat sliver.
 // Points before the warm-up still draw on the line (they can go off the
 // top/bottom of the visible chart), just don't influence how the axis is
 // scaled — the point of this graph is to show the converged/converging
-// behavior, not to let one early swing hide it.
-const SCALE_WARMUP_POINTS = 50;
+// behavior, not to let one early swing hide it. Kept small relative to the
+// runner-ordinal version's constant (50) — a split's race count is
+// typically far smaller than its runner count, and a fixed 50 could eat a
+// large fraction (or all) of a small split's own points.
+const SCALE_WARMUP_POINTS = 10;
 
 // Requested live: a chart showing how the running ROI% is wildly volatile
-// over a small sample of runners and settles down as more are included —
-// one point per qualifying runner, no bucketing, so the early volatility
-// reads clearly rather than being smoothed away. Each split's own Graph
-// button passes that split's own runner range (e.g. Split B's 1001-2000),
-// so firstOrdinal/lastOrdinal below show the same numbers that split's own
+// over a small sample of races and settles down as more are included — one
+// point per race, no bucketing, so the early volatility reads clearly
+// rather than being smoothed away. Each split's own Graph button passes
+// that split's own race range (e.g. Split B's 501-1000), so
+// firstRowNumber/lastRowNumber below show the same numbers that split's own
 // card does — not always starting at 1 (see loadConvergence in
 // IndustrySpScreen.tsx).
-export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ points, loading, error, onClose }) => {
-  const firstOrdinal = points.length > 0 ? points[0].runnerOrdinal : 0;
-  const lastOrdinal = points.length > 0 ? points[points.length - 1].runnerOrdinal : 0;
+export const PnlConvergencePanel: React.FC<PnlConvergencePanelProps> = ({ points, loading, error, onClose }) => {
+  const firstRowNumber = points.length > 0 ? points[0].raceRowNumber : 0;
+  const lastRowNumber = points.length > 0 ? points[points.length - 1].raceRowNumber : 0;
   const finalRoi = points.length > 0 ? points[points.length - 1].roiPercent : null;
 
   // Rendered on-screen width of the chart, in pixels — the Svg itself is
@@ -54,12 +57,12 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
   // user has touched the chart at least once.
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   // Requested live: dragging a finger along the chart to land on one exact
-  // runner is imprecise, especially for a wide range on a small screen —
-  // an explicit "jump to runner" input lets the user type the runner
-  // ordinal they actually want and land on it directly. Sets the exact
-  // same selectedIndex a tap/drag would, so the marker/guide-line/tooltip
-  // that follow are unchanged — this is just an alternate, precise way to
-  // choose the index, not a separate display path.
+  // race is imprecise, especially for a wide range on a small screen — an
+  // explicit "jump to race" input lets the user type the race row number
+  // they actually want and land on it directly. Sets the exact same
+  // selectedIndex a tap/drag would, so the marker/guide-line/tooltip that
+  // follow are unchanged — this is just an alternate, precise way to choose
+  // the index, not a separate display path.
   const [jumpInput, setJumpInput] = useState("");
 
   const chart = useMemo(() => {
@@ -98,8 +101,8 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
 
   // Converts a touch's on-screen X position into the nearest point's
   // index, then snaps the marker/tooltip to it — tap or drag anywhere on
-  // the chart to inspect the exact runner count and P&L at that spot on
-  // the line.
+  // the chart to inspect the exact race count and P&L at that spot on the
+  // line.
   function handleTouch(e: GestureResponderEvent) {
     if (!chart) return;
     // Measured directly off the DOM node rather than trusting `chartWidth`
@@ -116,18 +119,18 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
     setSelectedIndex(Math.max(0, Math.min(points.length - 1, idx)));
   }
 
-  // Snaps to whichever point's runnerOrdinal is closest to the typed
+  // Snaps to whichever point's raceRowNumber is closest to the typed
   // target — same "snap to nearest" behavior as a tap, just driven by a
   // number instead of a screen position. A target outside the split's own
-  // range (below firstOrdinal or above lastOrdinal) still resolves
+  // range (below firstRowNumber or above lastRowNumber) still resolves
   // sensibly: closest is simply the first or last point.
-  function jumpToRunner() {
+  function jumpToRace() {
     const target = parseInt(jumpInput, 10);
     if (!Number.isFinite(target) || points.length === 0) return;
     let closestIndex = 0;
     let closestDiff = Infinity;
     for (let i = 0; i < points.length; i++) {
-      const diff = Math.abs(points[i].runnerOrdinal - target);
+      const diff = Math.abs(points[i].raceRowNumber - target);
       if (diff < closestDiff) {
         closestDiff = diff;
         closestIndex = i;
@@ -147,20 +150,20 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
       : 0;
 
   return (
-    <Surface testID="runner-convergence-panel" style={styles.panel} elevation={3}>
+    <Surface testID="pnl-convergence-panel" style={styles.panel} elevation={3}>
       <View style={styles.header}>
         <View style={styles.headerText}>
           <Text variant="titleMedium" style={styles.title}>
             P&L Convergence
           </Text>
-          {lastOrdinal > 0 && (
-            <Text testID="runner-convergence-range-subtitle" variant="bodySmall" style={styles.subtitle}>
-              Runners {firstOrdinal}–{lastOrdinal}
+          {lastRowNumber > 0 && (
+            <Text testID="pnl-convergence-range-subtitle" variant="bodySmall" style={styles.subtitle}>
+              Races {firstRowNumber}–{lastRowNumber}
             </Text>
           )}
         </View>
         <Button
-          testID="runner-convergence-panel-close"
+          testID="pnl-convergence-panel-close"
           mode="contained"
           compact
           buttonColor={colors.accent}
@@ -176,48 +179,48 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
 
       <ScrollView contentContainerStyle={styles.body}>
         {loading ? (
-          <View testID="runner-convergence-loading" style={styles.centerRow}>
+          <View testID="pnl-convergence-loading" style={styles.centerRow}>
             <ActivityIndicator size="small" color={colors.accent} />
             <Text style={styles.stateText}>Loading convergence data…</Text>
           </View>
         ) : error ? (
-          <Text testID="runner-convergence-error" style={styles.errorText}>
+          <Text testID="pnl-convergence-error" style={styles.errorText}>
             {error}
           </Text>
         ) : points.length === 0 ? (
-          <Text testID="runner-convergence-empty" style={styles.stateText}>
-            No qualifying runners in this range.
+          <Text testID="pnl-convergence-empty" style={styles.stateText}>
+            No qualifying races in this range.
           </Text>
         ) : (
           <>
             {finalRoi != null && (
               <Text
-                testID="runner-convergence-final-roi"
+                testID="pnl-convergence-final-roi"
                 style={[styles.finalRoi, finalRoi >= 0 ? styles.pnlPos : styles.pnlNeg]}
               >
                 Converges to {finalRoi >= 0 ? "+" : ""}
-                {finalRoi.toFixed(1)}% after {points.length} runners
+                {finalRoi.toFixed(1)}% after {points.length} races
               </Text>
             )}
             <View style={styles.jumpRow}>
-              <Text style={styles.jumpLabel}>Jump to runner</Text>
+              <Text style={styles.jumpLabel}>Jump to race</Text>
               <RNTextInput
-                testID="runner-convergence-jump-input"
+                testID="pnl-convergence-jump-input"
                 style={styles.jumpInput}
                 value={jumpInput}
                 onChangeText={setJumpInput}
-                onSubmitEditing={jumpToRunner}
+                onSubmitEditing={jumpToRace}
                 keyboardType="numeric"
                 maxLength={7}
-                placeholder={`${firstOrdinal}-${lastOrdinal}`}
+                placeholder={`${firstRowNumber}-${lastRowNumber}`}
                 placeholderTextColor={colors.textTertiary}
               />
               <Button
-                testID="runner-convergence-jump-button"
+                testID="pnl-convergence-jump-button"
                 mode="contained"
                 compact
                 buttonColor={colors.accent}
-                onPress={jumpToRunner}
+                onPress={jumpToRace}
                 disabled={jumpInput.trim() === ""}
                 style={styles.jumpButton}
                 labelStyle={styles.jumpButtonLabel}
@@ -227,7 +230,7 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
             </View>
             <View
               ref={chartRef}
-              testID="runner-convergence-chart"
+              testID="pnl-convergence-chart"
               style={styles.chartContainer}
               onLayout={e => setChartWidth(e.nativeEvent.layout.width)}
               onStartShouldSetResponder={() => true}
@@ -251,7 +254,7 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
                 {selectedPoint != null && selectedIndex != null && chart && (
                   <>
                     <SvgLine
-                      testID="runner-convergence-snap-guide"
+                      testID="pnl-convergence-snap-guide"
                       x1={chart.xFor(selectedIndex)}
                       y1={CHART_PADDING}
                       x2={chart.xFor(selectedIndex)}
@@ -261,7 +264,7 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
                       strokeWidth={1}
                     />
                     <Circle
-                      testID="runner-convergence-snap-dot"
+                      testID="pnl-convergence-snap-dot"
                       cx={chart.xFor(selectedIndex)}
                       cy={chart.yFor(selectedPoint.roiPercent)}
                       r={9}
@@ -273,21 +276,21 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
                 )}
               </Svg>
               {selectedPoint != null && selectedIndex != null && (
-                <View testID="runner-convergence-tooltip" style={[styles.tooltip, { left: tooltipLeft, width: TOOLTIP_WIDTH }]}>
-                  <Text style={styles.tooltipRunner}>Runner {selectedPoint.runnerOrdinal}</Text>
-                  {/* Regression: reported live — the headline reads "after
-                      2980 runners" (a count local to this split), while the
-                      ordinal above is the TRUE global runner number (can be
-                      much larger, e.g. 5676, for a split that doesn't start
-                      at 1 — see the file-level comment on firstOrdinal).
-                      Juxtaposed with no context, that reads as a bug rather
-                      than two intentionally different numbers. This line
-                      ties them together explicitly. */}
-                  <Text testID="runner-convergence-tooltip-position" style={styles.tooltipPosition}>
+                <View testID="pnl-convergence-tooltip" style={[styles.tooltip, { left: tooltipLeft, width: TOOLTIP_WIDTH }]}>
+                  <Text style={styles.tooltipRace}>Race {selectedPoint.raceRowNumber}</Text>
+                  {/* The headline reads "after N races" (a count local to
+                      this split), while the row number above is the TRUE
+                      global race row (can be much larger, e.g. 1876, for a
+                      split that doesn't start at 1 — see the file-level
+                      comment on firstRowNumber). Juxtaposed with no context,
+                      that reads as a bug rather than two intentionally
+                      different numbers. This line ties them together
+                      explicitly. */}
+                  <Text testID="pnl-convergence-tooltip-position" style={styles.tooltipPosition}>
                     {selectedIndex + 1} of {points.length} in this split
                   </Text>
                   <Text
-                    testID="runner-convergence-tooltip-pnl"
+                    testID="pnl-convergence-tooltip-pnl"
                     style={[styles.tooltipPnl, selectedPoint.cumulativePnl >= 0 ? styles.pnlPos : styles.pnlNeg]}
                   >
                     {formatPnl(selectedPoint.cumulativePnl)}{" "}
@@ -297,14 +300,14 @@ export const RunnerConvergencePanel: React.FC<RunnerConvergencePanelProps> = ({ 
               )}
             </View>
             <Text style={styles.axisCaption}>
-              X axis: runners {firstOrdinal}–{lastOrdinal} · Y axis: cumulative ROI%
+              X axis: races {firstRowNumber}–{lastRowNumber} · Y axis: cumulative ROI%
             </Text>
             {chart?.earlyPointsClipped && (
-              <Text testID="runner-convergence-clip-note" style={styles.axisCaption}>
+              <Text testID="pnl-convergence-clip-note" style={styles.axisCaption}>
                 An early result swung far outside this range — the line may run off-screen briefly near the start.
               </Text>
             )}
-            <Text style={styles.tapHint}>Tap or drag on the chart to inspect a runner.</Text>
+            <Text style={styles.tapHint}>Tap or drag on the chart to inspect a race.</Text>
           </>
         )}
       </ScrollView>
@@ -416,7 +419,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     alignItems: "center",
   },
-  tooltipRunner: {
+  tooltipRace: {
     fontSize: 11,
     color: "rgba(255,255,255,0.8)",
   },

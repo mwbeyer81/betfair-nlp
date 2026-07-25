@@ -212,15 +212,13 @@ jest.mock("../../config/database", () => ({
                 eventName: "Cheltenham 1st Jan",
                 marketIds: ["1.237066150"],
                 count: 1,
-                // getRunnerRangeStats' $group shape (explicit runner-range
-                // splits) — a flat top-level doc, not nested in $facet.
                 fromRow: 1,
                 toRow: 8,
-                // getRunnerConvergenceSeries' per-point shape — this mock
+                // getRaceConvergenceSeries' per-point shape — this mock
                 // array only has one element, so the endpoint's response
                 // has exactly one convergence point in tests, which is
                 // enough to assert its field shape.
-                runnerOrdinal: 1,
+                raceRowNumber: 1,
                 cumulativeStaked: 1,
                 cumulativeReturns: 2,
                 // /api/events/:eventId/definitions (MarketDefinitionDocument shape)
@@ -272,11 +270,6 @@ jest.mock("../../config/database", () => ({
                 // of those tests).
                 total: [{ count: 10000 }],
                 pnlStats: [{ staked: 1, returns: 2, count: 1 }],
-                // getRunnerRangeStats' $group shape (explicit runner-range
-                // splits) — a single flat doc, not nested in $facet arrays
-                // like the fields above, since that method runs its own
-                // standalone aggregation rather than sharing getAllRacesByRace's
-                // $facet. fromRow/toRow reused below at top level.
                 staked: 1,
                 returns: 2,
                 runnerCounts: [{ maxRunners: 12 }],
@@ -1422,31 +1415,12 @@ describe("API Endpoints", () => {
       expect(response.body.success).toBe(true);
     });
 
-    it("accepts a splitByRunners=false param and returns 200 with success", async () => {
-      const response = await request(app)
-        .get("/api/industry-sp/splits?splitByRunners=false")
-        .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body.success).toBe(true);
-    });
-
-    it("accepts explicit fromRunnerA/toRunnerA/fromRunnerB/toRunnerB params and returns 200 with success", async () => {
-      const response = await request(app)
-        .get("/api/industry-sp/splits?fromRunnerA=1&toRunnerA=500&fromRunnerB=501&toRunnerB=1000")
-        .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body.success).toBe(true);
-      expect(response.body.splitA).toHaveProperty("fromRow");
-      expect(response.body.splitB).toHaveProperty("fromRow");
-    });
   });
 
-  describe("GET /api/industry-sp/runner-convergence", () => {
+  describe("GET /api/industry-sp/race-convergence", () => {
     it("returns 200 with success, a data array, and count matching data.length", async () => {
       const response = await request(app)
-        .get("/api/industry-sp/runner-convergence?toRunner=1000")
+        .get("/api/industry-sp/race-convergence?toRow=1000")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
       expect(response.body.success).toBe(true);
@@ -1454,13 +1428,13 @@ describe("API Endpoints", () => {
       expect(response.body.count).toBe(response.body.data.length);
     });
 
-    it("each point has runnerOrdinal, cumulative staked/returns/pnl, and roiPercent", async () => {
+    it("each point has raceRowNumber, cumulative staked/returns/pnl, and roiPercent", async () => {
       const response = await request(app)
-        .get("/api/industry-sp/runner-convergence?toRunner=1000")
+        .get("/api/industry-sp/race-convergence?toRow=1000")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
       const point = response.body.data[0];
-      expect(point).toHaveProperty("runnerOrdinal");
+      expect(point).toHaveProperty("raceRowNumber");
       expect(point).toHaveProperty("cumulativeStaked");
       expect(point).toHaveProperty("cumulativeReturns");
       expect(point).toHaveProperty("cumulativePnl");
@@ -1468,28 +1442,28 @@ describe("API Endpoints", () => {
     });
 
     it("is public — returns 200 without auth", async () => {
-      await request(app).get("/api/industry-sp/runner-convergence?toRunner=1000").expect(200);
+      await request(app).get("/api/industry-sp/race-convergence?toRow=1000").expect(200);
     });
 
-    it("returns 400 when toRunner is missing", async () => {
+    it("returns 400 when toRow is missing", async () => {
       const response = await request(app)
-        .get("/api/industry-sp/runner-convergence")
+        .get("/api/industry-sp/race-convergence")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(400);
       expect(response.body).toHaveProperty("error");
     });
 
-    it("accepts an explicit fromRunner (e.g. Split B's own 1001-2000 range) and returns 200 with success", async () => {
+    it("accepts an explicit fromRow (e.g. Split B's own race range) and returns 200 with success", async () => {
       const response = await request(app)
-        .get("/api/industry-sp/runner-convergence?fromRunner=1001&toRunner=2000")
+        .get("/api/industry-sp/race-convergence?fromRow=1001&toRow=2000")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
       expect(response.body.success).toBe(true);
     });
 
-    it("returns 400 when fromRunner exceeds toRunner", async () => {
+    it("returns 400 when fromRow exceeds toRow", async () => {
       const response = await request(app)
-        .get("/api/industry-sp/runner-convergence?fromRunner=2000&toRunner=1000")
+        .get("/api/industry-sp/race-convergence?fromRow=2000&toRow=1000")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(400);
       expect(response.body).toHaveProperty("error");

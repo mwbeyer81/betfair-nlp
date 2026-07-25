@@ -8,6 +8,14 @@ This guide explains how to run the Betfair NLP backend locally using Docker for 
 - Node.js and Yarn (for local development)
 - Basic knowledge of Docker commands
 
+## MongoDB for testing (no Docker)
+
+The `localhost:27019` / `betfair_nlp_dev` instance used by the MongoDB integration test
+suite (`npx jest --testPathPattern="integration"`) is a **plain local `mongod` process**,
+not a container — see `.claude/commands/mongo-integration-tests.md` for how to start and
+seed it. The Docker-based setup below is a separate, optional way to run the full
+API server + MongoDB stack together and is unrelated to that test suite.
+
 ## Quick Start
 
 ### 1. Start the Local Development Environment
