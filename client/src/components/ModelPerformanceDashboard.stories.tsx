@@ -540,3 +540,52 @@ export const RestrictiveFilterComboShowsNoQualifyingRunners: Story = {
     await expect(canvas.queryByTestId("model-performance-dashboard-pnl-without")).not.toBeInTheDocument();
   },
 };
+
+export const SortToggleReordersTableByTrainingDate: Story = {
+  // Defaults to newest-first (matches how the sort toggle's own label reads
+  // on first render); tapping it flips to oldest-first.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const rowsBefore = canvas.getAllByTestId(/^model-performance-dashboard-table-row-/);
+    expect(rowsBefore[0]).toHaveAttribute("data-testid", `model-performance-dashboard-table-row-${LATEST.id}`);
+    await expect(canvas.getByTestId("model-performance-dashboard-sort-toggle")).toHaveTextContent("Newest first");
+
+    await userEvent.click(canvas.getByTestId("model-performance-dashboard-sort-toggle"));
+
+    const rowsAfter = canvas.getAllByTestId(/^model-performance-dashboard-table-row-/);
+    expect(rowsAfter[0]).toHaveAttribute("data-testid", `model-performance-dashboard-table-row-${MODEL_VERSIONS[0].id}`);
+    await expect(canvas.getByTestId("model-performance-dashboard-sort-toggle")).toHaveTextContent("Oldest first");
+  },
+};
+
+export const TableMetricTooltipExplainsForLayPerson: Story = {
+  // The user reported not knowing what AUC-ROC/LogLoss/Brier mean — these
+  // "?" toggles on the table's column headers are the fix.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByTestId("model-performance-dashboard-tooltip-text-aucRoc")).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId("model-performance-dashboard-tooltip-toggle-aucRoc"));
+    await expect(canvas.getByTestId("model-performance-dashboard-tooltip-text-aucRoc")).toHaveTextContent("coin flip");
+
+    await userEvent.click(canvas.getByTestId("model-performance-dashboard-tooltip-toggle-aucRoc"));
+    await expect(canvas.queryByTestId("model-performance-dashboard-tooltip-text-aucRoc")).not.toBeInTheDocument();
+  },
+};
+
+export const TrainingParamTooltipExplainsForLayPerson: Story = {
+  // Same "?" toggle pattern, applied to every training-parameter row in the
+  // detail view — n_estimators/learning_rate/etc. are meaningless jargon
+  // without an explanation.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openDetailInCanvas(canvas, LATEST.id);
+
+    await expect(canvas.queryByTestId("model-performance-dashboard-tooltip-text-learning_rate")).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId("model-performance-dashboard-tooltip-toggle-learning_rate"));
+    await expect(canvas.getByTestId("model-performance-dashboard-tooltip-text-learning_rate")).toHaveTextContent(
+      "step"
+    );
+  },
+};

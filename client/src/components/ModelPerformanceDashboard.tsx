@@ -78,6 +78,44 @@ const CHIP_FILTER_LABELS: Record<ChipFilterKey, string> = {
   raceType: "Race Type",
 };
 
+// Plain-English explanations for the XGBoost training params and metrics
+// shown in the detail view — these are the exact terms ml/train_and_predict.py
+// uses, meaningless to anyone who isn't already familiar with gradient-
+// boosted trees. Keyed by the same label strings passed to renderParamRow
+// below, plus the three metric keys.
+const PROPERTY_TOOLTIPS: Record<string, string> = {
+  n_estimators:
+    "How many individual decision trees the model built and combined to make its predictions. More trees can capture more detail, but take longer to train and eventually stop helping.",
+  learning_rate:
+    "How big a step the model takes when learning from each new tree. Smaller steps learn more cautiously and usually need more trees (n_estimators) to reach the same accuracy, but tend to generalize better to new races.",
+  max_depth:
+    "How many yes/no questions deep each individual tree is allowed to go. Deeper trees can capture more complex patterns, but risk memorizing quirks in the training data instead of learning general trends.",
+  subsample:
+    "The fraction of training races randomly used to build each individual tree (0.8 = 80%). Using less than 100% adds randomness that helps stop the model from over-fitting to the exact training data.",
+  colsample_bytree:
+    "The fraction of input factors (course, going, trainer form, etc.) randomly considered when building each tree. Same idea as subsample — more randomness, less over-fitting.",
+  min_child_weight:
+    "The minimum amount of data a split in a tree needs before it's allowed. A safeguard against the model inventing overly specific rules based on just a handful of races.",
+  random_state:
+    "A fixed number that seeds all of the model's random choices, so training again on the same data with this same number reproduces an identical model.",
+  early_stopping_rounds:
+    "Training stops automatically once the model hasn't improved on a held-back sample of races for this many rounds in a row — avoids wasting time, or over-fitting, once more training stops helping.",
+  train_rows: "How many individual runner entries the model actually learned from.",
+  test_rows:
+    "How many runner entries were held back and never shown to the model during training — used afterwards to check its performance honestly, on races it couldn't have memorized.",
+  best_iteration:
+    "Out of every round of training, which one produced the best-performing model on the held-back data — that's the version that got kept.",
+  train_date_max: "The most recent race date included in the training data.",
+  test_date_min:
+    "The earliest race date in the held-back test data — always after the training cut-off, so the model is only ever judged on races it couldn't have seen coming.",
+  aucRoc:
+    "How well the model ranks winners above losers, from 0.5 (no better than a coin flip) to 1.0 (perfect). 0.70–0.75 is a realistically solid score for horse racing — nobody predicts every winner.",
+  logLoss:
+    "How confident and correct the model's predictions were, race by race — being confidently right is rewarded, being confidently wrong is punished harder than being unsure. Lower is better; 0 would be a perfect, fully-confident model.",
+  brierScore:
+    "The average squared gap between the model's predicted win probability and what actually happened (1 for a win, 0 for a loss). Lower is better; 0 would mean perfect predictions.",
+};
+
 function chipValue(race: IspRace, key: ChipFilterKey): string | null {
   switch (key) {
     case "country":
@@ -152,6 +190,13 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
   // driven by row taps / the back button.
   const [screen, setScreen] = useState<"table" | "detail">("table");
   const { isTablet } = useResponsive();
+  // Which model was trained more recently — defaults to newest first, the
+  // usual way to browse a list of versions.
+  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
+  // Which single tooltip (if any) is currently expanded, keyed by the same
+  // strings as PROPERTY_TOOLTIPS — only one open at a time, same pattern as
+  // IndustrySpScreen's filter tooltips.
+  const [openTooltip, setOpenTooltip] = useState<string | null>(null);
 
   // Switching model version swaps in a different `races` pool (a different
   // model may not have scored the same courses/date range) — stale filter
@@ -251,6 +296,12 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
 
   const selectedVersion = modelVersions.find(v => v.id === selectedModelVersionId) ?? modelVersions[0] ?? null;
 
+  const sortedVersions = useMemo(() => {
+    const copy = [...modelVersions];
+    copy.sort((a, b) => (sortOrder === "desc" ? b.runAt.localeCompare(a.runAt) : a.runAt.localeCompare(b.runAt)));
+    return copy;
+  }, [modelVersions, sortOrder]);
+
   function openDetail(id: string) {
     onSelectModelVersion(id);
     setScreen("detail");
@@ -260,11 +311,41 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
     setScreen("table");
   }
 
-  function renderParamRow(label: string, value: string | number) {
+  function toggleSortOrder() {
+    setSortOrder(prev => (prev === "desc" ? "asc" : "desc"));
+  }
+
+  function renderTooltipToggle(key: string) {
     return (
-      <View key={label} style={styles.paramRow}>
-        <Text style={styles.paramLabel}>{label}</Text>
+      <TouchableOpacity
+        testID={`model-performance-dashboard-tooltip-toggle-${key}`}
+        onPress={() => setOpenTooltip(t => (t === key ? null : key))}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        style={styles.tooltipToggle}
+      >
+        <Text style={styles.tooltipToggleText}>?</Text>
+      </TouchableOpacity>
+    );
+  }
+
+  function renderTooltipText(key: string) {
+    if (openTooltip !== key) return null;
+    return (
+      <Text testID={`model-performance-dashboard-tooltip-text-${key}`} style={styles.tooltipText}>
+        {PROPERTY_TOOLTIPS[key]}
+      </Text>
+    );
+  }
+
+  function renderParamRow(key: string, value: string | number) {
+    return (
+      <View key={key} style={styles.paramRow}>
+        <View style={styles.paramLabelRow}>
+          <Text style={styles.paramLabel}>{key}</Text>
+          {renderTooltipToggle(key)}
+        </View>
         <Text style={styles.paramValue}>{value}</Text>
+        {renderTooltipText(key)}
       </View>
     );
   }
@@ -355,17 +436,42 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
         <ScrollView testID="model-performance-dashboard-list" contentContainerStyle={styles.body}>
           {screen === "table" ? (
             <View testID="model-performance-dashboard-table" style={styles.tableContainer}>
+              <TouchableOpacity
+                testID="model-performance-dashboard-sort-toggle"
+                onPress={toggleSortOrder}
+                style={styles.sortToggle}
+              >
+                <Text style={styles.sortToggleText}>
+                  Trained: {sortOrder === "desc" ? "Newest first" : "Oldest first"} {sortOrder === "desc" ? "↓" : "↑"}
+                </Text>
+              </TouchableOpacity>
               {isTablet && (
                 <View testID="model-performance-dashboard-table-header" style={styles.tableHeaderRow}>
                   <Text style={[styles.tableHeaderCell, styles.tableColModel]}>Model</Text>
                   <Text style={[styles.tableHeaderCell, styles.tableColDate]}>Trained</Text>
-                  <Text style={[styles.tableHeaderCell, styles.tableColMetric]}>AUC-ROC</Text>
-                  <Text style={[styles.tableHeaderCell, styles.tableColMetric]}>LogLoss</Text>
-                  <Text style={[styles.tableHeaderCell, styles.tableColMetric]}>Brier</Text>
+                  <View style={[styles.tableHeaderMetricCell, styles.tableColMetric]}>
+                    <Text style={styles.tableHeaderCell}>AUC-ROC</Text>
+                    {renderTooltipToggle("aucRoc")}
+                  </View>
+                  <View style={[styles.tableHeaderMetricCell, styles.tableColMetric]}>
+                    <Text style={styles.tableHeaderCell}>LogLoss</Text>
+                    {renderTooltipToggle("logLoss")}
+                  </View>
+                  <View style={[styles.tableHeaderMetricCell, styles.tableColMetric]}>
+                    <Text style={styles.tableHeaderCell}>Brier</Text>
+                    {renderTooltipToggle("brierScore")}
+                  </View>
                   <View style={styles.tableColChevron} />
                 </View>
               )}
-              {modelVersions.map(version => (
+              {isTablet && (renderTooltipText("aucRoc") || renderTooltipText("logLoss") || renderTooltipText("brierScore")) && (
+                <View style={styles.tableHeaderTooltipRow}>
+                  {renderTooltipText("aucRoc")}
+                  {renderTooltipText("logLoss")}
+                  {renderTooltipText("brierScore")}
+                </View>
+              )}
+              {sortedVersions.map(version => (
                 <TouchableOpacity
                   key={version.id}
                   testID={`model-performance-dashboard-table-row-${version.id}`}
@@ -442,15 +548,27 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
               Performance metrics
             </Text>
             <View style={styles.metricRow}>
-              <Text testID="model-performance-dashboard-auc" style={styles.metricValue}>
-                AUC-ROC {selectedVersion.performanceMetrics.aucRoc.toFixed(3)}
-              </Text>
-              <Text testID="model-performance-dashboard-logloss" style={styles.metricValue}>
-                LogLoss {selectedVersion.performanceMetrics.logLoss.toFixed(3)}
-              </Text>
-              <Text testID="model-performance-dashboard-brier" style={styles.metricValue}>
-                Brier {selectedVersion.performanceMetrics.brierScore.toFixed(3)}
-              </Text>
+              <View testID="model-performance-dashboard-auc" style={styles.metricStat}>
+                <View style={styles.paramLabelRow}>
+                  <Text style={styles.metricValue}>AUC-ROC {selectedVersion.performanceMetrics.aucRoc.toFixed(3)}</Text>
+                  {renderTooltipToggle("aucRoc")}
+                </View>
+                {renderTooltipText("aucRoc")}
+              </View>
+              <View testID="model-performance-dashboard-logloss" style={styles.metricStat}>
+                <View style={styles.paramLabelRow}>
+                  <Text style={styles.metricValue}>LogLoss {selectedVersion.performanceMetrics.logLoss.toFixed(3)}</Text>
+                  {renderTooltipToggle("logLoss")}
+                </View>
+                {renderTooltipText("logLoss")}
+              </View>
+              <View testID="model-performance-dashboard-brier" style={styles.metricStat}>
+                <View style={styles.paramLabelRow}>
+                  <Text style={styles.metricValue}>Brier {selectedVersion.performanceMetrics.brierScore.toFixed(3)}</Text>
+                  {renderTooltipToggle("brierScore")}
+                </View>
+                {renderTooltipText("brierScore")}
+              </View>
             </View>
             <View testID="model-performance-dashboard-calibration-chart" style={styles.chartContainer}>
               <Svg width="100%" height={CAL_CHART_HEIGHT} viewBox={`0 0 ${CAL_CHART_WIDTH} ${CAL_CHART_HEIGHT}`}>
@@ -635,6 +753,19 @@ const styles = StyleSheet.create({
   tableContainer: {
     gap: spacing.sm,
   },
+  sortToggle: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  sortToggleText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.text,
+  },
   tableHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -646,6 +777,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.textSecondary,
     textTransform: "uppercase",
+  },
+  tableHeaderMetricCell: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 4,
+  },
+  tableHeaderTooltipRow: {
+    paddingHorizontal: spacing.md,
   },
   tableColModel: {
     flex: 2,
@@ -733,6 +873,11 @@ const styles = StyleSheet.create({
   paramRow: {
     minWidth: 140,
   },
+  paramLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
   paramLabel: {
     fontSize: 11,
     color: colors.textSecondary,
@@ -742,6 +887,32 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: colors.text,
   },
+  tooltipToggle: {
+    width: 16,
+    height: 16,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.textTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tooltipToggleText: {
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  tooltipText: {
+    marginTop: spacing.xs,
+    maxWidth: 260,
+    fontSize: 11,
+    lineHeight: 15,
+    color: "#fff",
+    backgroundColor: colors.text,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.sm,
+  },
   featureColsText: {
     marginTop: spacing.sm,
     fontSize: 11,
@@ -749,8 +920,12 @@ const styles = StyleSheet.create({
   },
   metricRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.lg,
     marginBottom: spacing.sm,
+  },
+  metricStat: {
+    minWidth: 140,
   },
   metricValue: {
     fontSize: 13,

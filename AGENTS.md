@@ -888,3 +888,40 @@ from 16). Live Playwright suite against the redeployed site: 10/10 pass
 (was 7), including the two new narrow/wide viewport checks and a visual
 screenshot comparison confirming the column-table and stacked-card
 layouts both render correctly. Redeployed via `apps/storybook-aws/deploy.sh`.
+
+**Follow-up same day — user asked to sort the new table by training date,
+and said they didn't understand what the training-param/metric names
+mean, asking for lay-person tooltips.**
+
+- **Sort:** new `sortOrder` state (`"desc" | "asc"`, defaults to
+  newest-first) plus a `sortedVersions` memo feeding the table rows
+  (`modelVersions` itself stays untouched/unsorted — the prop is still
+  whatever order the parent passes). A pill button above the table
+  (`model-performance-dashboard-sort-toggle`) toggles it, labelled
+  "Trained: Newest first ↓" / "Oldest first ↑".
+- **Tooltips:** reused the exact "?" toggle + expandable text pattern
+  already established in `IndustrySpScreen.tsx`
+  (`renderTooltipToggle`/`renderTooltipText`/`openTooltip`,
+  `FILTER_TOOLTIPS`) rather than inventing a new mechanism — same idea,
+  reimplemented locally in this component (not exported/shared, matching
+  how `IndustrySpScreen.tsx` keeps its own copy too) with a new
+  `PROPERTY_TOOLTIPS` dictionary. Added to **every** training-param row
+  in the detail view (n_estimators, learning_rate, max_depth, subsample,
+  colsample_bytree, min_child_weight, random_state,
+  early_stopping_rounds, train_rows, test_rows, best_iteration,
+  train_date_max, test_date_min) and to AUC-ROC/LogLoss/Brier in **both**
+  the table's column headers (wide layout) and the detail view's metrics
+  panel — same `PROPERTY_TOOLTIPS` keys (`aucRoc`/`logLoss`/`brierScore`)
+  reused in both places, only one `openTooltip` state so at most one
+  explanation is expanded at a time. Explanations are deliberately plain-
+  English, no ML jargon (e.g. AUC-ROC: "How well the model ranks winners
+  above losers, from 0.5 (no better than a coin flip) to 1.0 (perfect)...").
+
+**Verified:** `yarn build` clean. Storybook test-runner: 21/21 for this
+component (18 + 3 new: `SortToggleReordersTableByTrainingDate`,
+`TableMetricTooltipExplainsForLayPerson`,
+`TrainingParamTooltipExplainsForLayPerson`), full suite otherwise
+unchanged (same 4 pre-existing unrelated failures, 280 passed). Live
+Playwright suite against the redeployed site: still 10/10 (unaffected —
+none of those tests touch sort/tooltip UI). Redeployed via
+`apps/storybook-aws/deploy.sh`.
