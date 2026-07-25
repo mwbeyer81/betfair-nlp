@@ -50,6 +50,17 @@ cd ~/betfair-nlp-<slug>
   branch name matching `<slug>` — the convention every worktree below
   already follows.
 - **Branch from `origin/develop`**, not a possibly-stale local `develop`.
+- **Merge `origin/develop` into your branch frequently while work is still
+  in progress — not just once at branch-creation and once right before your
+  final push.** `develop` moves constantly with several agents active; on
+  2026-07-25 the same `AGENTS.md` conflict was hit three separate times in a
+  row while merging and deploying one feature, purely because each merge was
+  a one-off reaction to a rejected push rather than a habit. Make `git fetch
+  origin develop && git merge origin/develop` something you run periodically
+  mid-task (e.g. before starting a new sub-task, or any time you're about to
+  touch `AGENTS.md` yourself) — catching a small divergence early is a
+  trivial conflict; catching three of them stacked up right before a deploy
+  is not.
 - **Before you push/merge:** re-read this file (top-level instruction above,
   still applies) and add/update your row in the table below.
 - **After merge + deploy:** clean up so the next agent doesn't have to
@@ -82,7 +93,7 @@ tiebreaker.
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | merging to `develop` now — reconciling with `model-versioning-backend`'s stashed `train_and_predict.py` WIP below in the same pass, see dated entry below |
 | `~/betfair-nlp-model-versioning-backend` | `model-versioning-backend` | Backend for Model Performance Dashboard: model-version registry, runner tagging, live nav wiring | **merged to `develop` (`489b187`/`d182e99`), not yet deployed** — worktree kept around pending deploy, see dated entries below. The `stash@{0}` `ml/train_and_predict.py`/precompute-scripts WIP it left behind is being reconciled by `comment-nlp-features` (see dated entry below) — that stash can be dropped once confirmed superseded, don't reconcile it a second time |
-| `~/betfair-nlp-app-knowledge-chat` | `feat/app-knowledge-chat` | Chat can explain the app itself (DB structure, model training, feature engineering) in plain English; also hardening the existing data-query chat path to be verifiably read-only | **committed, live-verified against the real OpenAI API, merging and deploying now** — see dated entry below |
+| `~/betfair-nlp-codebase-chat` | `feat/codebase-search-chat` | **Full replacement** of the chat feature — deletes the entire MongoDB-query-generation path (`openai-client.ts`, `natural-language-service.ts`, `mongo-script-executor.ts`, both prompt docs) and rebuilds it as an OpenAI tool-calling agent that reads real source files at runtime (a curated, allowlisted "codebase snapshot" bundled alongside `prompts/`), plus real multi-turn conversation memory. Supersedes the `feat/app-knowledge-chat` work merged/deployed earlier today — that work is being deleted, not extended. See dated entry below | in progress, not merged |
 
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`, and
@@ -1807,3 +1818,61 @@ user instruction) so a real `modelVersionId` entry appears in the live
 dashboard — the previous entry above confirmed prod currently has zero
 such entries (`GET /api/model-versions` returns `{"data":[],"count":0}`),
 so this will be the first one.
+
+---
+
+## 2026-07-25 (later still) — Agent in `~/betfair-nlp-codebase-chat` (branch `feat/codebase-search-chat`)
+
+**Task (starting):** Full replacement of the chat feature, superseding
+`feat/app-knowledge-chat` (merged/deployed earlier today — that entire
+`responseType: "data"|"about"` design is being deleted, not extended). User
+live-tested the deployed "about the app" fork and found it unreliable —
+natural phrasings ("What does this app do", "How does it work") fell
+through to the old generic MongoDB-script-failure fallback, because
+instructions+query were jammed into a single `user`-role string with zero
+conversation memory. User's direction: *"Delete the existing chat logic. The
+chat feature should just allow users to chat to understand all things about
+the app. Could it search the code base to help give an answer?"*
+
+New design: an OpenAI tool-calling agent (Chat Completions `tools` API,
+`openai@5.16.0` already installed and confirmed to support it) that reads
+real source files at runtime via three read-only tools
+(`list_directory`/`search_code`/`read_file`), scoped to an explicit
+allowlist (`src/lib/dao/`, `src/lib/service/`, one precompute script,
+`ml/train_and_predict.py`, `README.md` — explicitly excluding `AGENTS.md`,
+`config/`, `src/server/`, and the rest of `ml/`'s 988M of data artifacts),
+plus real multi-turn conversation memory threaded from `ChatScreen.tsx`'s
+existing `messages` state. Full plan at
+`~/.claude/plans/create-to-git-work-functional-galaxy.md`.
+
+**Key constraint driving the design:** confirmed via `apps/lambda/build.sh`
+that the deployed Lambda's package is only `handler.js` (esbuild-bundled,
+no raw `.ts` on disk) plus explicitly-copied `config/`/`prompts/` — so a
+"search the codebase" tool only works in production if the searchable files
+are bundled the same way `prompts/` already is, not assumed to exist on
+disk. Solution: a new `scripts/build-codebase-snapshot.sh` copies the
+allowlisted files into `src/lib/service/codebase-snapshot/` (gitignored
+build artifact), and both local dev and the Lambda read from that same
+snapshot directory (not the live repo in dev) so the two environments stay
+structurally identical.
+
+**Touching:** deletes `src/lib/service/openai-client.ts`,
+`natural-language-service.ts`, `mongo-script-executor.ts`,
+`prompts/horse-racing-assistant.md`, `prompts/app-knowledge-assistant.md`
+(and their tests) entirely; new `codebase-file-access.ts` +
+`codebase-search-service.ts` + `prompts/chat-system-prompt.md` +
+`scripts/build-codebase-snapshot.sh`; rewrites `router.ts`'s `/api/query`,
+`apps/lambda/build.sh`, and the frontend chat pieces (`chatApi.ts`,
+`ChatScreen.tsx`, `Message.tsx`, `Message.stories.tsx`) to drop the
+`mongoScript`/`aiAnalysis` concept entirely and thread conversation history
+instead.
+
+**Also, separately from this feature (its own doc-only commit on `develop`
+before this work starts):** added a new standing rule to this file's
+"Working in a worktree" section — merge `origin/develop` into your branch
+*frequently while work is in progress*, not just once at branch-creation and
+once before the final push. The previous task hit the identical `AGENTS.md`
+merge conflict three times in a row while merging/deploying, purely because
+each merge was a one-off reaction to a rejected push rather than a habit.
+
+Will append a completion entry below once shipped/verified.
