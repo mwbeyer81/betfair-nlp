@@ -6,8 +6,33 @@ work or duplicate-debug the same infra issues. **Read this before touching
 `src/lib/dao/industry-sp-dao.ts`, `client/src/components/IndustrySpScreen.tsx`,
 `client/src/utils/ispUrlParams.ts`, or shared local infra (ports 3000/27019/80).**
 
+**Storybook port:** don't assume 6006 or 6007 is free — with several agents
+active at once, one of them is very likely already bound to whichever
+default you reach for first (this has caused silent test-runner failures
+and false "everything failed" results, see the dated entries below). Before
+starting Storybook for local testing, run `ps aux | grep storybook` (not
+`lsof` — unreliable in this sandbox, see the dated entry on that) to see
+what's already running, then start yours on a port nothing else is using,
+e.g. `npx storybook dev --port 6009 --ci` / `test-storybook --url
+http://localhost:6009`. Don't kill another agent's Storybook process to
+free up a port — pick a different one instead.
+
 If you're an agent starting work here: add a new dated entry below (don't
 edit/delete others' entries), and re-read this file before you push/merge.
+
+## Local infra: MongoDB at localhost:27019
+
+As of 2026-07-25 this is a **plain local `mongod` process on this VM, not
+Docker** — binary lives at `/home/ubuntu/mongodb-local`, data dir at
+`/home/ubuntu/mongo-data-27019`, started with `--port 27019 --bind_ip
+127.0.0.1 --fork`. It's shared across every worktree on this VM, so don't
+kill it unless you're sure nothing else is using it. `docker-compose.mongo-
+only.yml` (the old Docker-based way to get a `localhost:27019` mongo) has
+been deleted as unused/superseded — see `.claude/commands/mongo-
+integration-tests.md` for how to start/seed it if it's ever down.
+`docker-compose.local.yml` (the combined API-server + MongoDB Docker stack
+behind `yarn server:docker`/`mongo:up`/etc.) is untouched and still works
+independently of this.
 
 ## Working in a worktree
 
@@ -52,15 +77,17 @@ tiebreaker.
 | `/home/ubuntu/betfair-nlp` | `develop` | primary checkout | — |
 | `~/betfair-nlp-deploy-develop` | `develop` (detached) | persistent — `/deploy-web` builds from here | keep |
 | `~/betfair-nlp-deploy-main` | `main` (detached) | persistent — `/deploy-backbet` builds from here | keep |
-| `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; likely stale/unrebased, will need careful reconciliation with the split-continuation and Apply-honoring fixes below before it merges |
+| `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; **`develop` just moved significantly (`fd3f394`) — Split A/B's runner-index machinery (`splitByRunners`, `fromRunnerA/toRunnerA/...`) was entirely removed and `IndustrySpScreen.tsx` heavily rewritten, see the dated entry below** — expect this branch's divergence to be much worse now, plan for a careful manual reconciliation, not a plain rebase |
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
-| `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree |
+| `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
+| `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | in progress, not merged — see dated entry below |
 
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
-`social-auth`, `convergence-tooltip`, and `split-b-continuation` were
-merged, clean, and have been removed (`git worktree remove` + `git branch
--d`, local and remote) as of 2026-07-25 — this is what "clean up after
-merge" in the section above looks like in practice.
+`social-auth`, `convergence-tooltip`, `split-b-continuation`, and
+`split-ab-race-revert` were merged, clean, and have been removed
+(`git worktree remove` + `git branch -d`, local and remote) as of
+2026-07-25 — this is what "clean up after merge" in the section above
+looks like in practice.
 
 Older entries (2026-07-17 through the `auth-hardening` session) have been
 moved to `AGENTS-archive-2026-07.md` to keep this file readable — see there
@@ -704,5 +731,539 @@ MSW Playwright `industry-sp.spec.ts` full suite: 82/82 pass (unaffected
 to confirm nothing broke).
 
 **Done — committed (`aa3f85d`), merged to `develop`, pushed, deployed.
+Worktree removed, branch deleted (local + remote) — nothing left in
+progress.**
+
+---
+
+## 2026-07-25 (latest) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Task:** User asked for a "Model Performance Dashboard" to eventually
+track per-retraining model versions, training params, and P&L (with vs.
+without the model) across UI filters, stored in a new Mongo collection.
+Scoped down via clarifying questions to **frontend-only, mocked data,
+Storybook stories only** this round — no Mongo collection, DAO, service,
+API route, or `ml/train_and_predict.py` change yet. Backend wiring is a
+deliberate follow-up task once the UX is validated.
+
+**Not done in a worktree** — new, isolated files only (no edits to any
+of the contested files this doc calls out at the top), so the
+worktree-per-agent isolation this file recommends wasn't load-bearing
+here. Future non-trivial work should still default to a worktree per the
+section above.
+
+**Implementation:**
+- `client/src/utils/ispFormat.ts` — added `computeModelFilteredPnl`
+  (the "with model" P&L calc: same staking math as the existing
+  `computeRangePnl`, gated on `modelWinProbability >= threshold &&
+  modelBeatsSp(runner)`).
+- `client/src/components/ModelPerformanceDashboard.tsx` (new) — model-
+  version selector cards, training-params panel (mirrors
+  `ml/train_and_predict.py`'s real hyperparam names/values), performance
+  metrics + a hand-rolled SVG calibration chart (same style as
+  `RunnerConvergencePanel.tsx` — no charting library in this repo),
+  filters reusing `DateRangePicker.tsx` and the chip/checkbox
+  draft-vs-applied pattern from `IndustrySpScreen.tsx`, and two P&L stat
+  cards ("without model" / "with model").
+- `client/src/components/ModelPerformanceDashboard.stories.tsx` (new) —
+  16 stories (6 baseline + 10 dashboard-specific) with a deterministic
+  (seeded, not `Math.random()`) mock generator: 3 fake model versions
+  with improving AUC over time, ~130 races each, `modelWinProbability`
+  noise inversely tied to each version's AUC so the highest-AUC
+  version's "with model" P&L visibly beats its "without model" baseline
+  — the actual point of the demo.
+- Deploy: no Cloudflare Pages project existed for Storybook yet, and no
+  `CLOUDFLARE_API_TOKEN` was available this session — user redirected to
+  AWS (creds already configured on this box) instead. Created a new S3
+  bucket `backbet-storybook` (eu-north-1, public-read, static website
+  hosting, no CloudFront/custom domain — a review tool, not the
+  production app) and `apps/storybook-aws/deploy.sh` to rebuild+sync it.
+  `apps/storybook-cf/deploy.sh` was also written (mirrors
+  `apps/web-cf/deploy-dev.sh`) but is untested/unused until a Cloudflare
+  token exists — see `/deploy-storybook` for both.
+
+**Verified:** `yarn build` clean. Storybook test-runner:
+`ModelPerformanceDashboard.stories.tsx` 16/16 pass. Full suite otherwise
+unaffected — 4 pre-existing failures in files this task never touched
+(`IndustrySpScreen`, `AllRunnersScreen`, `EventsScreen`,
+`RunnerDetailScreen` stories).
+
+**Live at:** http://backbet-storybook.s3-website.eu-north-1.amazonaws.com
+(direct link to the new stories:
+http://backbet-storybook.s3-website.eu-north-1.amazonaws.com/?path=/story/components-modelperformancedashboard--panel-visible)
+
+**Not yet done (deliberately, next task):** Mongo collection for model
+versions/training runs, DAO/service/API routes, wiring
+`ml/train_and_predict.py` to emit a real per-run id + persist its own
+constructor hyperparams (today it only writes eval metrics +
+free-text `runLabel` to `model_evaluations` — no stable id), and
+connecting the dashboard to real data instead of the mock generator.
+
+**Follow-up same day — user viewed the live S3 page on an actual phone
+and reported two real bugs the Storybook interaction tests never caught:
+the panel's header rendered but everything below it was blank, and text
+used a fallback serif font instead of Inter.** Both turned out to be
+**pre-existing gaps in `.storybook/preview-head.html`/`preview.tsx`, not
+specific to this component** — likely affecting every other
+`position:absolute` "fullscreen panel" story in this repo
+(`RunnerConvergencePanel`, `EventDocsPanel`, `SplitDetailPanel`, etc.)
+that nobody had visually screenshotted before, since Storybook's own
+interaction tests only assert `toBeInTheDocument()` (DOM presence), which
+doesn't catch a zero-height element.
+
+- **Blank content root cause:** two pass-through wrapper `<div>`s sit
+  between `#storybook-root` and every story's own root (Storybook's own
+  decorator root + `PaperProvider`'s wrapper `View` from the global
+  decorator in `preview.tsx`) — neither had a height of its own, so they
+  collapsed to 0px. A `position:absolute; inset:0` panel takes no space
+  in normal flow, so it can't stretch a 0-height parent to fill; it needs
+  an ancestor with a *real* height to anchor `top`/`bottom:0` against.
+  Fixed with a CSS rule in `preview-head.html` forcing `height:100%`
+  through exactly those 2 wrapper divs — **deliberately not deeper than
+  2 levels**: a first attempt at 4 levels reached into the story's own
+  internal divs (e.g. a panel's header row) and corrupted their own
+  content-sized layout, which is its own regression class to watch for
+  if this ever needs touching again.
+- **Font root cause:** `App.tsx` loads Inter via
+  `@expo-google-fonts/inter`'s `useFonts()` before the real app renders;
+  `preview.tsx`'s decorator never did, so every `fontFamily:
+  "Inter_400Regular"/"Inter_500Medium"` in `theme.ts` silently fell back
+  to the browser default. Fixed by copying the same package's
+  `Inter_400Regular.ttf`/`Inter_500Medium.ttf` into `client/public/fonts`
+  (served by `staticDirs` in both dev and the static build) and adding
+  `@font-face` rules under those exact family names in
+  `preview-head.html` — zero changes needed to `theme.ts` or any
+  component.
+
+**Also added:** `client/tests-storybook-live/model-performance-dashboard-live.spec.ts`
+— Playwright smoke tests against the actual deployed S3 URL (not just
+local Storybook), using the same pattern as the existing
+`storybook-live.spec.ts` (which targets a separate, older
+`punt-storybook.pages.dev` Cloudflare Pages deployment from before this
+app was renamed — still there, untouched, unrelated to this task). Two
+of the 7 new tests are real-bounding-box / computed-font-family checks
+specifically because `toBeInTheDocument()`-style assertions are exactly
+what let both bugs above ship unnoticed — Playwright's `.toBeVisible()`
+plus an explicit `boundingBox()` height check is what actually would
+have caught them.
+
+**Verified again:** `yarn build` clean. Full Storybook test-runner suite
+re-run after the CSS/font fix: same 6 failing tests as before (the 4
+pre-existing unrelated files), 275 passed (was 277 before this session
+un-exported two accidentally-public consts that Storybook had been
+indexing as bogus extra stories — net no regression from this fix).
+All 7 new live Playwright tests pass against the redeployed site.
+Redeployed via `apps/storybook-aws/deploy.sh` after the fix — the live
+URL above now reflects the corrected build.
+
+**Follow-up same day — user asked for a table view (one row per model
+version) that taps through to the existing detail view, rendering well
+narrow-to-wide.** Implemented as a two-screen nav inside
+`ModelPerformanceDashboard.tsx`:
+
+- New internal state `screen: "table" | "detail"`, defaulting to
+  `"table"`. Tapping a row calls `onSelectModelVersion(id)` (unchanged
+  prop contract) and flips to `"detail"`; a new "← Models" back button
+  (`model-performance-dashboard-back-to-table`) flips back. Deliberately
+  **not** reset by the existing races-reset `useEffect` — that effect
+  only clears stale filters when the race pool changes, and resetting
+  `screen` there too would have undone the very navigation a row tap just
+  caused, once the parent's `races` prop update landed.
+- Responsive via the **existing** `useResponsive()`/`BREAKPOINTS.tablet`
+  (768px) hook from `client/src/utils/responsive.ts` (same one
+  `IndustrySpScreen.tsx` already uses for its Split A/B side-by-side
+  layout) — reused rather than inventing a new breakpoint. `isTablet`
+  true renders a real column table (`model-performance-dashboard-table-header`
+  + one row per version with Model/Trained/AUC-ROC/LogLoss/Brier
+  columns); false renders the same rows as stacked cards
+  (`model-performance-dashboard-table-row-{id}`, same testID either way)
+  with a chevron.
+- **Important finding while testing this:** Storybook's own `viewport`
+  parameter (`parameters.viewport.defaultViewport`, used by the existing
+  `RendersAtIphone12`/`RendersAtLaptop` stories elsewhere in this repo)
+  **does not actually resize anything** in this Storybook 9 config —
+  confirmed empirically: `window.innerWidth` inside the preview iframe
+  stayed at the real browser width regardless of which viewport
+  parameter a story declared. `@storybook/addon-viewport` was removed
+  for Storybook-9 incompatibility (see the comment already in
+  `preview.tsx`) and nothing replaced its actual resizing behavior — the
+  parameter objects are inert. So the responsive wide-vs-narrow
+  assertions for the new table could **not** be written as Storybook
+  interaction tests; they're in
+  `client/tests-storybook-live/model-performance-dashboard-live.spec.ts`
+  instead, using Playwright's own `browser.newContext({ viewport })`
+  (390×844 and 1280×900), which is the only layer here with real control
+  over the width `useWindowDimensions()` reads.
+- **Another finding:** Storybook auto-runs a story's own `play()`
+  function on render even outside the test-runner — i.e. just navigating
+  a real browser to a story's URL executes its `play()`. One live test
+  initially tried to click the same table row a story's own `play()`
+  already clicked (timed out waiting for a row that was already gone,
+  now in the detail screen) — fixed by not duplicating the click for
+  that story, but worth remembering if a future live test seems to hang
+  waiting on an element a story's own interactions already consumed.
+- Reworked all 16 existing Storybook stories for the new nav (added a
+  shared `openDetailInCanvas(canvas, versionId)` helper that clicks
+  `model-performance-dashboard-table-row-{id}` then waits for
+  `-training-params` to appear) since detail-view content is no longer
+  visible without a tap. Added 2 new stories: `TableRowTapOpensDetail`,
+  `BackButtonReturnsToTable` — 18 stories total now.
+
+**Verified:** `yarn build` clean. Full Storybook test-runner suite: same
+4 pre-existing unrelated failures, 277 passed (18 for this component, up
+from 16). Live Playwright suite against the redeployed site: 10/10 pass
+(was 7), including the two new narrow/wide viewport checks and a visual
+screenshot comparison confirming the column-table and stacked-card
+layouts both render correctly. Redeployed via `apps/storybook-aws/deploy.sh`.
+
+**Follow-up same day — user asked to sort the new table by training date,
+and said they didn't understand what the training-param/metric names
+mean, asking for lay-person tooltips.**
+
+- **Sort:** new `sortOrder` state (`"desc" | "asc"`, defaults to
+  newest-first) plus a `sortedVersions` memo feeding the table rows
+  (`modelVersions` itself stays untouched/unsorted — the prop is still
+  whatever order the parent passes). A pill button above the table
+  (`model-performance-dashboard-sort-toggle`) toggles it, labelled
+  "Trained: Newest first ↓" / "Oldest first ↑".
+- **Tooltips:** reused the exact "?" toggle + expandable text pattern
+  already established in `IndustrySpScreen.tsx`
+  (`renderTooltipToggle`/`renderTooltipText`/`openTooltip`,
+  `FILTER_TOOLTIPS`) rather than inventing a new mechanism — same idea,
+  reimplemented locally in this component (not exported/shared, matching
+  how `IndustrySpScreen.tsx` keeps its own copy too) with a new
+  `PROPERTY_TOOLTIPS` dictionary. Added to **every** training-param row
+  in the detail view (n_estimators, learning_rate, max_depth, subsample,
+  colsample_bytree, min_child_weight, random_state,
+  early_stopping_rounds, train_rows, test_rows, best_iteration,
+  train_date_max, test_date_min) and to AUC-ROC/LogLoss/Brier in **both**
+  the table's column headers (wide layout) and the detail view's metrics
+  panel — same `PROPERTY_TOOLTIPS` keys (`aucRoc`/`logLoss`/`brierScore`)
+  reused in both places, only one `openTooltip` state so at most one
+  explanation is expanded at a time. Explanations are deliberately plain-
+  English, no ML jargon (e.g. AUC-ROC: "How well the model ranks winners
+  above losers, from 0.5 (no better than a coin flip) to 1.0 (perfect)...").
+
+**Verified:** `yarn build` clean. Storybook test-runner: 21/21 for this
+component (18 + 3 new: `SortToggleReordersTableByTrainingDate`,
+`TableMetricTooltipExplainsForLayPerson`,
+`TrainingParamTooltipExplainsForLayPerson`), full suite otherwise
+unchanged (same 4 pre-existing unrelated failures, 280 passed). Live
+Playwright suite against the redeployed site: still 10/10 (unaffected —
+none of those tests touch sort/tooltip UI). Redeployed via
+`apps/storybook-aws/deploy.sh`.
+
+**Follow-up same day — user sent a screenshot from an actual phone of the
+narrow (mobile) table view asking for the AUC/LogLoss/Brier tooltips,
+not realizing they'd only been wired up for the wide layout.** Real gap:
+the `aucRoc`/`logLoss`/`brierScore` "?" toggles from the previous entry
+only lived in the wide table's header row (`isTablet` branch) — the
+narrow stacked-card layout has no header row at all (each card shows its
+own inline "AUC 0.731  LogLoss 0.579  Brier 0.199"), so a narrow-viewport
+user had genuinely no way to reach an explanation.
+
+Fixed by adding a `model-performance-dashboard-metrics-legend` row
+(rendered only when `!isTablet`, mirroring the wide header's three
+toggles but without the Model/Trained/chevron columns) — same
+`PROPERTY_TOOLTIPS` keys, same shared `openTooltip` state, no new
+tooltip content needed. The tooltip-text render block that used to be
+gated `isTablet && (...)` is now unconditional, since either the header
+or the legend always renders one of the three keys' toggles now.
+
+Also strengthened the existing live narrow-viewport Playwright test
+(`table renders as stacked cards on a narrow (mobile) viewport` in
+`model-performance-dashboard-live.spec.ts`) to assert the legend is
+visible and that tapping its AUC-ROC toggle reveals the explanation —
+this exact regression (tooltip present in DOM at one breakpoint, absent
+at another) is precisely the kind of thing a Storybook interaction test
+can't catch, since **its fixed test-runner width only ever exercises the
+wide/isTablet branch** — same root cause as why the narrow-vs-wide
+layout checks live in Playwright at all (see the earlier entry on
+Storybook's broken `viewport` parameter).
+
+**Verified:** `yarn build` clean. Storybook test-runner: same 21/21 for
+this component (no new interaction stories added — the gap this fixes
+is invisible to the test-runner's fixed wide-ish width by construction),
+full suite unchanged (4 pre-existing failures, 280 passed). Live
+Playwright suite against the redeployed site: 10/10, including the
+strengthened narrow-viewport test. Redeployed via
+`apps/storybook-aws/deploy.sh`.
+
+---
+
+## 2026-07-25 (even later still) — Agent in `~/betfair-nlp-comment-nlp-features` (branch `comment-nlp-features`)
+
+**Task:** Advanced ML feature for `ml/train_and_predict.py`'s win-probability
+model — mine the free-text `comment` column from the raw training CSV
+(Racing Post-style in-running commentary, e.g. "hampered", "travelled
+strongly", "no extra", "hung left") into structured, leakage-safe trailing
+per-horse signals, following the exact same Phase A/B trailing-average
+pattern `precompute-horse-form.ts` already uses for `horseAvgRPR`/
+`horseAvgTS`. Plan at
+`~/.claude/plans/plan-an-advanced-feature-immutable-quilt.md` if useful
+context for follow-up work.
+
+**Important pre-existing-state note for whoever owns the trainer/jockey/
+horse-form precompute work:** when this task started, the **primary
+checkout already had substantial uncommitted, untracked changes** —
+`ml/train_and_predict.py`, `src/commands/import-industry-sp.ts`,
+`package.json` (modified) and `src/commands/precompute-horse-form.ts` /
+`precompute-jockey-form.ts` (new, untracked) — implementing the trainer/
+jockey/horse trailing-form features (`horseAvgRPR`, `jockeyFormWinRate`,
+etc.) that the "latest" dashboard entry above flagged as a "deliberate
+follow-up task." That work was never mentioned as in-progress here and is
+still sitting **uncommitted in the primary checkout** as of this entry —
+please commit it (or fold it into this PR if it's meant to land together;
+this branch's diff is additive on top of it and doesn't conflict). This
+agent did **not** edit or touch the primary checkout at all — it only
+copied those uncommitted files into the new worktree below as a required
+baseline (since this feature extends `precompute-horse-form.ts`), so
+primary's working tree is untouched and exactly as it was found.
+
+**Implementation** (all in the worktree, on top of the copied baseline
+above):
+- `src/commands/import-industry-sp.ts` — captures the raw `comment` field
+  onto `RunnerDoc` (same leakage category as `rpr`/`ts`/`beatenDistance` —
+  never fed into the model directly, only via trailing history).
+- `src/lib/dao/comment-lexicon.ts` (new) — pure `tagComment()` function,
+  a curated keyword/regex lexicon (trouble-in-running / travelled-well /
+  weakened / green-inexperience categories, composite `excuseScore`).
+  Deliberately a lexicon, not a learned text model, for v1 — interpretable,
+  no new ML infra. 11 unit tests in
+  `src/lib/dao/__tests__/comment-lexicon.test.ts`, including a regression
+  guard that "held up" (neutral positioning) isn't misread as "weakened".
+- `src/commands/precompute-horse-form.ts` — extended (not a new script) to
+  tag each historical run's comment and aggregate `horseAvgExcuseScore`,
+  `horseTroubleInRunningRate`, `horseTravelledWellRate` over the same
+  last-3-prior-runs window as `horseAvgRPR`/`horseAvgTS`, same Phase A/B
+  leakage guard.
+- `ml/train_and_predict.py` — added the three fields to `NUM_COLS` +
+  `load_dataframe` passthroughs.
+
+**Verified against local Mongo only — prod Atlas never touched.** Used the
+shared local `mongod` on port 27019 (see top-of-file infra note) with a
+**dedicated, isolated dev database** (`betfair_nlp_dev_comment_nlp`, not
+the shared `betfair_nlp_dev`) populated with a **subset** of the raw CSV
+(`FROM_DATE=2023-01-01 TO_DATE=2025-05-27`, 23,598 UK races / 206,729
+runners — the full CSV is 1.85M rows back to 2015). Ran the full precompute
+chain (`trainer-form` → `jockey-form` → `horse-form`) against that subset,
+then trained twice via `RUN_LABEL`:
+- `baseline` (pre-feature): AUC-ROC 0.6997, LogLoss 0.3393, Brier 0.0994
+- `with-comment-nlp`: AUC-ROC 0.7017, LogLoss 0.3388, Brier 0.0993
+
+All three metrics moved favorably (small but consistent). Feature-gain
+check on the trained booster placed the three new columns mid-pack
+(`horseTravelledWellRate` ~19 gain, above `officialRating`; `horseAvgExcuseScore`
+~13; `horseTroubleInRunningRate` ~8) — plausible, not dominating (which
+would have suggested a leakage bug), not dead-last (no signal). Full
+`model_evaluations` docs for both runs are in the local
+`betfair_nlp_dev_comment_nlp` database for anyone who wants to inspect the
+calibration tables.
+
+**Not yet done:** re-running the eval against the full 2015–present dataset
+(this was deliberately a fast local dev-subset validation, not a
+production-scale run); committing this worktree's changes; a real
+`yarn import:industry-sp` reseed of prod/shared Atlas with the `comment`
+field (needs the primary-checkout backend work above to land first, then a
+full reseed + re-run of all three precompute scripts, matching the
+already-documented "reseed wipes derived fields" gotcha).
+
+---
+
+## 2026-07-25 (yet later) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Task:** User sent a second phone screenshot of the Model Performance
+Dashboard's narrow table view — the sort toggle and metrics legend from
+the previous entry were both missing, even though they'd already been
+deployed and verified working. Asked to "replicate E2E storybook
+playwright test" and "fix deploy."
+
+**Root cause — a real caching bug in `apps/storybook-aws/deploy.sh`, not
+a missing feature.** `iframe.html`, `index.json`, and `project.json`
+keep the exact same filename on every Storybook build (unlike the
+`*.iframe.bundle.js` chunks, which are content-hashed), but the deploy
+script's `aws s3 sync ... --exclude "index.html"` only special-cased
+`index.html` — everything else, including those three, got
+`Cache-Control: public, max-age=31536000, immutable`. Once a browser
+loaded `iframe.html` once, it would never even revalidate it again for a
+year, no matter how many redeploys landed in the bucket underneath it.
+Confirmed via `curl -I` on the live URL before touching anything.
+
+**A second, subtler gotcha found while fixing it:** `aws s3 sync`'s own
+`--cache-control` flag only applies to objects it actually re-uploads
+(content-diffed) — a file whose content is byte-identical to what's
+already in the bucket (a favicon, `project.json` if the Storybook
+version hasn't changed) silently **keeps its existing Cache-Control**
+from a previous deploy. So this couldn't be fixed "going forward" by
+just changing the flag on the next sync; every deploy now
+unconditionally force-uploads (`aws s3 cp --recursive`, not `sync`) so
+every object's Cache-Control header is genuinely reset every time,
+regardless of whether its content changed. A final `sync --delete` pass
+still runs afterward purely to clean up objects orphaned by a previous
+build (safe — by then everything matches, so it only ever deletes, never
+re-uploads with a different header).
+
+**Verification added:** a new live test in
+`model-performance-dashboard-live.spec.ts` —
+`entry-point files are never long-cached, only hash-named bundle chunks
+are` — asserts `iframe.html`/`index.html`/`index.json`/`project.json`
+never carry `immutable`, and (by regex-extracting a real filename out of
+`iframe.html` rather than hardcoding one, since the hash changes every
+build) that an actual `*.iframe.bundle.js` chunk still does. This is the
+"replicate E2E playwright test" ask — a permanent regression guard
+against this exact class of bug recurring, not just a one-off fix.
+
+**Important caveat communicated to the user:** fixing the deploy script
+only protects *future* visits. A browser (like the reporting user's own
+phone) that already cached `iframe.html` under the old immutable policy
+will not see today's fix until it hard-refreshes or clears site data for
+that URL — there is no way to retroactively un-poison an already-cached
+client from the server side.
+
+**Verified:** `yarn build` clean. Confirmed via `curl -I` against the
+live URL that `iframe.html`/`index.html`/`index.json`/`project.json` now
+return `no-cache,no-store,must-revalidate` and a sample hash-named
+bundle chunk still returns the long `immutable` cache. Full local
+Storybook test-runner suite unaffected (deploy-only change, no component
+code touched — same 4 pre-existing unrelated failures). Live Playwright
+suite against the redeployed site: 11/11 pass (10 previous + the new
+cache-header regression test). Redeployed via
+`apps/storybook-aws/deploy.sh`.
+
+---
+
+## 2026-07-25 (still yet later) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Task:** Remove the ISP date filter's one-month max span cap, increase
+it to one year. Small, contained change — done directly in the primary
+checkout rather than a worktree, but **touches
+`client/src/components/IndustrySpScreen.tsx`**, so flagging here per the
+top-of-file rule, especially for whoever eventually reconciles
+`~/betfair-nlp-isp-form-fields` (noted above as ~1500 lines diverged from
+`develop` as of today) — that merge will need to account for this change
+too.
+
+**What changed:** `addOneMonth()` → `addOneYear()` (adds a calendar year
+instead of a month), and the `applyFilter()` clamp that pins `maxDate` to
+`minDate` + cap now pins to `minDate` + 1 year instead of + 1 month.
+Updated the `date` filter tooltip copy and surrounding comments to match.
+**Not changed:** `FILTER_DEFAULTS.minDate`/`maxDate` — the *default* view
+on first load is still the single month Jan 2024 (that's a separate,
+deliberate latency guardrail against Atlas M0's shared free tier, see the
+comment above `FILTER_DEFAULTS`); only the *ceiling* on how wide a range
+Apply will accept moved from 1 month to 1 year.
+
+**Storybook gotcha hit while updating tests:** the renamed
+`DateRangeWiderThanOneYearIsClampedOnApply` story (previously
+`...OneMonth...`) had *two* separate assertions on the old 1-month
+behavior — the `capturedDateParams` check (updated first) and a second,
+easy-to-miss `expect(trigger).toHaveTextContent("Feb 1, 2023")` a few
+lines further down checking the picker's own displayed text. Updating
+only the first left the test failing for a stale-assertion reason
+unrelated to the actual fix. Worth double-checking a story for more than
+one assertion tied to the same old behavior before declaring it updated.
+
+**Port collision while testing:** hit the exact "Storybook seems to not
+be running" false negative documented in earlier entries below, except
+this time root-caused as a genuine collision — a different agent's
+Storybook (from `~/betfair-nlp-model-versioning-backend`) had taken over
+port 6007 after mine exited. Added the "Storybook port" note near the
+top of this file so agents pick a free port up front (`ps aux | grep
+storybook`) instead of colliding on 6006/6007.
+
+**Verified:** `cd client && yarn build` clean. Storybook test-runner
+(own instance on port 6008, to avoid the collision above) for
+`IndustrySpScreen.stories.tsx`: the updated clamp story now passes; the
+only remaining failures in that file are the 2 pre-existing course-chip
+bugs already documented in earlier entries (unrelated to this change).
+Full suite: 280/286 pass (6 failed — those same 2, plus the 4
+pre-existing unrelated failures in `AllRunnersScreen`/`EventsScreen`/
+`RunnerDetailScreen` also noted in earlier entries).
+
+**Done — committed (`c3dbe5c`), merged with the concurrently-landed
+`split-ab-race-revert` (`aaf7fd3`, conflicts in `AGENTS.md` only —
+`IndustrySpScreen.tsx`/`.stories.tsx` auto-merged cleanly since the two
+changes touched disjoint regions), pushed, deployed via
+`apps/web/deploy.sh` (no backend changes this round, so no Lambda
+deploy needed). Confirmed live: `curl https://app.backbet.co.uk/` shows
+`build-branch=develop`, `build-commit=aaf7fd3`.**
+
+---
+
+## 2026-07-25 (later again) — Agent in `~/betfair-nlp-split-ab-race-revert` (branch `split-ab-race-revert`)
+
+**Task:** User asked to revert Split A/B back to pure race-count splitting
+(the original behavior before commit `e0b1a9e` introduced qualifying-runner-
+count bisection), and to rework the P&L Convergence chart (which was
+runner-ordinal based from birth, commit `f997615`) to plot by race instead,
+since there's no earlier race-based version of that chart to revert to.
+
+**Implementation:**
+- Backend: removed `getQualifyingRunnerSplitBoundary`, `getRunnerRangeStats`,
+  `getRunnerConvergenceSeries` from `industry-sp-dao.ts`; added
+  `getRaceConvergenceSeries` (one point per race in `[fromRow,toRow]`, fast/
+  slow path mirroring `getAllRacesByRace`'s pnlStats logic, no `$lookup`
+  needed since `runners` is still on the doc at that point in the pipeline).
+  `industry-sp-service.ts`'s `getSplitStats` stripped back to pure race-index
+  (`splitByRunners`/`fromRunnerA` etc. params gone; default bisection is
+  always `Math.floor(total/2)`). Router: `/api/industry-sp/splits` no longer
+  parses runner params; `/api/industry-sp/runner-convergence` renamed to
+  `/api/industry-sp/race-convergence` with `fromRow`/`toRow` (matches
+  `getAllRacesByRace`'s existing convention).
+- Frontend: `IndustrySpScreen.tsx` — removed the "Split by runners" checkbox,
+  all `fromRunnerA/toRunnerA/...` state, and the runner-mode branches in
+  `applyFilter`/`resetFilters`/the fetch effect/`renderSplitCard`; race-range
+  boxes are now always visible (no toggle). `loadConvergence` now reads the
+  split's own `fromRowA/toRowA`/`fromRowB/toRowB` directly (no more separate
+  "resolved runner range" state to drift out of sync — this was the root
+  cause of several of the regressions the runner-ordinal era had to patch
+  around, e.g. `dd7f00d`/`4d95415`). `RunnerConvergencePanel.tsx` renamed to
+  `PnlConvergencePanel.tsx`, reworked to `raceRowNumber`/"Races X–Y" instead
+  of `runnerOrdinal`/"Runners X–Y", `pnl-convergence-*` testIDs, warm-up
+  constant lowered (10 vs 50 — race counts per split are much smaller than
+  runner counts). `chatApi.ts`/`SplitDetailPanel.tsx`/`ispUrlParams.ts`/
+  `ispSplitsCache.ts` updated to match.
+- Also (per explicit user request, tangential to the split revert): deleted
+  the unused `docker-compose.mongo-only.yml` and set up a **native, non-
+  Docker** local `mongod` on this VM for the `localhost:27019` dev/test
+  instance (see the "Local infra" section at the top of this file) — updated
+  `.claude/commands/mongo-integration-tests.md`/`dev-workflow.md` and
+  `README-local-development.md` to document it. `docker-compose.local.yml`
+  (the combined API+Mongo Docker stack behind `yarn server:docker`/
+  `mongo:up`/etc.) was deliberately left alone — out of scope, still works
+  independently.
+
+**Verified:** Backend `npx tsc --noEmit` clean. DAO integration tests (35/35,
+including 4 new `getRaceConvergenceSeries` tests exercising both fast/slow
+paths against a seeded synthetic 30-race dataset on the new local mongod) and
+service integration tests (12/12) pass. Supertest `app.test.ts`: 118 passed,
+7 skipped. Frontend `yarn build` clean. MSW Playwright `industry-sp.spec.ts`:
+80/80 pass; full MSW suite (`tests-msw/`): 167/168 (1 pre-existing, unrelated
+failure in `all-runners.spec.ts` — confirmed via `git diff origin/develop`
+that file/its component were never touched by this branch). `industry-sp-
+e2e.spec.ts` updated for race-based assertions but not run (needs a real
+production-scale dataset, not the synthetic local one). Manual smoke test:
+started the real backend + Expo web against the local mongod, drove `/isp`
+with Playwright — confirmed no runner checkbox, race-range boxes always
+visible, split cards read "races 1–15"/"16–30" (exact bisection of the 30
+seeded races), Graph button opens "Races 1–15", Details panel matches.
+
+**Update:** user then asked to commit, merge to `develop`, and deploy after
+all. Committed (`fd3f394`), fast-forward merged into `develop` (origin was
+still at the fork point, so no merge commit needed), pushed, deployed to
+both Lambda (`hello-api`) and the web app (`app.backbet.co.uk`) —
+build-branch/build-commit meta tags on the live site confirmed
+`develop`/`fd3f394`. Ran the persistent live e2e suite
+(`playwright.live.config.ts` / `tests-live/`) against the deployed site: 4
+passed, 21 skipped, 4 failed — all 4 pre-existing and unrelated (3 in
+`industry-sp-live.spec.ts` predate the "bare `/isp` load fetches nothing
+until Apply" feature by a day and were never updated for it, per `git log`;
+1 in `date-picker-live.spec.ts` expects a stale full-year date default).
+Since none of those reached the actual split behavior, ran an ad hoc
+Playwright check directly against `app.backbet.co.uk`: confirmed no runner
+checkbox, race-based split labels, and the convergence chart all working
+correctly against the real 109,726-race production dataset.
+
+**Done — committed (`fd3f394`), merged to `develop`, pushed, deployed.
 Worktree removed, branch deleted (local + remote) — nothing left in
 progress.**
