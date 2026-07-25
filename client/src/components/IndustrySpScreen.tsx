@@ -755,17 +755,50 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       // separate request), so switching to "Split by runners" always shows
       // the current split's runner range, even if it was set/reached via
       // race-index editing or the auto default.
-      setFromRunnerA(1);
-      setToRunnerA(result.splitA.totalRunners);
-      const runnerFromB = result.splitA.totalRunners + 1;
-      const runnerToB = result.splitA.totalRunners + result.splitB.totalRunners;
-      setFromRunnerB(runnerFromB);
-      setToRunnerB(runnerToB);
+      //
+      // Two different ways to derive it, depending on isRunnerExplicit:
+      // - Auto-computed default: the backend picked the boundary (an even
+      //   bisection starting at runner 1), and the frontend genuinely
+      //   doesn't know it until this response arrives — A is exactly
+      //   1..totalRunnersA, and B, being a true contiguous continuation by
+      //   construction, is exactly totalRunnersA+1..+totalRunnersB.
+      // - Explicit split: fromRunnerA/fromRunnerB already hold exactly
+      //   what was sent (set moments ago by applyFilter, still correct) —
+      //   reuse them directly rather than re-deriving via the same
+      //   "A:1.., B:totalRunnersA+1.." arithmetic, which silently
+      //   fabricates Split B's displayed range by ASSUMING it always
+      //   starts exactly where Split A ends. Reported live via screenshot:
+      //   an explicit Split B deliberately re-including runner 1 (typed
+      //   into its own "from" box, overlapping Split A on purpose per the
+      //   zero-guard fallback) still showed a card labeled "2984-8946" — a
+      //   range that was never actually queried; the box said "1" the
+      //   whole time. Only the *end* needs deriving here (from+count-1) —
+      //   the backend doesn't separately echo back a resolved "from" for
+      //   an explicit runner target, but doesn't need to: unlike an
+      //   explicit *race*-index target, a runner-index "from" is used
+      //   exactly as given (see getRunnerRangeStats), never snapped to a
+      //   boundary the way a "to" target can be.
+      let resolvedFromA: number, resolvedToA: number, resolvedFromB: number, resolvedToB: number;
+      if (isRunnerExplicit) {
+        resolvedFromA = fromRunnerA ?? 1;
+        resolvedToA = resolvedFromA + Math.max(0, result.splitA.totalRunners - 1);
+        resolvedFromB = fromRunnerB ?? 1;
+        resolvedToB = resolvedFromB + Math.max(0, result.splitB.totalRunners - 1);
+      } else {
+        resolvedFromA = 1;
+        resolvedToA = result.splitA.totalRunners;
+        resolvedFromB = result.splitA.totalRunners + 1;
+        resolvedToB = result.splitA.totalRunners + result.splitB.totalRunners;
+      }
+      setFromRunnerA(resolvedFromA);
+      setToRunnerA(resolvedToA);
+      setFromRunnerB(resolvedFromB);
+      setToRunnerB(resolvedToB);
       if (!isRunnerExplicit) {
         setDraftFromRunnerA("1");
-        setDraftToRunnerA(String(result.splitA.totalRunners));
-        setDraftFromRunnerB(String(runnerFromB));
-        setDraftToRunnerB(String(runnerToB));
+        setDraftToRunnerA(String(resolvedToA));
+        setDraftFromRunnerB(String(resolvedFromB));
+        setDraftToRunnerB(String(resolvedToB));
       }
 
       setTotalRacesA(result.splitA.total);
@@ -1848,8 +1881,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               toRow: toRowA,
               totalRaces: totalRacesA,
               totalRunners: totalRunnersA,
-              runnerFrom: 1,
-              runnerTo: totalRunnersA,
+              // Reads the resolved fromRunnerA/toRunnerA state (set by
+              // applyResult from what was actually queried) rather than
+              // re-deriving "1..totalRunnersA" here independently — that
+              // inline formula happened to be correct for the common case
+              // (Split A always starting at runner 1) but is exactly the
+              // kind of duplicated, easy-to-drift-out-of-sync computation
+              // that let Split B's version of it (see below) silently
+              // fabricate a range that was never actually queried.
+              runnerFrom: fromRunnerA ?? 1,
+              runnerTo: toRunnerA ?? totalRunnersA,
               pnl: pnlStatsA,
               status: splitCardStatus,
             })}
@@ -1858,8 +1899,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               label: "Split B",
               fromRow: fromRowB,
               toRow: toRowB,
-              runnerFrom: totalRunnersA + 1,
-              runnerTo: totalRunnersA + totalRunnersB,
+              // Reported live via screenshot: this used to read
+              // "totalRunnersA+1..totalRunnersA+totalRunnersB" — assumes
+              // Split B always starts exactly where Split A ends, which
+              // silently fabricated a range like "2984-8946" for a Split B
+              // whose own "from" box plainly said "1" (a deliberate,
+              // explicit overlap with A — see the zero-guard fix). Reads
+              // the resolved fromRunnerB/toRunnerB state instead, which
+              // reflects whatever was actually queried either way.
+              runnerFrom: fromRunnerB ?? (totalRunnersA + 1),
+              runnerTo: toRunnerB ?? (totalRunnersA + totalRunnersB),
               totalRaces: totalRacesB,
               totalRunners: totalRunnersB,
               pnl: pnlStatsB,

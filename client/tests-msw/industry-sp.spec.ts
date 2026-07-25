@@ -705,6 +705,45 @@ test("editing Split B's from down to 1 (claiming the whole dataset) doesn't coll
   await expect(page.getByTestId("industry-sp-to-runner-a")).not.toHaveValue("0");
 });
 
+test("Split B's result card shows the range that was actually queried, not a fabricated continuation from Split A", async ({ page }) => {
+  // Regression: reported live via screenshot. With Split A already edited
+  // to 2983 and Split B's "from" box explicitly set back down to 1
+  // (deliberately overlapping A, per the zero-guard fallback above), the
+  // card still showed "Split B — runners 2984–8946" — computed inline at
+  // the card's own call site as "totalRunnersA+1..totalRunnersA+
+  // totalRunnersB", which assumes B always starts exactly where A ends.
+  // The box plainly said "1" the whole time. The card must read the same
+  // resolved fromRunnerB/toRunnerB the request itself was built from, not
+  // re-derive its own guess.
+  await page.route("**/api/industry-sp/splits*", async (route) => {
+    await route.fulfill({
+      json: {
+        success: true, totalRaces: 900, totalRunners: 8946, raceCap: 1000,
+        filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+        countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
+        raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
+        splitA: { fromRow: 1, toRow: 850, total: 850, totalRunners: 2983, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+        splitB: { fromRow: 1, toRow: null, total: 900, totalRunners: 5963, pnlStats: { staked: 10, returns: 9, pnl: -1, count: 5 } },
+      },
+    });
+  });
+
+  await page.goto("/isp");
+  await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+  await page.getByTestId("industry-sp-to-runner-a").fill("2983");
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+  await page.getByTestId("industry-sp-from-runner-b").fill("1");
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+  await expect(page.getByTestId("industry-sp-split-card-b")).toContainText("runners 1–5963");
+});
+
 test.describe("Industry SP filters screen - session cache across navigation (MSW mocked)", () => {
   // Regression coverage for: navigating away from /isp and back used to
   // re-fetch /api/industry-sp/splits from scratch every time (component
