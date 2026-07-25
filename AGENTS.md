@@ -1743,3 +1743,67 @@ stashed, untouched — nobody has asked for that reconciliation yet.
 `~/betfair-nlp-model-versioning-backend` worktree removed, branch
 deleted (local — not on remote, since it was never pushed as its own
 branch). Nothing left in progress for this specific task.
+
+---
+
+## 2026-07-25 (once more) — Agent in `~/betfair-nlp-comment-nlp-features` (branch `comment-nlp-features`), real merge conflicts this time
+
+**Task:** Same branch as the two entries above, catching up with `develop`
+again — it had moved 9 more commits since the last (conflict-free) catch-up,
+including `model-versioning-backend` (previous entry). Unlike last time,
+this merge had **real conflicts**, previewed first with `git merge-tree
+--write-tree HEAD origin/develop` (read-only, no working-tree changes) to
+scope them before merging for real: exactly two files, `AGENTS.md`
+(routine — both sides append different dated entries after the same shared
+point, resolved by keeping both, HEAD's first since it was written
+earlier) and **`ml/train_and_predict.py`**, the real one.
+
+**Why `train_and_predict.py` conflicted:** both this branch and
+`model-versioning-backend` (previous entry) were built on top of the
+*same* uncommitted primary-checkout WIP (the trainer/jockey/horse-form
+`NUM_COLS` expansion). `model-versioning-backend` resolved its own
+encounter with that WIP by **stashing it away** (`stash@{0}`, mentioned in
+the previous two entries as "not yet reconciled") and building its
+`TRAINING_PARAMS`/`modelVersionId`/versioning infra on top of the
+*original* minimal `NUM_COLS` instead. So the two branches' versions of
+this file diverged in different directions from the same starting point —
+`develop`'s had the versioning infra but lost the feature-engineering
+columns; this branch had the columns (plus its own 3 comment-NLP ones) but
+no versioning infra.
+
+**Resolution — combined both, didn't pick one side:** took `develop`'s
+version as the base (`TRAINING_PARAMS`/`TRAINING_PARAMS_CAMEL`/
+`EARLY_STOPPING_ROUNDS`/`model_version_id` generation/the per-runner
+`modelVersionId` write-back — required for `ModelVersionDAO` and the
+dashboard to keep working) and re-applied this branch's `CAT_COLS`/
+`NUM_COLS` expansion, `load_dataframe` row-dict fields, and docstring
+paragraphs on top. Net effect: `run_meta` now carries `modelVersionId`,
+`runLabel`, *and* `trainingParams`; `FEATURE_COLS` has all 30 columns
+(the original set + trainer/jockey form + horse career/RPR/TS/beaten-
+distance + this branch's `horseAvgExcuseScore`/`horseTroubleInRunningRate`/
+`horseTravelledWellRate`). **This branch's merge effectively reconciles
+the `model-versioning-backend` stash** mentioned in the two entries above
+— that stash can now be dropped as superseded rather than reconciled a
+second time.
+
+**Verified the hand-merge actually works, not just compiles:** `tsc
+--noEmit` clean, `ml/test_features.py` 11/11 pass, then ran the merged
+script for real against the local dev-subset DB
+(`RUN_LABEL=merge-check MONGODB_URI=mongodb://localhost:27019
+MONGODB_DB_NAME=betfair_nlp_dev_comment_nlp`) — completed without error,
+and the resulting `model_evaluations` doc has both sides' fields present
+simultaneously: `modelVersionId: "xgb-20260725-233808"`, full
+`trainingParams`, and a 30-entry `featureCols` including all three
+comment-NLP columns. Confirms the merge is a real combination, not an
+accidental pick-one-side.
+
+**Next in this same session:** pushing this branch straight to
+`origin develop` (`git push origin comment-nlp-features:develop`, from the
+worktree — not touching the primary checkout's working tree or its local
+`develop` pointer, which will be behind after this and needs a manual
+fast-forward whenever convenient), then running the newly-merged
+`train_and_predict.py` for real against **production** Atlas (per explicit
+user instruction) so a real `modelVersionId` entry appears in the live
+dashboard — the previous entry above confirmed prod currently has zero
+such entries (`GET /api/model-versions` returns `{"data":[],"count":0}`),
+so this will be the first one.
