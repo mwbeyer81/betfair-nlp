@@ -8,6 +8,7 @@ const BASE_URL = "http://backbet-storybook.s3-website.eu-north-1.amazonaws.com";
 const PANEL_VISIBLE_STORY_ID = "components-modelperformancedashboard--panel-visible";
 const ITEMS_RENDERED_STORY_ID = "components-modelperformancedashboard--items-rendered";
 const CALIBRATION_STORY_ID = "components-modelperformancedashboard--calibration-chart-renders";
+const LATEST_VERSION_ROW = "model-performance-dashboard-table-row-xgb-2026-07-10";
 
 test.describe("backbet-storybook.s3-website — Model Performance Dashboard", () => {
   test("GET / returns 200 and serves HTML", async ({ request }) => {
@@ -42,36 +43,57 @@ test.describe("backbet-storybook.s3-website — Model Performance Dashboard", ()
     expect(errors).toHaveLength(0);
   });
 
-  // Regression: reported live via screenshot — the panel's header rendered,
-  // but everything below it was a blank white area on this exact deployed
-  // page, even though the DOM had all the right content (a Storybook
-  // interaction test using toBeInTheDocument() doesn't catch this — the
-  // element was present with zero rendered height). Root cause was two
-  // pass-through wrapper <div>s between #storybook-root and every story's
-  // own root never being given a height, so a story styled with
-  // position:absolute + inset:0 had nothing to anchor against and
-  // collapsed to 0px. Fixed in .storybook/preview-head.html. A real
-  // bounding-box check (not just DOM presence) is the only way to catch a
-  // regression of this exact class again.
-  test("dashboard content actually renders with real height, not zero-height DOM", async ({ page }) => {
+  // The table listing every model version is the landing screen now — the
+  // detail panel (training params/metrics/filters/P&L) only shows up after
+  // tapping a row.
+  test("table lands first, tapping a row opens the detail view with real height", async ({ page }) => {
     await page.goto(`${BASE_URL}/?path=/story/${ITEMS_RENDERED_STORY_ID}`);
     const previewFrame = page.frameLocator("#storybook-preview-iframe");
 
     const panel = previewFrame.getByTestId("model-performance-dashboard-panel");
     await expect(panel).toBeVisible({ timeout: 20000 });
+    const table = previewFrame.getByTestId("model-performance-dashboard-table");
+    await expect(table).toBeVisible();
+    await expect(previewFrame.getByTestId("model-performance-dashboard-training-params")).not.toBeVisible();
 
-    const list = previewFrame.getByTestId("model-performance-dashboard-list");
-    await expect(list).toBeVisible();
-    const box = await list.boundingBox();
+    await previewFrame.getByTestId(LATEST_VERSION_ROW).click();
+
+    // Regression: reported live via screenshot — the panel's header
+    // rendered, but everything below it was a blank white area on this
+    // exact deployed page, even though the DOM had all the right content
+    // (a Storybook interaction test using toBeInTheDocument() doesn't
+    // catch this — the element was present with zero rendered height).
+    // Root cause was two pass-through wrapper <div>s between
+    // #storybook-root and every story's own root never being given a
+    // height, so a story styled with position:absolute + inset:0 had
+    // nothing to anchor against and collapsed to 0px. Fixed in
+    // .storybook/preview-head.html. A real bounding-box check (not just
+    // DOM presence) is the only way to catch a regression of this class.
+    const trainingParams = previewFrame.getByTestId("model-performance-dashboard-training-params");
+    await expect(trainingParams).toBeVisible({ timeout: 20000 });
+    const box = await trainingParams.boundingBox();
     expect(box).not.toBeNull();
-    expect(box!.height).toBeGreaterThan(200);
+    expect(box!.height).toBeGreaterThan(50);
 
-    await expect(previewFrame.getByTestId("model-performance-dashboard-training-params")).toBeVisible();
     await expect(previewFrame.getByTestId("model-performance-dashboard-pnl-without")).toBeVisible();
     await expect(previewFrame.getByTestId("model-performance-dashboard-pnl-with")).toBeVisible();
+    await expect(previewFrame.getByTestId("model-performance-dashboard-back-to-table")).toBeVisible();
 
     // Storybook renders a full-page overlay with this id when a story throws.
     await expect(previewFrame.locator("#error-message")).not.toBeVisible();
+  });
+
+  test("back button returns from detail to the table", async ({ page }) => {
+    await page.goto(`${BASE_URL}/?path=/story/${ITEMS_RENDERED_STORY_ID}`);
+    const previewFrame = page.frameLocator("#storybook-preview-iframe");
+
+    await previewFrame.getByTestId(LATEST_VERSION_ROW).click();
+    await expect(previewFrame.getByTestId("model-performance-dashboard-training-params")).toBeVisible({ timeout: 20000 });
+
+    await previewFrame.getByTestId("model-performance-dashboard-back-to-table").click();
+
+    await expect(previewFrame.getByTestId("model-performance-dashboard-table")).toBeVisible();
+    await expect(previewFrame.getByTestId("model-performance-dashboard-training-params")).not.toBeVisible();
   });
 
   // Regression: reported live via screenshot — text rendered in the
@@ -91,13 +113,61 @@ test.describe("backbet-storybook.s3-website — Model Performance Dashboard", ()
     expect(fontFamily.toLowerCase()).not.toContain("times");
   });
 
-  test("calibration chart story renders its SVG points", async ({ page }) => {
+  test("calibration chart renders its SVG points after opening detail", async ({ page }) => {
+    // This story's own play() function (CalibrationChartRenders in
+    // ModelPerformanceDashboard.stories.tsx) already clicks through to the
+    // detail view on its own — Storybook auto-runs play() on render even
+    // outside the test-runner, confirmed by this test timing out waiting to
+    // click an already-gone table row before this fix. No manual click
+    // needed here; just wait for the chart the story's own play() reveals.
     await page.goto(`${BASE_URL}/?path=/story/${CALIBRATION_STORY_ID}`);
     const previewFrame = page.frameLocator("#storybook-preview-iframe");
+
     const chart = previewFrame.getByTestId("model-performance-dashboard-calibration-chart");
     await expect(chart).toBeVisible({ timeout: 20000 });
     const box = await chart.boundingBox();
     expect(box).not.toBeNull();
     expect(box!.height).toBeGreaterThan(100);
+  });
+
+  // Storybook's own "viewport" parameter doesn't actually resize anything in
+  // this build (@storybook/addon-viewport was removed for Storybook 9
+  // incompatibility — confirmed empirically: window.innerWidth stayed at
+  // whatever the real browser viewport was regardless of the parameter), so
+  // Storybook interaction tests can't reliably exercise the table's
+  // narrow-vs-wide layouts. This is the one place with real control over the
+  // browser's actual viewport, which is what useResponsive()'s
+  // useWindowDimensions() reads from.
+  test("table renders as stacked cards on a narrow (mobile) viewport", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await context.newPage();
+    await page.goto(`${BASE_URL}/?path=/story/${ITEMS_RENDERED_STORY_ID}`);
+    const previewFrame = page.frameLocator("#storybook-preview-iframe");
+
+    await expect(previewFrame.getByTestId("model-performance-dashboard-table")).toBeVisible({ timeout: 20000 });
+    await expect(previewFrame.getByTestId("model-performance-dashboard-table-header")).not.toBeVisible();
+    await expect(previewFrame.getByTestId(LATEST_VERSION_ROW)).toBeVisible();
+
+    // Tapping a row still works to reach the detail view at this width.
+    await previewFrame.getByTestId(LATEST_VERSION_ROW).click();
+    await expect(previewFrame.getByTestId("model-performance-dashboard-training-params")).toBeVisible({ timeout: 20000 });
+
+    await context.close();
+  });
+
+  test("table renders as a column table on a wide (desktop) viewport", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await context.newPage();
+    await page.goto(`${BASE_URL}/?path=/story/${ITEMS_RENDERED_STORY_ID}`);
+    const previewFrame = page.frameLocator("#storybook-preview-iframe");
+
+    const header = previewFrame.getByTestId("model-performance-dashboard-table-header");
+    await expect(header).toBeVisible({ timeout: 20000 });
+    await expect(header).toContainText("AUC-ROC");
+
+    await previewFrame.getByTestId(LATEST_VERSION_ROW).click();
+    await expect(previewFrame.getByTestId("model-performance-dashboard-training-params")).toBeVisible({ timeout: 20000 });
+
+    await context.close();
   });
 });

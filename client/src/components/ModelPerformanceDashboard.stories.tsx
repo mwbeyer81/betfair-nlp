@@ -237,6 +237,15 @@ const ControlledModelPerformanceDashboard: React.FC<{
   );
 };
 
+// Drills from the table into a version's detail view — most stories below
+// only care about detail-view content (training params/metrics/filters/
+// P&L), which is now hidden behind a tap since the table view became the
+// default landing screen.
+async function openDetailInCanvas(canvas: ReturnType<typeof within>, versionId: string) {
+  await userEvent.click(canvas.getByTestId(`model-performance-dashboard-table-row-${versionId}`));
+  await canvas.findByTestId("model-performance-dashboard-training-params");
+}
+
 async function pickDateRangeInCanvas(canvas: ReturnType<typeof within>, fromDate: string, toDate: string) {
   const prefix = "model-performance-dashboard-date-range-picker";
   await userEvent.click(canvas.getByTestId(prefix));
@@ -257,24 +266,55 @@ async function pickDateRangeInCanvas(canvas: ReturnType<typeof within>, fromDate
 }
 
 export const PanelVisible: Story = {
+  // The table listing every model version is now the landing screen — the
+  // detail panel (training params/metrics/filters/P&L) stays hidden until a
+  // row is tapped.
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByTestId("model-performance-dashboard-panel")).toBeInTheDocument();
     await expect(canvas.getByTestId("model-performance-dashboard-list")).toBeInTheDocument();
+    await expect(canvas.getByTestId("model-performance-dashboard-table")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("model-performance-dashboard-training-params")).not.toBeInTheDocument();
   },
 };
 
 export const ItemsRendered: Story = {
+  // "Items" here means every model version's own row in the table.
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     for (const version of MODEL_VERSIONS) {
-      await expect(canvas.getByTestId(`model-performance-dashboard-version-${version.id}`)).toBeInTheDocument();
+      await expect(canvas.getByTestId(`model-performance-dashboard-table-row-${version.id}`)).toBeInTheDocument();
     }
+  },
+};
+
+export const TableRowTapOpensDetail: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openDetailInCanvas(canvas, LATEST.id);
+
     await expect(canvas.getByTestId("model-performance-dashboard-training-params")).toBeInTheDocument();
     await expect(canvas.getByTestId("model-performance-dashboard-metrics")).toBeInTheDocument();
     await expect(canvas.getByTestId("model-performance-dashboard-filters")).toBeInTheDocument();
     await expect(canvas.getByTestId("model-performance-dashboard-pnl-without")).toBeInTheDocument();
     await expect(canvas.getByTestId("model-performance-dashboard-pnl-with")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("model-performance-dashboard-table")).not.toBeInTheDocument();
+    await expect(canvas.getByTestId("model-performance-dashboard-back-to-table")).toBeInTheDocument();
+  },
+};
+
+export const BackButtonReturnsToTable: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openDetailInCanvas(canvas, LATEST.id);
+
+    await userEvent.click(canvas.getByTestId("model-performance-dashboard-back-to-table"));
+
+    await expect(canvas.getByTestId("model-performance-dashboard-table")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("model-performance-dashboard-training-params")).not.toBeInTheDocument();
+    for (const version of MODEL_VERSIONS) {
+      await expect(canvas.getByTestId(`model-performance-dashboard-table-row-${version.id}`)).toBeInTheDocument();
+    }
   },
 };
 
@@ -324,6 +364,8 @@ export const EmptyState: Story = {
 };
 
 export const SwitchingModelVersionUpdatesTrainingParamsAndMetrics: Story = {
+  // Switching versions now goes through the table: open the latest
+  // version's detail, go back, then open a different version's detail.
   render: args => (
     <ControlledModelPerformanceDashboard
       initialSelectedId={LATEST.id}
@@ -333,9 +375,11 @@ export const SwitchingModelVersionUpdatesTrainingParamsAndMetrics: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await openDetailInCanvas(canvas, LATEST.id);
     await expect(canvas.getByTestId("model-performance-dashboard-auc")).toHaveTextContent("0.731");
 
-    await userEvent.click(canvas.getByTestId(`model-performance-dashboard-version-${MODEL_VERSIONS[0].id}`));
+    await userEvent.click(canvas.getByTestId("model-performance-dashboard-back-to-table"));
+    await openDetailInCanvas(canvas, MODEL_VERSIONS[0].id);
 
     await expect(canvas.getByTestId("model-performance-dashboard-auc")).toHaveTextContent("0.712");
   },
@@ -351,9 +395,11 @@ export const SwitchingModelVersionRecomputesPnlComparison: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await openDetailInCanvas(canvas, LATEST.id);
     const before = canvas.getByTestId("model-performance-dashboard-pnl-without").textContent;
 
-    await userEvent.click(canvas.getByTestId(`model-performance-dashboard-version-${MODEL_VERSIONS[0].id}`));
+    await userEvent.click(canvas.getByTestId("model-performance-dashboard-back-to-table"));
+    await openDetailInCanvas(canvas, MODEL_VERSIONS[0].id);
 
     await waitFor(() => {
       const after = canvas.getByTestId("model-performance-dashboard-pnl-without").textContent;
@@ -374,6 +420,7 @@ export const WithModelBeatsWithoutModelForTheHighestAucVersion: Story = {
     const withModel = computeModelFilteredPnl(races, 0);
     expect(withModel.pnl).toBeGreaterThan(without.pnl);
 
+    await openDetailInCanvas(canvas, LATEST.id);
     await expect(canvas.getByTestId("model-performance-dashboard-pnl-without")).toBeInTheDocument();
     await expect(canvas.getByTestId("model-performance-dashboard-pnl-with")).toBeInTheDocument();
   },
@@ -382,6 +429,7 @@ export const WithModelBeatsWithoutModelForTheHighestAucVersion: Story = {
 export const ApplyingCourseFilterNarrowsPnl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await openDetailInCanvas(canvas, LATEST.id);
     const before = canvas.getByTestId("model-performance-dashboard-pnl-without").textContent;
 
     await userEvent.click(canvas.getByTestId("model-performance-dashboard-chip-course-Ascot"));
@@ -400,6 +448,7 @@ export const ApplyingCourseFilterNarrowsPnl: Story = {
 export const ApplyingDateRangeFilterNarrowsPnl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await openDetailInCanvas(canvas, LATEST.id);
     const before = canvas.getByTestId("model-performance-dashboard-pnl-without").textContent;
 
     await pickDateRangeInCanvas(canvas, "2026-02-01", "2026-02-10");
@@ -414,6 +463,7 @@ export const ApplyingDateRangeFilterNarrowsPnl: Story = {
 export const TrainerFilterNarrowsPnl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await openDetailInCanvas(canvas, LATEST.id);
     const before = canvas.getByTestId("model-performance-dashboard-pnl-without").textContent;
 
     await userEvent.type(canvas.getByTestId("model-performance-dashboard-trainer-input"), "Henderson");
@@ -429,6 +479,7 @@ export const TrainerFilterNarrowsPnl: Story = {
 export const RaisingMinModelWinProbabilityChangesWithModelPnlOnly: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await openDetailInCanvas(canvas, LATEST.id);
     const beforeWithout = canvas.getByTestId("model-performance-dashboard-pnl-without").textContent;
     const beforeWith = canvas.getByTestId("model-performance-dashboard-pnl-with").textContent;
 
@@ -449,6 +500,7 @@ export const RaisingMinModelWinProbabilityChangesWithModelPnlOnly: Story = {
 export const ResetClearsFiltersAndRestoresBaselinePnl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await openDetailInCanvas(canvas, LATEST.id);
     const baseline = canvas.getByTestId("model-performance-dashboard-pnl-without").textContent;
 
     await userEvent.click(canvas.getByTestId("model-performance-dashboard-chip-course-Ascot"));
@@ -470,6 +522,7 @@ export const ResetClearsFiltersAndRestoresBaselinePnl: Story = {
 export const CalibrationChartRenders: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await openDetailInCanvas(canvas, LATEST.id);
     const chart = canvas.getByTestId("model-performance-dashboard-calibration-chart");
     await expect(chart).toBeInTheDocument();
     expect(chart.querySelectorAll("circle").length).toBe(10);
@@ -479,6 +532,7 @@ export const CalibrationChartRenders: Story = {
 export const RestrictiveFilterComboShowsNoQualifyingRunners: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await openDetailInCanvas(canvas, LATEST.id);
     await userEvent.type(canvas.getByTestId("model-performance-dashboard-trainer-input"), "NoSuchTrainerZZZ");
     await userEvent.click(canvas.getByTestId("model-performance-dashboard-apply-button"));
 

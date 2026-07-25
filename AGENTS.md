@@ -828,3 +828,63 @@ indexing as bogus extra stories — net no regression from this fix).
 All 7 new live Playwright tests pass against the redeployed site.
 Redeployed via `apps/storybook-aws/deploy.sh` after the fix — the live
 URL above now reflects the corrected build.
+
+**Follow-up same day — user asked for a table view (one row per model
+version) that taps through to the existing detail view, rendering well
+narrow-to-wide.** Implemented as a two-screen nav inside
+`ModelPerformanceDashboard.tsx`:
+
+- New internal state `screen: "table" | "detail"`, defaulting to
+  `"table"`. Tapping a row calls `onSelectModelVersion(id)` (unchanged
+  prop contract) and flips to `"detail"`; a new "← Models" back button
+  (`model-performance-dashboard-back-to-table`) flips back. Deliberately
+  **not** reset by the existing races-reset `useEffect` — that effect
+  only clears stale filters when the race pool changes, and resetting
+  `screen` there too would have undone the very navigation a row tap just
+  caused, once the parent's `races` prop update landed.
+- Responsive via the **existing** `useResponsive()`/`BREAKPOINTS.tablet`
+  (768px) hook from `client/src/utils/responsive.ts` (same one
+  `IndustrySpScreen.tsx` already uses for its Split A/B side-by-side
+  layout) — reused rather than inventing a new breakpoint. `isTablet`
+  true renders a real column table (`model-performance-dashboard-table-header`
+  + one row per version with Model/Trained/AUC-ROC/LogLoss/Brier
+  columns); false renders the same rows as stacked cards
+  (`model-performance-dashboard-table-row-{id}`, same testID either way)
+  with a chevron.
+- **Important finding while testing this:** Storybook's own `viewport`
+  parameter (`parameters.viewport.defaultViewport`, used by the existing
+  `RendersAtIphone12`/`RendersAtLaptop` stories elsewhere in this repo)
+  **does not actually resize anything** in this Storybook 9 config —
+  confirmed empirically: `window.innerWidth` inside the preview iframe
+  stayed at the real browser width regardless of which viewport
+  parameter a story declared. `@storybook/addon-viewport` was removed
+  for Storybook-9 incompatibility (see the comment already in
+  `preview.tsx`) and nothing replaced its actual resizing behavior — the
+  parameter objects are inert. So the responsive wide-vs-narrow
+  assertions for the new table could **not** be written as Storybook
+  interaction tests; they're in
+  `client/tests-storybook-live/model-performance-dashboard-live.spec.ts`
+  instead, using Playwright's own `browser.newContext({ viewport })`
+  (390×844 and 1280×900), which is the only layer here with real control
+  over the width `useWindowDimensions()` reads.
+- **Another finding:** Storybook auto-runs a story's own `play()`
+  function on render even outside the test-runner — i.e. just navigating
+  a real browser to a story's URL executes its `play()`. One live test
+  initially tried to click the same table row a story's own `play()`
+  already clicked (timed out waiting for a row that was already gone,
+  now in the detail screen) — fixed by not duplicating the click for
+  that story, but worth remembering if a future live test seems to hang
+  waiting on an element a story's own interactions already consumed.
+- Reworked all 16 existing Storybook stories for the new nav (added a
+  shared `openDetailInCanvas(canvas, versionId)` helper that clicks
+  `model-performance-dashboard-table-row-{id}` then waits for
+  `-training-params` to appear) since detail-view content is no longer
+  visible without a tap. Added 2 new stories: `TableRowTapOpensDetail`,
+  `BackButtonReturnsToTable` — 18 stories total now.
+
+**Verified:** `yarn build` clean. Full Storybook test-runner suite: same
+4 pre-existing unrelated failures, 277 passed (18 for this component, up
+from 16). Live Playwright suite against the redeployed site: 10/10 pass
+(was 7), including the two new narrow/wide viewport checks and a visual
+screenshot comparison confirming the column-table and stacked-card
+layouts both render correctly. Redeployed via `apps/storybook-aws/deploy.sh`.

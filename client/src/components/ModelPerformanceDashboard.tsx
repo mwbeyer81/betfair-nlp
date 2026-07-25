@@ -6,6 +6,7 @@ import { IspRace } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import { computeRangePnl, computeModelFilteredPnl, formatPnl, formatPct, formatRaceDate } from "../utils/ispFormat";
 import { DateRangePicker } from "./DateRangePicker";
+import { useResponsive } from "../utils/responsive";
 
 // Colocated here for now since there's no backing API yet — once a real
 // GET /api/model-versions endpoint exists, move these alongside a
@@ -144,6 +145,13 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
   const [appliedMinModelWinProbability, setAppliedMinModelWinProbability] = useState(0);
   const [appliedFromDate, setAppliedFromDate] = useState(() => computeDateBounds(races).from);
   const [appliedToDate, setAppliedToDate] = useState(() => computeDateBounds(races).to);
+  // "table" lists every model version as a row; tapping one drills into
+  // "detail" (training params/metrics/filters/P&L for just that version).
+  // Deliberately not touched by the races-reset effect below — that effect
+  // only clears stale filters, switching screens is purely a nav action
+  // driven by row taps / the back button.
+  const [screen, setScreen] = useState<"table" | "detail">("table");
+  const { isTablet } = useResponsive();
 
   // Switching model version swaps in a different `races` pool (a different
   // model may not have scored the same courses/date range) — stale filter
@@ -243,6 +251,15 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
 
   const selectedVersion = modelVersions.find(v => v.id === selectedModelVersionId) ?? modelVersions[0] ?? null;
 
+  function openDetail(id: string) {
+    onSelectModelVersion(id);
+    setScreen("detail");
+  }
+
+  function backToTable() {
+    setScreen("table");
+  }
+
   function renderParamRow(label: string, value: string | number) {
     return (
       <View key={label} style={styles.paramRow}>
@@ -300,7 +317,7 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
           <Text variant="titleMedium" style={styles.title}>
             Model Performance
           </Text>
-          {selectedVersion != null && (
+          {screen === "detail" && selectedVersion != null && (
             <Text style={styles.subtitle}>
               {selectedVersion.runLabel} · {formatRaceDate(selectedVersion.runAt)}
             </Text>
@@ -336,28 +353,67 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
         </Text>
       ) : (
         <ScrollView testID="model-performance-dashboard-list" contentContainerStyle={styles.body}>
-          <ScrollView
-            horizontal
-            testID="model-performance-dashboard-version-list"
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.versionRow}
-          >
-            {modelVersions.map(version => {
-              const isSelected = version.id === selectedVersion.id;
-              return (
+          {screen === "table" ? (
+            <View testID="model-performance-dashboard-table" style={styles.tableContainer}>
+              {isTablet && (
+                <View testID="model-performance-dashboard-table-header" style={styles.tableHeaderRow}>
+                  <Text style={[styles.tableHeaderCell, styles.tableColModel]}>Model</Text>
+                  <Text style={[styles.tableHeaderCell, styles.tableColDate]}>Trained</Text>
+                  <Text style={[styles.tableHeaderCell, styles.tableColMetric]}>AUC-ROC</Text>
+                  <Text style={[styles.tableHeaderCell, styles.tableColMetric]}>LogLoss</Text>
+                  <Text style={[styles.tableHeaderCell, styles.tableColMetric]}>Brier</Text>
+                  <View style={styles.tableColChevron} />
+                </View>
+              )}
+              {modelVersions.map(version => (
                 <TouchableOpacity
                   key={version.id}
-                  testID={`model-performance-dashboard-version-${version.id}`}
-                  onPress={() => onSelectModelVersion(version.id)}
-                  style={[styles.versionCard, isSelected && styles.versionCardSelected]}
+                  testID={`model-performance-dashboard-table-row-${version.id}`}
+                  onPress={() => openDetail(version.id)}
+                  style={[styles.tableRow, isTablet ? styles.tableRowWide : styles.tableRowNarrow]}
                 >
-                  <Text style={styles.versionCardLabel}>{version.runLabel}</Text>
-                  <Text style={styles.versionCardDate}>{formatRaceDate(version.runAt)}</Text>
-                  <Text style={styles.versionCardAuc}>AUC {version.performanceMetrics.aucRoc.toFixed(3)}</Text>
+                  {isTablet ? (
+                    <>
+                      <Text style={[styles.tableCellStrong, styles.tableColModel]}>{version.runLabel}</Text>
+                      <Text style={[styles.tableCell, styles.tableColDate]}>{formatRaceDate(version.runAt)}</Text>
+                      <Text style={[styles.tableCell, styles.tableColMetric]}>
+                        {version.performanceMetrics.aucRoc.toFixed(3)}
+                      </Text>
+                      <Text style={[styles.tableCell, styles.tableColMetric]}>
+                        {version.performanceMetrics.logLoss.toFixed(3)}
+                      </Text>
+                      <Text style={[styles.tableCell, styles.tableColMetric]}>
+                        {version.performanceMetrics.brierScore.toFixed(3)}
+                      </Text>
+                      <Text style={[styles.tableCell, styles.tableColChevron]}>›</Text>
+                    </>
+                  ) : (
+                    <>
+                      <View style={styles.tableRowNarrowTop}>
+                        <Text style={styles.tableCellStrong}>{version.runLabel}</Text>
+                        <Text style={styles.tableChevronNarrow}>›</Text>
+                      </View>
+                      <Text style={styles.tableRowNarrowDate}>{formatRaceDate(version.runAt)}</Text>
+                      <View style={styles.tableRowNarrowMetrics}>
+                        <Text style={styles.tableRowNarrowMetric}>AUC {version.performanceMetrics.aucRoc.toFixed(3)}</Text>
+                        <Text style={styles.tableRowNarrowMetric}>LogLoss {version.performanceMetrics.logLoss.toFixed(3)}</Text>
+                        <Text style={styles.tableRowNarrowMetric}>Brier {version.performanceMetrics.brierScore.toFixed(3)}</Text>
+                      </View>
+                    </>
+                  )}
                 </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+              ))}
+            </View>
+          ) : (
+          <>
+          <Button
+            testID="model-performance-dashboard-back-to-table"
+            mode="text"
+            onPress={backToTable}
+            style={styles.backButton}
+          >
+            ← Models
+          </Button>
 
           <Surface testID="model-performance-dashboard-training-params" style={styles.panelCard} elevation={1}>
             <Text variant="titleSmall" style={styles.sectionTitle}>
@@ -509,6 +565,8 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
               </Surface>
             </View>
           )}
+          </>
+          )}
         </ScrollView>
       )}
     </Surface>
@@ -574,35 +632,86 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
-  versionRow: {
+  tableContainer: {
     gap: spacing.sm,
+  },
+  tableHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.md,
     paddingBottom: spacing.xs,
   },
-  versionCard: {
-    borderWidth: 1.5,
+  tableHeaderCell: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.textSecondary,
+    textTransform: "uppercase",
+  },
+  tableColModel: {
+    flex: 2,
+  },
+  tableColDate: {
+    flex: 1.3,
+  },
+  tableColMetric: {
+    flex: 1,
+    textAlign: "right",
+  },
+  tableColChevron: {
+    width: 20,
+    textAlign: "right",
+  },
+  tableRow: {
+    borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radii.md,
+    backgroundColor: colors.surface,
+  },
+  tableRowWide: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    minWidth: 140,
   },
-  versionCardSelected: {
-    borderColor: colors.accent,
-    backgroundColor: colors.primaryLight,
+  tableRowNarrow: {
+    padding: spacing.md,
+    gap: spacing.xs,
   },
-  versionCardLabel: {
+  tableCell: {
     fontSize: 13,
+    color: colors.text,
+  },
+  tableCellStrong: {
+    fontSize: 14,
     fontWeight: "700",
     color: colors.text,
   },
-  versionCardDate: {
-    fontSize: 11,
+  tableRowNarrowTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  tableChevronNarrow: {
+    fontSize: 18,
+    color: colors.textTertiary,
+  },
+  tableRowNarrowDate: {
+    fontSize: 12,
     color: colors.textSecondary,
   },
-  versionCardAuc: {
+  tableRowNarrowMetrics: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md,
+    marginTop: spacing.xs,
+  },
+  tableRowNarrowMetric: {
     fontSize: 12,
     color: colors.accent,
     fontWeight: "600",
+  },
+  backButton: {
+    alignSelf: "flex-start",
   },
   panelCard: {
     borderRadius: radii.md,
