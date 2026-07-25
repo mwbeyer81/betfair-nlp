@@ -17,14 +17,25 @@ export class OpenAIClient {
       apiKey: apiKey,
     });
 
-    // Load instructions from markdown file
+    // Load instructions from markdown files. horse-racing-assistant.md
+    // covers the data-query path (schema + mongoScript generation);
+    // app-knowledge-assistant.md is reference material for the "about the
+    // app" path (see its Routing section) — appended so both are available
+    // in a single prompt.
     try {
       const instructionsPath = join(
         __dirname,
         "prompts",
         "horse-racing-assistant.md"
       );
-      this.instructions = readFileSync(instructionsPath, "utf-8");
+      const appKnowledgePath = join(
+        __dirname,
+        "prompts",
+        "app-knowledge-assistant.md"
+      );
+      const queryInstructions = readFileSync(instructionsPath, "utf-8");
+      const appKnowledge = readFileSync(appKnowledgePath, "utf-8");
+      this.instructions = `${queryInstructions}\n\n---\n\n${appKnowledge}`;
     } catch (error) {
       console.error("Failed to load instructions file:", error);
       throw new Error("Could not load horse racing assistant instructions");
@@ -51,9 +62,12 @@ export class OpenAIClient {
     }
   }
 
-  async createHorseQueryResponse(
-    query: string
-  ): Promise<{ mongoScript: string; naturalLanguageInterpretation: string }> {
+  async createHorseQueryResponse(query: string): Promise<{
+    responseType?: "data" | "about";
+    mongoScript?: string;
+    naturalLanguageInterpretation?: string;
+    explanation?: string;
+  }> {
     const combinedInstructions = this.instructions.replace("${query}", query);
 
     const response = await this.createResponse(combinedInstructions);
@@ -65,8 +79,10 @@ export class OpenAIClient {
       console.log("🔍 Parsed JSON:", JSON.stringify(parsed, null, 2));
       console.log("🔍 mongoScript value:", parsed.mongoScript);
       return {
+        responseType: parsed.responseType,
         mongoScript: parsed.mongoScript,
         naturalLanguageInterpretation: parsed.naturalLanguageInterpretation,
+        explanation: parsed.explanation,
       };
     } catch (error) {
       // If parsing fails, try to extract JSON from markdown code blocks
@@ -95,8 +111,10 @@ export class OpenAIClient {
           );
           console.log("🔍 mongoScript from code block:", parsed.mongoScript);
           return {
+            responseType: parsed.responseType,
             mongoScript: parsed.mongoScript,
             naturalLanguageInterpretation: parsed.naturalLanguageInterpretation,
+            explanation: parsed.explanation,
           };
         } catch (parseError) {
           console.error("Failed to parse JSON from code block:", parseError);
@@ -105,9 +123,11 @@ export class OpenAIClient {
           try {
             const parsed = JSON.parse(fixedJson);
             return {
+              responseType: parsed.responseType,
               mongoScript: parsed.mongoScript,
               naturalLanguageInterpretation:
                 parsed.naturalLanguageInterpretation,
+              explanation: parsed.explanation,
             };
           } catch (fixError) {
             console.error("Failed to parse fixed JSON:", fixError);
@@ -124,8 +144,10 @@ export class OpenAIClient {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
           return {
+            responseType: parsed.responseType,
             mongoScript: parsed.mongoScript,
             naturalLanguageInterpretation: parsed.naturalLanguageInterpretation,
+            explanation: parsed.explanation,
           };
         } catch (parseError) {
           console.error("Failed to parse JSON from text:", parseError);
@@ -134,9 +156,11 @@ export class OpenAIClient {
           try {
             const parsed = JSON.parse(fixedJson);
             return {
+              responseType: parsed.responseType,
               mongoScript: parsed.mongoScript,
               naturalLanguageInterpretation:
                 parsed.naturalLanguageInterpretation,
+              explanation: parsed.explanation,
             };
           } catch (fixError) {
             console.error("Failed to parse fixed JSON:", fixError);
