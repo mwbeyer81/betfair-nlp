@@ -2,57 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { View, StyleSheet, ScrollView, TouchableOpacity, TextInput as RNTextInput } from "react-native";
 import { Text, Button, Surface, Divider, ActivityIndicator, Chip } from "react-native-paper";
 import Svg, { Line as SvgLine, Circle } from "react-native-svg";
-import { IspRace } from "../services/chatApi";
+import { IspRace, ModelVersion } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import { computeRangePnl, computeModelFilteredPnl, formatPnl, formatPct, formatRaceDate } from "../utils/ispFormat";
 import { DateRangePicker } from "./DateRangePicker";
 import { useResponsive } from "../utils/responsive";
-
-// Colocated here for now since there's no backing API yet — once a real
-// GET /api/model-versions endpoint exists, move these alongside a
-// getModelVersions()/getModelVersionRaces(id) method in chatApi.ts (matching
-// the PnlStats/RunnerConvergencePoint convention) and import them from there.
-export interface ModelTrainingParams {
-  nEstimators: number;
-  learningRate: number;
-  maxDepth: number;
-  subsample: number;
-  colsampleBytree: number;
-  minChildWeight: number;
-  randomState: number;
-  earlyStoppingRounds: number;
-}
-
-export interface ModelRunMeta {
-  featureCols: string[];
-  trainRows: number;
-  testRows: number;
-  trainDateMax: string;
-  testDateMin: string;
-  bestIteration: number;
-}
-
-export interface CalibrationBucket {
-  meanPredicted: number;
-  actualWinRate: number;
-  n: number;
-}
-
-export interface ModelPerformanceMetrics {
-  aucRoc: number;
-  logLoss: number;
-  brierScore: number;
-  calibrationTable: CalibrationBucket[];
-}
-
-export interface ModelVersion {
-  id: string;
-  runLabel: string;
-  runAt: string;
-  trainingParams: ModelTrainingParams;
-  runMeta: ModelRunMeta;
-  performanceMetrics: ModelPerformanceMetrics;
-}
 
 interface ModelPerformanceDashboardProps {
   modelVersions: ModelVersion[];
