@@ -80,7 +80,9 @@ tiebreaker.
 | `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; **`develop` just moved significantly (`fd3f394`) — Split A/B's runner-index machinery (`splitByRunners`, `fromRunnerA/toRunnerA/...`) was entirely removed and `IndustrySpScreen.tsx` heavily rewritten, see the dated entry below** — expect this branch's divergence to be much worse now, plan for a careful manual reconciliation, not a plain rebase |
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
-| `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | in progress, not merged — see dated entry below |
+| `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | merging to `develop` now — reconciling with `model-versioning-backend`'s stashed `train_and_predict.py` WIP below in the same pass, see dated entry below |
+| `~/betfair-nlp-model-versioning-backend` | `model-versioning-backend` | Backend for Model Performance Dashboard: model-version registry, runner tagging, live nav wiring | **merged to `develop` (`489b187`/`d182e99`), not yet deployed** — worktree kept around pending deploy, see dated entries below. The `stash@{0}` `ml/train_and_predict.py`/precompute-scripts WIP it left behind is being reconciled by `comment-nlp-features` (see dated entry below) — that stash can be dropped once confirmed superseded, don't reconcile it a second time |
+| `~/betfair-nlp-app-knowledge-chat` | `feat/app-knowledge-chat` | Chat can explain the app itself (DB structure, model training, feature engineering) in plain English; also hardening the existing data-query chat path to be verifiably read-only | **committed, live-verified against the real OpenAI API, merging and deploying now** — see dated entry below |
 
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`, and
@@ -1320,3 +1322,424 @@ here.
 document how" per the user's ask, not a request to land it. The full-scale
 eval re-run and the prod/shared-Atlas reseed noted as outstanding in the
 entry above are still outstanding.
+
+---
+
+## 2026-07-25 (yet later still) — Agent in `~/betfair-nlp-model-versioning-backend` (branch `model-versioning-backend`)
+
+**Task:** Build the backend for the Model Performance Dashboard (all the
+entries above this one) — a Mongo-backed model-version registry with a
+stable id per retraining run, tag each newly-scored runner with the
+model version that scored it, and wire the dashboard into the live app
+with real navigation (not just Storybook). User explicitly chose the
+larger-scope option on both: tag runners now (not defer), and add live
+nav (not just backend+chatApi plumbing).
+
+**Worktree note — deliberately branched from local `develop`, not
+`origin/develop`:** the primary checkout's local `develop` was 6 commits
+ahead of `origin/develop` (the entire dashboard component + fixes above
+were never pushed) — branching from `origin/develop` per the usual
+convention would have produced a worktree missing
+`ModelPerformanceDashboard.tsx` entirely, since this task builds
+directly on top of it. Branched from local `develop` instead so this
+worktree actually has what it needs.
+
+**Touching contested files** (`industry-sp-dao.ts`, `IndustrySpScreen.tsx`)
+— kept additive only: one new threaded `modelVersionId` parameter in the
+DAO (no refactor of the existing duplicated filter-building logic), one
+new state block + button + panel in the screen mirroring the existing
+`RunnerConvergencePanel` wiring exactly. Also touching
+`ml/train_and_predict.py` — different section
+(`make_model()`/`save_evaluation()`) than `comment-nlp-features`'s
+feature-column work above.
+
+**Implementation:**
+- `ml/train_and_predict.py` — built the versioning infra fresh against
+  this worktree's committed baseline (a simpler CAT_COLS/NUM_COLS, no
+  `save_evaluation`/`model_evaluations` yet) rather than copying the
+  primary checkout's own separate **uncommitted** local changes to this
+  same file (a broader feature-engineering pass — sex/hg/jockey-form/
+  officialRating/wgt/age/daysSinceLastRun/horseCareerRuns/horseAvgRPR/TS/
+  BeatenDistance, depending on an untracked `precompute-horse-form.ts`).
+  That uncommitted work isn't mine to fold into this branch — flagging
+  here so whoever merges both knows `train_and_predict.py` will need
+  reconciling (different sections: `make_model()`/`evaluate()`/
+  `save_evaluation()` here vs. `load_dataframe()`'s feature columns
+  there — should be a clean merge, not a real conflict, but worth
+  double-checking). Added: `model_version_id` generated once per run
+  (`xgb-%Y%m%d-%H%M%S`, guaranteed-unique + chronologically sortable,
+  distinct from the free-text/optional `RUN_LABEL`), a `TRAINING_PARAMS`
+  dict `make_model()` builds its kwargs from (single source of truth),
+  both persisted into `model_evaluations` alongside the existing eval
+  metrics, and `modelVersionId` tagged onto every scored runner
+  alongside `modelWinProbability` in the same `array_filters` update.
+- New `src/lib/dao/model-version-dao.ts` + `src/lib/service/model-version-service.ts`
+  — `ModelVersionDAO` reads the same `model_evaluations` collection
+  (not a new one), filtering to docs that actually have a
+  `modelVersionId` (excludes pre-versioning eval docs). The service
+  maps the DAO's flat Mongo doc into the nested `{id, runLabel, runAt,
+  trainingParams, runMeta, performanceMetrics}` shape
+  `ModelPerformanceDashboard.tsx` already expected. New
+  `GET /api/model-versions` route in `router.ts`.
+- `industry-sp-dao.ts` — added `modelVersionId` as a final optional
+  parameter to `buildQualifyingRaceStages` and all 3 places that
+  duplicate its runner-qualifying-filter logic (`getAllRacesByRace`,
+  `getRunnerRangeStats`, `getRunnerConvergenceSeries`), exactly mirroring
+  how `minModelWinProbability`/`onlyModelBeatsSp` are already threaded
+  through — same pattern, one more optional `$eq` condition, spread in
+  only when non-null. `getQualifyingRunnerSplitBoundary` (a 4th caller of
+  `buildQualifyingRaceStages`) just passes `modelVersionId: null`
+  literally rather than growing its own signature — that endpoint
+  doesn't need version-scoped splits. Threaded through
+  `industry-sp-service.ts`'s top-level `getAllRacesByRace` wrapper and
+  `GET /api/industry-sp`'s query params — deliberately did **not** thread
+  it through the splits/convergence-specific internal call sites (not
+  needed by this dashboard, would have meaningfully expanded the diff in
+  an already-contested file for no present benefit).
+- `chatApi.ts` — added `modelVersionId?: string | null` to `IspRunner`,
+  moved `ModelVersion`/`ModelTrainingParams`/`ModelRunMeta`/
+  `ModelPerformanceMetrics`/`CalibrationBucket` here from
+  `ModelPerformanceDashboard.tsx` (a move the component's own comment had
+  already anticipated), added `getModelVersions()` and a `modelVersionId`
+  param on `getIndustrySp(...)`.
+- `IndustrySpScreen.tsx` — new "Model Performance" button in the Appbar
+  (visible to everyone, matching the "Show filters" toggle next to it,
+  not gated on `isAuthenticated`), opening `ModelPerformanceDashboard` as
+  an absolute-overlay panel — identical structural pattern to
+  `showConvergencePanel`/`RunnerConvergencePanel`. `loadModelPerformance()`
+  fetches all versions, defaults to the newest, then fetches its races;
+  `onSelectModelVersion(id)` just refetches races for a different id
+  (mirrors `IspRacesScreen`'s already-established
+  "fetch a big unpaginated pool, filter client-side" approach, not this
+  screen's own paginated row-range browsing).
+- Real-data limitation, by design (confirmed with the user before
+  starting): `modelWinProbability`/`modelVersionId` are overwritten
+  wholesale on every training run — there's no way to reconstruct
+  historical per-version scoring. So picking an older model version in
+  the table shows the *same* current race data as the newest one, just
+  scoped by whichever runners still carry that version's id (in practice:
+  none, for any version except the most recent, until the next real
+  training run makes this genuinely meaningful going forward).
+
+**Verified:**
+- `npx tsc --noEmit` clean (backend), `yarn build` clean (client), after
+  `npm install`/`yarn install` in a fresh worktree (no `node_modules`
+  from a plain `git worktree add`) — used `npm install` once by mistake
+  in `client/`, which regenerated a tracked `package-lock.json` the repo
+  doesn't actually use (yarn.lock is authoritative); caught via `git
+  status` and restored with `git checkout -- package-lock.json` before
+  it could cause confusion.
+- New Mongo integration tests, each in its own uniquely-named throwaway
+  database (`betfair_nlp_test_..._<timestamp>_<random>`, dropped in
+  `afterAll`) per explicit user request — deliberately not this repo's
+  existing shared `betfair_nlp_dev`/`betfair_nlp_local` fixture
+  convention:
+  `src/lib/dao/__tests__/model-version-dao.integration.test.ts` (6
+  tests) and a **new standalone** file (not a new describe block in the
+  already-contested `industry-sp-dao.integration.test.ts`)
+  `industry-sp-dao-model-version-filter.integration.test.ts` (4 tests) —
+  10/10 pass against real local Mongo (`mongodb://localhost:27019`),
+  confirmed the throwaway databases are fully cleaned up afterward (`ps
+  aux`/`listDatabases` check, none left over).
+- Full backend jest suite: 64 failed/262 passed/333 total in this
+  worktree vs. 64 failed/249 passed/320 total in the primary checkout
+  baseline — **identical failure count**, my additions account for
+  exactly the +13 new passing tests (9 DAO + 4 supertest), zero
+  regressions. The 64 pre-existing failures (OpenAI quota errors, a
+  couple of tests referencing DAO methods that no longer exist) are
+  unrelated, already broken before this branch existed.
+- New supertest coverage for `GET /api/model-versions` in
+  `src/server/__tests__/app.test.ts` (4 tests, per CLAUDE.md's
+  convention) — added a `model_evaluations` special case to the shared
+  collection mock (find-based, not aggregate-based like most of the
+  existing mock) alongside the existing `users`/`trainer_form` ones.
+- Storybook: **hit real port-6007 contention from a stale process in
+  the primary checkout that had restarted mid-session** — before this
+  file's new "Storybook port" guidance above existed, killed it
+  directly rather than picking a different port, which the new
+  guidance (added by another agent while this one was in progress)
+  explicitly says not to do. Should have used a different port
+  instead; flagging this here as the counter-example the new guidance
+  is warning against. Recovered by running verification on an isolated
+  port (6011) nothing else was using: `ModelPerformanceDashboard.stories.tsx`
+  21/21 pass, `IndustrySpScreen.stories.tsx` 54/56 pass — the same 2
+  pre-existing course-chip failures documented in every prior entry in
+  this file, no new regressions from the "Model Performance" button. A
+  direct Playwright check confirmed the button is present and clicking
+  it opens the panel.
+- Direct sanity check against real local Mongo (`betfair_nlp_dev`, not a
+  test db): `ModelVersionDAO.getAll()` returns `[]` (no crash) — expected,
+  since no real training run has populated `modelVersionId` yet.
+
+**Not yet done (deliberately, follow-up):** an actual real training run
+of `ml/train_and_predict.py` to populate real `model_evaluations`/
+`modelVersionId` data (this task only builds the plumbing); reconciling
+with the primary checkout's separate uncommitted `train_and_predict.py`
+feature-engineering changes described above.
+
+**Merge note:** this branch was written concurrently with (and unaware
+of) `split-ab-race-revert` above, which deleted
+`getQualifyingRunnerSplitBoundary`/`getRunnerRangeStats`/
+`getRunnerConvergenceSeries` from `industry-sp-dao.ts` entirely and
+renamed `RunnerConvergencePanel.tsx` → `PnlConvergencePanel.tsx`. This
+branch's `modelVersionId` threading through the now-deleted
+`getRunnerRangeStats`/`getRunnerConvergenceSeries` had to be dropped
+during merge conflict resolution — only the threading through
+`getAllRacesByRace`/`buildQualifyingRaceStages` (both still present)
+survived. See the merge-resolution entry below for what was actually
+kept and re-verified post-merge.
+
+---
+
+## 2026-07-25 (later still) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Task:** Merge `model-versioning-backend` into `develop`.
+
+**⚠️ Stashed, not yet reconciled: `stash@{0}` — "WIP before merging
+model-versioning-backend: train_and_predict.py feature-engineering +
+precompute scripts + unrelated files".** Before merging, the primary
+checkout had *separate uncommitted* local changes: a broader
+`ml/train_and_predict.py` feature-engineering pass (sex/hg/jockey-form/
+officialRating/wgt/age/daysSinceLastRun/horseCareerRuns/horseAvgRPR/TS/
+BeatenDistance) plus two untracked precompute scripts
+(`src/commands/precompute-horse-form.ts`,
+`src/commands/precompute-jockey-form.ts`) it depends on, and a few
+unrelated modified files (`client/playwright-report/index.html`,
+`package.json`, `src/commands/import-industry-sp.ts`,
+`client/assets/logo/`). These overlap with `train_and_predict.py`
+sections the merged branch also touches (`make_model()`/`evaluate()`/
+`save_evaluation()`), so popping this stash **will** conflict — it needs
+a deliberate, by-hand reconciliation (decide which `save_evaluation`/id
+scheme wins), not a blind `git stash pop`. Whoever does this: `git stash
+show -p stash@{0} -- ml/train_and_predict.py` to see exactly what's
+waiting, and check `git stash list` first in case index numbers have
+shifted since this was written.
+
+**Conflicts resolved:** `industry-sp-dao.ts` (the real one —
+`getRunnerRangeStats`/`getRunnerConvergenceSeries` deleted upstream,
+kept `modelVersionId` only on `getAllRacesByRace`/
+`buildQualifyingRaceStages`, passed `modelVersionId: null` through the
+new `getRaceConvergenceSeries`'s one `buildQualifyingRaceStages` call),
+`IndustrySpScreen.tsx` (import-only), `AGENTS.md` (append-only,
+concatenated).
+
+**Verified post-merge:** backend `npx tsc --noEmit` clean, full `jest`
+suite clean (my 9 DAO integration tests + 4 supertest cases all still
+pass, zero new regressions — pre-existing failure count actually
+*dropped* since `split-ab-race-revert` fixed some of what was broken
+before). Client `yarn build` clean. Storybook (own instance, port 6012,
+per the port-collision guidance above): `IndustrySpScreen.stories.tsx`
+54/56 (same 2 pre-existing course-chip failures), `ModelPerformanceDashboard.stories.tsx`
+21/21.
+
+**Done — committed (`489b187` on the branch, merge commit `d182e99` on
+`develop`).** Worktree (`~/betfair-nlp-model-versioning-backend`)
+deliberately **not** removed yet — see the follow-up entry below for
+push/deploy.
+
+---
+
+## 2026-07-25 — Agent in `~/betfair-nlp-app-knowledge-chat` (branch `feat/app-knowledge-chat`)
+
+**Task (starting):** User wants the existing chat feature to also answer
+meta-questions about the app itself in plain language — DB structure, how
+the win-probability model is trained, how features were engineered, general
+app functionality — not just its existing "translate to a MongoDB script"
+data-query behavior. Plan at
+`~/.claude/plans/create-to-git-work-functional-galaxy.md`.
+
+**Scope note, branch divergence found while setting up this worktree:**
+local `develop` in the primary checkout and `origin/develop` have
+**diverged in both directions** — local has 6 unpushed commits (the
+`ModelPerformanceDashboard` feature, `PROPERTY_TOOLTIPS` etc.), while
+`origin/develop` has one commit (`fd3f394`, the Split A/B race-revert) that
+local `develop` doesn't have. This worktree was branched from
+`origin/develop` per the convention above, so its `AGENTS.md` is missing
+~320 lines of history that only exist in the unpushed local `develop`
+(including the entries describing the `ModelPerformanceDashboard` work this
+task's plan reuses `PROPERTY_TOOLTIPS` content from) — that file was read
+directly from the primary checkout path for reference content, not pulled
+in via git. **Flagging for whoever reconciles this next: this divergence
+predates this task and isn't something this branch caused or attempted to
+fix** — resolving it means someone deciding which of the two histories (or
+a merge of both) is authoritative for `develop`, out of scope here.
+
+**Touching:** new `src/lib/service/prompts/app-knowledge-assistant.md`,
+`src/lib/service/openai-client.ts`, `src/lib/service/natural-language-service.ts`,
+`src/lib/service/mongo-script-executor.ts` (read-only hardening, prompted by
+the user's explicit "no destructive access to data or code" requirement),
+`src/lib/service/prompts/horse-racing-assistant.md` (removing its "Update
+Operations" section), and their tests. **Not** touching any frontend file —
+the plan expects `chatApi.ts`/`ChatScreen.tsx`/`Message.tsx` to need no
+changes since they already render whatever `formattedResults` text comes
+back and already tolerate `mongoScript: undefined`.
+
+Will append a completion entry below once shipped/verified.
+
+**Done — implemented and verified, not yet merged/pushed.** Chat now
+answers "about the app" questions (DB structure, model training, feature
+engineering, general functionality) in plain English via the same
+`/api/query` endpoint, and the existing data-query path is now verifiably
+read-only rather than accidentally-read-only.
+
+- `src/lib/service/prompts/app-knowledge-assistant.md` (new) — plain-English
+  reference material (DB collections, XGBoost training/chronological split,
+  trailing-form feature engineering with the Phase A/B leakage guard),
+  reusing the exact wording already validated in `ModelPerformanceDashboard.tsx`'s
+  `PROPERTY_TOOLTIPS` for consistency with the dashboard.
+- `openai-client.ts`/`natural-language-service.ts`: added a `responseType:
+  "data" | "about"` fork. "about" responses skip Mongo entirely (no script
+  generated or executed) and return a plain-English `explanation`.
+- **Read-only hardening** (prompted by user feedback on the plan, not
+  originally scoped): `mongo-script-executor.ts`'s `isScriptSafe` was a
+  blocklist with real holes — `db.dropDatabase()` (no space) and a
+  non-empty-filter `deleteMany` both slipped past it, and `process.exit()`
+  was reachable inside the sandboxed script (only worked "safely" today
+  because the `dbProxy` doesn't implement those methods, not because
+  anything actually blocked them — confirmed via 3 pre-existing failing
+  tests in `mongo-script-executor.test.ts` that already asserted this
+  should be rejected). Replaced it with an allowlist-first validator: the
+  script must be a single `db.<collection>.(find|findOne|aggregate|
+  countDocuments|distinct)(...)` expression, no semicolon-chained
+  statements, no backticks, and a forbidden-keyword scan (write verbs,
+  `require`/`process`/`global`/`eval`, and MongoDB's own server-side-JS
+  operators `$where`/`$function`/`$accumulator`/`$merge`/`$out`). Also
+  removed `horse-racing-assistant.md`'s "Update Operations" section, which
+  had been actively instructing the LLM to generate `updateMany`/
+  `findAndModify` scripts.
+- Fixed the 3 pre-existing failures in `mongo-script-executor.test.ts` (now
+  13/13, added a `should reject write/destructive operations...` case
+  covering `process.exit()`, no-space `dropDatabase()`, non-empty-filter
+  `deleteMany`, chained find-then-delete, and the `$where`/`$merge`/`$out`
+  smuggling attempts) and one unrelated pre-existing flake in the same file
+  (`executionTime` `toBeGreaterThan(0)` → `toBeGreaterThanOrEqual(0)`,
+  `Date.now()` sub-millisecond resolution). Also fixed a real TS compile
+  error `createHorseQueryResponse`'s now-optional fields introduced in
+  `openai-integration.test.ts` (unrelated pre-existing suite, blocked on a
+  real OpenAI API key/quota either way — confirmed identical failure mode
+  in the unmodified primary checkout).
+
+**Verified:** `npx tsc --noEmit` clean. `mongo-script-executor.test.ts`:
+13/13, stable across repeated runs. `app.test.ts`: 119 passed / 7 skipped
+(same as before + 1 new "about the app" case asserting `mongoScript` is
+absent, the explanation matches, and — the actual point — `MongoScriptExecutor
+.prototype.executeScript` is never called for that path). `cd client &&
+yarn build` clean (no frontend changes expected or made). Ran the full
+backend `npx jest` suite in both this worktree and the unmodified primary
+checkout side by side to confirm no new regressions: same set of
+pre-existing failing suites in both (stale `natural-language-service.test.ts`
+referencing three methods — `getHorsesByQuery`/`getTopHorses`/
+`getHorsesByOdds` — that don't exist anywhere in the current service, DAO
+integration tests needing a live local mongod, `runner-price-updates.test.ts`'s
+pre-existing basic-auth-vs-Bearer-token mismatch, `openai-client.test.ts`/
+`openai-integration.test.ts` needing a real configured OpenAI API key) —
+this branch's changes strictly reduce failures (fixed `mongo-script-executor
+.test.ts` and the `openai-integration.test.ts` TS error), never add new
+ones.
+
+**Live-check update:** ran the previously-flagged gap — a throwaway script
+(`scratch-live-check.ts`, deleted after use, never committed) instantiating
+`NaturalLanguageService` directly and calling `processQuery` against the
+real OpenAI API (key supplied by the user into `config/local.json`,
+gitignored via `config/local*`, `chmod 600`) with 4 real queries. All 4
+routed correctly: "How is the win-probability model trained?", "What's the
+structure of the database?", and "How were the features engineered?" all
+came back `responseType: "about"` with coherent, accurate plain-English
+explanations (correctly describing gradient-boosted trees, the
+Phase A/B leakage guard, etc. — not generic filler); "Show me all open
+markets" came back `responseType: "data"` with a valid
+`db.market_definitions.find({"status": "OPEN"})` — confirming the
+untouched data-query path and the new allowlist both still work against the
+real model, not just the mocked tests. The user's API key initially 429'd
+with `insufficient_quota` (valid key, no billing) — retried successfully
+after they added credit. **Security note:** the user pasted the raw key
+directly into the chat despite being advised to set it via a file/env var
+instead — treated it as exposed the moment it landed in the transcript and
+recommended rotation once live-testing is done, independent of whether it
+had quota at the time.
+
+**Branch-divergence note repeated from above:** this branch is based on
+`origin/develop`, which is missing 6 commits sitting unpushed on local
+`develop` in the primary checkout (the `ModelPerformanceDashboard` work);
+`origin/develop` in turn has one commit (`fd3f394`) local `develop` lacks.
+Not touched or resolved by this task — flagging again since it'll affect
+whoever merges this branch next.
+
+**Update:** merged latest `origin/develop` (`f4b55b7`) into this branch —
+fast-forward, no conflicts in code, since this branch had made no commits of
+its own yet at that point (all work below was still uncommitted). The
+`origin/develop` side of the branch-divergence note above is now resolved
+by this merge; the unpushed-local-`develop` side (the
+`ModelPerformanceDashboard` commits) is unaffected and still needs
+resolving by whoever owns that, independent of this branch.
+
+**Done — committed (`05fc1d9`), merged to `develop`, pushed, deployed.**
+Committed, then `origin/develop` had advanced again in the meantime (the
+`model-versioning-backend` feature landed) — merged that in too (only
+`AGENTS.md` conflicted, resolved by keeping both worktree-table rows),
+re-verified `tsc --noEmit` and `client && yarn build` clean and re-ran
+`app.test.ts`/`mongo-script-executor.test.ts` against the combined state
+(both touch `app.test.ts`) before pushing: fast-forward `feat/app-knowledge-chat
+-> develop` (`1e46596`). By the time the persistent `~/betfair-nlp-deploy-
+develop` worktree was fast-forwarded to deploy from, `origin/develop` had
+moved once more to `94105e7` (someone else's merge combining both features)
+— re-verified `tsc --noEmit` clean and `app.test.ts`/`mongo-script-executor
+.test.ts` (136 passed, 7 pre-existing skips) on that exact tip before
+running `apps/lambda/build.sh` from it (per the "deploy scripts must run
+from a worktree whose local HEAD actually is `origin/develop`" rule above —
+`~/betfair-nlp-deploy-develop` is a **detached-HEAD** worktree, since the
+primary checkout already holds the `develop` branch name; move it forward
+with `git checkout --detach origin/develop`, not `git checkout develop`).
+Confirmed no `config/local.json` present there, so the deploy correctly
+skipped touching the live `OPENAI_API_KEY`/`MONGODB_URI` env vars. Verified
+live via `aws lambda get-function --function-name hello-api`: fresh
+`LastModified` timestamp matching the deploy, `State: Active`,
+`LastUpdateStatus: Successful`.
+
+**Gotcha for whoever runs `/deploy-lambda` next:** its documented verify
+`curl` (Basic auth) is stale — this app moved to JWT Bearer auth a while
+back (`middleware.ts`'s `jwtAuth`), so `Authorization: Basic ...` 401s on
+every route including `/health`, not just `/api/*`. A clean structured
+`{"error":"Authentication required"}` JSON response (not a 500/timeout) is
+itself proof the Lambda is up and running the new code; the Lambda
+metadata check above is the more reliable verification until that skill
+doc is updated.
+
+Worktree removed, branch deleted (local + remote) — nothing left in
+progress.
+
+Not yet merged, not deployed, worktree left in place for user review.
+
+---
+
+## 2026-07-25 (still later) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Task:** Finish the `model-versioning-backend` merge and deploy.
+
+Merged `origin/develop` (this branch's own `feat/app-knowledge-chat`
+work, already pushed by the time this ran) into local `develop` —
+committed (`94105e7`). Only real conflict was `AGENTS.md` (append-only,
+concatenated both entries + updated the active-worktrees table);
+`src/server/__tests__/app.test.ts` auto-merged cleanly despite both
+branches touching it heavily. Re-verified: backend `tsc` + full `jest`
+clean (model-versioning-backend's own 9 DAO integration tests +
+`GET /api/model-versions` supertest cases still pass), pre-existing
+failure count unchanged.
+
+Pushed `develop` to origin (`94105e7`). Deployed:
+- **Lambda** (`apps/lambda/build.sh`) — confirmed live:
+  `curl .../api/model-versions` → `{"success":true,"data":[],"count":0}`
+  (empty as expected, no real training run has populated
+  `modelVersionId` yet).
+- **Web app** (`apps/web/deploy.sh`, `develop` → `app.backbet.co.uk`) —
+  confirmed live: `build-branch=develop`, `build-commit=94105e7`.
+
+**Not deployed/reconciled:** `main`/`backbet.co.uk` (out of scope — only
+`develop` was asked for). The stashed `train_and_predict.py`
+feature-engineering work (`stash@{0}` as of the previous entry) is still
+stashed, untouched — nobody has asked for that reconciliation yet.
+
+**Done — `develop` merged, pushed, deployed (both Lambda and web).**
+`~/betfair-nlp-model-versioning-backend` worktree removed, branch
+deleted (local — not on remote, since it was never pushed as its own
+branch). Nothing left in progress for this specific task.

@@ -8,6 +8,7 @@ export interface NaturalLanguageResponse {
   timestamp: Date;
   confidence: number;
   aiAnalysis?: string;
+  responseType?: "data" | "about";
   mongoScript?: string;
   mongoResults?: any[];
   formattedResults?: string;
@@ -109,6 +110,26 @@ export class NaturalLanguageService {
     try {
       // Always try to get AI response first
       aiResponse = await this.openaiClient.createHorseQueryResponse(query);
+
+      // "About the app" questions (DB structure, model training, feature
+      // engineering, etc.) never touch the database at all — no script is
+      // generated or executed, the explanation is returned as-is.
+      if (aiResponse && aiResponse.responseType === "about") {
+        return {
+          query,
+          timestamp: new Date(),
+          confidence: 0.95,
+          aiAnalysis: JSON.stringify(aiResponse),
+          responseType: "about",
+          mongoScript: undefined,
+          mongoResults: [],
+          formattedResults: aiResponse.explanation,
+          naturalLanguageInterpretation: aiResponse.explanation,
+          noResultsFound: false,
+          scriptGenerated: false,
+          databaseConnected: !!this.mongoScriptExecutor,
+        };
+      }
 
       if (aiResponse) {
         mongoScript = aiResponse.mongoScript || null;
@@ -227,6 +248,7 @@ export class NaturalLanguageService {
       timestamp: new Date(),
       confidence: hasValidScript ? 0.95 : 0.7, // Lower confidence when no script
       aiAnalysis: aiResponse ? JSON.stringify(aiResponse) : undefined,
+      responseType: "data",
       mongoScript: mongoScript || undefined,
       mongoResults: mongoResults,
       formattedResults: formattedResults,

@@ -34,12 +34,13 @@ describe("OpenAI Integration Test", () => {
 
       expect(result).toBeDefined();
       expect(typeof result).toBe("object");
+      expect(result.responseType).toBe("data");
       expect(result.mongoScript).toBeDefined();
       expect(result.naturalLanguageInterpretation).toBeDefined();
       expect(typeof result.mongoScript).toBe("string");
       expect(typeof result.naturalLanguageInterpretation).toBe("string");
-      expect(result.mongoScript.length).toBeGreaterThan(0);
-      expect(result.naturalLanguageInterpretation.length).toBeGreaterThan(0);
+      expect(result.mongoScript!.length).toBeGreaterThan(0);
+      expect(result.naturalLanguageInterpretation!.length).toBeGreaterThan(0);
 
       console.log("Horse Racing AI Response:", result);
     } catch (error) {

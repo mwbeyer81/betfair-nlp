@@ -2,6 +2,7 @@ import request from "supertest";
 import bcrypt from "bcryptjs";
 import { ObjectId } from "mongodb";
 import app from "../app";
+import { MongoScriptExecutor } from "../../lib/service/mongo-script-executor";
 
 let authToken: string;
 
@@ -48,15 +49,25 @@ beforeAll(async () => {
   authToken = res.body.token;
 });
 
-// Mock the OpenAI client to avoid real API calls in tests
+// Mock the OpenAI client to avoid real API calls in tests. Branches on the
+// query text so both the data-query path and the "about the app" path can
+// be exercised via the real /api/query -> NaturalLanguageService pipeline.
+const ABOUT_THE_APP_QUERY = "How is the win-probability model trained?";
+const ABOUT_THE_APP_EXPLANATION =
+  "The model is trained on historical races using a technique called gradient-boosted trees...";
 jest.mock("../../lib/service/openai-client", () => ({
   OpenAIClient: jest.fn().mockImplementation(() => ({
     createResponse: jest.fn().mockResolvedValue("Mocked AI analysis"),
-    createHorseQueryResponse: jest
-      .fn()
-      .mockResolvedValue(
-        '```javascript\ndb.market_definitions.find({"name": "Cheltenham Chase"})\n```'
-      ),
+    createHorseQueryResponse: jest.fn().mockImplementation(async (query: string) => {
+      if (query === ABOUT_THE_APP_QUERY) {
+        return { responseType: "about", explanation: ABOUT_THE_APP_EXPLANATION };
+      }
+      return {
+        responseType: "data",
+        mongoScript: 'db.market_definitions.find({"name": "Cheltenham Chase"})',
+        naturalLanguageInterpretation: "Finds the market named Cheltenham Chase.",
+      };
+    }),
   })),
 }));
 
@@ -172,6 +183,43 @@ jest.mock("../../config/database", () => ({
                   };
                 }
                 return null;
+              }),
+            };
+          }
+          if (name === "model_evaluations") {
+            return {
+              find: jest.fn().mockReturnValue({
+                sort: jest.fn().mockReturnThis(),
+                toArray: jest.fn().mockResolvedValue([
+                  {
+                    modelVersionId: "xgb-20260301-090000",
+                    runLabel: "unlabeled",
+                    runAt: "2026-03-01T09:00:00.000Z",
+                    trainingParams: {
+                      nEstimators: 2000,
+                      learningRate: 0.03,
+                      maxDepth: 5,
+                      subsample: 0.8,
+                      colsampleBytree: 0.8,
+                      minChildWeight: 8,
+                      randomState: 42,
+                      earlyStoppingRounds: 50,
+                    },
+                    featureCols: ["course", "going", "trainer", "jockey"],
+                    trainRows: 180000,
+                    testRows: 20000,
+                    trainDateMax: "2026-02-25",
+                    testDateMin: "2026-02-26",
+                    bestIteration: 842,
+                    aucRoc: 0.731,
+                    logLoss: 0.579,
+                    brierScore: 0.199,
+                    calibrationTable: [
+                      { meanPredicted: 10, actualWinRate: 12, n: 2000 },
+                      { meanPredicted: 90, actualWinRate: 85, n: 2100 },
+                    ],
+                  },
+                ]),
               }),
             };
           }
@@ -617,6 +665,31 @@ describe("API Endpoints", () => {
 
       expect(response.body).toHaveProperty("success", true);
       expect(response.body).toHaveProperty("data");
+    });
+
+    it("answers an 'about the app' question with a plain-English explanation instead of a MongoDB script", async () => {
+      const executeScriptSpy = jest.spyOn(
+        MongoScriptExecutor.prototype,
+        "executeScript"
+      );
+
+      const response = await request(app)
+        .post("/api/query")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ query: ABOUT_THE_APP_QUERY })
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data.mongoScript).toBeUndefined();
+      expect(response.body.data.naturalLanguageInterpretation).toBe(
+        ABOUT_THE_APP_EXPLANATION
+      );
+      expect(response.body.data.formattedResults).toBe(ABOUT_THE_APP_EXPLANATION);
+      expect(response.body.data.noResultsFound).toBe(false);
+      // The whole point of the "about" path: it never touches the database.
+      expect(executeScriptSpy).not.toHaveBeenCalled();
+
+      executeScriptSpy.mockRestore();
     });
 
     it("should return 400 when query is missing", async () => {
@@ -1161,6 +1234,50 @@ describe("API Endpoints", () => {
       const race = response.body.data[0];
       expect(race).toHaveProperty("raceClass");
       expect(race).toHaveProperty("going");
+    });
+  });
+
+  describe("GET /api/model-versions", () => {
+    it("returns 200 with success and a data array", async () => {
+      const response = await request(app)
+        .get("/api/model-versions")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("count equals data.length", async () => {
+      const response = await request(app)
+        .get("/api/model-versions")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    it("is public — returns 200 without auth", async () => {
+      const response = await request(app).get("/api/model-versions").expect(200);
+      expect(response.body).toHaveProperty("success", true);
+    });
+
+    it("each version has id, runLabel, runAt, trainingParams, runMeta, performanceMetrics", async () => {
+      const response = await request(app)
+        .get("/api/model-versions")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const version = response.body.data[0];
+      expect(typeof version.id).toBe("string");
+      expect(typeof version.runLabel).toBe("string");
+      expect(typeof version.runAt).toBe("string");
+      expect(typeof version.trainingParams.nEstimators).toBe("number");
+      expect(typeof version.trainingParams.earlyStoppingRounds).toBe("number");
+      expect(Array.isArray(version.runMeta.featureCols)).toBe(true);
+      expect(typeof version.runMeta.trainRows).toBe("number");
+      expect(typeof version.performanceMetrics.aucRoc).toBe("number");
+      expect(Array.isArray(version.performanceMetrics.calibrationTable)).toBe(true);
     });
   });
 

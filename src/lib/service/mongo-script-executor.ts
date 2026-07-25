@@ -25,7 +25,8 @@ export class MongoScriptExecutor {
       if (!this.isScriptSafe(cleanedScript)) {
         return {
           success: false,
-          error: "Script contains potentially dangerous operations",
+          error:
+            "Only read-only find/findOne/aggregate/countDocuments/distinct queries are allowed",
           executionTime: Date.now() - startTime,
         };
       }
@@ -64,20 +65,88 @@ export class MongoScriptExecutor {
     return cleaned;
   }
 
-  private isScriptSafe(script: string): boolean {
-    const dangerousPatterns = [
-      /drop\s+database/i,
-      /drop\s+collection/i,
-      /remove\s*\(\s*\{\s*\}\s*\)/i,
-      /deleteMany\s*\(\s*\{\s*\}\s*\)/i,
-      /system\./i,
-      /admin\./i,
-      /eval\s*\(/i,
-      /__proto__/i,
-      /constructor/i,
-    ];
+  // Allowlist-first: the script must be a SINGLE expression whose leading
+  // call is one of these 5 read-only methods — exactly the 5 the `dbProxy`
+  // below implements. This is deliberately not a blocklist: a blocklist only
+  // has to miss one dangerous spelling (e.g. `dropDatabase()` with no space,
+  // or a non-empty-filter `deleteMany`) to let it through, whereas an
+  // allowlist rejects everything by default and only lets through what's
+  // explicitly recognized as safe.
+  private static readonly ALLOWED_LEADING_CALL =
+    /^db\.[A-Za-z_][A-Za-z0-9_]*\.(find|findOne|aggregate|countDocuments|distinct)\s*\(/;
 
-    return !dangerousPatterns.some(pattern => pattern.test(script));
+  // Defense in depth in case the proxy or the allowed-method list ever
+  // changes: even a script that matches the leading pattern above is
+  // rejected if it also contains any of these, whole-word (so field names
+  // like "updatedAt" aren't caught). Includes MongoDB's own server-side JS
+  // execution operators (`$where`/`$function`/`$accumulator`) and the
+  // write-capable aggregation stages (`$merge`/`$out`) — both are ways to
+  // smuggle a write or arbitrary code execution inside an otherwise
+  // "read-only" find/aggregate call.
+  private static readonly FORBIDDEN_KEYWORDS = [
+    "update",
+    "delete",
+    "remove",
+    "insert",
+    "drop",
+    "rename",
+    "create",
+    "bulkWrite",
+    "replaceOne",
+    "findAndModify",
+    "findOneAndUpdate",
+    "findOneAndDelete",
+    "findOneAndReplace",
+    "mapReduce",
+    "require",
+    "process",
+    "global",
+    "import",
+    "Function",
+    "constructor",
+    "__proto__",
+    "eval",
+  ];
+  private static readonly FORBIDDEN_SUBSTRINGS = [
+    "$where",
+    "$function",
+    "$accumulator",
+    "$merge",
+    "$out",
+  ];
+
+  private isScriptSafe(script: string): boolean {
+    // cleanScript() can leave surrounding whitespace/newlines (e.g. after
+    // stripping a markdown code fence) — the leading-call check must anchor
+    // to the first real character, not column 0 of the raw string.
+    const trimmed = script.trim();
+    if (!MongoScriptExecutor.ALLOWED_LEADING_CALL.test(trimmed)) {
+      return false;
+    }
+
+    // Reject a trailing `;` followed by more code — closes off chaining a
+    // second (potentially destructive) statement after a valid-looking read.
+    if (/;\s*\S/.test(script)) {
+      return false;
+    }
+
+    // No legitimate query needs a template literal/backtick — reject
+    // outright rather than try to reason about `${...}` expression injection.
+    if (script.includes("`")) {
+      return false;
+    }
+
+    const hasForbiddenKeyword = MongoScriptExecutor.FORBIDDEN_KEYWORDS.some(
+      keyword => new RegExp(`\\b${keyword}\\b`, "i").test(script)
+    );
+    if (hasForbiddenKeyword) return false;
+
+    const hasForbiddenSubstring = MongoScriptExecutor.FORBIDDEN_SUBSTRINGS.some(
+      substring => script.toLowerCase().includes(substring.toLowerCase())
+    );
+    if (hasForbiddenSubstring) return false;
+
+    return true;
   }
 
   /**

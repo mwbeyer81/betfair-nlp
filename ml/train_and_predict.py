@@ -62,6 +62,32 @@ NUM_COLS = [
 ]
 FEATURE_COLS = CAT_COLS + NUM_COLS
 
+# Single source of truth for make_model()'s XGBoost hyperparams (excluding
+# early_stopping_rounds, which only applies to the early-stopping fit — see
+# make_model() below) — persisted verbatim into each model_evaluations doc
+# (camelCase, via TRAINING_PARAMS_CAMEL) so the dashboard can show exactly
+# what a given model version was trained with, not just how it performed.
+TRAINING_PARAMS = dict(
+    n_estimators=2000,
+    learning_rate=0.03,
+    max_depth=5,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    min_child_weight=8,
+    random_state=42,
+)
+EARLY_STOPPING_ROUNDS = 50
+TRAINING_PARAMS_CAMEL = {
+    "nEstimators": TRAINING_PARAMS["n_estimators"],
+    "learningRate": TRAINING_PARAMS["learning_rate"],
+    "maxDepth": TRAINING_PARAMS["max_depth"],
+    "subsample": TRAINING_PARAMS["subsample"],
+    "colsampleBytree": TRAINING_PARAMS["colsample_bytree"],
+    "minChildWeight": TRAINING_PARAMS["min_child_weight"],
+    "randomState": TRAINING_PARAMS["random_state"],
+    "earlyStoppingRounds": EARLY_STOPPING_ROUNDS,
+}
+
 _DISTANCE_RE = re.compile(r"^(?:(\d+)m)?(?:(\d*)(½)?f)?$")
 
 
@@ -172,17 +198,17 @@ def make_model(early_stopping: bool) -> xgb.XGBClassifier:
         eval_metric="logloss",
         tree_method="hist",
         enable_categorical=True,
-        n_estimators=2000,
-        learning_rate=0.03,
-        max_depth=5,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        min_child_weight=8,
-        random_state=42,
+        **TRAINING_PARAMS,
     )
     if early_stopping:
-        kwargs["early_stopping_rounds"] = 50
+        kwargs["early_stopping_rounds"] = EARLY_STOPPING_ROUNDS
     return xgb.XGBClassifier(**kwargs)
+
+
+def save_evaluation(evaluations_collection, doc: dict):
+    doc = {"runAt": datetime.now(timezone.utc).isoformat(), **doc}
+    evaluations_collection.insert_one(doc)
+    print(f"\nSaved evaluation to {EVALUATIONS_COLLECTION_NAME} (modelVersionId={doc.get('modelVersionId')})")
 
 
 def evaluate(model: xgb.XGBClassifier, test_df: pd.DataFrame, evaluations_collection, run_meta: dict):
@@ -221,13 +247,13 @@ def evaluate(model: xgb.XGBClassifier, test_df: pd.DataFrame, evaluations_collec
     })
 
 
-def save_evaluation(evaluations_collection, doc: dict):
-    doc = {"runAt": datetime.now(timezone.utc).isoformat(), **doc}
-    evaluations_collection.insert_one(doc)
-    print(f"\nSaved evaluation to {EVALUATIONS_COLLECTION_NAME} (runLabel={doc.get('runLabel')})")
-
-
 def run():
+    # Stable id for this training run — timestamp-based so it's guaranteed
+    # unique across runs (even same-day reruns) and sorts chronologically,
+    # unlike RUN_LABEL, which stays free-text/optional and can repeat.
+    model_version_id = datetime.now(timezone.utc).strftime("xgb-%Y%m%d-%H%M%S")
+    print(f"Model version id: {model_version_id}")
+
     uri = os.environ["MONGODB_URI"]
     db_name = os.environ["MONGODB_DB_NAME"]
     print(f"Connecting to {db_name}...")
@@ -259,7 +285,9 @@ def run():
 
     print("\n--- Held-out chronological test evaluation ---")
     run_meta = {
+        "modelVersionId": model_version_id,
         "runLabel": RUN_LABEL,
+        "trainingParams": TRAINING_PARAMS_CAMEL,
         "featureCols": FEATURE_COLS,
         "trainRows": len(fit_df) + len(val_df),
         "testRows": len(test_df),
@@ -293,6 +321,7 @@ def run():
         set_fields = {}
         for i, (_, row) in enumerate(group.iterrows()):
             set_fields[f"runners.$[r{i}].modelWinProbability"] = float(row["modelWinProbability"])
+            set_fields[f"runners.$[r{i}].modelVersionId"] = model_version_id
             array_filters.append({f"r{i}.id": int(row["runnerId"])})
         ops.append(UpdateOne(
             {"_id": int(race_id)},

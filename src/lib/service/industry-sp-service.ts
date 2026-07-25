@@ -43,7 +43,8 @@ export class IndustrySpService {
     maxTrainerFormRunners = 100,
     runnerName: string | null = null,
     minModelWinProbability = 0,
-    onlyModelBeatsSp = false
+    onlyModelBeatsSp = false,
+    modelVersionId: string | null = null
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -76,7 +77,8 @@ export class IndustrySpService {
       maxTrainerFormRunners,
       runnerName,
       minModelWinProbability,
-      onlyModelBeatsSp
+      onlyModelBeatsSp,
+      modelVersionId
     );
   }
 

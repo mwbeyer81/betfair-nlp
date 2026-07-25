@@ -17,9 +17,10 @@ import {
   ActivityIndicator,
   Icon,
 } from "react-native-paper";
-import { chatApi, IspFilterBounds, PnlStats, RaceConvergencePoint } from "../services/chatApi";
+import { chatApi, IspFilterBounds, PnlStats, RaceConvergencePoint, IspRace, ModelVersion } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
+import { ModelPerformanceDashboard } from "./ModelPerformanceDashboard";
 import { DateRangePicker } from "./DateRangePicker";
 import { PageContainer } from "./PageContainer";
 import { buildSplitsCacheKey, readSplitsCache, writeSplitsCache, CachedSplitsResult } from "../utils/ispSplitsCache";
@@ -357,6 +358,17 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [convergencePoints, setConvergencePoints] = useState<RaceConvergencePoint[]>([]);
   const [convergenceLoading, setConvergenceLoading] = useState(false);
   const [convergenceError, setConvergenceError] = useState<string | null>(null);
+
+  // "Model Performance" button — opens a dashboard of every model-training
+  // run (params + metrics), with P&L for the currently-selected version
+  // shown with/without the model, filterable the same way the rest of this
+  // screen is. See loadModelPerformance.
+  const [showModelPerformancePanel, setShowModelPerformancePanel] = useState(false);
+  const [modelVersions, setModelVersions] = useState<ModelVersion[]>([]);
+  const [selectedModelVersionId, setSelectedModelVersionId] = useState<string>("");
+  const [modelPerformanceRaces, setModelPerformanceRaces] = useState<IspRace[]>([]);
+  const [modelPerformanceLoading, setModelPerformanceLoading] = useState(false);
+  const [modelPerformanceError, setModelPerformanceError] = useState<string | null>(null);
 
   // Two independent race-row splits, so a filter combination can be tested
   // on one slice of the historical data and checked for profit on another.
@@ -1124,6 +1136,54 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     }
   }
 
+  // Fetches every runner scored by one model version — a big, unpaginated
+  // pull (matches how ModelPerformanceDashboard's Storybook mock data
+  // shape works: the whole pool, filtered/sorted client-side) rather than
+  // this screen's own paginated row-range browsing.
+  async function loadRacesForModelVersion(modelVersionId: string) {
+    setModelPerformanceError(null);
+    setModelPerformanceLoading(true);
+    try {
+      const result = await chatApi.getIndustrySp(
+        1, 10000, 1, 30, [], 1, 1000, "asc", 1, 10000, 1, undefined,
+        undefined, undefined, [], [], [], [], undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        modelVersionId
+      );
+      setModelPerformanceRaces(result.data);
+    } catch (err) {
+      setModelPerformanceError(err instanceof Error ? err.message : "Failed to load model performance.");
+    } finally {
+      setModelPerformanceLoading(false);
+    }
+  }
+
+  async function loadModelPerformance() {
+    setShowModelPerformancePanel(true);
+    setModelPerformanceError(null);
+    setModelPerformanceLoading(true);
+    try {
+      const versionsResult = await chatApi.getModelVersions();
+      setModelVersions(versionsResult.data);
+      const latest = versionsResult.data[0] ?? null;
+      if (latest) {
+        setSelectedModelVersionId(latest.id);
+        await loadRacesForModelVersion(latest.id);
+      } else {
+        setModelPerformanceRaces([]);
+        setModelPerformanceLoading(false);
+      }
+    } catch (err) {
+      setModelPerformanceError(err instanceof Error ? err.message : "Failed to load model performance.");
+      setModelPerformanceLoading(false);
+    }
+  }
+
+  function onSelectModelVersion(id: string) {
+    setSelectedModelVersionId(id);
+    loadRacesForModelVersion(id);
+  }
+
   function renderSplitCard(opts: {
     id: "a" | "b";
     label: string;
@@ -1237,6 +1297,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           labelStyle={styles.headerToggleButtonLabel}
         >
           {filtersVisible ? "Hide filters ▾" : "Show filters ▸"}
+        </Button>
+        <Button
+          testID="industry-sp-model-performance-button"
+          mode="outlined"
+          compact
+          onPress={loadModelPerformance}
+          style={styles.headerToggleButton}
+          labelStyle={styles.headerToggleButtonLabel}
+        >
+          Model Performance
         </Button>
         {isAuthenticated ? (
           <>
@@ -1703,6 +1773,17 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           loading={convergenceLoading}
           error={convergenceError}
           onClose={() => setShowConvergencePanel(false)}
+        />
+      )}
+      {showModelPerformancePanel && (
+        <ModelPerformanceDashboard
+          modelVersions={modelVersions}
+          selectedModelVersionId={selectedModelVersionId}
+          onSelectModelVersion={onSelectModelVersion}
+          races={modelPerformanceRaces}
+          loading={modelPerformanceLoading}
+          error={modelPerformanceError}
+          onClose={() => setShowModelPerformancePanel(false)}
         />
       )}
     </SafeAreaView>
