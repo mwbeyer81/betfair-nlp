@@ -1267,3 +1267,56 @@ correctly against the real 109,726-race production dataset.
 **Done — committed (`fd3f394`), merged to `develop`, pushed, deployed.
 Worktree removed, branch deleted (local + remote) — nothing left in
 progress.**
+
+---
+
+## 2026-07-25 (later again) — Agent in `~/betfair-nlp-comment-nlp-features` (branch `comment-nlp-features`), merging develop in
+
+**Task:** Bring `comment-nlp-features` (still just its one `92e38b1` commit,
+branched from `develop` at `de48df3`) up to date with `origin/develop`,
+which had moved 10 commits ahead in the meantime (the model-performance
+table/tooltip work, the ISP date-filter span increase, the split-ab-race
+revert, and their docs updates — see the entries above). Not yet merged to
+`develop` or pushed anywhere.
+
+**Conflict check done before merging:** diffed the file lists of both
+sides first (`git diff --name-only comment-nlp-features...origin/develop`)
+— zero overlap with anything this branch touches
+(`ml/train_and_predict.py`, `import-industry-sp.ts`,
+`precompute-horse-form.ts`, `precompute-jockey-form.ts`,
+`comment-lexicon.ts`, `package.json`). The one shared filename,
+`AGENTS.md`, was only ever touched on the `develop` side — this branch's
+own commit never modified it (the disclosure entry above was originally
+written directly in the *primary* checkout, uncommitted, and evidently
+landed on `develop` through a different path since it's already present at
+the top of this merge, word for word). **Result: `git merge origin/develop`
+applied cleanly with zero conflicts** — no conflict markers, nothing to
+resolve by hand.
+
+**Post-merge verification:** `tsc --noEmit` clean; `comment-lexicon.test.ts`
++ `parse-isp.test.ts` 26/26 pass; `ml/test_features.py` 11/11 pass. Ran the
+full backend `yarn jest src/` (327 tests) and got 58 failures across 8
+suites — looked alarming, so before assuming the merge broke something,
+checked out `origin/develop` alone in a throwaway detached worktree
+(`/tmp/develop-baseline-check`, removed after) and ran the identical suite
+there: **57 failures across the same 8 suites**, byte-for-byte the same
+suite names (`market-definition-dao.integration.test.ts`,
+`price-update-dao.integration.test.ts`, `betfair-service.test.ts`,
+`mongo-script-executor.test.ts`, `natural-language-service.test.ts`,
+`openai-client.test.ts`, `simple.test.ts`,
+`runner-price-updates.test.ts`). The only diff between the two runs'
+pass/fail suite lists is this branch's own new
+`comment-lexicon.test.ts` (11/11 passing). **Confirmed: all 8 failing
+suites are pre-existing on `develop` itself, unrelated to this branch** —
+e.g. `price-update-dao.integration.test.ts` fails to even compile
+(`Property 'getUniqueRunnersByEventId' does not exist on type
+'MarketDefinitionDAO'`), a pre-existing type/API mismatch nothing to do
+with comment-NLP or the trainer/jockey/horse-form work this branch
+bundles. Worth someone picking up separately, but explicitly out of scope
+here.
+
+**Not yet done:** pushing this branch, opening a PR, or merging into
+`develop` for real — this was specifically "catch the branch up and
+document how" per the user's ask, not a request to land it. The full-scale
+eval re-run and the prod/shared-Atlas reseed noted as outstanding in the
+entry above are still outstanding.
