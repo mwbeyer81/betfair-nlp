@@ -673,3 +673,36 @@ stale processes on port 6006 from already-deleted worktrees).
 **Done — committed (`4d95415`), merged to `develop`, pushed, deployed.
 Worktree removed, branch deleted (local + remote) — nothing left in
 progress.**
+
+---
+
+## 2026-07-25 (yet still later) — Agent in `~/betfair-nlp-graph-jump` (branch `feat/graph-jump-to-runner`)
+
+**Task:** User requested a "jump to runner" input on the P&L convergence
+chart (`RunnerConvergencePanel.tsx`) — dragging a finger to land on one
+exact runner is imprecise, especially for a wide range on a small
+screen.
+
+**Implementation:** a number input + "Go" button above the chart. On
+submit (button tap or Enter via `onSubmitEditing`), scans `points` for
+whichever `runnerOrdinal` is closest to the typed target and calls the
+exact same `setSelectedIndex` a tap/drag already does — the marker,
+guide line, and tooltip are entirely unchanged, this is purely an
+alternate way to *choose* the index. A target outside the split's own
+range snaps to whichever end is closer, same as a tap already does at
+the chart's edges. Touched only `RunnerConvergencePanel.tsx` and its
+`.stories.tsx` — no backend, no `IndustrySpScreen.tsx` changes (it
+doesn't need any; the panel already receives `points` as a prop).
+
+**Verified:** `yarn build` clean. Storybook
+`RunnerConvergencePanel.stories.tsx`: 14/14 pass (10 previous + 4 new —
+snaps to exact runner, Enter-key submit, out-of-range clamps to nearest
+end, Go button disabled when input empty). `IndustrySpScreen.stories.tsx`:
+54/56 — same 2 pre-existing course-chip failures as every prior entry.
+MSW Playwright `industry-sp.spec.ts` full suite: 82/82 pass (unaffected
+— this panel isn't reached by that suite's own assertions, ran it anyway
+to confirm nothing broke).
+
+**Done — committed (`aa3f85d`), merged to `develop`, pushed, deployed.
+Worktree removed, branch deleted (local + remote) — nothing left in
+progress.**
