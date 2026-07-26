@@ -2208,3 +2208,52 @@ deployed** (`apps/lambda/build.sh` — confirmed live via `aws lambda
 get-function`, fresh `LastModified`/`Successful`; no frontend changes, no
 web deploy needed). Worktree removed, branch deleted (local + remote) —
 nothing left in progress.
+
+## 2026-07-26 (later still) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Task:** Two quick follow-ups on the burger-menu work above, both from
+live screenshots: (1) the dropdown's buttons were stretching edge-to-edge
+full width instead of reading as a compact anchored menu, (2) "burger view
+should be there for all views on appropriate viewports" — extend the
+pattern beyond `IndustrySpScreen` to every screen with more than one
+header action button.
+
+**Fix 1 — full-width dropdown:** `navMenu`'s `alignItems: "stretch"` was
+forcing every button to fill the container's width. Changed to
+`alignItems: "flex-end"` (buttons size to their own content) plus
+`alignSelf: "flex-end"` and a `maxWidth: 260` on the container itself, so
+it anchors under the burger icon instead of spanning the full device
+width.
+
+**Fix 2 — extended to all multi-button screens:** audited every screen's
+`Appbar.Header` — six (`IspRacesScreen`, `IndustryMeetingScreen`,
+`IndustryRaceScreen`, `RunnerDetailScreen`, `RunnerHistoryScreen`,
+`TrainerDetailScreen`) have only a single "← Back" button each, which
+doesn't need collapsing (and hiding a screen's only nav action behind an
+extra tap would be worse, not better) — left untouched. The other three
+(`ChatScreen`, `EventsScreen`, `AllRunnersScreen`) got the same burger
+treatment as `IndustrySpScreen`, via two new shared pieces so the logic
+isn't copy-pasted four times: `client/src/utils/useHeaderMenu.ts`
+(`{isTablet, open, setOpen, wrap}`) and
+`client/src/components/HeaderActionsContainer.tsx` (renders the tablet+
+inline row or the phone dropdown, never both). Each screen still owns its
+own Appbar.Action burger button and its own buttons/testIDs — only the
+container/state is shared.
+
+**Verified:** `yarn build` clean; `tests-msw/responsive.spec.ts` (68/68,
+including new /events and /chat narrow-viewport coverage and updated
+/runners 375px tests that now open the burger first);
+`tests-msw/events.spec.ts` (6/6), `tests-msw/navigation.spec.ts` (13/13)
+unaffected at default desktop viewport. Storybook interaction suites for
+`ChatScreen`/`EventsScreen`/`AllRunnersScreen` showed 3 pre-existing
+failures unrelated to this change — confirmed by stashing the change and
+re-running against the unmodified baseline (identical 3 failures either
+way). Merged `origin/develop` (picked up an unrelated OpenAI
+tool-calling fix, no conflicts), pushed (`2513418..d8e09b1`), deployed
+web — confirmed live at `build-commit=d8e09b1`. Drove a real Playwright
+browser against `https://app.backbet.co.uk` at 375px for both `/isp` and
+`/events` and screenshotted the open dropdowns: compact, right-anchored,
+no longer full-width. No backend/Lambda changes, so no Lambda deploy
+needed.
+
+**Done.**
