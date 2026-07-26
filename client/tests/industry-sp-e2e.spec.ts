@@ -367,6 +367,31 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     expect(matchB![1]).toBe(String(Number(matchA![2]) + 1));
   });
 
+  test("race-convergence succeeds for a wide row range spanning the authenticated race cap (regression: 500 on Split B's Graph after the cap was raised)", async ({ request }) => {
+    // Regression: reported live via screenshot — after the authenticated
+    // race cap was raised from 1000 to 10000 (so Split B could span its
+    // whole ~9,839-race qualifying set), clicking Split B's Graph button
+    // 500'd with "Failed to fetch race convergence series". Root cause:
+    // getRaceConvergenceSeries sorted full race documents (each carrying an
+    // embedded runners array) directly, and Atlas M0 silently ignores
+    // allowDiskUse — confirmed live to succeed up to ~3000 rows and fail
+    // from ~5000 up. Fixed by projecting down to {_id, raceTime} before the
+    // sort/skip/limit and only reattaching each race's full document (via
+    // $lookup) for the already-narrowed result. This exercises the same
+    // filter combination and date range reported live, at the full width a
+    // Split B graph request can now legitimately ask for.
+    const token = await getBearerToken(request);
+    const res = await request.get(
+      `${API_URL}/api/industry-sp/race-convergence?minRunners=1&maxRunners=20&minInIspRange=1&maxInIspRange=30` +
+        `&onlyModelBeatsSp=true&minDate=2024-01-01&maxDate=2025-01-01&fromRow=1&toRow=9839`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(Array.isArray(body.data)).toBe(true);
+  });
+
   test("both Race A and Race B splits render their own card and View Races button, defaulting to the first/second half of the matching races", async ({ page }) => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
