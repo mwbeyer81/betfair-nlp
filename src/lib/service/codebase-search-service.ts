@@ -134,9 +134,14 @@ export class CodebaseSearchService {
     }
 
     console.warn(`CodebaseSearchService: hit the ${MAX_ITERATIONS}-iteration tool-call cap for query: "${query}"`);
+    // tool_choice is only a valid param when tools is also present, even
+    // when forcing "none" — omitting tools here caused a live 400
+    // ("Invalid value for 'tool_choice': ... only allowed when 'tools' are
+    // specified") the first time a real conversation actually hit this cap.
     const finalResponse = await this.client.chat.completions.create({
       model: "gpt-4o-mini",
       messages,
+      tools: TOOLS,
       tool_choice: "none",
       temperature: 0.2,
     });
