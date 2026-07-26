@@ -92,16 +92,18 @@ tiebreaker.
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-convergence-filters` | `feat/convergence-filters-summary` | Convergence panel filter summary | in progress, not merged — uncommitted changes touching `IndustrySpScreen.tsx` and `PnlConvergencePanel.tsx` as of 2026-07-26 (found via `git worktree list`, not previously listed here — table was stale) |
-| `~/betfair-nlp-local-ci-e2e` | `local-ci-e2e-tests` | New self-contained local CI-style E2E suite (throwaway mongod+backend+frontend, CSV+user seeding, full teardown) | merging to `develop` and being removed this session — see dated entry below |
 | `~/betfair-nlp-model-perf-filters` | `model-perf-filters` | Model Performance dashboard doesn't actually query the server with the user's filters (Class/Type/date range) — it re-filters a fixed, hardcoded 500-race batch (`MODEL_PERFORMANCE_RACE_LIMIT`, earliest-scored races only, see the `model-perf-e2e` entry above) client-side, so it can never reach real 2024+ test-period data no matter what filters are applied. Fixing `loadRacesForModelVersion()`/`ModelPerformanceDashboard.tsx` in `IndustrySpScreen.tsx` to send real filter params server-side. **Touching `IndustrySpScreen.tsx`** — watch for conflicts with `convergence-filters` and `rename-labels` above. | in progress |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
-`split-ab-race-revert`, `header-overlap-fix`, and `codebase-search-chat`
-were merged, clean, and have been removed (`git worktree remove` +
-`git branch -d`, local and remote where applicable) as of 2026-07-25/26 —
+`split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`, and
+`local-ci-e2e-tests` were merged, clean, and have been removed (`git
+worktree remove` + `git branch -d`, local and remote where applicable) as
+of 2026-07-25/26 —
 this is what "clean up after merge" in the section above looks like in
 practice. `codebase-search-chat` was merged, pushed, and deployed (both
-Lambda and web).
+Lambda and web). `local-ci-e2e-tests` was docs/test-infra only (no
+`src/`/`client/src/` changes), so no deploy was needed — merged to
+`develop` and pushed straight through.
 
 Older entries (2026-07-17 through the `auth-hardening` session) have been
 moved to `AGENTS-archive-2026-07.md` to keep this file readable — see there
