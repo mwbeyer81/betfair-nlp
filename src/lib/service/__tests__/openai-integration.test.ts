@@ -1,51 +1,52 @@
-import { OpenAIClient } from "../openai-client";
+import { CodebaseSearchService } from "../codebase-search-service";
 
-// This is a real integration test that will call the actual OpenAI API
-// Only run this test when you want to verify the API key works
-describe("OpenAI Integration Test", () => {
-  let openaiClient: OpenAIClient;
+// This is a real integration test that calls the actual OpenAI API and reads
+// the actual codebase snapshot (run `yarn build:snapshot` first if it
+// doesn't exist yet). Only run this when you want to verify the API key
+// works and that tool-calling is actually grounding answers in real code,
+// not just producing plausible-sounding prose.
+describe("CodebaseSearchService Integration Test", () => {
+  let service: CodebaseSearchService;
 
   beforeAll(() => {
-    openaiClient = new OpenAIClient();
+    service = new CodebaseSearchService();
   });
 
-  it("should successfully call OpenAI API with the provided key", async () => {
-    const input = "write a haiku about ai";
+  it("answers a general 'about the app' question conversationally", async () => {
+    const reply = await service.chat("What does this app do?", []);
 
-    try {
-      const result = await openaiClient.createResponse(input);
+    expect(typeof reply).toBe("string");
+    expect(reply.length).toBeGreaterThan(0);
+    console.log("Reply:", reply);
+  }, 60000);
 
-      expect(result).toBeDefined();
-      expect(typeof result).toBe("string");
-      expect(result.length).toBeGreaterThan(0);
+  it("answers a natural follow-up using conversation history, without re-explaining from scratch", async () => {
+    const reply = await service.chat("How does it work?", [
+      { role: "user", text: "What does this app do?" },
+      {
+        role: "assistant",
+        text: "This app tracks horse races and estimates each horse's chance of winning using a machine-learning model.",
+      },
+    ]);
 
-      console.log("OpenAI API Response:", result);
-    } catch (error) {
-      console.error("OpenAI API Error:", error);
-      throw error;
-    }
-  }, 30000); // 30 second timeout for API call
+    expect(typeof reply).toBe("string");
+    expect(reply.length).toBeGreaterThan(0);
+    console.log("Follow-up reply:", reply);
+  }, 60000);
 
-  it("should create horse racing specific response", async () => {
-    const query = "Show me the top horses in the race";
+  it("grounds its answer in the real source — proves it actually read the file, not guessed", async () => {
+    const reply = await service.chat("How is a trainer's recent form calculated?", []);
 
-    try {
-      const result = await openaiClient.createHorseQueryResponse(query);
+    console.log("Grounded reply:", reply);
+    // precompute-trainer-form.ts's real FORM_WINDOW_DAYS is 14 — a generic
+    // guess wouldn't reliably land on this exact, specific number.
+    expect(reply).toMatch(/14/);
+  }, 60000);
 
-      expect(result).toBeDefined();
-      expect(typeof result).toBe("object");
-      expect(result.responseType).toBe("data");
-      expect(result.mongoScript).toBeDefined();
-      expect(result.naturalLanguageInterpretation).toBeDefined();
-      expect(typeof result.mongoScript).toBe("string");
-      expect(typeof result.naturalLanguageInterpretation).toBe("string");
-      expect(result.mongoScript!.length).toBeGreaterThan(0);
-      expect(result.naturalLanguageInterpretation!.length).toBeGreaterThan(0);
+  it("never generates or mentions a MongoDB script — the old query-generation path is gone", async () => {
+    const reply = await service.chat("Show me the top horses in the race", []);
 
-      console.log("Horse Racing AI Response:", result);
-    } catch (error) {
-      console.error("OpenAI API Error:", error);
-      throw error;
-    }
-  }, 30000); // 30 second timeout for API call
+    expect(reply.toLowerCase()).not.toContain("db.market_definitions");
+    expect(reply.toLowerCase()).not.toContain("mongoscript");
+  }, 60000);
 });

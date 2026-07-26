@@ -2,7 +2,7 @@ import request from "supertest";
 import bcrypt from "bcryptjs";
 import { ObjectId } from "mongodb";
 import app from "../app";
-import { MongoScriptExecutor } from "../../lib/service/mongo-script-executor";
+import { CodebaseSearchService } from "../../lib/service/codebase-search-service";
 
 let authToken: string;
 
@@ -49,27 +49,20 @@ beforeAll(async () => {
   authToken = res.body.token;
 });
 
-// Mock the OpenAI client to avoid real API calls in tests. Branches on the
-// query text so both the data-query path and the "about the app" path can
-// be exercised via the real /api/query -> NaturalLanguageService pipeline.
-const ABOUT_THE_APP_QUERY = "How is the win-probability model trained?";
-const ABOUT_THE_APP_EXPLANATION =
-  "The model is trained on historical races using a technique called gradient-boosted trees...";
-jest.mock("../../lib/service/openai-client", () => ({
-  OpenAIClient: jest.fn().mockImplementation(() => ({
-    createResponse: jest.fn().mockResolvedValue("Mocked AI analysis"),
-    createHorseQueryResponse: jest.fn().mockImplementation(async (query: string) => {
-      if (query === ABOUT_THE_APP_QUERY) {
-        return { responseType: "about", explanation: ABOUT_THE_APP_EXPLANATION };
-      }
-      return {
-        responseType: "data",
-        mongoScript: 'db.market_definitions.find({"name": "Cheltenham Chase"})',
-        naturalLanguageInterpretation: "Finds the market named Cheltenham Chase.",
-      };
-    }),
-  })),
-}));
+// Mock the chat service to avoid real OpenAI API calls in tests. Auto-mocked
+// (no factory) rather than a factory referencing an outer `const` — jest.mock
+// factories are hoisted above all other top-level code, so a factory that
+// closes over a same-file `const` throws "Cannot access before
+// initialization" the moment the mocked module is first required (which
+// happens as soon as `import app from "../app"` above pulls in
+// router.ts -> codebase-search-service, before this file's own consts run).
+jest.mock("../../lib/service/codebase-search-service");
+const MOCKED_CHAT_REPLY = "Mocked chat reply";
+// initializeServices() constructs exactly one CodebaseSearchService when
+// `../app` (imported above) first loads — grab that same instance's
+// auto-mocked `chat` method to configure/assert on.
+const mockChat = (CodebaseSearchService as jest.MockedClass<typeof CodebaseSearchService>).mock
+  .instances[0].chat as jest.MockedFunction<CodebaseSearchService["chat"]>;
 
 // Mock Google's ID token verification — config/test.json sets a non-empty
 // google.clientId so GoogleAuthService actually constructs an OAuth2Client
@@ -654,42 +647,63 @@ describe("API Endpoints", () => {
   });
 
   describe("POST /api/query", () => {
-    it("should process natural language query and return a successful response", async () => {
-      const query = "Show me the top horses in the race";
-
-      const response = await request(app)
-        .post("/api/query")
-        .set("Authorization", `Bearer ${authToken}`)
-        .send({ query })
-        .expect(200);
-
-      expect(response.body).toHaveProperty("success", true);
-      expect(response.body).toHaveProperty("data");
+    beforeEach(() => {
+      mockChat.mockClear();
+      mockChat.mockResolvedValue(MOCKED_CHAT_REPLY);
     });
 
-    it("answers an 'about the app' question with a plain-English explanation instead of a MongoDB script", async () => {
-      const executeScriptSpy = jest.spyOn(
-        MongoScriptExecutor.prototype,
-        "executeScript"
-      );
-
+    it("returns a successful reply for a chat query", async () => {
       const response = await request(app)
         .post("/api/query")
         .set("Authorization", `Bearer ${authToken}`)
-        .send({ query: ABOUT_THE_APP_QUERY })
+        .send({ query: "What does this app do?" })
         .expect(200);
 
-      expect(response.body).toHaveProperty("success", true);
-      expect(response.body.data.mongoScript).toBeUndefined();
-      expect(response.body.data.naturalLanguageInterpretation).toBe(
-        ABOUT_THE_APP_EXPLANATION
-      );
-      expect(response.body.data.formattedResults).toBe(ABOUT_THE_APP_EXPLANATION);
-      expect(response.body.data.noResultsFound).toBe(false);
-      // The whole point of the "about" path: it never touches the database.
-      expect(executeScriptSpy).not.toHaveBeenCalled();
+      expect(response.body).toEqual({ success: true, reply: MOCKED_CHAT_REPLY });
+      expect(mockChat).toHaveBeenCalledWith("What does this app do?", []);
+    });
 
-      executeScriptSpy.mockRestore();
+    it("accepts and forwards a conversation history array", async () => {
+      const history = [
+        { role: "user", text: "What does this app do?" },
+        { role: "assistant", text: "It tracks horse races." },
+      ];
+
+      await request(app)
+        .post("/api/query")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ query: "How does it work?", history })
+        .expect(200);
+
+      expect(mockChat).toHaveBeenCalledWith("How does it work?", history);
+    });
+
+    it("truncates an oversized history array server-side before passing it on", async () => {
+      const oversizedHistory = Array.from({ length: 30 }, (_, i) => ({
+        role: i % 2 === 0 ? "user" : "assistant",
+        text: `turn ${i}`,
+      }));
+
+      await request(app)
+        .post("/api/query")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ query: "follow-up", history: oversizedHistory })
+        .expect(200);
+
+      const forwardedHistory = mockChat.mock.calls[0][1];
+      expect(forwardedHistory).toHaveLength(20);
+      expect(forwardedHistory).toEqual(oversizedHistory.slice(-20));
+    });
+
+    it("returns 400 when history isn't a well-formed array of turns", async () => {
+      const response = await request(app)
+        .post("/api/query")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ query: "hi", history: [{ role: "system", text: "bad role" }] })
+        .expect(400);
+
+      expect(response.body).toHaveProperty("error");
+      expect(mockChat).not.toHaveBeenCalled();
     });
 
     it("should return 400 when query is missing", async () => {

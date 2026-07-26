@@ -1,7 +1,7 @@
 import express from "express";
 import jwt from "jsonwebtoken";
 import config from "config";
-import { NaturalLanguageService } from "../lib/service/natural-language-service";
+import { CodebaseSearchService, ChatHistoryTurn } from "../lib/service/codebase-search-service";
 import { BetfairService } from "../lib/service/betfair-service";
 import { IndustrySpService } from "../lib/service/industry-sp-service";
 import { TrainerFormService } from "../lib/service/trainer-form-service";
@@ -15,7 +15,7 @@ export { jwtAuth };
 const router = express.Router();
 
 let dbConnection: DatabaseConnection | null = null;
-let naturalLanguageService: NaturalLanguageService | null = null;
+let codebaseSearchService: CodebaseSearchService | null = null;
 let betfairService: BetfairService | null = null;
 let industrySpService: IndustrySpService | null = null;
 let trainerFormService: TrainerFormService | null = null;
@@ -23,6 +23,15 @@ let modelVersionService: ModelVersionService | null = null;
 let authService: AuthService | null = null;
 
 export const initializeServices = async () => {
+  // Independent of the DB connection below — the chat feature no longer
+  // touches MongoDB at all, so it's constructed unconditionally and can
+  // still work even if the database itself is unavailable.
+  try {
+    codebaseSearchService = new CodebaseSearchService();
+  } catch (searchError) {
+    console.error("CodebaseSearchService init failed (chat will be unavailable):", searchError);
+  }
+
   try {
     dbConnection = DatabaseConnection.getInstance();
     await dbConnection.connect();
@@ -54,16 +63,9 @@ export const initializeServices = async () => {
     } catch (indexError) {
       console.warn("auth createIndexes failed (non-fatal, unique email check may hit the DB):", indexError);
     }
-    try {
-      naturalLanguageService = new NaturalLanguageService(null as any, dbConnection.getDb());
-    } catch (nlsError) {
-      console.error("NaturalLanguageService init failed (continuing without it):", nlsError);
-      naturalLanguageService = new NaturalLanguageService();
-    }
     console.log("Services initialized successfully");
   } catch (error) {
     console.error("Failed to initialize services:", error);
-    naturalLanguageService = new NaturalLanguageService();
   }
 };
 
@@ -634,29 +636,40 @@ router.get("/health", (_req, res) => {
   });
 });
 
+// Server-side cap on conversation history, independent of whatever the
+// client already trims to — never trust the client's own cap alone.
+const MAX_HISTORY_TURNS = 20;
+
+function isValidHistory(value: unknown): value is ChatHistoryTurn[] {
+  if (!Array.isArray(value)) return false;
+  return value.every(
+    turn =>
+      turn &&
+      typeof turn === "object" &&
+      (turn.role === "user" || turn.role === "assistant") &&
+      typeof turn.text === "string"
+  );
+}
+
 router.post("/api/query", async (req, res) => {
   try {
-    const { query } = req.body || {};
+    const { query, history } = req.body || {};
     if (!query || typeof query !== "string") {
-      return res.status(400).json({ error: "Query is required and must be a string", example: { query: "Show me the top horses in the race" } });
+      return res.status(400).json({ error: "Query is required and must be a string", example: { query: "What does this app do?" } });
     }
-    if (!naturalLanguageService) {
-      return res.status(500).json({ error: "Service not initialized", message: "Natural language service is not available" });
+    if (history !== undefined && !isValidHistory(history)) {
+      return res.status(400).json({ error: "history must be an array of { role: \"user\"|\"assistant\", text: string }" });
     }
-    const result = await naturalLanguageService.processQuery(query);
-    res.status(200).json({ success: true, data: result });
+    if (!codebaseSearchService) {
+      return res.status(500).json({ error: "Service not initialized", message: "Chat service is not available" });
+    }
+    const cappedHistory: ChatHistoryTurn[] = (history ?? []).slice(-MAX_HISTORY_TURNS);
+    const reply = await codebaseSearchService.chat(query, cappedHistory);
+    res.status(200).json({ success: true, reply });
   } catch (error) {
-    console.error("Error processing query:", error);
-    let statusCode = 500;
-    let errorMessage = "Internal server error";
-    if (error instanceof Error) {
-      if (error.message.includes("Database connection not available")) { statusCode = 503; errorMessage = "Database service is currently unavailable"; }
-      else if (error.message.includes("No results found")) { statusCode = 404; errorMessage = error.message; }
-      else if (error.message.includes("Could not extract MongoDB query")) { statusCode = 422; errorMessage = "Could not generate a valid database query from your request"; }
-      else if (error.message.includes("Failed to get AI analysis")) { statusCode = 503; errorMessage = "AI service is currently unavailable"; }
-      else { errorMessage = error.message; }
-    }
-    res.status(statusCode).json({ success: false, error: errorMessage, message: "Failed to process natural language query" });
+    console.error("Error processing chat query:", error);
+    const errorMessage = error instanceof Error ? error.message : "Internal server error";
+    res.status(500).json({ success: false, error: errorMessage, message: "Failed to process chat query" });
   }
 });
 

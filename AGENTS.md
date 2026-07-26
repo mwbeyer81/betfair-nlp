@@ -93,7 +93,7 @@ tiebreaker.
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | merging to `develop` now — reconciling with `model-versioning-backend`'s stashed `train_and_predict.py` WIP below in the same pass, see dated entry below |
 | `~/betfair-nlp-model-versioning-backend` | `model-versioning-backend` | Backend for Model Performance Dashboard: model-version registry, runner tagging, live nav wiring | **merged to `develop` (`489b187`/`d182e99`), not yet deployed** — worktree kept around pending deploy, see dated entries below. The `stash@{0}` `ml/train_and_predict.py`/precompute-scripts WIP it left behind is being reconciled by `comment-nlp-features` (see dated entry below) — that stash can be dropped once confirmed superseded, don't reconcile it a second time |
-| `~/betfair-nlp-codebase-chat` | `feat/codebase-search-chat` | **Full replacement** of the chat feature — deletes the entire MongoDB-query-generation path (`openai-client.ts`, `natural-language-service.ts`, `mongo-script-executor.ts`, both prompt docs) and rebuilds it as an OpenAI tool-calling agent that reads real source files at runtime (a curated, allowlisted "codebase snapshot" bundled alongside `prompts/`), plus real multi-turn conversation memory. Supersedes the `feat/app-knowledge-chat` work merged/deployed earlier today — that work is being deleted, not extended. See dated entry below | in progress, not merged |
+| `~/betfair-nlp-codebase-chat` | `feat/codebase-search-chat` | **Full replacement** of the chat feature — deletes the entire MongoDB-query-generation path (`openai-client.ts`, `natural-language-service.ts`, `mongo-script-executor.ts`, both prompt docs) and rebuilds it as an OpenAI tool-calling agent that reads real source files at runtime (a curated, allowlisted "codebase snapshot" bundled alongside `prompts/`), plus real multi-turn conversation memory. Supersedes the `feat/app-knowledge-chat` work merged/deployed earlier today — that work is being deleted, not extended. See dated entry below | implementation + verification done, **not yet merged** — no live HTTP-level check with a real logged-in user (service layer + supertest both verified separately, see dated entry) |
 
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`, and
@@ -1876,3 +1876,69 @@ merge conflict three times in a row while merging/deploying, purely because
 each merge was a one-off reaction to a rejected push rather than a habit.
 
 Will append a completion entry below once shipped/verified.
+
+**Done — implemented and verified, not yet merged/pushed.** Chat's sole
+purpose is now explaining this app (DB structure, model training, feature
+engineering, general functionality) by actually reading real source files
+at runtime via OpenAI tool-calling — the MongoDB-query-generation path
+(and its whole `responseType: "data"|"about"` design) is gone entirely,
+matching the user's explicit direction.
+
+- `src/lib/service/codebase-file-access.ts` (new) — the security-critical
+  layer: `listDirectory`/`searchCode`/`readFile`, an explicit allowlist
+  (`src/lib/dao/`, `src/lib/service/`, one precompute script,
+  `ml/train_and_predict.py`, `README.md`), `realpathSync`-based traversal
+  protection (catches a symlink escape, not just lexical `../`), size/line
+  caps, denied-segment filtering (`__tests__`/`node_modules`/`.git` nested
+  under an otherwise-allowed directory).
+- `src/lib/service/codebase-search-service.ts` (new) — the tool-calling
+  loop (Chat Completions `tools`/`tool_choice`, `openai@5.16.0`), 8-round
+  iteration cap with a forced final `tool_choice:"none"` call, real
+  multi-turn conversation memory (client history threaded straight into
+  the messages array, never persisting mid-turn tool-call/tool-result
+  messages back into what the client stores).
+- `scripts/build-codebase-snapshot.sh` (new) — copies the allowlisted
+  files into a gitignored `src/lib/service/codebase-snapshot/`; both local
+  dev and the deployed Lambda read from this identical directory
+  (`apps/lambda/build.sh` now runs this script and zips its output
+  alongside `handler.js`/`config/`/`prompts/` — confirmed via a dry-run
+  packaging check, ~62KB zipped, no AWS calls made).
+- Deleted `openai-client.ts`, `natural-language-service.ts`,
+  `mongo-script-executor.ts`, both old prompt docs, and their test files
+  outright — confirmed via full-repo grep that nothing else referenced
+  any of them.
+- `tsconfig.json`/`jest.config.js` both needed a new exclude —
+  `codebase-snapshot/` (plain copied text, not meant to compile) and
+  `__tests__/fixtures/` (a new fixture tree for
+  `codebase-file-access.test.ts`'s traversal/allowlist tests, which Jest's
+  own `**/__tests__/**/*.ts` pattern was otherwise swallowing as bogus
+  empty test suites).
+
+**Verified:** `npx tsc --noEmit` and `cd client && yarn build` both clean.
+Full backend `npx jest`: 314 passed (up from 303 pre-merge — the
+`comment-nlp-features` merge below added its own 11), same 5 pre-existing
+failing suites confirmed identical against the unmodified primary
+checkout (unrelated: DAO integration tests needing a live mongod,
+`betfair-service.test.ts`/`simple.test.ts` pre-existing mock-shape
+mismatches, `runner-price-updates.test.ts`'s pre-existing basic-auth-vs-
+Bearer mismatch). New `codebase-file-access.test.ts` (32 tests) and
+`codebase-search-service.test.ts` (10 tests) both fully green.
+`openai-integration.test.ts` rewritten and run for real (an
+`OPENAI_API_KEY` was already present in this shell's environment,
+separate from the one pasted into chat earlier in the session — noted,
+not repeated) — all 4 cases passed, including one specifically proving
+grounding: asking "How is a trainer's recent form calculated?" got back
+an answer citing the real 14-day trailing window from
+`precompute-trainer-form.ts`, not a generic guess.
+
+**Not done — no live HTTP-level check with a real logged-in user.**
+Tried minting a self-signed JWT to test the actual `/api/query` route
+end-to-end (not just the service layer) without needing real production
+login credentials; the local dev config's `jwt.secret` resolved empty in
+this environment and chasing that down further wasn't worth it given the
+service layer is already proven live and `app.test.ts`'s supertest suite
+already covers the route's request/response contract (history
+validation/truncation, 400s) against a mocked service. `jwtAuth` itself
+is completely untouched by this work.
+
+Not yet merged, not deployed, worktree left in place for user review.

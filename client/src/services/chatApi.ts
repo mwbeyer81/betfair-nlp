@@ -260,6 +260,11 @@ interface ChatResponse {
   error?: string;
 }
 
+export interface ChatHistoryTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
 class ChatApi {
   private baseUrl = config.baseUrl;
   private token: string | null = null;
@@ -739,7 +744,7 @@ class ChatApi {
     return { data: result.data, total: result.total, totalPages: result.totalPages };
   }
 
-  async sendMessage(message: string): Promise<ChatResponse> {
+  async sendMessage(message: string, history: ChatHistoryTurn[] = []): Promise<ChatResponse> {
     try {
       const response = await fetch(`${this.baseUrl}/api/query`, {
         method: "POST",
@@ -747,12 +752,12 @@ class ChatApi {
           "Content-Type": "application/json",
           ...this.authHeader(),
         },
-        body: JSON.stringify({ query: message }),
+        body: JSON.stringify({ query: message, history }),
       });
 
       const result = await response.json();
 
-      if (!response.ok) {
+      if (!response.ok || !result.success) {
         return {
           reply: `Error: ${result.error || "Failed to process query"}`,
           success: false,
@@ -760,45 +765,10 @@ class ChatApi {
         };
       }
 
-      if (result.success && result.data) {
-        // Format the MongoDB results into a readable response
-        const data = result.data;
-        let reply = `Query: "${data.query}"\n\n`;
-
-        // Add natural language interpretation if available
-        if (data.naturalLanguageInterpretation) {
-          reply += `**How I interpreted your query:**\n${data.naturalLanguageInterpretation}\n\n`;
-        }
-
-        // Use AI-formatted results if available, otherwise fall back to raw results
-        if (data.formattedResults) {
-          reply += data.formattedResults;
-        } else if (data.mongoResults && data.mongoResults.length > 0) {
-          // Filter out null values from mongoResults
-          const validResults = data.mongoResults.filter((result: unknown) => result !== null);
-          
-          if (validResults.length > 0) {
-            reply += `Found ${validResults.length} result(s):\n\n`;
-            reply += JSON.stringify(validResults, null, 2);
-          }
-        } else if (data.noResultsMessage) {
-          // Use the backend's custom message instead of hardcoded text
-          reply += data.noResultsMessage;
-        } else {
-          reply += "No results found for your query.";
-        }
-
-        return {
-          reply,
-          success: true,
-          data: result.data,
-        };
-      } else {
-        return {
-          reply: "Received an unexpected response from the server.",
-          success: false,
-        };
-      }
+      return {
+        reply: result.reply,
+        success: true,
+      };
     } catch (error) {
       console.error("Error calling chat API:", error);
       console.error("Error details:", {

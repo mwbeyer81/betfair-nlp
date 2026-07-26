@@ -18,9 +18,12 @@ interface MessageData {
   text: string;
   isUser: boolean;
   timestamp: Date;
-  mongoScript?: string;
-  aiAnalysis?: any;
 }
+
+// Matches the server's own cap (src/server/router.ts's MAX_HISTORY_TURNS) —
+// capping client-side too keeps the request small, the server enforces its
+// own cap regardless so this is a courtesy, not the security boundary.
+const MAX_HISTORY_TURNS = 20;
 
 interface ChatScreenProps {
   onLogout?: () => void;
@@ -49,6 +52,13 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     setQueryHistory(prev => [...prev, messageText]);
     setHistoryIndex(-1);
 
+    // Built from messages as they stand BEFORE this turn — the new user
+    // message is sent separately as the query itself, not duplicated here.
+    const history = messages.slice(-MAX_HISTORY_TURNS).map(m => ({
+      role: m.isUser ? ("user" as const) : ("assistant" as const),
+      text: m.text,
+    }));
+
     const userMessage: MessageData = {
       id: Date.now().toString(),
       text: messageText,
@@ -59,20 +69,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     setIsLoading(true);
 
     try {
-      const response = await chatApi.sendMessage(messageText);
+      const response = await chatApi.sendMessage(messageText, history);
       const botMessage: MessageData = {
         id: (Date.now() + 1).toString(),
         text: response.reply,
         isUser: false,
         timestamp: new Date(),
-        mongoScript:
-          response.data?.mongoScript ||
-          (response.data?.aiAnalysis
-            ? JSON.parse(response.data.aiAnalysis).mongoScript
-            : undefined),
-        aiAnalysis: response.data?.aiAnalysis
-          ? JSON.parse(response.data.aiAnalysis)
-          : undefined,
       };
       setMessages(prev => [...prev, botMessage]);
     } catch {
@@ -126,13 +128,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           ref={flatListRef}
           data={messages}
           renderItem={({ item }) => (
-            <Message
-              text={item.text}
-              isUser={item.isUser}
-              timestamp={item.timestamp}
-              mongoScript={item.mongoScript}
-              aiAnalysis={item.aiAnalysis}
-            />
+            <Message text={item.text} isUser={item.isUser} timestamp={item.timestamp} />
           )}
           keyExtractor={item => item.id}
           style={styles.messagesList}

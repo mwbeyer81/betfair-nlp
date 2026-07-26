@@ -36,14 +36,34 @@ The server will start on `http://localhost:3000`
 GET /health
 ```
 
-#### Natural Language Query
+#### Chat — ask the assistant about the app
 ```bash
 POST /api/query
 Content-Type: application/json
 
 {
-  "query": "Show me the top horses in the race"
+  "query": "How is the win-probability model trained?",
+  "history": [
+    { "role": "user", "text": "What does this app do?" },
+    { "role": "assistant", "text": "It tracks horse races and predicts winners..." }
+  ]
 }
+```
+
+The assistant answers questions about this app itself (its database
+structure, how the win-probability model is trained, how features are
+engineered, general functionality) by reading real source files at
+runtime via read-only tools, not from a hand-written summary — see
+`src/lib/service/codebase-search-service.ts` and
+`src/lib/service/codebase-file-access.ts`. `history` is optional recent
+conversation turns for context; the response is `{ "success": true,
+"reply": "..." }`.
+
+Before running the server locally for the first time (or after editing
+any file under the assistant's allowlist — see `codebase-file-access.ts`'s
+`ALLOWED_PATHS`), build the snapshot it reads from:
+```bash
+yarn build:snapshot
 ```
 
 #### Get Top Horses

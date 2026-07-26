@@ -1,6 +1,7 @@
 node_modules
 dist
 BASIC
+src/lib/service/codebase-snapshot
 
 # macOS system files
 .DS_Store

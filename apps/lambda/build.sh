@@ -20,9 +20,14 @@ echo "Copying prompt files..."
 mkdir -p dist/prompts
 cp "$REPO_ROOT/src/lib/service/prompts/"* dist/prompts/
 
+echo "Building and copying codebase snapshot..."
+bash "$REPO_ROOT/scripts/build-codebase-snapshot.sh"
+mkdir -p dist/codebase-snapshot
+cp -r "$REPO_ROOT/src/lib/service/codebase-snapshot/"* dist/codebase-snapshot/
+
 echo "Zipping..."
 cd dist
-zip -qr ../function.zip handler.js config/ prompts/
+zip -qr ../function.zip handler.js config/ prompts/ codebase-snapshot/
 cd ..
 
 echo "Deploying code..."
