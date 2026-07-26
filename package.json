@@ -51,7 +51,8 @@
     "mongo:check": "node scripts/mongo-exec.js --check",
     "mongo:start": "node scripts/mongo-exec.js --start",
     "mongo:test": "ts-node scripts/test-mongo-exec.ts",
-    "config:show": "node scripts/show-config.js"
+    "config:show": "node scripts/show-config.js",
+    "test:e2e:local-ci": "bash scripts/local-ci-e2e.sh"
   },
   "keywords": [
     "betfair",

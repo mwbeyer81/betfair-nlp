@@ -69,3 +69,6 @@ ml/__pycache__/
 ml/models/
 **/__pycache__/
 *.pyc
+
+# Throwaway mongod/backend/frontend scratch dir for scripts/local-ci-e2e.sh
+.local-ci/

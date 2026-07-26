@@ -91,6 +91,7 @@ tiebreaker.
 | `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; **`develop` just moved significantly (`fd3f394`) — Split A/B's runner-index machinery (`splitByRunners`, `fromRunnerA/toRunnerA/...`) was entirely removed and `IndustrySpScreen.tsx` heavily rewritten, see the dated entry below** — expect this branch's divergence to be much worse now, plan for a careful manual reconciliation, not a plain rebase |
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
+| `~/betfair-nlp-local-ci-e2e` | `local-ci-e2e-tests` | New self-contained local CI-style E2E suite (throwaway mongod+backend+frontend, CSV+user seeding, full teardown) | in progress, not merged |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, and `codebase-search-chat`
@@ -2445,3 +2446,99 @@ needed.
 
 **Done.** Worktree left in place pending removal (see table above); no
 uncommitted state, nothing else in progress.
+
+---
+
+## 2026-07-26 (later still) — Agent in `~/betfair-nlp-local-ci-e2e` (branch `local-ci-e2e-tests`)
+
+**Task:** Build a self-contained, "CI-style" Playwright E2E suite that runs
+the real frontend + real backend against a throwaway local Mongo — no
+mocking — with everything torn up and down around the run, a tiny CSV
+seed, and a hardcoded test user. Every existing E2E tier either mocks
+everything (`tests-msw/`), hits real prod (`tests-live/`,
+`tests-production/`), or assumes a developer already started the local
+backend/Mongo by hand (`tests/`) — none can run unattended from nothing,
+so this is new orchestration, not a tweak of an existing config.
+
+**What was built:** `scripts/local-ci-e2e.sh` (bash, `trap EXIT INT TERM`
+for guaranteed teardown regardless of pass/fail/Ctrl-C) starts a second,
+disposable `mongod` on port `27020` (dbpath `.local-ci/mongo-data`, db
+`betfair_nlp_ci_test` — never the shared dev instance at `27019`), seeds a
+single day (2026-06-03) of `data/kaggle-horse-racing-uk-ireland/extracted/
+mini-update.csv` via the existing `import:industry-sp` command
+(`FROM_DATE`/`TO_DATE`/`SOURCE_CSV` env vars, no code changes) — yields 24
+GB races across Newton Abbot/Nottingham/Ripon/Warwick after the importer's
+own non-UK filter — and a new `scripts/seed-local-ci-user.ts` inserts the
+same hardcoded identity used throughout `client/tests*/`
+(`matthew@backbet.co.uk`/`beyer`, bcrypt-hashed, `emailVerified: true`)
+directly into the `users` collection. Starts the backend on port `3050`
+(`NODE_CONFIG='{"server":{"port":3050}}'` — confirmed a real override
+mechanism of the `config` package, no code change), rebuilds the frontend
+once with `EXPO_PUBLIC_API_URL=http://localhost:3050` into a separate
+`client/dist-local-ci/` (kept apart from the shared `client/dist/` so
+concurrent worktrees don't clobber each other), serves it on port `8090`,
+runs `client/playwright.local-ci.config.ts` against three new specs in
+`client/tests-local-ci/` (auth, API-level data-seed verification, and a
+real-browser UI test drilling into the seeded Nottingham race), then tears
+down in reverse order. One command: `yarn test:e2e:local-ci`. All ports
+(27020/3050/8090) are deliberately distinct from real dev (27019/3000/8081)
+so this can run alongside a developer's normal session. Documented in
+`.claude/commands/local-ci-e2e-tests.md`.
+
+Every concrete data claim used in the specs (the exact seeded race/winner/
+jockey/trainer/ISP, which 4 courses survive the UK-only filter on that
+date, the real auth testIDs vs. some other existing docs/tests' stale
+Basic-auth/`auth-login-button` references) was verified directly against
+the raw CSV and the actual component/route source before being hardcoded
+into assertions, not assumed from the initial research pass.
+
+**Verified — live-ran the whole thing repeatedly, not just written:**
+- `yarn test:e2e:local-ci` from repo root: 7/7 pass, ~20s end-to-end, run
+  back-to-back twice with no state bleeding between runs.
+- Deliberately broke the seed step (wrong date window) — confirmed it
+  fails loudly (`ERROR: seed imported 0 races...`) and still tears down
+  cleanly, instead of silently proceeding against an empty DB.
+- Sent `SIGTERM` mid-run (during the mongod-connectivity wait) — trap
+  fired, full teardown ran, zero leftover processes or listening ports
+  (confirmed via `ps`/`ss`) afterward. (Real terminal Ctrl-C, i.e. `SIGINT`
+  to a foreground job, is standard shell behavior and works the same way —
+  the one artifact worth noting is that testing this non-interactively by
+  backgrounding the script myself hit POSIX's "async jobs from a
+  non-interactive shell ignore SIGINT" rule, unrelated to the script's own
+  `trap`.)
+- Confirmed the real dev Mongo (`27019`) is completely uninvolved — it
+  wasn't even running during this session, and nothing in the script
+  references anything but `27020`.
+
+**Bugs found and fixed while actually running this (not caught by writing/
+reading the code alone):**
+1. `data/` is gitignored and NOT copied into a fresh `git worktree` — had
+   to symlink `data -> /home/ubuntu/betfair-nlp/data`, matching the same
+   convention already used by `~/betfair-nlp-isp-form-fields`.
+2. `/health` is registered *after* the global `router.use(jwtAuth)` gate
+   (`router.ts:581/630`) — it 401s without a token, so it's not a valid
+   unauthenticated readiness probe. Switched the wait-loop to poll the
+   seeded user's actual `POST /api/auth/login` instead (a better signal
+   anyway — proves Mongo + the seeded user both actually work, not just
+   that Mongo is connected).
+3. Playwright's bundled Chromium doesn't run on this VM at all
+   (`Playwright does not support chromium on ubuntu26.04-x64`) — every
+   *other* local-flavored Playwright config in this repo already has a
+   `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` fallback for exactly this, but the
+   env var was never actually set anywhere; pointed it at the system
+   `/snap/bin/chromium` (with `--no-sandbox --disable-setuid-sandbox`,
+   same as `playwright.production.config.ts`).
+4. `npx serve` doesn't exec directly — it forks a multi-process chain
+   (`npm exec` → `sh -c` → the real `serve`), so a plain `kill $PID` on the
+   outermost PID left the actual server alive and still bound to the port.
+   `fuser -k -n tcp <port>` was the next attempt, but unprivileged
+   `fuser`/`ss -p` can't see another process's socket ownership in this
+   sandbox at all (same restriction category `AGENTS.md` already documents
+   for `lsof`) — it silently killed nothing. Landed on launching both the
+   backend and frontend via `setsid`, which makes that top-level PID double
+   as the whole tree's process group ID, then killing `-$PID` (the whole
+   group) on teardown — no port/process introspection needed at all.
+5. `cleanup()`'s own `exit` re-triggered the `EXIT` trap a second time;
+   fixed by `trap - EXIT INT TERM` as the first line inside `cleanup()`.
+
+Worktree left in place, not yet merged — see table above.
