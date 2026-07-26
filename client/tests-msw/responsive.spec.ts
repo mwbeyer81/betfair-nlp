@@ -199,6 +199,39 @@ test.describe("Responsive layout — /isp filters screen (MSW mocked, iPhone 12 
     const logoutBox = await logoutBtn.boundingBox();
     expect(logoutBox!.x + logoutBox!.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
   });
+
+  // Regression test: the "Model Performance" button used to live inside the
+  // fixed-height Appbar.Header alongside the title and every other action
+  // button, which had no wrap handling — on real narrow phones the button
+  // row overflowed and painted over the "BackBet" title (see
+  // industry-sp-header-actions in IndustrySpScreen.tsx, now a separate
+  // wrapping row below the Appbar rather than packed inside it).
+  test("all header action buttons are visible and fit within the viewport at 375px", async ({ page }) => {
+    const filtersBtn = page.getByTestId("industry-sp-filters-toggle");
+    const modelPerfBtn = page.getByTestId("industry-sp-model-performance-button");
+    const logoutBtn = page.getByTestId("industry-sp-logout-button");
+
+    for (const btn of [filtersBtn, modelPerfBtn, logoutBtn]) {
+      await expect(btn).toBeVisible();
+      const box = (await btn.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
+    }
+  });
+
+  test("header title does not overlap the header action buttons", async ({ page }) => {
+    const title = page.getByTestId("industry-sp-title");
+    const actionsRow = page.getByTestId("industry-sp-header-actions");
+    await expect(title).toBeVisible();
+    await expect(actionsRow).toBeVisible();
+
+    const titleBox = (await title.boundingBox())!;
+    const actionsBox = (await actionsRow.boundingBox())!;
+
+    // The actions row must start at or below the title's bottom edge — any
+    // overlap means a button is painting over the "BackBet" title.
+    expect(actionsBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height - 1);
+  });
 });
 
 test.describe("Responsive layout — /isp filters screen on a short viewport (MSW mocked)", () => {

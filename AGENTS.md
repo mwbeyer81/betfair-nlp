@@ -94,6 +94,7 @@ tiebreaker.
 | `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | merging to `develop` now — reconciling with `model-versioning-backend`'s stashed `train_and_predict.py` WIP below in the same pass, see dated entry below |
 | `~/betfair-nlp-model-versioning-backend` | `model-versioning-backend` | Backend for Model Performance Dashboard: model-version registry, runner tagging, live nav wiring | **merged to `develop` (`489b187`/`d182e99`), not yet deployed** — worktree kept around pending deploy, see dated entries below. The `stash@{0}` `ml/train_and_predict.py`/precompute-scripts WIP it left behind is being reconciled by `comment-nlp-features` (see dated entry below) — that stash can be dropped once confirmed superseded, don't reconcile it a second time |
 | `~/betfair-nlp-codebase-chat` | `feat/codebase-search-chat` | **Full replacement** of the chat feature — deletes the entire MongoDB-query-generation path (`openai-client.ts`, `natural-language-service.ts`, `mongo-script-executor.ts`, both prompt docs) and rebuilds it as an OpenAI tool-calling agent that reads real source files at runtime (a curated, allowlisted "codebase snapshot" bundled alongside `prompts/`), plus real multi-turn conversation memory. Supersedes the `feat/app-knowledge-chat` work merged/deployed earlier today — that work is being deleted, not extended. See dated entry below | implementation + verification done, **not yet merged** — no live HTTP-level check with a real logged-in user (service layer + supertest both verified separately, see dated entry) |
+| `~/betfair-nlp-header-overlap-fix` | `header-overlap-fix` | Fix the Appbar header buttons (incl. the new "Model Performance" button) overlapping the "BackBet" title on narrow/mobile viewports in production; add persistent narrow-viewport MSW/Playwright tests | merged to `develop` just now, about to push and deploy web — see dated entry below |
 
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`, and
@@ -1942,3 +1943,71 @@ validation/truncation, 400s) against a mocked service. `jwtAuth` itself
 is completely untouched by this work.
 
 Not yet merged, not deployed, worktree left in place for user review.
+
+## 2026-07-26 — Agent in `~/betfair-nlp-header-overlap-fix` (branch `header-overlap-fix`)
+
+**Task:** Live production screenshot showed the Appbar header on
+`app.backbet.co.uk` overflowing on a narrow phone — the "Model
+Performance" button (added by the `model-versioning-backend` work above)
+plus the pre-existing filters-toggle/Account/Log Out (or Log In/Sign Up)
+buttons all lived directly inside the fixed-height `Appbar.Header`
+alongside the "BackBet" title, with no wrap handling. On a real ~390px
+phone the button row overflowed and painted over the title. This was
+never caught because (a) manual verification during that task only used a
+1280px browser, and (b) Storybook's `viewport` parameter doesn't actually
+resize anything in this repo (confirmed empirically earlier this session —
+`@storybook/addon-viewport` isn't wired up, `window.innerWidth` never
+changes), so no story-based check could have caught it either.
+
+**Fix (`client/src/components/IndustrySpScreen.tsx`):** moved the action
+buttons out of `Appbar.Header` into a new `View` (`headerActionsRow` style,
+`testID="industry-sp-header-actions"`) rendered directly below it, with
+`flexWrap: "wrap"`. All existing `testID`s unchanged. Chose "always wrap,
+regardless of viewport" over a `useResponsive()`-gated conditional — fewer
+branches, and it can't regress at *any* width, not just below some
+breakpoint.
+
+**Tests added (`client/tests-msw/responsive.spec.ts`, iPhone-12-mini/375px
+describe block):** all header action buttons fit within the viewport;
+title and the new actions row don't vertically overlap. The suite's
+pre-existing "no element on the page overflows 375px" scan in the same
+block would *also* have caught the original bug — these two are
+explicit/targeted on top of that generic guard.
+
+**Found and fixed one unrelated pre-existing issue while verifying no
+regressions:** `tests-msw/industry-sp.spec.ts`'s "a date range wider than
+one month is clamped..." test asserted a 1-month clamp cap that no longer
+matches the component (`addOneYear` in `IndustrySpScreen.tsx`, changed to
+a 1-year cap by an earlier commit today, `c3dbe5c8`). It only "passed" on
+the primary checkout because that checkout's `client/dist` was a stale
+build from before the cap change — rebuilding exposed the mismatch.
+Updated the test to assert the actual 1-year clamp (renamed to match).
+Not a regression from this task, just discovered by it.
+
+**Verified:**
+- `cd client && yarn build` — clean (`tsc`).
+- Full MSW suite (`yarn test:msw`, single worker — see port/hang note
+  below): 169/170 pass. The one failure (`all-runners.spec.ts` "sort=asc
+  is sent on initial load") is a pre-existing flake, confirmed by running
+  the same test against the primary checkout's unmodified `develop` —
+  fails there too.
+- Storybook interaction tests for `IndustrySpScreen.stories.tsx` (own
+  instance, port 6013, stopped afterward): 54/56 pass. The 2 failures
+  (`ApplyingAPendingCourseChipQueriesApiAndUpdatesUrl`,
+  `ResetClearsCourseChipsSelection`) are the same pre-existing
+  course-chip/Set-serialization bug already noted elsewhere in this file's
+  history, unrelated to this change.
+- Merged `origin/develop` into this branch — clean, no conflicts (the
+  concurrently-merged `comment-nlp-features` work doesn't touch
+  `IndustrySpScreen.tsx` or `tests-msw/`).
+
+**Operational note for future agents:** running the full MSW suite with
+default `fullyParallel` settings hung indefinitely (21+ minutes, near-0%
+CPU, no `serve` process listening on port 3737) on this box's 2 vCPUs —
+looked like resource-starved Chromium workers never actually making
+progress, not a real 30s Playwright timeout firing. Killing it and
+rerunning with `--workers=1` completed normally in ~2.7 minutes. Prefer
+`--workers=1` for this suite on this machine.
+
+Next: merge to local `develop`, push, deploy web (this is a frontend-only
+fix, no backend/Lambda changes). Will update this entry once done.
