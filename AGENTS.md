@@ -106,6 +106,32 @@ moved to `AGENTS-archive-2026-07.md` to keep this file readable — see there
 for the fix history behind e.g. the index-backed-sort fix or the
 raceCap/anonymous-access design.
 
+## Testing new features: run the local CI-style e2e suite as you go
+
+`yarn test:e2e:local-ci` (see `.claude/commands/local-ci-e2e-tests.md`)
+spins up a throwaway mongod + real backend + real frontend, seeds a tiny
+known dataset, runs, and tears everything down — no shared state with
+another agent's worktree, ~20s round trip. **While building a new feature,
+run it repeatedly as you go — after each meaningful change, not just once
+at the end** — the whole point of it being this fast and self-contained is
+a tight feedback loop, not a final gate you only reach for once.
+
+**Add tests for the new feature to `client/tests-local-ci/` following an
+inverted pyramid — UI > API > integration, most coverage at the top:**
+- **UI first** — a real-browser Playwright test driving the actual feature
+  through the frontend is the primary coverage; if a feature has a screen
+  or interaction, it needs one of these before anything else.
+- **API second** — request-level tests against the new endpoint(s)
+  directly, covering shapes/status codes/auth that a UI test wouldn't
+  exercise on its own.
+- **Integration/DB last, and lightest** — only add a direct DB-level check
+  when the UI+API tests above don't already prove the data landed
+  correctly; don't duplicate coverage for its own sake.
+
+This is the opposite emphasis from the classic unit-heavy testing pyramid —
+deliberately so, since this suite has no unit tier of its own; it exists to
+prove the feature actually works end-to-end for a real user first.
+
 ---
 
 ## 2026-07-19 (later still) — Agent in `~/betfair-nlp-account-panel` (branch `account-panel`)

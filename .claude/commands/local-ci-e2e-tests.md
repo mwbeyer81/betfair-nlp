@@ -76,11 +76,21 @@ investigating rather than just picking a different port.
 
 ### Adding a new test
 
-Add a `.spec.ts` file to `client/tests-local-ci/`, following the existing
-files there for conventions — API-level tests via Playwright's `request`
-fixture hitting `http://localhost:3050` directly, UI tests via `page.goto`
-using the `?email=&password=` login convention (see
-`client/tests/industry-sp-e2e.spec.ts`) against `http://localhost:8090`.
+While building a new feature, run `yarn test:e2e:local-ci` repeatedly as
+you go (not just once at the end) — see `AGENTS.md`'s "Testing new
+features" section. Add tests to `client/tests-local-ci/` as an **inverted
+pyramid — UI > API > integration**, most coverage at the top:
+
+1. **UI first** — a real-browser test via `page.goto` using the
+   `?email=&password=` login convention (see
+   `client/tests/industry-sp-e2e.spec.ts`) against `http://localhost:8090`,
+   actually driving the new feature the way a user would.
+2. **API second** — request-level tests via Playwright's `request` fixture
+   hitting `http://localhost:3050` directly, covering shapes/status
+   codes/auth the UI test doesn't exercise on its own.
+3. **Integration/DB last, and lightest** — only add a direct check when the
+   above two don't already prove the data landed correctly.
+
 Because the seeded dataset is small and fully known, prefer exact
 assertions (specific race/runner values) over the sampling-style assertions
 the shared-dev-DB specs use.
