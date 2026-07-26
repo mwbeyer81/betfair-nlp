@@ -2153,3 +2153,58 @@ after any future Lambda secrets change.
 (`09b1373..4b2f52f`). No deploy needed** (test-file-only change, doesn't
 touch the running app). Worktree removed, branch deleted (local + remote)
 — nothing left in progress.
+
+---
+
+## 2026-07-26 (later) — Agent in `~/betfair-nlp-fix-tool-choice` (branch `fix/tool-choice-final-call`)
+
+**Task:** User reported (screenshot) a second live bug right after the
+OpenAI-key fix above: mid-conversation (after a discussion about model
+training), asking "Give example feature" returned `Error: 400 Invalid
+value for 'tool_choice': 'tool_choice' is only allowed when 'tools' are
+specified.`
+
+**Root cause:** `codebase-search-service.ts`'s forced final-answer call
+(runs once the 8-round `MAX_ITERATIONS` tool-call cap is hit) passed
+`tool_choice: "none"` without `tools` — OpenAI's real API rejects that
+combination outright, even when forcing "none". The existing mocked unit
+test for this exact code path (`chat — iteration cap`) never caught it
+because the mock doesn't enforce OpenAI's real parameter contract; it
+happily accepted whatever shape was passed.
+
+**Fix:** added `tools: TOOLS` back to that one call
+(`codebase-search-service.ts`). Strengthened the mocked unit test to
+explicitly assert `tools` is present and non-empty on the final call —
+without that assertion this exact regression could recur silently again
+since the mock alone won't catch it.
+
+**Broadened `client/tests-live/chat-live.spec.ts`** significantly, per
+explicit request ("Replicate in persistence test. Add other tests
+similar"):
+- A shared `expectHealthyReply()` helper checking for a list of known
+  error-signature substrings (`incorrect api key`, `tool_choice`,
+  `invalid value for`, raw status codes, etc.) in any reply — generalizes
+  the single hardcoded check from the previous entry into a reusable guard
+  against *any* backend/OpenAI error leaking through disguised as an
+  ordinary chat bubble (both bugs so far share exactly this shape — the
+  frontend prefixes any backend error with "Error: " and renders it with
+  no visual distinction from a real reply).
+- A test replicating the **exact** repro conversation from the screenshot
+  (model-training discussion → "Give example feature" follow-up).
+- A "broad, multi-part question" test as a live-world companion to the
+  now-deterministic unit test — not a guaranteed reproduction of the
+  8-round cap (real model tool-calling isn't fully predictable), but the
+  closest practical live analogue.
+- Direct DB-structure and feature-engineering questions (the feature's
+  original stated goals) and an off-topic-redirect check, for general
+  coverage beyond just this one bug.
+
+**Verified live, for real, against the redeployed Lambda:** all 8 tests in
+`chat-live.spec.ts` pass (39s), including the exact repro scenario that
+previously 400'd.
+
+**Done — committed (`e4fe0e4`), pushed to `develop` (`1c790f9..e4fe0e4`),
+deployed** (`apps/lambda/build.sh` — confirmed live via `aws lambda
+get-function`, fresh `LastModified`/`Successful`; no frontend changes, no
+web deploy needed). Worktree removed, branch deleted (local + remote) —
+nothing left in progress.
