@@ -91,8 +91,9 @@ tiebreaker.
 | `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; **`develop` just moved significantly (`fd3f394`) — Split A/B's runner-index machinery (`splitByRunners`, `fromRunnerA/toRunnerA/...`) was entirely removed and `IndustrySpScreen.tsx` heavily rewritten, see the dated entry below** — expect this branch's divergence to be much worse now, plan for a careful manual reconciliation, not a plain rebase |
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
-| `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | merging to `develop` now — reconciling with `model-versioning-backend`'s stashed `train_and_predict.py` WIP below in the same pass, see dated entry below |
-| `~/betfair-nlp-model-versioning-backend` | `model-versioning-backend` | Backend for Model Performance Dashboard: model-version registry, runner tagging, live nav wiring | **merged to `develop` (`489b187`/`d182e99`), not yet deployed** — worktree kept around pending deploy, see dated entries below. The `stash@{0}` `ml/train_and_predict.py`/precompute-scripts WIP it left behind is being reconciled by `comment-nlp-features` (see dated entry below) — that stash can be dropped once confirmed superseded, don't reconcile it a second time |
+| `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | **done** — merged to `develop`, retrained against real production Atlas (`modelVersionId xgb-20260726-110115`), confirmed live via `GET /api/model-versions`; worktree can be removed |
+| `~/betfair-nlp-model-versioning-backend` | `model-versioning-backend` | Backend for Model Performance Dashboard: model-version registry, runner tagging, live nav wiring | **done** — merged, deployed, and the dashboard's own prod bug fixed (see `model-perf-e2e` entry below); worktree can be removed |
+| `~/betfair-nlp-model-perf-e2e` | `model-perf-e2e` | Prod e2e tests for the Model Performance Dashboard + the bug they found | **done** — merged to `develop` (`ae9c795`), deployed to `app.backbet.co.uk`, see dated entry below; worktree can be removed |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, and `codebase-search-chat`
@@ -2257,3 +2258,58 @@ no longer full-width. No backend/Lambda changes, so no Lambda deploy
 needed.
 
 **Done.**
+
+---
+
+## 2026-07-26 (later still) — Agent in `~/betfair-nlp-model-perf-e2e` (branch `model-perf-e2e`)
+
+**Task:** Write e2e tests for the Model Performance Dashboard against the
+real production stack (no mocks), fix whatever they find, deploy.
+
+Wrote `client/tests-production/model-performance-dashboard.spec.ts`,
+targeting `app.backbet.co.uk` + the live Lambda + real Atlas — logs in via
+a real `/api/auth/login` call, opens the dashboard from `/isp`, and
+asserts against the exact `xgb-20260726-110115` run this session's earlier
+retrain wrote. **Found a real bug on first run:** opening the dashboard
+showed "Failed to fetch" — the browser reported it as a CORS failure
+(`No 'Access-Control-Allow-Origin' header`), which was a red herring.
+Root-caused via CloudWatch (`aws logs tail /aws/lambda/hello-api`):
+`loadRacesForModelVersion()` in `IndustrySpScreen.tsx` requested
+`limit=10000` in one unpaginated pull, and against real prod data
+(~7KB/race with full runner subdocuments) that blows past Lambda's 6MB
+synchronous response ceiling — `RequestEntityTooLarge`/413 at the Lambda
+runtime level, surfaced as a generic API Gateway 500 with no CORS headers
+at all (a Lambda-runtime-level failure skips the app's own CORS
+middleware entirely, so the browser's actual error message is misleading).
+Binary-searched the real threshold with `curl` against the Lambda
+directly: `limit=700` (~4.9MB) succeeds, `limit=800` (~5.6MB) 500s. Fixed
+by capping the request to 500 (`MODEL_PERFORMANCE_RACE_LIMIT`), comfortably
+under the cliff.
+
+**This bug was made worse, not caused, by two other agents' concurrent
+work landed on `origin/develop` while this was in progress**
+(`4f365ff` raised the authenticated Industry SP race cap 1000→10000,
+`abff9a7` fixed a related-but-distinct Mongo 32MB sort-limit 500 in
+`getRaceConvergenceSeries`) — neither touched the plain-list endpoint this
+dashboard uses, so the payload-size bug here was real and already
+reachable before either of those landed, just less likely to be hit at
+the old 1000 cap. Merged both in cleanly (no conflicts), verified `tsc`
+clean on both sides, pushed straight to `origin/develop` (`ae9c795`).
+
+**Verified:** re-ran the new prod spec against the fresh deploy — all 4
+pass, including the diagnostic that hits `GET /api/model-versions`
+directly. `yarn test:msw` (175/176 — 1 pre-existing unrelated failure,
+`all-runners.spec.ts` sort-order). Storybook interaction suite: 275/281 —
+6 failures, all pre-existing and unrelated (Set-to-string URL bugs in
+course-chip filtering and a trainer-link race-type mismatch); confirmed
+by spinning up a second headless Storybook against a throwaway detached
+worktree at the pre-session baseline commit (`2057df4`) and reproducing
+the identical failures there, then removing the worktree.
+
+Deployed: `apps/web/deploy.sh` → confirmed live at
+`build-commit=ae9c795`. No backend/Lambda code changed by this fix (only
+`IndustrySpScreen.tsx`'s client-side request limit), so no Lambda deploy
+needed.
+
+**Done.** Worktree left in place pending removal (see table above); no
+uncommitted state, nothing else in progress.
