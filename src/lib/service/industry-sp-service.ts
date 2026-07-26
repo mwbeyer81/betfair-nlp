@@ -132,13 +132,13 @@ export class IndustrySpService {
     maxTrainerFormRunners = 100,
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
-    // Per-window race cap: 1000 for an authenticated caller (the
-    // longstanding default), 100 for an anonymous one. Applied to both the
-    // auto-computed default window below and any explicit
+    // Per-window race cap: 10000 for an authenticated caller (effectively
+    // the whole dataset today), 100 for an anonymous one. Applied to both
+    // the auto-computed default window below and any explicit
     // fromRowA/toRowA/fromRowB/toRowB the caller supplies — an anonymous
     // caller can't just ask for a bigger window directly, since the whole
     // point of the cap is that it's enforced server-side.
-    raceCap = 1000
+    raceCap = 10000
   ): Promise<{
     totalRaces: number;
     totalRunners: number;
@@ -217,7 +217,7 @@ export class IndustrySpService {
     }
 
     // raceCap is a hard ceiling on each split's window span (100 races for
-    // an anonymous caller, 1000 for an authenticated one — see the router,
+    // an anonymous caller, 10000 for an authenticated one — see the router,
     // which decides raceCap from the request's auth state). Applied on top
     // of the half/half default above (not instead of it), so a small
     // filtered total still gets the "both splits populated" behavior that

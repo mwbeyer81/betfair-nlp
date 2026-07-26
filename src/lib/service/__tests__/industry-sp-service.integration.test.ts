@@ -30,7 +30,7 @@ describe("IndustrySpService.getSplitStats (integration)", () => {
     expect(result.splitA.fromRow).toBe(1);
     expect(result.splitA.toRow).toBe(Math.min(half, result.totalRaces));
     expect(result.splitB.fromRow).toBe(result.splitA.toRow! + 1);
-    // No longer literally null — raceCap clamping (1000 races for an
+    // No longer literally null — raceCap clamping (10000 races for an
     // authenticated caller, the default here) always concretizes an
     // open-ended upper bound to a real race index that never exceeds the
     // true total, rather than leaving it "through the end" unresolved.

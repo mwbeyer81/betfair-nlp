@@ -246,65 +246,67 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
 
   return (
     <SafeAreaView testID="all-runners-screen" style={styles.screen}>
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content
-          title="All Runners"
-          subtitle={!isLoading ? `${visibleRunners}/${totalRunners} runners · ${displayRaces.length}/${totalRaces} races` : undefined}
-          titleStyle={styles.appbarTitle}
-          subtitleStyle={styles.appbarSubtitle}
-        />
-        {!isTablet && (
-          <Appbar.Action
-            testID="all-runners-menu-button"
-            icon="menu"
-            color="white"
-            onPress={() => setMenuOpen(v => !v)}
+      <View style={styles.headerWrapper}>
+        <Appbar.Header style={styles.appbar}>
+          <Appbar.Content
+            title="All Runners"
+            subtitle={!isLoading ? `${visibleRunners}/${totalRunners} runners · ${displayRaces.length}/${totalRaces} races` : undefined}
+            titleStyle={styles.appbarTitle}
+            subtitleStyle={styles.appbarSubtitle}
           />
-        )}
-      </Appbar.Header>
-      <HeaderActionsContainer
-        isTablet={isTablet}
-        open={menuOpen}
-        inlineTestId="all-runners-header-actions"
-        menuTestId="all-runners-nav-menu"
-      >
-        <Button
-          testID="all-runners-sort-toggle"
-          mode="contained-tonal"
-          compact
-          onPress={wrap(() => setSortOrder(o => o === "asc" ? "desc" : "asc"))}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
+          {!isTablet && (
+            <Appbar.Action
+              testID="all-runners-menu-button"
+              icon="menu"
+              color="white"
+              onPress={() => setMenuOpen(v => !v)}
+            />
+          )}
+        </Appbar.Header>
+        <HeaderActionsContainer
+          isTablet={isTablet}
+          open={menuOpen}
+          inlineTestId="all-runners-header-actions"
+          menuTestId="all-runners-nav-menu"
         >
-          {sortOrder === "asc" ? "First → Last" : "Last → First"}
-        </Button>
-        {!isLoading && displayRaces.length > 0 && (
           <Button
-            testID="all-runners-export-btn"
-            mode="contained"
+            testID="all-runners-sort-toggle"
+            mode="contained-tonal"
             compact
-            buttonColor={colors.success}
-            onPress={wrap(() => !isExporting && setShowExportModal(true))}
-            disabled={isExporting}
+            onPress={wrap(() => setSortOrder(o => o === "asc" ? "desc" : "asc"))}
             style={styles.headerButton}
             labelStyle={styles.headerButtonLabel}
-            loading={isExporting}
           >
-            Export
+            {sortOrder === "asc" ? "First → Last" : "Last → First"}
           </Button>
-        )}
-        <Button
-          testID="all-runners-screen-events-button"
-          mode="contained"
-          compact
-          buttonColor={colors.accent}
-          onPress={wrap(onNavigateToEvents)}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          ← Events
-        </Button>
-      </HeaderActionsContainer>
+          {!isLoading && displayRaces.length > 0 && (
+            <Button
+              testID="all-runners-export-btn"
+              mode="contained"
+              compact
+              buttonColor={colors.success}
+              onPress={wrap(() => !isExporting && setShowExportModal(true))}
+              disabled={isExporting}
+              style={styles.headerButton}
+              labelStyle={styles.headerButtonLabel}
+              loading={isExporting}
+            >
+              Export
+            </Button>
+          )}
+          <Button
+            testID="all-runners-screen-events-button"
+            mode="contained"
+            compact
+            buttonColor={colors.accent}
+            onPress={wrap(onNavigateToEvents)}
+            style={styles.headerButton}
+            labelStyle={styles.headerButtonLabel}
+          >
+            ← Events
+          </Button>
+        </HeaderActionsContainer>
+      </View>
 
       {/* Filter bar — kept as custom for density */}
       <PageContainer maxWidth={1200}>
@@ -709,6 +711,10 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  headerWrapper: {
+    position: "relative",
+    zIndex: 10,
   },
   appbar: {
     backgroundColor: colors.primary,

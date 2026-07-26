@@ -780,6 +780,37 @@ export class IndustrySpDAO {
     const rowSkip = fromRow - 1;
     const rowLimit = toRow - fromRow + 1;
 
+    // Regression: reported live via screenshot — Split B's Graph button
+    // 500'd once the authenticated race cap was raised (a split can now
+    // span the entire ~9,839-race qualifying set). Two failed fix attempts
+    // before this one, both chasing the wrong stage:
+    //
+    // 1. Assumed the leading $sort was the culprit and moved
+    //    buildQualifyingRaceStages ahead of it to slim the projection first
+    //    — made things worse (identical error): that breaks the
+    //    index-provided-order optimization getAllRacesByRace's own comment
+    //    warns about ("Putting the $sort anywhere after basePipeline's
+    //    $match/$addFields forces a blocking in-memory sort instead").
+    // 2. Restored the leading $sort to its correct position (second stage,
+    //    right after dateMatchStage) and deferred reattaching each race's
+    //    full document (via $lookup) until after $skip/$limit had already
+    //    narrowed things down — still the identical error. Confirmed live
+    //    that getAllRacesByRace itself (same leading dateMatch+$sort, same
+    //    ~9,839-row window, same filters) succeeds at this exact scale, so
+    //    the leading $sort was never actually the problem.
+    //
+    // The real culprit: $setWindowFields' own `sortBy` requires its input
+    // provably sorted, and by the time execution reached it (after the
+    // $lookup in attempt 2 rehydrated each windowed document with its full
+    // `runners` array), MongoDB could no longer prove that — it fell back
+    // to its own internal blocking sort, this time over ~9,839 *full*
+    // documents, hitting the identical 32MB ceiling one stage later than
+    // before. Fixed by computing each race's staked/returns scalars via
+    // $addFields right after buildQualifyingRaceStages (while `runners` is
+    // still present) and projecting `runners` away *before* $skip/$limit —
+    // no $lookup rehydration needed at all, so every document reaching
+    // $skip/$limit/$setWindowFields is a small, fixed-size
+    // {_id, raceTime, staked, returns} shape regardless of row-range size.
     const points = await this.collection
       .aggregate<{ raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number }>(
         [
@@ -791,6 +822,8 @@ export class IndustrySpDAO {
             trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
             minModelWinProbability, onlyModelBeatsSp, modelVersionId: null,
           }),
+          { $addFields: { _staked: stakedFieldExpr, _returns: returnsFieldExpr } },
+          { $project: { _id: 1, raceTime: 1, _staked: 1, _returns: 1 } },
           { $skip: rowSkip },
           { $limit: rowLimit },
           {
@@ -798,8 +831,8 @@ export class IndustrySpDAO {
               sortBy: { raceTime: 1 },
               output: {
                 relRowNumber: { $sum: 1, window: { documents: ["unbounded", "current"] } },
-                cumulativeStaked: { $sum: stakedFieldExpr, window: { documents: ["unbounded", "current"] } },
-                cumulativeReturns: { $sum: returnsFieldExpr, window: { documents: ["unbounded", "current"] } },
+                cumulativeStaked: { $sum: "$_staked", window: { documents: ["unbounded", "current"] } },
+                cumulativeReturns: { $sum: "$_returns", window: { documents: ["unbounded", "current"] } },
               },
             },
           },

@@ -97,47 +97,49 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   return (
     <SafeAreaView testID="chat-screen" style={styles.container}>
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content title="Chat Assistant" titleStyle={styles.appbarTitle} />
-        {!isTablet && (
-          <Appbar.Action
-            testID="chat-menu-button"
-            icon="menu"
-            color="white"
-            onPress={() => setMenuOpen(v => !v)}
-          />
-        )}
-      </Appbar.Header>
-      <HeaderActionsContainer
-        isTablet={isTablet}
-        open={menuOpen}
-        inlineTestId="chat-header-actions"
-        menuTestId="chat-nav-menu"
-      >
-        <Button
-          testID="events-button"
-          mode="contained-tonal"
-          onPress={wrap(onNavigateToEvents)}
-          compact
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
+      <View style={styles.headerWrapper}>
+        <Appbar.Header style={styles.appbar}>
+          <Appbar.Content title="Chat Assistant" titleStyle={styles.appbarTitle} />
+          {!isTablet && (
+            <Appbar.Action
+              testID="chat-menu-button"
+              icon="menu"
+              color="white"
+              onPress={() => setMenuOpen(v => !v)}
+            />
+          )}
+        </Appbar.Header>
+        <HeaderActionsContainer
+          isTablet={isTablet}
+          open={menuOpen}
+          inlineTestId="chat-header-actions"
+          menuTestId="chat-nav-menu"
         >
-          ← Events
-        </Button>
-        {onLogout && (
           <Button
-            testID="chat-logout-button"
-            mode="contained"
-            onPress={wrap(onLogout)}
+            testID="events-button"
+            mode="contained-tonal"
+            onPress={wrap(onNavigateToEvents)}
             compact
-            buttonColor={colors.danger}
             style={styles.headerButton}
             labelStyle={styles.headerButtonLabel}
           >
-            Logout
+            ← Events
           </Button>
-        )}
-      </HeaderActionsContainer>
+          {onLogout && (
+            <Button
+              testID="chat-logout-button"
+              mode="contained"
+              onPress={wrap(onLogout)}
+              compact
+              buttonColor={colors.danger}
+              style={styles.headerButton}
+              labelStyle={styles.headerButtonLabel}
+            >
+              Logout
+            </Button>
+          )}
+        </HeaderActionsContainer>
+      </View>
 
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
@@ -179,6 +181,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  headerWrapper: {
+    position: "relative",
+    zIndex: 10,
   },
   appbar: {
     backgroundColor: colors.primary,

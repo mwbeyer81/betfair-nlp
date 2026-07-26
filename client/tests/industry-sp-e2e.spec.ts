@@ -177,7 +177,7 @@ test.describe("GET /api/industry-sp/splits (live server @ localhost:3000)", () =
     // Regression test: reported live via a screenshot — a narrow filter
     // (here, a single week, chosen because it reliably yields a fixed,
     // small matched set well under both the anonymous (100) and
-    // authenticated (1000) race caps) naturally yields far fewer matching
+    // authenticated (10000) race caps) naturally yields far fewer matching
     // races than the cap, and raceCap clamping used to compute toRow as
     // fromRow + raceCap - 1 unconditionally — producing a race range that
     // implied far more races than actually existed (reported live:
@@ -365,6 +365,31 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     const matchB = rangeB?.match(/Races (\d+)–(\d+)/);
     expect(matchB).toBeTruthy();
     expect(matchB![1]).toBe(String(Number(matchA![2]) + 1));
+  });
+
+  test("race-convergence succeeds for a wide row range spanning the authenticated race cap (regression: 500 on Split B's Graph after the cap was raised)", async ({ request }) => {
+    // Regression: reported live via screenshot — after the authenticated
+    // race cap was raised from 1000 to 10000 (so Split B could span its
+    // whole ~9,839-race qualifying set), clicking Split B's Graph button
+    // 500'd with "Failed to fetch race convergence series". Root cause:
+    // getRaceConvergenceSeries sorted full race documents (each carrying an
+    // embedded runners array) directly, and Atlas M0 silently ignores
+    // allowDiskUse — confirmed live to succeed up to ~3000 rows and fail
+    // from ~5000 up. Fixed by projecting down to {_id, raceTime} before the
+    // sort/skip/limit and only reattaching each race's full document (via
+    // $lookup) for the already-narrowed result. This exercises the same
+    // filter combination and date range reported live, at the full width a
+    // Split B graph request can now legitimately ask for.
+    const token = await getBearerToken(request);
+    const res = await request.get(
+      `${API_URL}/api/industry-sp/race-convergence?minRunners=1&maxRunners=20&minInIspRange=1&maxInIspRange=30` +
+        `&onlyModelBeatsSp=true&minDate=2024-01-01&maxDate=2025-01-01&fromRow=1&toRow=9839`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(Array.isArray(body.data)).toBe(true);
   });
 
   test("both Race A and Race B splits render their own card and View Races button, defaulting to the first/second half of the matching races", async ({ page }) => {
@@ -1094,7 +1119,7 @@ test.describe("Anonymous access (real app at localhost:80, no login)", () => {
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     const banner = page.getByTestId("industry-sp-benefits-banner");
     await expect(banner).toBeVisible();
-    await expect(banner).toContainText("1000");
+    await expect(banner).toContainText("10000");
   });
 
   // Doesn't call POST /api/auth/signup here (unlike the MSW/Storybook
