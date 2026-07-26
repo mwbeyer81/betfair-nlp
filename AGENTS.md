@@ -93,7 +93,6 @@ tiebreaker.
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | merging to `develop` now — reconciling with `model-versioning-backend`'s stashed `train_and_predict.py` WIP below in the same pass, see dated entry below |
 | `~/betfair-nlp-model-versioning-backend` | `model-versioning-backend` | Backend for Model Performance Dashboard: model-version registry, runner tagging, live nav wiring | **merged to `develop` (`489b187`/`d182e99`), not yet deployed** — worktree kept around pending deploy, see dated entries below. The `stash@{0}` `ml/train_and_predict.py`/precompute-scripts WIP it left behind is being reconciled by `comment-nlp-features` (see dated entry below) — that stash can be dropped once confirmed superseded, don't reconcile it a second time |
-| `~/betfair-nlp-codebase-chat` | `feat/codebase-search-chat` | **Full replacement** of the chat feature — deletes the entire MongoDB-query-generation path (`openai-client.ts`, `natural-language-service.ts`, `mongo-script-executor.ts`, both prompt docs) and rebuilds it as an OpenAI tool-calling agent that reads real source files at runtime (a curated, allowlisted "codebase snapshot" bundled alongside `prompts/`), plus real multi-turn conversation memory. Supersedes the `feat/app-knowledge-chat` work merged/deployed earlier today — that work is being deleted, not extended. See dated entry below | implementation + verification done, **not yet merged** — no live HTTP-level check with a real logged-in user (service layer + supertest both verified separately, see dated entry) |
 | `~/betfair-nlp-header-overlap-fix` | `header-overlap-fix` | Fix the Appbar header buttons (incl. the new "Model Performance" button) overlapping the "BackBet" title on narrow/mobile viewports in production; add persistent narrow-viewport MSW/Playwright tests | merged to `develop` just now, about to push and deploy web — see dated entry below |
 
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
@@ -101,7 +100,9 @@ tiebreaker.
 `split-ab-race-revert` were merged, clean, and have been removed
 (`git worktree remove` + `git branch -d`, local and remote) as of
 2026-07-25 — this is what "clean up after merge" in the section above
-looks like in practice.
+looks like in practice. `codebase-search-chat` (branch
+`feat/codebase-search-chat`) was merged, pushed, deployed (both Lambda
+and web), and removed the same way as of 2026-07-26.
 
 Older entries (2026-07-17 through the `auth-hardening` session) have been
 moved to `AGENTS-archive-2026-07.md` to keep this file readable — see there
@@ -1942,7 +1943,29 @@ already covers the route's request/response contract (history
 validation/truncation, 400s) against a mocked service. `jwtAuth` itself
 is completely untouched by this work.
 
-Not yet merged, not deployed, worktree left in place for user review.
+**Update — merged, pushed, deployed.** One real bug caught while verifying
+the deploy worktree's exact tip before deploying anything: `.gitignore`'s
+bare `node_modules` pattern matches that name anywhere in the tree, not
+just at the repo root — it had silently excluded
+`codebase-file-access.test.ts`'s deliberate node_modules-segment-denial
+fixture file from ever being committed. It existed on-disk in this
+worktree (created it, so its own test suite passed here), but a fresh
+`git checkout` of the same branch never had it — exactly the failure
+mode this exercise is meant to catch. Fixed with `git add -f` plus an
+explicit `.gitignore` negation for that one path so it can't happen
+silently again (`26685a4`). Re-verified (`tsc --noEmit`, `yarn build`,
+the three chat-related Jest suites) after both this fix and merging in
+`comment-nlp-features`/`header-overlap-fix` (each landed on `origin/develop`
+mid-task — fetched and merged both before pushing, no conflicts beyond
+this file itself). Pushed `develop` (`9dacb00..ce07270`). Deployed
+**both** this time (unlike the previous chat feature, this one touches
+the frontend too): `apps/lambda/build.sh` — confirmed live via `aws
+lambda get-function`, fresh `LastModified`/`Successful`; `apps/web/
+deploy.sh` — confirmed live via `curl`, `build-branch=develop`,
+`build-commit=ce07270`.
+
+Worktree removed, branch deleted (local + remote) — nothing left in
+progress.
 
 ## 2026-07-26 — Agent in `~/betfair-nlp-header-overlap-fix` (branch `header-overlap-fix`)
 
