@@ -1045,15 +1045,20 @@ test.describe("Industry SP filters screen - filter URL persistence + Reset (MSW 
     expect(lastRequest).toContain("maxDate=2023-01-20");
   });
 
-  test("a date range wider than one month is clamped to minDate + 1 month on Apply", async ({ page }) => {
-    await pickDateRange(page, "2023-01-01", "2023-06-30");
+  test("a date range wider than one year is clamped to minDate + 1 year on Apply", async ({ page }) => {
+    // Mirrors IndustrySpScreen.tsx's applyFilter(): a maxDate more than one
+    // year past minDate is pulled back to minDate + 1 year (addOneYear)
+    // rather than rejected — same self-correcting pattern as every other
+    // range filter on this screen. (This test previously asserted a
+    // 1-month cap, which no longer matches the component's 1-year cap.)
+    await pickDateRange(page, "2023-01-01", "2025-06-30");
     await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
 
     expect(page.url()).toContain("minDate=2023-01-01");
-    expect(page.url()).toContain("maxDate=2023-02-01");
-    expect(page.url()).not.toContain("maxDate=2023-06-30");
-    await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Feb 1, 2023");
+    expect(page.url()).toContain("maxDate=2024-01-01");
+    expect(page.url()).not.toContain("maxDate=2025-06-30");
+    await expect(page.getByTestId("industry-sp-date-range-picker")).toContainText("Jan 1, 2024");
   });
 
   test("Reset restores the date range to the 2024-01 default and clears it from the URL", async ({ page }) => {
