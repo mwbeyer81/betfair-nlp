@@ -1288,6 +1288,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           subtitle={!isLoading ? `${totalRunners} runners · ${totalRaces} races` : undefined}
           subtitleStyle={styles.appbarSubtitle}
         />
+      </Appbar.Header>
+      <View testID="industry-sp-header-actions" style={styles.headerActionsRow}>
         <Button
           testID="industry-sp-filters-toggle"
           mode="outlined"
@@ -1357,7 +1359,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             </Button>
           </>
         )}
-      </Appbar.Header>
+      </View>
 
       {isAuthenticated && showAccountPanel && (
         <View testID="industry-sp-account-panel" style={styles.accountPanel}>
@@ -1827,6 +1829,19 @@ const styles = StyleSheet.create({
   appbarSubtitle: {
     color: "rgba(255,255,255,0.8)",
     fontSize: 11,
+  },
+  // Lives below the Appbar (not inside it) so the action buttons can wrap
+  // onto multiple lines on narrow viewports instead of overflowing/
+  // overlapping the fixed-height Appbar.Header and its title.
+  headerActionsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.primary,
   },
   headerButton: {
     marginHorizontal: 3,
