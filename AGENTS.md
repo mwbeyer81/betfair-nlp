@@ -2257,3 +2257,138 @@ no longer full-width. No backend/Lambda changes, so no Lambda deploy
 needed.
 
 **Done.**
+
+---
+
+## 2026-07-26 (later still) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Not done in a worktree** — small, sequential fixes on live user reports,
+each one deployed and verified before the next started; the worktree-per-
+agent isolation this file recommends wasn't load-bearing here since nothing
+overlapped with another agent's in-progress files.
+
+**Task 1 — burger dropdown pushing content down.** User screenshot: on
+`/isp` at phone width, opening the burger menu shoved the filter panel down
+and left a blank gap instead of floating over it like a normal dropdown.
+Root cause: `HeaderActionsContainer`'s `dropdown` style (and
+`IndustrySpScreen`'s own inline `navMenu`, which predates and duplicates
+that component) was a plain in-flow `View`, not `position: "absolute"`.
+Fix: made both `position: "absolute"` (`top: "100%"`, `right`, `zIndex:
+1000`, `elevation`/shadow for stacking), and wrapped each screen's
+`Appbar.Header` + the dropdown together in a new `headerWrapper`
+(`position: "relative"`) in `EventsScreen.tsx`/`ChatScreen.tsx`/
+`AllRunnersScreen.tsx`/`IndustrySpScreen.tsx` — needed so `top: "100%"`
+resolves against the header's own height, not the whole screen's. Verified
+via `yarn build` + an MSW-mocked Playwright screenshot of the ISP screen's
+phone-width menu (menu now overlays the filters instead of displacing
+them). Committed (`3101450`), pushed, deployed (web only — no backend
+change).
+
+**Task 2 — Split B silently reverting a typed range.** User screenshot:
+typing 9000 into Split B's "to" box and pressing Apply reverted it to 1000.
+**Not actually a bug** — a real, intentional server-side cap
+(`IndustrySpService.getSplitStats`'s `raceCap` param: 1000 authenticated,
+100 anonymous) enforced with no client-side explanation when it kicked in.
+Asked the user via `AskUserQuestion` rather than unilaterally changing a
+deliberate perf/cost guardrail; user chose to raise the authenticated cap
+to 10000 (effectively the whole ~9,839-race dataset today). Changed all
+four places that mirrored the `1000` constant:
+`industry-sp-service.ts`'s `raceCap` default param, the three `router.ts`
+call sites (`/splits`, plain list, `/race-convergence`), and the client's
+`AUTHENTICATED_RACE_CAP` (used only for the benefits-banner copy, which
+also got its "10× more races" text corrected to "100×"). Updated
+hardcoded-`1000`/too-small-mocked-total assertions in
+`app.test.ts`/`industry-sp-e2e.spec.ts` accordingly. Verified via `tsc`
+(both) + the mocked Jest supertest suite (fast, deliberately **not** the
+full live e2e suite — user flagged the wait on a slow test run mid-session,
+see the process note below). Committed (`4f365ff`), pushed, deployed
+(Lambda + web, since both `src/` and `client/src/` changed).
+
+**Task 3 — Split B's Graph button 500ing after the cap raise.** Directly
+caused by Task 2: raising the cap let Split B legitimately ask for a
+~9,839-race window, and `getRaceConvergenceSeries` (the P&L convergence
+chart's query) couldn't handle a row-range that wide. Root-caused via
+CloudWatch (`aws logs filter-log-events` against `/aws/lambda/hello-api`,
+`filter-pattern "getRaceConvergenceSeries"`, timed right after a repro curl)
+rather than guessing: `MongoServerError ... Sort exceeded memory limit of
+33554432 bytes, but did not opt in to external sorting` (code 292,
+`QueryExceededMemoryLimitNoDiskUseAllowed`) — the same Atlas M0 32MB
+in-memory-sort ceiling documented in `AGENTS-archive-2026-07.md`'s
+index-backed-sort fix for `getAllRacesByRace`, and `allowDiskUse` is
+silently ignored on this cluster tier exactly as documented there too.
+Bisected directly against production (`curl` with `toRow` stepped
+1000→3000→5000→7000→9839): succeeds through 3000, fails from 5000 up.
+
+**Two wrong fixes before the real one — both deployed and re-tested live,
+both left the identical error, worth recording so nobody repeats them:**
+1. Assumed the leading `{$sort:{raceTime:1}}` was the problem and moved
+   `buildQualifyingRaceStages` (the qualifying-race filter) *before* it to
+   slim the projection first. Made no difference. This actually inverts the
+   fix already proven for `getAllRacesByRace`: that method's own comment
+   warns putting `$match`/`$addFields` before the leading `$sort` breaks
+   the index-provided-order optimization (`{raceTime:1}` index) that lets
+   match+sort fold into a single indexed scan streaming already-ordered
+   documents at ~zero buffer memory, *regardless* of what runs after it or
+   how large those later documents are.
+2. Restored the leading sort to its correct position (second stage, right
+   after `dateMatchStage`) and deferred reattaching each race's full
+   document (`runners` array included, needed for the staked/returns calc)
+   via `$lookup` until after `$skip`/`$limit` had already narrowed to the
+   requested window. **Still the identical error.** Confirmed live that
+   `getAllRacesByRace` itself (`GET /api/industry-sp`, same filters, same
+   date range, same `fromRow=1&toRow=9839`) succeeds at this exact scale —
+   so the leading sort was never actually the culprit for this method
+   either.
+3. **Real root cause:** `$setWindowFields`'s own `sortBy` requires its
+   input provably sorted; once execution reached it in attempt 2, the
+   `$lookup` immediately before had just rehydrated every windowed document
+   with its full `runners` array, so MongoDB could no longer prove the
+   input was already ordered — it silently fell back to its *own* internal
+   blocking sort, this time over ~9,839 **full** documents, hitting the
+   identical 32MB ceiling one stage later than before. The error message
+   ("Sort exceeded memory limit") doesn't distinguish an explicit `$sort`
+   stage from `$setWindowFields`'s internal one, which is exactly why
+   attempts 1 and 2 both looked like they should have worked but didn't.
+
+**Actual fix:** compute each race's staked/returns scalars via `$addFields`
+right after `buildQualifyingRaceStages` (while `runners` is still present,
+as a per-document/streaming operation — cheap regardless of count), then
+`$project` `runners` away entirely before `$skip`/`$limit`/
+`$setWindowFields` — no `$lookup` rehydration needed anywhere. Every
+document reaching those later stages is now a small, fixed-size `{_id,
+raceTime, _staked, _returns}` shape regardless of row-range size.
+`src/lib/dao/industry-sp-dao.ts`, `getRaceConvergenceSeries` only.
+
+**Verified against production** (not mocks — this bug class is only
+reproducible at real Mongo scale): every `toRow` from 1 through 9839 now
+returns 200; both splits' final cumulative P&L exactly match the figures
+already shown on their result cards (Split A −£11.72, Split B +£53.10) —
+proving correctness, not just "stopped crashing." Added a live e2e
+regression test (`client/tests/industry-sp-e2e.spec.ts`) reproducing the
+exact reported filter/date/row-range combination directly via `request`
+(no page navigation — fast). Committed (`abff9a7`), pushed, deployed
+(Lambda only — no client change this round).
+
+**Process note on test-suite choice:** user twice pushed back mid-session
+on slow test runs (background `playwright test --config
+playwright.msw.config.ts` invocations that turned out to be racing another
+agent's concurrent run on the same fixed port 3737 in a sibling worktree —
+`ps aux` showed a second `playwright test` process from
+`~/betfair-nlp-model-perf-e2e` bound to the same port, which is exactly the
+"Storybook port" gotcha this file already documents at the top, just for
+Playwright's MSW port instead). Killed the stuck local run, did **not**
+touch the other agent's process, and fell back to `yarn build`/`tsc` + the
+fast mocked Jest supertest suite + direct production `curl` verification
+for the rest of the session — matches this repo's existing
+UI-only-change-speed convention, extended here to "don't run the full MSW/
+e2e suite when another agent may be holding its fixed port, and a targeted
+mocked/live check answers the question just as well."
+
+**Not done:** did not re-run the full `tests-msw/industry-sp.spec.ts` suite
+or the live e2e suite end-to-end this session (fast mocked Jest + targeted
+production `curl` verification only, per the process note above) — worth
+a full pass next time either suite is run anyway.
+
+**Done — all three fixes committed, pushed to `origin/develop`, and
+deployed (web for tasks 1–2, Lambda for tasks 2–3). No worktree was
+created this session, so there is nothing to remove.**
