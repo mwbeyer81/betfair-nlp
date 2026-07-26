@@ -260,7 +260,7 @@ function parseCsvListParam(raw: unknown): string[] {
 }
 
 // Anonymous callers get a 100-race window on /api/industry-sp*, a
-// logged-in caller gets 1000 (see getSplitStats for the Split A/Split B
+// logged-in caller gets 10000 (see getSplitStats for the Split A/Split B
 // version of this same cap) — enforced here too since this is the plain
 // list endpoint "View Races" and the meeting/race drill-down flow hit
 // directly, with its own fromRow/toRow independent of /splits. An
@@ -268,7 +268,7 @@ function parseCsvListParam(raw: unknown): string[] {
 // cap", not "unlimited", so the cap can't be bypassed by simply omitting
 // toRow.
 function clampRowSpan(fromRow: number, toRow: number | null, isAuth: boolean): number {
-  const cap = isAuth ? 1000 : 100;
+  const cap = isAuth ? 10000 : 100;
   const maxTo = fromRow + cap - 1;
   return toRow == null ? maxTo : Math.min(toRow, maxTo);
 }
@@ -405,9 +405,9 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
 
     // Set by optionalJwtAuth (registered on /api/industry-sp above) —
-    // decides the Split A/Split B race cap: 100 anonymous, 1000 logged in.
+    // decides the Split A/Split B race cap: 100 anonymous, 10000 logged in.
     const isAuth = res.locals.isAuthenticated === true;
-    const raceCap = isAuth ? 1000 : 100;
+    const raceCap = isAuth ? 10000 : 100;
 
     const result = await industrySpService.getSplitStats(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
@@ -477,7 +477,7 @@ router.get("/api/industry-sp/race-convergence", async (req, res) => {
     // race cap the split cards themselves use, so the graph never scans
     // further than a split could anyway.
     const isAuth = res.locals.isAuthenticated === true;
-    const raceCap = isAuth ? 1000 : 100;
+    const raceCap = isAuth ? 10000 : 100;
     const toRow = Math.min(toRowRaw, fromRow + raceCap - 1);
 
     const data = await industrySpService.getRaceConvergenceSeries(

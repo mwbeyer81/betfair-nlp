@@ -147,7 +147,7 @@ const EMPTY_PNL: PnlStats = { staked: 0, returns: 0, pnl: 0 };
 // IndustrySpService.getSplitStats — used only for the cap banner's copy,
 // not for any request logic (the actual cap always comes from the
 // response's own `raceCap` field).
-const AUTHENTICATED_RACE_CAP = 1000;
+const AUTHENTICATED_RACE_CAP = 10000;
 
 // An explicit split's fromRowB can only be valid if the matched set is
 // actually that large — anything beyond totalRaces is unambiguously stale
@@ -340,7 +340,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
-  // 100 for an anonymous caller, 1000 once logged in — see
+  // 100 for an anonymous caller, 10000 once logged in — see
   // IndustrySpService.getSplitStats. Drives the cap banner below.
   const [raceCap, setRaceCap] = useState(1000);
   // null = "not fetched yet" (also the state while anonymous — there's
@@ -1479,7 +1479,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       {!isAuthenticated && (
         <View testID="industry-sp-benefits-banner" style={styles.benefitsBanner}>
           <Text style={styles.benefitsBannerText}>
-            Sign up free to see 10× more races per search — 1000 vs 100 when browsing anonymously.
+            Sign up free to see 100× more races per search — {AUTHENTICATED_RACE_CAP} vs 100 when browsing anonymously.
           </Text>
           <Button
             testID="industry-sp-benefits-banner-signup"

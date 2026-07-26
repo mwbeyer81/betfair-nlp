@@ -303,13 +303,13 @@ jest.mock("../../config/database", () => ({
                     meetingName: "Ascot — 1 January 2025",
                   },
                 ],
-                // 10000 (not 1) — large enough that it never dominates the
+                // 50000 (not 1) — large enough that it never dominates the
                 // raceCap-clamping tests below (getSplitStats now also
                 // clamps each split's toRow to the matched total, not just
                 // raceCap; a total of 1 would make every clamped toRow
                 // collapse to 1 regardless of raceCap, defeating the point
                 // of those tests).
-                total: [{ count: 10000 }],
+                total: [{ count: 50000 }],
                 pnlStats: [{ staked: 1, returns: 2, count: 1 }],
                 staked: 1,
                 returns: 2,
@@ -1439,19 +1439,19 @@ describe("API Endpoints", () => {
       expect(response.body.splitA.fromRow).toBe(1);
       expect(response.body.splitA.toRow).toBe(5);
       expect(response.body.splitB.fromRow).toBe(6);
-      // An open-ended toRowB is capped to a raceCap-wide span now (1000 for
+      // An open-ended toRowB is capped to a raceCap-wide span now (10000 for
       // an authenticated caller here), not left truly unlimited — see
       // getSplitStats' raceCap clamp.
-      expect(response.body.splitB.toRow).toBe(6 + 1000 - 1);
+      expect(response.body.splitB.toRow).toBe(6 + 10000 - 1);
     });
 
-    it("returns raceCap: 1000 for an authenticated caller", async () => {
+    it("returns raceCap: 10000 for an authenticated caller", async () => {
       const response = await request(app)
         .get("/api/industry-sp/splits")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
-      expect(response.body.raceCap).toBe(1000);
+      expect(response.body.raceCap).toBe(10000);
     });
 
     it("returns raceCap: 100 for an anonymous caller", async () => {
@@ -1471,30 +1471,30 @@ describe("API Endpoints", () => {
       expect(response.body.splitB.toRow).toBe(6000 + 100 - 1);
     });
 
-    it("clamps an explicit toRowA/toRowB span to 1000 races when authenticated", async () => {
+    it("clamps an explicit toRowA/toRowB span to 10000 races when authenticated", async () => {
       const response = await request(app)
-        .get("/api/industry-sp/splits?fromRowA=1&toRowA=5000&fromRowB=6000&toRowB=9000")
+        .get("/api/industry-sp/splits?fromRowA=1&toRowA=20000&fromRowB=6000&toRowB=30000")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
-      expect(response.body.splitA.toRow).toBe(1 + 1000 - 1);
-      expect(response.body.splitB.toRow).toBe(6000 + 1000 - 1);
+      expect(response.body.splitA.toRow).toBe(1 + 10000 - 1);
+      expect(response.body.splitB.toRow).toBe(6000 + 10000 - 1);
     });
 
     it("never clamps toRow beyond the matched totalRaces, even when raceCap would otherwise push it past the end", async () => {
       // Regression: reported live — raceCap clamping computed toRow as
       // fromRow + raceCap - 1 unconditionally, overshooting the real total
       // whenever the matched set was smaller than raceCap (the common case
-      // for any filtered/date-scoped view). fromRowB=9500 + the
-      // authenticated raceCap (1000) would naively land at 10499, well
-      // past the mocked totalRaces of 10000.
+      // for any filtered/date-scoped view). fromRowB=45000 + the
+      // authenticated raceCap (10000) would naively land at 54999, well
+      // past the mocked totalRaces of 50000.
       const response = await request(app)
-        .get("/api/industry-sp/splits?fromRowA=1&toRowA=5000&fromRowB=9500")
+        .get("/api/industry-sp/splits?fromRowA=1&toRowA=5000&fromRowB=45000")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
-      expect(response.body.totalRaces).toBe(10000);
-      expect(response.body.splitB.toRow).toBe(10000);
+      expect(response.body.totalRaces).toBe(50000);
+      expect(response.body.splitB.toRow).toBe(50000);
     });
 
     it("accepts minDate/maxDate without erroring", async () => {

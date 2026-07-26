@@ -177,7 +177,7 @@ test.describe("GET /api/industry-sp/splits (live server @ localhost:3000)", () =
     // Regression test: reported live via a screenshot — a narrow filter
     // (here, a single week, chosen because it reliably yields a fixed,
     // small matched set well under both the anonymous (100) and
-    // authenticated (1000) race caps) naturally yields far fewer matching
+    // authenticated (10000) race caps) naturally yields far fewer matching
     // races than the cap, and raceCap clamping used to compute toRow as
     // fromRow + raceCap - 1 unconditionally — producing a race range that
     // implied far more races than actually existed (reported live:
@@ -1094,7 +1094,7 @@ test.describe("Anonymous access (real app at localhost:80, no login)", () => {
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     const banner = page.getByTestId("industry-sp-benefits-banner");
     await expect(banner).toBeVisible();
-    await expect(banner).toContainText("1000");
+    await expect(banner).toContainText("10000");
   });
 
   // Doesn't call POST /api/auth/signup here (unlike the MSW/Storybook
