@@ -732,3 +732,28 @@ test.describe("Responsive layout — /runners (MSW mocked, MacBook landscape 172
     expect(width).toBeLessThan(MACBOOK_LANDSCAPE_VIEWPORT.width - 400);
   });
 });
+
+test.describe("Responsive layout — /results (MSW mocked, iPhone 12 mini, 375px)", () => {
+  test.use({ viewport: IPHONE_12_MINI_VIEWPORT });
+
+  test("no element overflows the viewport at 375px", async ({ page }) => {
+    await page.goto("/results");
+    await expect(page.getByTestId("saved-results-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("saved-results-loading")).not.toBeVisible({ timeout: 10000 });
+    const overflowing = await findOverflowingElements(page, IPHONE_12_MINI_VIEWPORT.width);
+    expect(overflowing, JSON.stringify(overflowing, null, 2)).toEqual([]);
+  });
+
+  test("result cards stack in a single column and remain tappable", async ({ page }) => {
+    await page.goto("/results");
+    await expect(page.getByTestId("saved-results-loading")).not.toBeVisible({ timeout: 10000 });
+    const card1 = page.getByTestId("saved-results-item-mock-result-1");
+    const card2 = page.getByTestId("saved-results-item-mock-result-2");
+    await expect(card1).toBeVisible();
+    await expect(card2).toBeVisible();
+    const box1 = await card1.boundingBox();
+    const box2 = await card2.boundingBox();
+    // Stacked, not side-by-side — card2 starts below card1 ends.
+    expect(box2!.y).toBeGreaterThanOrEqual(box1!.y + box1!.height - 1);
+  });
+});

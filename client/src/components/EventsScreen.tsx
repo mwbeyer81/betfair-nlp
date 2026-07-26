@@ -30,6 +30,7 @@ interface EventsScreenProps {
   onNavigateToChat: () => void;
   onNavigateToAllRunners: () => void;
   onNavigateToIsp: () => void;
+  onNavigateToResults: () => void;
   onLogout?: () => void;
 }
 
@@ -37,6 +38,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
   onNavigateToChat,
   onNavigateToAllRunners,
   onNavigateToIsp,
+  onNavigateToResults,
   onLogout,
 }) => {
   const [groups, setGroups] = useState<EventGroup[]>([]);
@@ -194,6 +196,17 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
             labelStyle={styles.headerButtonLabel}
           >
             Chat →
+          </Button>
+          <Button
+            testID="events-screen-results-button"
+            mode="contained"
+            compact
+            buttonColor={colors.accent}
+            onPress={wrap(onNavigateToResults)}
+            style={styles.headerButton}
+            labelStyle={styles.headerButtonLabel}
+          >
+            Results →
           </Button>
           {onLogout && (
             <Button

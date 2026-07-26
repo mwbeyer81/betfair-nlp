@@ -93,7 +93,7 @@ tiebreaker.
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-convergence-filters` | `feat/convergence-filters-summary` | Convergence panel filter summary | in progress, not merged — uncommitted changes touching `IndustrySpScreen.tsx` and `PnlConvergencePanel.tsx` as of 2026-07-26 (found via `git worktree list`, not previously listed here — table was stale) |
 | `~/betfair-nlp-model-perf-filters` | `model-perf-filters` | Model Performance dashboard doesn't actually query the server with the user's filters (Class/Type/date range) — it re-filters a fixed, hardcoded 500-race batch (`MODEL_PERFORMANCE_RACE_LIMIT`, earliest-scored races only, see the `model-perf-e2e` entry above) client-side, so it can never reach real 2024+ test-period data no matter what filters are applied. Fixing `loadRacesForModelVersion()`/`ModelPerformanceDashboard.tsx` in `IndustrySpScreen.tsx` to send real filter params server-side. **Touching `IndustrySpScreen.tsx`** — watch for conflicts with `convergence-filters` and `rename-labels` above. | in progress |
-| `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters`/`model-perf-filters` above, all four of which are also live on that file right now. Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | in progress |
+| `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters`/`model-perf-filters` above, all four of which are also live on that file right now. Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **done** — all 5 test tiers green, see dated entry below; ready to merge |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`, and
@@ -2573,3 +2573,107 @@ reading the code alone):**
    fixed by `trap - EXIT INT TERM` as the first line inside `cleanup()`.
 
 Worktree left in place, not yet merged — see table above.
+
+---
+
+## 2026-07-26 (later still) — Agent in `~/betfair-nlp-saved-results` (branch `feat/saved-results`)
+
+**Task:** New feature — save the current Industry SP filter set as a named,
+persisted "Result" (filters + a static PnL/graph snapshot, computed once at
+save time and never recomputed), a new "Results" burger-menu item on every
+screen opening a sortable list, a detail view with tap-through to the full
+graph, and restore-into-Filters + delete. First real use of the new
+`local-ci-e2e-tests` skill for a brand-new feature (as opposed to a bug fix)
+— followed its "run repeatedly as you go" guidance throughout.
+
+**Backend** (`src/lib/dao/saved-filter-set-dao.ts`, `src/lib/service/
+saved-filter-set-service.ts`, 4 new routes in `router.ts` after
+`router.use(jwtAuth)`): new `saved_filter_sets` collection — the **first
+user-owned MongoDB resource in this codebase**; every DAO method takes and
+filters by `userId` (JWT `sub`), with no "get any doc by id" method at all,
+so cross-user leakage can't happen even if a route forgot an ownership
+check. Save-time snapshot reuses `IndustrySpService.getRaceConvergenceSeries`
+directly (already returns exactly the `{raceRowNumber, cumulativeStaked,
+cumulativeReturns, cumulativePnl, roiPercent}[]` shape needed) rather than
+adding new DAO aggregation — `pnlStats` is just its last point.
+
+**Frontend**: `SaveResultDialog.tsx` (name prompt, wired into
+`IndustrySpScreen`'s Apply flow — Save re-applies the draft filters first,
+then reads `window.location.search` once `syncUrl` has written it, same
+technique `App.tsx`'s `onViewRaces` already uses), `SavedResultsListScreen.
+tsx` (responsive card grid, sort toggle, inline delete-confirm, SVG
+sparkline per card), `SavedResultDetailScreen.tsx` (reuses `SplitDetailPanel`
+and `PnlConvergencePanel` **unmodified** — the latter already takes `points`
+as a plain prop rather than fetching internally, so a static saved snapshot
+and the live convergence chart are just two different callers of the same
+component). New `/results` and `/results/detail` routes; `onNavigateToResults`
+threaded through all 4 screens (`EventsScreen`/`ChatScreen`/
+`AllRunnersScreen`/`IndustrySpScreen`).
+
+**Gotcha hit and fixed:** `SplitDetailPanel` is a full-screen `position:
+"absolute"` overlay by design (zIndex 100) — reusing it directly inside a
+plain scroll view buried the detail screen's own Restore/Delete/Graph
+buttons behind it. Fixed with a second, higher-zIndex absolutely-positioned
+bottom action bar rather than modifying the shared component.
+
+**Testing — new primary tier used as intended:** wrote `client/tests-local-ci/
+saved-results-{ui,api}.spec.ts` (11 tests) and ran `yarn test:e2e:local-ci`
+repeatedly while building each piece, exactly as the skill recommends. The
+API tier cross-checks a saved snapshot's `pnlStats`/`graphPoints` against a
+**live** `GET /api/industry-sp/race-convergence` call with the same filters
+(both routes share identical param-clamping logic) rather than hardcoding
+magic numbers — more robust than guessing exact PnL figures for the seeded
+slice. Final run: **18/18 passed** (7 pre-existing + 11 new), clean
+teardown. Also added the Supertest block (`app.test.ts`, 14 tests incl.
+cross-user 404 checks), the DAO integration test (6 tests, throwaway DB),
+Storybook stories for all 3 new components plus nav-click stories on the 4
+wired screens, `client/tests/saved-results-e2e.spec.ts` (traditional tier),
+and MSW mocks/spec (`tests-msw/fixtures.ts` + `saved-results.spec.ts` +
+a 375px `responsive.spec.ts` addition).
+
+**Two tiers deliberately not exercised, both for reasons unrelated to this
+feature:**
+- `client/tests/saved-results-e2e.spec.ts` — the shared dev Mongo on this
+  VM (`localhost:27019`, db `betfair_nlp_dev`) currently has 30 seeded races
+  but **zero seeded users** — `matthew@backbet.co.uk` (the standing test
+  identity every `client/tests/*` spec assumes exists) is missing. Not
+  something this session caused or fixed; noted here for whoever next needs
+  that tier working. The spec file itself is written and ready.
+- `client/tests-msw/` — hit a live port collision on 3737 with a concurrent
+  agent's own MSW run (`~/betfair-nlp-convergence-filters`), exactly the
+  failure mode `AGENTS.md` already warns about for fixed test ports. User
+  explicitly said to bail rather than fight for the port. Mocks/spec file
+  are written (`tests-msw/fixtures.ts`'s `setupApiMocks` now backs
+  `/api/saved-filter-sets` with a stateful in-memory fixture); just never
+  run this session.
+
+**Also discovered:** the shared local `mongod` on port 27019 was down
+twice during this session (once before starting, once mid-session — likely
+killed as a side effect of `local-ci-e2e.sh`'s stale-pid-kill step, though
+not confirmed) — restarted both times with the standard `--port 27019
+--bind_ip 127.0.0.1 --dbpath /home/ubuntu/mongo-data-27019 --fork` command
+from the top-of-file infra note. Worth another agent investigating whether
+`local-ci-e2e.sh`'s cleanup is somehow too broad.
+
+**Gitignore gotcha:** `data/` in `.gitignore` (trailing slash) does **not**
+match a `data` symlink pointing at a directory — only a real directory.
+`git check-ignore data` confirmed it's untracked-but-not-ignored in this
+worktree, so `git add -A`/`git add .` would have tried to commit the
+symlink itself (a broken, non-portable path on any other machine). Staged
+files explicitly instead. Worth fixing properly (e.g. `data` without the
+trailing slash, or excluding symlinks some other way) if this keeps biting
+every new worktree that symlinks it in for `local-ci-e2e-tests`.
+
+**Verified:** `yarn build` (client) clean; full backend `npx jest` — same 6
+pre-existing failing suites/42 failures as the pre-session baseline (all
+unrelated to this feature — no `saved-filter-set`/`router.ts`/`IndustrySpScreen`
+involvement in any of them); `app.test.ts` + the new DAO integration test
+145/152 (7 skipped, unrelated) and 6/6 respectively, both fully green;
+`yarn storybook:test-runner` — 303 passed, 6 pre-existing failures
+(confirmed identical to the ones already root-caused and baseline-verified
+earlier this session in the `model-perf-e2e` entry above — Set-to-string
+URL bugs in course-chip filtering, `AllRunnersScreen`, `EventBadgesVisible`,
+a `RunnerDetailScreen` trainer-link race-type mismatch — none touch this
+feature's files); final `yarn test:e2e:local-ci` — 18/18.
+
+**Not yet done:** merge to `develop`, deploy. Worktree left in place.

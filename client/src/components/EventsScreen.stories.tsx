@@ -43,6 +43,7 @@ const meta: Meta<typeof EventsScreen> = {
     onNavigateToChat: fn(),
     onNavigateToAllRunners: fn(),
     onNavigateToIsp: fn(),
+    onNavigateToResults: fn(),
     onLogout: fn(),
   },
 };
@@ -121,6 +122,16 @@ export const ChatButtonNavigates: Story = {
 
     await userEvent.click(chatBtn);
     await expect(args.onNavigateToChat).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const ResultsButtonNavigates: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    const resultsBtn = canvas.getByTestId("events-screen-results-button");
+    await expect(resultsBtn).toBeInTheDocument();
+    await userEvent.click(resultsBtn);
+    await expect(args.onNavigateToResults).toHaveBeenCalledTimes(1);
   },
 };
 

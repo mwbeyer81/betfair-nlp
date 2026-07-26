@@ -196,6 +196,45 @@ export interface ModelVersionsResponse {
   count: number;
 }
 
+export interface SavedFilterSetPnlStats {
+  staked: number;
+  returns: number;
+  pnl: number;
+  count: number;
+}
+
+export interface SavedFilterSetGraphPoint {
+  raceRowNumber: number;
+  cumulativeStaked: number;
+  cumulativeReturns: number;
+  cumulativePnl: number;
+  roiPercent: number;
+}
+
+// filters is the raw ISP_FILTER_PARAM_NAMES string map — the exact query
+// params IndustrySpScreen's own syncUrl() writes (see
+// client/src/utils/ispUrlParams.ts) — so restoring is just navigating to
+// /isp with these as the query string, no parsing needed.
+export interface SavedFilterSet {
+  id: string;
+  name: string;
+  filters: Record<string, string>;
+  pnlStats: SavedFilterSetPnlStats;
+  graphPoints: SavedFilterSetGraphPoint[];
+  createdAt: string;
+}
+
+export interface SavedFilterSetResponse {
+  success: boolean;
+  data: SavedFilterSet;
+}
+
+export interface SavedFilterSetsResponse {
+  success: boolean;
+  data: SavedFilterSet[];
+  count: number;
+}
+
 export interface AuthResult {
   token: string;
   // Deliberately not derived from the JWT itself — verification status can
@@ -545,6 +584,46 @@ class ChatApi {
       { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch model versions");
+    return response.json();
+  }
+
+  // Persists the current Industry SP filter set as a named "Result" — a
+  // static PnL + graph snapshot computed once on the backend at save time,
+  // never recomputed on view. `filters` should be exactly
+  // window.location.search's params (Object.fromEntries(new
+  // URLSearchParams(...))) right after Apply, so the saved snapshot always
+  // matches what the Filters screen actually showed.
+  async saveFilterSet(filters: Record<string, string>, name?: string): Promise<SavedFilterSetResponse> {
+    const response = await fetch(`${this.baseUrl}/api/saved-filter-sets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...this.authHeader() },
+      body: JSON.stringify({ name, filters }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Failed to save result");
+    }
+    return response.json();
+  }
+
+  async getSavedFilterSets(): Promise<SavedFilterSetsResponse> {
+    const response = await fetch(`${this.baseUrl}/api/saved-filter-sets`, { headers: this.authHeader() });
+    if (!response.ok) throw new Error("Failed to fetch saved results");
+    return response.json();
+  }
+
+  async getSavedFilterSet(id: string): Promise<SavedFilterSetResponse> {
+    const response = await fetch(`${this.baseUrl}/api/saved-filter-sets/${id}`, { headers: this.authHeader() });
+    if (!response.ok) throw new Error("Failed to fetch saved result");
+    return response.json();
+  }
+
+  async deleteSavedFilterSet(id: string): Promise<{ success: boolean }> {
+    const response = await fetch(`${this.baseUrl}/api/saved-filter-sets/${id}`, {
+      method: "DELETE",
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to delete saved result");
     return response.json();
   }
 

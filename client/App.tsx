@@ -16,6 +16,8 @@ import { IndustryRaceScreen } from "./src/components/IndustryRaceScreen";
 import { RunnerDetailScreen } from "./src/components/RunnerDetailScreen";
 import { RunnerHistoryScreen } from "./src/components/RunnerHistoryScreen";
 import { TrainerDetailScreen } from "./src/components/TrainerDetailScreen";
+import { SavedResultsListScreen } from "./src/components/SavedResultsListScreen";
+import { SavedResultDetailScreen } from "./src/components/SavedResultDetailScreen";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
 import { buildReturnParams, resolveReturn } from "./src/utils/returnNav";
@@ -98,11 +100,17 @@ export default function App() {
         <ChatScreen
           onLogout={() => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); }}
           onNavigateToEvents={() => navigate("/events")}
+          onNavigateToResults={() => navigate("/results")}
         />
       );
     }
     if (route === "/runners") {
-      return <AllRunnersScreen onNavigateToEvents={() => navigate("/events")} />;
+      return (
+        <AllRunnersScreen
+          onNavigateToEvents={() => navigate("/events")}
+          onNavigateToResults={() => navigate("/results")}
+        />
+      );
     }
     if (route === "/isp") {
       return (
@@ -129,6 +137,7 @@ export default function App() {
           onNavigateToChat={() => navigate("/chat")}
           onNavigateToEvents={() => navigate("/events")}
           onNavigateToRunners={() => navigate("/runners")}
+          onNavigateToResults={() => navigate("/results")}
         />
       );
     }
@@ -227,12 +236,35 @@ export default function App() {
         />
       );
     }
+    if (route === "/results") {
+      return (
+        <SavedResultsListScreen
+          onBack={() => navigate("/events")}
+          onOpenResult={(id) => navigate("/results/detail", `id=${id}`)}
+          onNavigateToChat={() => navigate("/chat")}
+          onNavigateToEvents={() => navigate("/events")}
+          onNavigateToRunners={() => navigate("/runners")}
+          onNavigateToIsp={() => navigate("/isp")}
+        />
+      );
+    }
+    if (route === "/results/detail") {
+      const id = queryParams.get("id") ?? "";
+      return (
+        <SavedResultDetailScreen
+          id={id}
+          onBack={() => navigate("/results")}
+          onRestore={(filters) => navigate("/isp", new URLSearchParams(filters).toString())}
+        />
+      );
+    }
     return (
       <EventsScreen
         onNavigateToChat={() => navigate("/chat")}
         onNavigateToAllRunners={() => navigate("/runners")}
         onNavigateToIsp={() => navigate("/isp")}
         onLogout={() => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); }}
+        onNavigateToResults={() => navigate("/results")}
       />
     );
   })();

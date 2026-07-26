@@ -21,6 +21,8 @@ import { chatApi, IspFilterBounds, PnlStats, RaceConvergencePoint, IspRace, Mode
 import { SplitDetailPanel } from "./SplitDetailPanel";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
 import { ModelPerformanceDashboard } from "./ModelPerformanceDashboard";
+import { SaveResultDialog } from "./SaveResultDialog";
+import { buildAutoResultNamePreview } from "../utils/savedResultName";
 import { DateRangePicker } from "./DateRangePicker";
 import { PageContainer } from "./PageContainer";
 import { buildSplitsCacheKey, readSplitsCache, writeSplitsCache, CachedSplitsResult } from "../utils/ispSplitsCache";
@@ -47,6 +49,7 @@ interface IndustrySpScreenProps {
   onNavigateToChat: () => void;
   onNavigateToEvents: () => void;
   onNavigateToRunners: () => void;
+  onNavigateToResults: () => void;
 }
 
 // Filter values are persisted to the URL query string (using the same param
@@ -249,6 +252,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   onNavigateToChat,
   onNavigateToEvents,
   onNavigateToRunners,
+  onNavigateToResults,
 }) => {
   const { isTablet, isDesktop } = useResponsive();
   // Collapsed behind a burger icon on phone widths only — at tablet+ the
@@ -355,6 +359,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const [accountPhone, setAccountPhone] = useState<string | null>(null);
   const [showAccountPanel, setShowAccountPanel] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [savingResult, setSavingResult] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveConfirmed, setSaveConfirmed] = useState(false);
   const [filterBounds, setFilterBounds] = useState<IspFilterBounds | null>(null);
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
@@ -437,6 +445,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [totalRacesB, setTotalRacesB] = useState(0);
   const [totalRunnersB, setTotalRunnersB] = useState(0);
   const [pnlStatsB, setPnlStatsB] = useState<PnlStats>(EMPTY_PNL);
+
+  useEffect(() => {
+    if (!saveConfirmed) return;
+    const timer = setTimeout(() => setSaveConfirmed(false), 3000);
+    return () => clearTimeout(timer);
+  }, [saveConfirmed]);
 
   // Re-checks verification status whenever the auth session actually
   // changes (login, signup, logout) — covers both "session restored from
@@ -600,6 +614,39 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setToRowB(toB);
 
     setFetchTrigger(t => t + 1);
+  }
+
+  // Re-applies the draft filters (so a saved snapshot always matches
+  // committed, URL-synced state — never a stray draft edit the user
+  // hadn't hit Apply on) then opens the naming dialog. The dialog's
+  // confirm button stays disabled while isLoading is true (see
+  // SaveResultDialog's `saving` prop below), so by the time the user can
+  // actually submit, syncUrl (fired once the apply fetch resolves) has
+  // already written the committed filters to window.location.search.
+  function handleOpenSaveDialog() {
+    if (!isAuthenticated) {
+      onRequestAuth();
+      return;
+    }
+    applyFilter();
+    setSaveError(null);
+    setSaveConfirmed(false);
+    setShowSaveDialog(true);
+  }
+
+  async function handleConfirmSave(name: string) {
+    setSavingResult(true);
+    setSaveError(null);
+    try {
+      const filters = Object.fromEntries(new URLSearchParams(window.location.search));
+      await chatApi.saveFilterSet(filters, name || undefined);
+      setShowSaveDialog(false);
+      setSaveConfirmed(true);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save result.");
+    } finally {
+      setSavingResult(false);
+    }
   }
 
   function resetFilters() {
@@ -1371,6 +1418,17 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               Account
             </Button>
             <Button
+              testID="industry-sp-menu-results-link"
+              mode="contained"
+              compact
+              buttonColor={colors.accent}
+              onPress={wrap(onNavigateToResults)}
+              style={styles.headerButton}
+              labelStyle={styles.headerButtonLabel}
+            >
+              Results →
+            </Button>
+            <Button
               testID="industry-sp-logout-button"
               mode="contained"
               compact
@@ -1759,6 +1817,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           >
             Reset
           </Button>
+          <Button
+            testID="industry-sp-filter-save"
+            mode="outlined"
+            compact
+            onPress={handleOpenSaveDialog}
+            style={styles.resetBtn}
+            labelStyle={styles.resetBtnLabel}
+          >
+            Save Result
+          </Button>
         </View>
       </View>
       )}
@@ -1876,6 +1944,19 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           onClose={() => setShowModelPerformancePanel(false)}
         />
       )}
+      <SaveResultDialog
+        visible={showSaveDialog}
+        autoNamePreview={buildAutoResultNamePreview(Object.fromEntries(new URLSearchParams(window.location.search)))}
+        saving={savingResult || isLoading}
+        error={saveError}
+        onSave={handleConfirmSave}
+        onCancel={() => setShowSaveDialog(false)}
+      />
+      {saveConfirmed && (
+        <View testID="industry-sp-save-confirmed-banner" style={styles.saveConfirmedBanner}>
+          <Text style={styles.saveConfirmedText}>Saved to Results</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -1884,6 +1965,19 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  saveConfirmedBanner: {
+    position: "absolute",
+    bottom: spacing.lg,
+    alignSelf: "center",
+    backgroundColor: colors.success,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  saveConfirmedText: {
+    color: colors.surface,
+    fontWeight: "600",
   },
   scroll: {
     flex: 1,

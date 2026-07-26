@@ -217,6 +217,7 @@ const meta: Meta<typeof IndustrySpScreen> = {
     onNavigateToChat: fn(),
     onNavigateToEvents: fn(),
     onNavigateToRunners: fn(),
+    onNavigateToResults: fn(),
   },
 };
 
@@ -370,6 +371,20 @@ export const DefaultSplitsAreHalfAndHalf: Story = {
     await expect((canvas.getByTestId("industry-sp-to-row-a") as HTMLInputElement).value).toBe("1250");
     await expect((canvas.getByTestId("industry-sp-from-row-b") as HTMLInputElement).value).toBe("1251");
     await expect((canvas.getByTestId("industry-sp-to-row-b") as HTMLInputElement).value).toBe("2500");
+  },
+};
+
+export const ResultsLinkCallsOnNavigateToResults: Story = {
+  // A fresh mock, not meta.args' shared instance — see the comment on
+  // LogOutButtonCallsOnLogout below for why.
+  args: { onNavigateToResults: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+
+    const btn = canvas.getByTestId("industry-sp-menu-results-link");
+    await expect(btn).toBeInTheDocument();
+    await userEvent.click(btn);
+    await expect(args.onNavigateToResults).toHaveBeenCalledTimes(1);
   },
 };
 

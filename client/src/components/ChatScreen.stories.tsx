@@ -83,6 +83,7 @@ const meta: Meta<typeof ChatScreen> = {
   ],
   args: {
     onNavigateToEvents: fn(),
+    onNavigateToResults: fn(),
     onLogout: fn(),
   },
 };
@@ -100,6 +101,17 @@ export const EventsButtonNavigates: Story = {
     await expect(eventsBtn).toBeInTheDocument();
     await userEvent.click(eventsBtn);
     await expect(args.onNavigateToEvents).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const ResultsButtonNavigates: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+
+    const resultsBtn = canvas.getByTestId("chat-screen-results-button");
+    await expect(resultsBtn).toBeInTheDocument();
+    await userEvent.click(resultsBtn);
+    await expect(args.onNavigateToResults).toHaveBeenCalledTimes(1);
   },
 };
 

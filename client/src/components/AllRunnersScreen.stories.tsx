@@ -85,6 +85,7 @@ const meta: Meta<typeof AllRunnersScreen> = {
   },
   args: {
     onNavigateToEvents: fn(),
+    onNavigateToResults: fn(),
   },
 };
 
@@ -181,6 +182,17 @@ export const EventsButtonNavigates: Story = {
     await expect(btn).toBeInTheDocument();
     await userEvent.click(btn);
     await expect(args.onNavigateToEvents).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const ResultsButtonNavigates: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+
+    const btn = canvas.getByTestId("all-runners-screen-results-button");
+    await expect(btn).toBeInTheDocument();
+    await userEvent.click(btn);
+    await expect(args.onNavigateToResults).toHaveBeenCalledTimes(1);
   },
 };
 

@@ -26,6 +26,7 @@ import { colors, statusPill, radii, spacing } from "../theme";
 
 interface AllRunnersScreenProps {
   onNavigateToEvents: () => void;
+  onNavigateToResults: () => void;
 }
 
 function stakeToWin1(bsp: number): number {
@@ -93,6 +94,7 @@ function formatRaceDate(isoTime: string): string {
 
 export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   onNavigateToEvents,
+  onNavigateToResults,
 }) => {
   const [races, setRaces] = useState<RaceWithEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -304,6 +306,17 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             labelStyle={styles.headerButtonLabel}
           >
             ← Events
+          </Button>
+          <Button
+            testID="all-runners-screen-results-button"
+            mode="contained"
+            compact
+            buttonColor={colors.accent}
+            onPress={wrap(onNavigateToResults)}
+            style={styles.headerButton}
+            labelStyle={styles.headerButtonLabel}
+          >
+            Results →
           </Button>
         </HeaderActionsContainer>
       </View>

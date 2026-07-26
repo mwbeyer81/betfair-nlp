@@ -42,6 +42,19 @@ const mockUsers: MockUserDoc[] = [
   },
 ];
 
+// In-memory "saved_filter_sets" table backing the mocked collection below —
+// stateful across tests in this file, same pattern as mockUsers.
+interface MockSavedFilterSetDoc {
+  _id: InstanceType<typeof ObjectId>;
+  userId: string;
+  name: string;
+  filters: Record<string, string>;
+  pnlStats: { staked: number; returns: number; pnl: number; count: number };
+  graphPoints: unknown[];
+  createdAt: string;
+}
+const mockSavedFilterSets: MockSavedFilterSetDoc[] = [];
+
 beforeAll(async () => {
   const res = await request(app)
     .post("/api/auth/login")
@@ -213,6 +226,33 @@ jest.mock("../../config/database", () => ({
                     ],
                   },
                 ]),
+              }),
+            };
+          }
+          if (name === "saved_filter_sets") {
+            return {
+              insertOne: jest.fn().mockImplementation(async (doc: Record<string, unknown>) => {
+                const _id = new ObjectId();
+                mockSavedFilterSets.push({ ...doc, _id } as MockSavedFilterSetDoc);
+                return { insertedId: _id };
+              }),
+              find: jest.fn().mockImplementation((query: { userId?: string }) => ({
+                sort: jest.fn().mockReturnThis(),
+                toArray: jest.fn().mockResolvedValue(
+                  mockSavedFilterSets
+                    .filter(d => d.userId === query?.userId)
+                    .slice()
+                    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+                ),
+              })),
+              findOne: jest.fn().mockImplementation(async (query: { _id?: unknown; userId?: string }) => {
+                return mockSavedFilterSets.find(d => String(d._id) === String(query?._id) && d.userId === query?.userId) ?? null;
+              }),
+              deleteOne: jest.fn().mockImplementation(async (query: { _id?: unknown; userId?: string }) => {
+                const index = mockSavedFilterSets.findIndex(d => String(d._id) === String(query?._id) && d.userId === query?.userId);
+                if (index === -1) return { deletedCount: 0 };
+                mockSavedFilterSets.splice(index, 1);
+                return { deletedCount: 1 };
               }),
             };
           }
@@ -1292,6 +1332,155 @@ describe("API Endpoints", () => {
       expect(typeof version.runMeta.trainRows).toBe("number");
       expect(typeof version.performanceMetrics.aucRoc).toBe("number");
       expect(Array.isArray(version.performanceMetrics.calibrationTable)).toBe(true);
+    });
+  });
+
+  describe("/api/saved-filter-sets", () => {
+    const SECOND_USER_EMAIL = "second.user@backbet.co.uk";
+    const SECOND_USER_PASSWORD = "secondpass";
+    let secondUserToken: string;
+
+    beforeAll(async () => {
+      mockUsers.push({
+        _id: new ObjectId(),
+        email: SECOND_USER_EMAIL,
+        passwordHash: bcrypt.hashSync(SECOND_USER_PASSWORD, 10),
+        createdAt: new Date(),
+        emailVerified: true,
+        verificationToken: null,
+        verificationTokenExpiresAt: null,
+      });
+      const res = await request(app)
+        .post("/api/auth/login")
+        .send({ email: SECOND_USER_EMAIL, password: SECOND_USER_PASSWORD });
+      secondUserToken = res.body.token;
+    });
+
+    it("POST rejects without auth", async () => {
+      await request(app).post("/api/saved-filter-sets").send({ filters: { courses: "Ascot" } }).expect(401);
+    });
+    it("GET list rejects without auth", async () => {
+      await request(app).get("/api/saved-filter-sets").expect(401);
+    });
+    it("GET by id rejects without auth", async () => {
+      await request(app).get("/api/saved-filter-sets/000000000000000000000000").expect(401);
+    });
+    it("DELETE rejects without auth", async () => {
+      await request(app).delete("/api/saved-filter-sets/000000000000000000000000").expect(401);
+    });
+
+    it("POST without a filters body returns 400", async () => {
+      await request(app)
+        .post("/api/saved-filter-sets")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ name: "No filters" })
+        .expect(400);
+    });
+
+    let savedId: string;
+
+    it("POST creates a result and returns 201 with the computed snapshot", async () => {
+      const response = await request(app)
+        .post("/api/saved-filter-sets")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ name: "Ascot favourites", filters: { courses: "Ascot", minDate: "2026-01-01", maxDate: "2026-01-01" } })
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(typeof response.body.data.id).toBe("string");
+      expect(response.body.data.name).toBe("Ascot favourites");
+      expect(response.body.data.filters).toEqual({ courses: "Ascot", minDate: "2026-01-01", maxDate: "2026-01-01" });
+      // From the shared aggregate mock's convergence-point fixture
+      // (cumulativeStaked: 1, cumulativeReturns: 2) — see the "Shared mock"
+      // comment above the aggregate mock definition.
+      expect(response.body.data.pnlStats).toEqual({ staked: 1, returns: 2, pnl: 1, count: 1 });
+      expect(response.body.data.graphPoints).toHaveLength(1);
+      expect(response.body.data.graphPoints[0]).toMatchObject({ raceRowNumber: 1, cumulativeStaked: 1, cumulativeReturns: 2, cumulativePnl: 1 });
+      savedId = response.body.data.id;
+    });
+
+    it("POST with a blank name falls back to an auto-generated non-empty name", async () => {
+      const response = await request(app)
+        .post("/api/saved-filter-sets")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ filters: { courses: "Ascot", minDate: "2026-01-01", maxDate: "2026-01-01" } })
+        .expect(201);
+
+      expect(response.body.data.name.length).toBeGreaterThan(0);
+      expect(response.body.data.name).toContain("Ascot");
+    });
+
+    it("GET list returns the created result with count matching data.length", async () => {
+      const response = await request(app)
+        .get("/api/saved-filter-sets")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.count).toBe(response.body.data.length);
+      expect(response.body.data.some((r: { id: string }) => r.id === savedId)).toBe(true);
+    });
+
+    it("GET by id returns the matching result", async () => {
+      const response = await request(app)
+        .get(`/api/saved-filter-sets/${savedId}`)
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.data.id).toBe(savedId);
+      expect(response.body.data.name).toBe("Ascot favourites");
+    });
+
+    it("GET by unknown id returns 404", async () => {
+      await request(app)
+        .get("/api/saved-filter-sets/000000000000000000000000")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(404);
+    });
+
+    it("GET by another user's id returns 404, never leaking another user's data", async () => {
+      await request(app)
+        .get(`/api/saved-filter-sets/${savedId}`)
+        .set("Authorization", `Bearer ${secondUserToken}`)
+        .expect(404);
+    });
+
+    it("second user's list does not include the first user's results", async () => {
+      const response = await request(app)
+        .get("/api/saved-filter-sets")
+        .set("Authorization", `Bearer ${secondUserToken}`)
+        .expect(200);
+
+      expect(response.body.data).toEqual([]);
+    });
+
+    it("DELETE by another user's id returns 404 and leaves the result intact", async () => {
+      await request(app)
+        .delete(`/api/saved-filter-sets/${savedId}`)
+        .set("Authorization", `Bearer ${secondUserToken}`)
+        .expect(404);
+
+      await request(app)
+        .get(`/api/saved-filter-sets/${savedId}`)
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+    });
+
+    it("DELETE removes the result, and a second delete returns 404", async () => {
+      await request(app)
+        .delete(`/api/saved-filter-sets/${savedId}`)
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      await request(app)
+        .get(`/api/saved-filter-sets/${savedId}`)
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(404);
+
+      await request(app)
+        .delete(`/api/saved-filter-sets/${savedId}`)
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(404);
     });
   });
 

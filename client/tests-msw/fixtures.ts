@@ -449,6 +449,81 @@ async function setupApiMocks(page: Page) {
   await page.route("**/health", (route) =>
     route.fulfill({ json: { status: "OK", service: "Betfair NLP API", database: "connected" } })
   );
+
+  // Stateful in-memory fixture, scoped to this call (fresh per test via the
+  // test/anonTest fixtures below) — mirrors real create/list/get/delete
+  // semantics closely enough to test the full UI loop against a static
+  // build, without a real backend.
+  const mockSavedResults: {
+    id: string;
+    name: string;
+    filters: Record<string, string>;
+    pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    graphPoints: { raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[];
+    createdAt: string;
+  }[] = [
+    {
+      id: "mock-result-1",
+      name: "Ascot favourites",
+      filters: { courses: "Ascot", minDate: "2026-01-01", maxDate: "2026-01-01" },
+      pnlStats: { staked: 20, returns: 15, pnl: -5, count: 4 },
+      graphPoints: [
+        { raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 0, cumulativePnl: -5, roiPercent: -100 },
+        { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 9, cumulativePnl: -1, roiPercent: -10 },
+        { raceRowNumber: 3, cumulativeStaked: 15, cumulativeReturns: 15, cumulativePnl: 0, roiPercent: 0 },
+        { raceRowNumber: 4, cumulativeStaked: 20, cumulativeReturns: 15, cumulativePnl: -5, roiPercent: -25 },
+      ],
+      createdAt: "2026-01-15T09:00:00.000Z",
+    },
+    {
+      id: "mock-result-2",
+      name: "Nottingham class 1",
+      filters: { courses: "Nottingham", raceClasses: "Class 1" },
+      pnlStats: { staked: 10, returns: 18, pnl: 8, count: 2 },
+      graphPoints: [
+        { raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 9, cumulativePnl: 4, roiPercent: 80 },
+        { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 18, cumulativePnl: 8, roiPercent: 80 },
+      ],
+      createdAt: "2026-01-20T09:00:00.000Z",
+    },
+  ];
+
+  await page.route((url) => url.pathname === "/api/saved-filter-sets", (route) => {
+    if (route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as { name?: string; filters: Record<string, string> };
+      const created = {
+        id: `mock-result-${mockSavedResults.length + 1}`,
+        name: body.name?.trim() || `Auto name · ${Object.values(body.filters)[0] ?? "All races"}`,
+        filters: body.filters,
+        pnlStats: { staked: 20, returns: 15, pnl: -5, count: 4 },
+        graphPoints: mockSavedResults[0].graphPoints,
+        createdAt: new Date().toISOString(),
+      };
+      mockSavedResults.unshift(created);
+      route.fulfill({ status: 201, json: { success: true, data: created } });
+      return;
+    }
+    route.fulfill({ json: { success: true, data: mockSavedResults, count: mockSavedResults.length } });
+  });
+
+  await page.route((url) => url.pathname.startsWith("/api/saved-filter-sets/"), (route) => {
+    const id = route.request().url().split("/api/saved-filter-sets/")[1];
+    const index = mockSavedResults.findIndex(r => r.id === id);
+    if (route.request().method() === "DELETE") {
+      if (index === -1) {
+        route.fulfill({ status: 404, json: { success: false, error: "Not found" } });
+        return;
+      }
+      mockSavedResults.splice(index, 1);
+      route.fulfill({ json: { success: true } });
+      return;
+    }
+    if (index === -1) {
+      route.fulfill({ status: 404, json: { success: false, error: "Not found" } });
+      return;
+    }
+    route.fulfill({ json: { success: true, data: mockSavedResults[index] } });
+  });
 }
 
 // Fake JWT with exp=9999999999 (year 2286) — satisfies isTokenExpired() check in App.tsx

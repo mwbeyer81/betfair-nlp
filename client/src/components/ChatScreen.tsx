@@ -30,11 +30,13 @@ const MAX_HISTORY_TURNS = 20;
 interface ChatScreenProps {
   onLogout?: () => void;
   onNavigateToEvents: () => void;
+  onNavigateToResults: () => void;
 }
 
 export const ChatScreen: React.FC<ChatScreenProps> = ({
   onLogout,
   onNavigateToEvents,
+  onNavigateToResults,
 }) => {
   const { isTablet, open: menuOpen, setOpen: setMenuOpen, wrap } = useHeaderMenu();
   const [messages, setMessages] = useState<MessageData[]>([]);
@@ -124,6 +126,16 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             labelStyle={styles.headerButtonLabel}
           >
             ← Events
+          </Button>
+          <Button
+            testID="chat-screen-results-button"
+            mode="contained-tonal"
+            onPress={wrap(onNavigateToResults)}
+            compact
+            style={styles.headerButton}
+            labelStyle={styles.headerButtonLabel}
+          >
+            Results →
           </Button>
           {onLogout && (
             <Button
