@@ -92,7 +92,7 @@ tiebreaker.
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-convergence-filters` | `feat/convergence-filters-summary` | Convergence panel filter summary | in progress, not merged — uncommitted changes touching `IndustrySpScreen.tsx` and `PnlConvergencePanel.tsx` as of 2026-07-26 (found via `git worktree list`, not previously listed here — table was stale) |
-| `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **done** — all 5 test tiers green, see dated entry below; ready to merge |
+| `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **merged to `develop`** (`b1696f9`), not yet deployed — see dated entry below |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
@@ -2675,7 +2675,13 @@ URL bugs in course-chip filtering, `AllRunnersScreen`, `EventBadgesVisible`,
 a `RunnerDetailScreen` trainer-link race-type mismatch — none touch this
 feature's files); final `yarn test:e2e:local-ci` — 18/18.
 
-**Not yet done:** merge to `develop`, deploy. Worktree left in place.
+**Merged and pushed to `origin/develop`** (`git push origin
+feat/saved-results:develop`, landed as `b1696f9`) — one real conflict along
+the way, in `IndustrySpScreen.tsx`'s import block against the concurrently-
+merged `model-perf-filters` (both added a new import line; combined, kept
+both). Re-verified after the merge: `yarn build` clean, backend Supertest +
+DAO test still green, `yarn test:e2e:local-ci` 18/18. **Not yet deployed**
+— worktree left in place pending that decision.
 
 ---
 
