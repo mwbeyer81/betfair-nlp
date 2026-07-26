@@ -1404,39 +1404,41 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
   return (
     <SafeAreaView testID="industry-sp-screen" style={styles.screen}>
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content
-          title={
-            <View testID="industry-sp-title" style={styles.appbarTitleRow}>
-              <Text style={styles.appbarTitle}>BackBet</Text>
-              <View style={styles.appbarSyncIcon}>
-                <Icon source="sync" size={16} color="white" />
+      <View style={styles.headerWrapper}>
+        <Appbar.Header style={styles.appbar}>
+          <Appbar.Content
+            title={
+              <View testID="industry-sp-title" style={styles.appbarTitleRow}>
+                <Text style={styles.appbarTitle}>BackBet</Text>
+                <View style={styles.appbarSyncIcon}>
+                  <Icon source="sync" size={16} color="white" />
+                </View>
               </View>
-            </View>
-          }
-          subtitle={!isLoading ? `${totalRunners} runners · ${totalRaces} races` : undefined}
-          subtitleStyle={styles.appbarSubtitle}
-        />
-        {!isTablet && (
-          <Appbar.Action
-            testID="industry-sp-menu-button"
-            icon="menu"
-            color="white"
-            onPress={() => setNavMenuOpen(v => !v)}
+            }
+            subtitle={!isLoading ? `${totalRunners} runners · ${totalRaces} races` : undefined}
+            subtitleStyle={styles.appbarSubtitle}
           />
-        )}
-      </Appbar.Header>
-      {isTablet ? (
-        <View testID="industry-sp-header-actions" style={styles.headerActionsRow}>
-          {renderHeaderActions(false)}
-        </View>
-      ) : (
-        navMenuOpen && (
-          <View testID="industry-sp-nav-menu" style={styles.navMenu}>
-            {renderHeaderActions(true)}
+          {!isTablet && (
+            <Appbar.Action
+              testID="industry-sp-menu-button"
+              icon="menu"
+              color="white"
+              onPress={() => setNavMenuOpen(v => !v)}
+            />
+          )}
+        </Appbar.Header>
+        {isTablet ? (
+          <View testID="industry-sp-header-actions" style={styles.headerActionsRow}>
+            {renderHeaderActions(false)}
           </View>
-        )
-      )}
+        ) : (
+          navMenuOpen && (
+            <View testID="industry-sp-nav-menu" style={styles.navMenu}>
+              {renderHeaderActions(true)}
+            </View>
+          )
+        )}
+      </View>
 
       {isAuthenticated && showAccountPanel && (
         <View testID="industry-sp-account-panel" style={styles.accountPanel}>
@@ -1880,6 +1882,10 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
   },
+  headerWrapper: {
+    position: "relative",
+    zIndex: 10,
+  },
   appbar: {
     backgroundColor: colors.primary,
     elevation: 4,
@@ -1926,18 +1932,25 @@ const styles = StyleSheet.create({
   // (that was the previous version's look, before `alignItems: "stretch"`
   // was replaced with "flex-end" here).
   navMenu: {
+    position: "absolute",
+    top: "100%",
+    right: spacing.sm,
+    zIndex: 1000,
+    elevation: 8,
     flexDirection: "column",
     alignItems: "flex-end",
-    alignSelf: "flex-end",
     gap: 6,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
-    marginRight: spacing.sm,
     marginTop: spacing.xs,
     backgroundColor: colors.primary,
     borderRadius: radii.md,
     minWidth: 200,
     maxWidth: 260,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
   },
   navMenuDivider: {
     alignSelf: "stretch",

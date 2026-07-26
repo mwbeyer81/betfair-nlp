@@ -156,58 +156,60 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
         </Text>
       </View>
 
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content title="Events" titleStyle={styles.appbarTitle} />
-        {!isTablet && (
-          <Appbar.Action
-            testID="events-menu-button"
-            icon="menu"
-            color="white"
-            onPress={() => setMenuOpen(v => !v)}
-          />
-        )}
-      </Appbar.Header>
-      <HeaderActionsContainer
-        isTablet={isTablet}
-        open={menuOpen}
-        inlineTestId="events-header-actions"
-        menuTestId="events-nav-menu"
-      >
-        <Button
-          testID="events-sort-toggle"
-          mode="contained-tonal"
-          compact
-          onPress={wrap(() => setSort(s => (s === "asc" ? "desc" : "asc")))}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
+      <View style={styles.headerWrapper}>
+        <Appbar.Header style={styles.appbar}>
+          <Appbar.Content title="Events" titleStyle={styles.appbarTitle} />
+          {!isTablet && (
+            <Appbar.Action
+              testID="events-menu-button"
+              icon="menu"
+              color="white"
+              onPress={() => setMenuOpen(v => !v)}
+            />
+          )}
+        </Appbar.Header>
+        <HeaderActionsContainer
+          isTablet={isTablet}
+          open={menuOpen}
+          inlineTestId="events-header-actions"
+          menuTestId="events-nav-menu"
         >
-          {sort === "asc" ? "Oldest first" : "Newest first"}
-        </Button>
-        <Button
-          testID="events-screen-chat-button"
-          mode="contained"
-          compact
-          buttonColor={colors.accent}
-          onPress={wrap(onNavigateToChat)}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          Chat →
-        </Button>
-        {onLogout && (
           <Button
-            testID="events-screen-logout-button"
-            mode="contained"
+            testID="events-sort-toggle"
+            mode="contained-tonal"
             compact
-            buttonColor={colors.danger}
-            onPress={wrap(onLogout)}
+            onPress={wrap(() => setSort(s => (s === "asc" ? "desc" : "asc")))}
             style={styles.headerButton}
             labelStyle={styles.headerButtonLabel}
           >
-            Logout
+            {sort === "asc" ? "Oldest first" : "Newest first"}
           </Button>
-        )}
-      </HeaderActionsContainer>
+          <Button
+            testID="events-screen-chat-button"
+            mode="contained"
+            compact
+            buttonColor={colors.accent}
+            onPress={wrap(onNavigateToChat)}
+            style={styles.headerButton}
+            labelStyle={styles.headerButtonLabel}
+          >
+            Chat →
+          </Button>
+          {onLogout && (
+            <Button
+              testID="events-screen-logout-button"
+              mode="contained"
+              compact
+              buttonColor={colors.danger}
+              onPress={wrap(onLogout)}
+              style={styles.headerButton}
+              labelStyle={styles.headerButtonLabel}
+            >
+              Logout
+            </Button>
+          )}
+        </HeaderActionsContainer>
+      </View>
 
       <View style={styles.body}>
         {isLoading && (
@@ -348,6 +350,10 @@ const styles = StyleSheet.create({
   statDot: {
     fontSize: 12,
     color: colors.textTertiary,
+  },
+  headerWrapper: {
+    position: "relative",
+    zIndex: 10,
   },
   appbar: {
     backgroundColor: colors.primary,
