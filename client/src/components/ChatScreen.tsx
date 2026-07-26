@@ -10,6 +10,8 @@ import {
 import { Appbar, Text, Button } from "react-native-paper";
 import { Message } from "./Message";
 import { ChatInput } from "./ChatInput";
+import { HeaderActionsContainer } from "./HeaderActionsContainer";
+import { useHeaderMenu } from "../utils/useHeaderMenu";
 import { chatApi } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 
@@ -34,6 +36,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   onLogout,
   onNavigateToEvents,
 }) => {
+  const { isTablet, open: menuOpen, setOpen: setMenuOpen, wrap } = useHeaderMenu();
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [queryHistory, setQueryHistory] = useState<string[]>([]);
@@ -96,10 +99,25 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     <SafeAreaView testID="chat-screen" style={styles.container}>
       <Appbar.Header style={styles.appbar}>
         <Appbar.Content title="Chat Assistant" titleStyle={styles.appbarTitle} />
+        {!isTablet && (
+          <Appbar.Action
+            testID="chat-menu-button"
+            icon="menu"
+            color="white"
+            onPress={() => setMenuOpen(v => !v)}
+          />
+        )}
+      </Appbar.Header>
+      <HeaderActionsContainer
+        isTablet={isTablet}
+        open={menuOpen}
+        inlineTestId="chat-header-actions"
+        menuTestId="chat-nav-menu"
+      >
         <Button
           testID="events-button"
           mode="contained-tonal"
-          onPress={onNavigateToEvents}
+          onPress={wrap(onNavigateToEvents)}
           compact
           style={styles.headerButton}
           labelStyle={styles.headerButtonLabel}
@@ -108,8 +126,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         </Button>
         {onLogout && (
           <Button
+            testID="chat-logout-button"
             mode="contained"
-            onPress={onLogout}
+            onPress={wrap(onLogout)}
             compact
             buttonColor={colors.danger}
             style={styles.headerButton}
@@ -118,7 +137,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             Logout
           </Button>
         )}
-      </Appbar.Header>
+      </HeaderActionsContainer>
 
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}

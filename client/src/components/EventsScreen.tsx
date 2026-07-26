@@ -15,6 +15,8 @@ import {
 import { EventDocsPanel } from "./EventDocsPanel";
 import { RunnersPanel } from "./RunnersPanel";
 import { PageContainer } from "./PageContainer";
+import { HeaderActionsContainer } from "./HeaderActionsContainer";
+import { useHeaderMenu } from "../utils/useHeaderMenu";
 import {
   chatApi,
   EventGroup,
@@ -44,6 +46,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
   const [stats, setStats] = useState<Stats | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const { isTablet, open: menuOpen, setOpen: setMenuOpen, wrap } = useHeaderMenu();
   const [sort, setSort] = useState<"asc" | "desc">("asc");
   const PAGE_SIZE = 20;
 
@@ -155,11 +158,26 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
 
       <Appbar.Header style={styles.appbar}>
         <Appbar.Content title="Events" titleStyle={styles.appbarTitle} />
+        {!isTablet && (
+          <Appbar.Action
+            testID="events-menu-button"
+            icon="menu"
+            color="white"
+            onPress={() => setMenuOpen(v => !v)}
+          />
+        )}
+      </Appbar.Header>
+      <HeaderActionsContainer
+        isTablet={isTablet}
+        open={menuOpen}
+        inlineTestId="events-header-actions"
+        menuTestId="events-nav-menu"
+      >
         <Button
           testID="events-sort-toggle"
           mode="contained-tonal"
           compact
-          onPress={() => setSort(s => (s === "asc" ? "desc" : "asc"))}
+          onPress={wrap(() => setSort(s => (s === "asc" ? "desc" : "asc")))}
           style={styles.headerButton}
           labelStyle={styles.headerButtonLabel}
         >
@@ -170,7 +188,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
           mode="contained"
           compact
           buttonColor={colors.accent}
-          onPress={onNavigateToChat}
+          onPress={wrap(onNavigateToChat)}
           style={styles.headerButton}
           labelStyle={styles.headerButtonLabel}
         >
@@ -182,14 +200,14 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
             mode="contained"
             compact
             buttonColor={colors.danger}
-            onPress={onLogout}
+            onPress={wrap(onLogout)}
             style={styles.headerButton}
             labelStyle={styles.headerButtonLabel}
           >
             Logout
           </Button>
         )}
-      </Appbar.Header>
+      </HeaderActionsContainer>
 
       <View style={styles.body}>
         {isLoading && (

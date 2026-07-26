@@ -20,6 +20,8 @@ import {
 import { chatApi, RaceWithEvent, Runner, PnlStats, RunnerFilterBounds } from "../services/chatApi";
 import { exportToCsv, exportToXlsx } from "../utils/exportRunners";
 import { PageContainer } from "./PageContainer";
+import { HeaderActionsContainer } from "./HeaderActionsContainer";
+import { useHeaderMenu } from "../utils/useHeaderMenu";
 import { colors, statusPill, radii, spacing } from "../theme";
 
 interface AllRunnersScreenProps {
@@ -123,6 +125,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const [filterBounds, setFilterBounds] = useState<RunnerFilterBounds | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const { isTablet, open: menuOpen, setOpen: setMenuOpen, wrap } = useHeaderMenu();
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const PAGE_SIZE = 20;
 
@@ -250,11 +253,26 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           titleStyle={styles.appbarTitle}
           subtitleStyle={styles.appbarSubtitle}
         />
+        {!isTablet && (
+          <Appbar.Action
+            testID="all-runners-menu-button"
+            icon="menu"
+            color="white"
+            onPress={() => setMenuOpen(v => !v)}
+          />
+        )}
+      </Appbar.Header>
+      <HeaderActionsContainer
+        isTablet={isTablet}
+        open={menuOpen}
+        inlineTestId="all-runners-header-actions"
+        menuTestId="all-runners-nav-menu"
+      >
         <Button
           testID="all-runners-sort-toggle"
           mode="contained-tonal"
           compact
-          onPress={() => setSortOrder(o => o === "asc" ? "desc" : "asc")}
+          onPress={wrap(() => setSortOrder(o => o === "asc" ? "desc" : "asc"))}
           style={styles.headerButton}
           labelStyle={styles.headerButtonLabel}
         >
@@ -266,7 +284,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             mode="contained"
             compact
             buttonColor={colors.success}
-            onPress={() => !isExporting && setShowExportModal(true)}
+            onPress={wrap(() => !isExporting && setShowExportModal(true))}
             disabled={isExporting}
             style={styles.headerButton}
             labelStyle={styles.headerButtonLabel}
@@ -280,13 +298,13 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           mode="contained"
           compact
           buttonColor={colors.accent}
-          onPress={onNavigateToEvents}
+          onPress={wrap(onNavigateToEvents)}
           style={styles.headerButton}
           labelStyle={styles.headerButtonLabel}
         >
           ← Events
         </Button>
-      </Appbar.Header>
+      </HeaderActionsContainer>
 
       {/* Filter bar — kept as custom for density */}
       <PageContainer maxWidth={1200}>

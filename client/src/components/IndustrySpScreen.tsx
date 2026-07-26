@@ -1921,17 +1921,26 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   // Phone-width burger dropdown (see the `!isTablet` branch in the header
-  // JSX) — a simple stacked column rather than the wide-viewport row, since
-  // there's no horizontal room to spare at these widths.
+  // JSX) — anchored under the burger icon on the right, sized to its
+  // content rather than stretching edge-to-edge like a full-width bar
+  // (that was the previous version's look, before `alignItems: "stretch"`
+  // was replaced with "flex-end" here).
   navMenu: {
     flexDirection: "column",
-    alignItems: "stretch",
+    alignItems: "flex-end",
+    alignSelf: "flex-end",
     gap: 6,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
+    marginRight: spacing.sm,
+    marginTop: spacing.xs,
     backgroundColor: colors.primary,
+    borderRadius: radii.md,
+    minWidth: 200,
+    maxWidth: 260,
   },
   navMenuDivider: {
+    alignSelf: "stretch",
     height: 1,
     backgroundColor: "rgba(255,255,255,0.25)",
     marginVertical: 4,

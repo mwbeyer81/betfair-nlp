@@ -65,7 +65,14 @@ test.describe("Responsive layout — /runners (MSW mocked, 375px)", () => {
     await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
   });
 
-  test("sort toggle and ← Events buttons are within viewport width", async ({ page }) => {
+  // Header actions collapse behind a burger icon below the tablet breakpoint
+  // (768px) — see all-runners-menu-button/all-runners-nav-menu in
+  // AllRunnersScreen.tsx. Closed by default; opening it reveals the same
+  // sort-toggle/Export/← Events buttons the tablet+ inline row always had.
+  test("burger menu opens to reveal sort toggle and ← Events buttons, both within viewport width", async ({ page }) => {
+    await expect(page.getByTestId("all-runners-nav-menu")).not.toBeVisible();
+    await page.getByTestId("all-runners-menu-button").click();
+
     const sortBtn = page.getByTestId("all-runners-sort-toggle");
     const eventsBtn = page.getByTestId("all-runners-screen-events-button");
 
@@ -100,6 +107,7 @@ test.describe("Responsive layout — /runners (MSW mocked, 375px)", () => {
   });
 
   test("export modal fits within 375px viewport", async ({ page }) => {
+    await page.getByTestId("all-runners-menu-button").click();
     const exportBtn = page.getByTestId("all-runners-export-btn");
     await expect(exportBtn).toBeVisible();
     await exportBtn.click();
@@ -164,6 +172,69 @@ test.describe("Responsive layout — /runners (MSW mocked, iPhone 12)", () => {
     const box = await firstRow.boundingBox();
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(390 + 1);
+  });
+});
+
+// Same burger-menu pattern as IndustrySpScreen/AllRunnersScreen, applied
+// consistently to every screen whose header has more than one action button
+// (see useHeaderMenu/HeaderActionsContainer) — /events and /chat each get
+// their own narrow-viewport coverage here rather than relying only on the
+// /isp and /runners checks above.
+test.describe("Responsive layout — /events (MSW mocked, iPhone 12 mini, 375px)", () => {
+  test.use({ viewport: IPHONE_12_MINI_VIEWPORT });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/events");
+    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("event-group-item-33858191")).toBeVisible({ timeout: 10000 });
+  });
+
+  test("burger menu is closed by default and the inline row is absent", async ({ page }) => {
+    await expect(page.getByTestId("events-menu-button")).toBeVisible();
+    await expect(page.getByTestId("events-nav-menu")).not.toBeVisible();
+    await expect(page.getByTestId("events-header-actions")).toHaveCount(0);
+  });
+
+  test("opening the burger reveals the sort toggle and Chat button, both within viewport", async ({ page }) => {
+    await page.getByTestId("events-menu-button").click();
+    await expect(page.getByTestId("events-nav-menu")).toBeVisible();
+
+    for (const testId of ["events-sort-toggle", "events-screen-chat-button"]) {
+      const el = page.getByTestId(testId);
+      await expect(el).toBeVisible();
+      const box = (await el.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
+    }
+  });
+});
+
+test.describe("Responsive layout — /chat (MSW mocked, iPhone 12 mini, 375px)", () => {
+  test.use({ viewport: IPHONE_12_MINI_VIEWPORT });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/chat");
+    await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 10000 });
+  });
+
+  test("burger menu is closed by default and the inline row is absent", async ({ page }) => {
+    await expect(page.getByTestId("chat-menu-button")).toBeVisible();
+    await expect(page.getByTestId("chat-nav-menu")).not.toBeVisible();
+    await expect(page.getByTestId("chat-header-actions")).toHaveCount(0);
+  });
+
+  test("opening the burger reveals ← Events and Logout, both within viewport", async ({ page }) => {
+    await page.getByTestId("chat-menu-button").click();
+    const menu = page.getByTestId("chat-nav-menu");
+    await expect(menu).toBeVisible();
+
+    for (const testId of ["events-button", "chat-logout-button"]) {
+      const el = page.getByTestId(testId);
+      await expect(el).toBeVisible();
+      const box = (await el.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
+    }
   });
 });
 
