@@ -1150,12 +1150,21 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // pull (matches how ModelPerformanceDashboard's Storybook mock data
   // shape works: the whole pool, filtered/sorted client-side) rather than
   // this screen's own paginated row-range browsing.
+  //
+  // MODEL_PERFORMANCE_RACE_LIMIT caps this well under the Lambda's 6MB
+  // synchronous response payload ceiling: measured against real prod data
+  // (full runner subdocuments, ~7KB/race), limit=800 already 500s with no
+  // CORS headers (the browser reports it as "blocked by CORS policy",
+  // masking the real cause), while limit=700 (~4.9MB) succeeds. 500 keeps
+  // a comfortable margin below that cliff.
+  const MODEL_PERFORMANCE_RACE_LIMIT = 500;
+
   async function loadRacesForModelVersion(modelVersionId: string) {
     setModelPerformanceError(null);
     setModelPerformanceLoading(true);
     try {
       const result = await chatApi.getIndustrySp(
-        1, 10000, 1, 30, [], 1, 1000, "asc", 1, 10000, 1, undefined,
+        1, MODEL_PERFORMANCE_RACE_LIMIT, 1, 30, [], 1, 1000, "asc", 1, 10000, 1, undefined,
         undefined, undefined, [], [], [], [], undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined,
         modelVersionId
