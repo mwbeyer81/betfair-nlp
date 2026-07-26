@@ -92,14 +92,13 @@ tiebreaker.
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-convergence-filters` | `feat/convergence-filters-summary` | Convergence panel filter summary | in progress, not merged — uncommitted changes touching `IndustrySpScreen.tsx` and `PnlConvergencePanel.tsx` as of 2026-07-26 (found via `git worktree list`, not previously listed here — table was stale) |
-| `~/betfair-nlp-model-perf-filters` | `model-perf-filters` | Model Performance dashboard doesn't actually query the server with the user's filters (Class/Type/date range) — it re-filters a fixed, hardcoded 500-race batch (`MODEL_PERFORMANCE_RACE_LIMIT`, earliest-scored races only, see the `model-perf-e2e` entry above) client-side, so it can never reach real 2024+ test-period data no matter what filters are applied. Fixing `loadRacesForModelVersion()`/`ModelPerformanceDashboard.tsx` in `IndustrySpScreen.tsx` to send real filter params server-side. **Touching `IndustrySpScreen.tsx`** — watch for conflicts with `convergence-filters` and `rename-labels` above. | in progress |
-| `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters`/`model-perf-filters` above, all four of which are also live on that file right now. Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **done** — all 5 test tiers green, see dated entry below; ready to merge |
+| `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **done** — all 5 test tiers green, see dated entry below; ready to merge |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
-`split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`, and
-`local-ci-e2e-tests` were merged, clean, and have been removed (`git
-worktree remove` + `git branch -d`, local and remote where applicable) as
-of 2026-07-25/26 —
+`split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
+`local-ci-e2e-tests`, and `model-perf-filters` were merged, clean, and have
+been removed (`git worktree remove` + `git branch -d`, local and remote
+where applicable) as of 2026-07-25/26 —
 this is what "clean up after merge" in the section above looks like in
 practice. `codebase-search-chat` was merged, pushed, and deployed (both
 Lambda and web). `local-ci-e2e-tests` was docs/test-infra only (no
@@ -2677,3 +2676,96 @@ a `RunnerDetailScreen` trainer-link race-type mismatch — none touch this
 feature's files); final `yarn test:e2e:local-ci` — 18/18.
 
 **Not yet done:** merge to `develop`, deploy. Worktree left in place.
+
+---
+
+## 2026-07-26 (later still) — Agent in `~/betfair-nlp-model-perf-filters` (branch `model-perf-filters`)
+
+**Task:** User (non-technical, reading the Model Performance dashboard on
+their phone at app.backbet.co.uk) noticed the "Without model"/"With model"
+P&L cards didn't seem to respond to the filter panel (Race Class, Race
+Type, date range, trainer, jockey), and separately that the date range
+picker defaulted to Jan 2015 even though this model's real held-out test
+period (`runMeta.testDateMin`) is 2024+. Confirmed real bug via an Explore
+subagent read of the code (not user report alone).
+
+**Root cause:** `loadRacesForModelVersion()` in `IndustrySpScreen.tsx`
+fetched a single, hardcoded batch — `fromRow=1, sort=asc,
+limit=MODEL_PERFORMANCE_RACE_LIMIT(500)`, no date bound — scoped only by
+`modelVersionId`. That's the *earliest* 500 races that version ever scored
+(back near the start of the whole dataset), never refetched on
+Apply/Reset. `ModelPerformanceDashboard.tsx`'s Apply/date-range/Reset
+controls then only re-filtered that same static, wrongly-scoped batch
+client-side — so no filter combination could ever reach the model's real
+2024+ test period, and the date picker's own default range (derived from
+`computeDateBounds(races)`) was silently describing that accidental slice
+rather than genuine dataset bounds.
+
+**Fix:**
+- `ModelPerformanceDashboard` now takes an `onApplyFilters(filters)` prop
+  and a `defaultMinDate` prop (the selected version's own
+  `runMeta.testDateMin`). Apply, the date-range picker's own confirm step,
+  and Reset all call `onApplyFilters` instead of re-filtering `races`
+  client-side.
+- `IndustrySpScreen.loadRacesForModelVersion()` now accepts a
+  `ModelPerformanceFilters` object and passes `minDate/maxDate/countries/
+  courses/goings/raceClasses/raceTypes/trainer/jockey` straight through to
+  `chatApi.getIndustrySp` (all already-supported query params —
+  `MODEL_PERFORMANCE_RACE_LIMIT` itself untouched, still 500, see the
+  `model-perf-e2e` entry above for why). Initial load and version-switch
+  both default `minDate` to that version's `runMeta.testDateMin`.
+- Chip filter menus (Country/Course/Going/Race Class/Race Type) now source
+  their option lists from the same whole-dataset `available*` arrays the
+  main Industry SP filter panel already fetches, instead of being derived
+  from `races` — since `races` is now server-filtered, deriving chip
+  options from it would make picking one value in a category silently
+  erase the sibling values from that same category's menu.
+- `minModelWinProbability` deliberately stayed client-side-only (not sent
+  to the server) — "without model" and "with model" need the *same*
+  underlying race pool to compare against, so narrowing server-side would
+  break the comparison. Trainer/jockey substring trimming also stayed
+  client-side (`pnlRaces`), since the server's `$elemMatch` only confirms
+  a race *has* a matching runner without dropping its other runners.
+- Calendar bounds (`CALENDAR_MIN_DATE`/`todayYmd()`) are now fixed
+  constants instead of derived from the currently-loaded (now filtered)
+  `races` — previously the picker's own min/max silently shrank to
+  whatever was already loaded, which would have made picking a *wider*
+  date range impossible once server-side filtering landed.
+
+**Storybook fixture gotcha:** the mock race generator originally anchored
+all races to a fixed `2026-01-01 + up to 200 days`. Once the calendar's
+real upper bound became `todayYmd()` (actual wall-clock date), and
+`LATEST`'s fixture `testDateMin` (2026-07-06) was only ~20 days before
+today at the time this ran, the wide 200-day spread let generated races
+land past "today" and get silently excluded the instant Apply/Reset
+re-sent `today` as `maxDate` — breaking
+`RaisingMinModelWinProbabilityChangesWithModelPnlOnly` and
+`ResetClearsFiltersAndRestoresBaselinePnl` (both expect the "without
+model" baseline to stay stable across an unrelated filter change). Fixed
+by anchoring each version's mock races to *its own* `runMeta.testDateMin`
+(14-day spread, comfortably inside the gap to real "today" both now and
+increasingly so as real time moves forward) instead of a fixed calendar
+date — also more realistic, since a model's real scored races should all
+fall at-or-after its own test period start anyway.
+
+**Verified:** `yarn build` clean (only pre-existing, unrelated
+`jsonwebtoken` type-decl error in `tests-live/chat-live.spec.ts` — confirmed
+present on baseline `develop` too, via `git stash`). Full Storybook
+interaction suite: 275/281 pass — the 6 failures are the same pre-existing,
+unrelated ones already documented above (AllRunnersScreen/EventsScreen
+Set-to-string course-chip bugs, RunnerDetailScreen trainer-link race-type
+mismatch); all 39 `ModelPerformanceDashboard` stories pass, including the
+two fixed by the fixture change above. Ran Storybook on port 6011 (6007
+was already held by a stray `betfair-nlp-model-perf-e2e` process — didn't
+touch it, per the port-collision guidance at the top of this file).
+
+**Done — committed (`307f105`), merged `origin/develop` in twice along the
+way (once pre-push for a `local-ci-e2e-tests` merge, once more for a
+rejected non-fast-forward push after a `saved-results` AGENTS.md commit
+landed in between), pushed straight to `origin/develop`
+(`git push origin model-perf-filters:develop`, landed as `7f71568`), and
+deployed via `apps/web/deploy.sh` — confirmed live at
+`build-commit=7f71568` on app.backbet.co.uk. No backend/Lambda change (the
+fix only changes what query params the existing client-side call sends),
+so no Lambda deploy needed. Worktree removed (`git worktree remove` +
+`git branch -d`, local and remote branch — see table above).**

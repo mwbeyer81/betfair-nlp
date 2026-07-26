@@ -20,7 +20,7 @@ import {
 import { chatApi, IspFilterBounds, PnlStats, RaceConvergencePoint, IspRace, ModelVersion } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
-import { ModelPerformanceDashboard } from "./ModelPerformanceDashboard";
+import { ModelPerformanceDashboard, ModelPerformanceFilters } from "./ModelPerformanceDashboard";
 import { SaveResultDialog } from "./SaveResultDialog";
 import { buildAutoResultNamePreview } from "../utils/savedResultName";
 import { DateRangePicker } from "./DateRangePicker";
@@ -1193,10 +1193,11 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     }
   }
 
-  // Fetches every runner scored by one model version — a big, unpaginated
-  // pull (matches how ModelPerformanceDashboard's Storybook mock data
-  // shape works: the whole pool, filtered/sorted client-side) rather than
-  // this screen's own paginated row-range browsing.
+  // Fetches (up to MODEL_PERFORMANCE_RACE_LIMIT) races scored by one model
+  // version, server-side filtered by whatever ModelPerformanceFilters the
+  // dashboard currently has applied (date range/chips/trainer/jockey) — a
+  // single unpaginated pull of the filtered set, rather than this screen's
+  // own paginated row-range browsing.
   //
   // MODEL_PERFORMANCE_RACE_LIMIT caps this well under the Lambda's 6MB
   // synchronous response payload ceiling: measured against real prod data
@@ -1206,14 +1207,21 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // a comfortable margin below that cliff.
   const MODEL_PERFORMANCE_RACE_LIMIT = 500;
 
-  async function loadRacesForModelVersion(modelVersionId: string) {
+  async function loadRacesForModelVersion(modelVersionId: string, filters: ModelPerformanceFilters = {}) {
     setModelPerformanceError(null);
     setModelPerformanceLoading(true);
     try {
+      // minDate defaults to the model's own real held-out test period start
+      // (runMeta.testDateMin, passed in by callers below) rather than being
+      // left open — without it, fromRow=1/sort=asc returns whichever races
+      // this model happened to score *earliest*, which for a model trained
+      // on years of history lands back near the start of the whole dataset,
+      // nowhere near any date range a filter could reach. See the
+      // model-perf-filters AGENTS.md entry for the full bug writeup.
       const result = await chatApi.getIndustrySp(
-        1, MODEL_PERFORMANCE_RACE_LIMIT, 1, 30, [], 1, 1000, "asc", 1, 10000, 1, undefined,
-        undefined, undefined, [], [], [], [], undefined, undefined,
-        undefined, undefined, undefined, undefined, undefined, undefined,
+        1, MODEL_PERFORMANCE_RACE_LIMIT, 1, 30, filters.countries ?? [], 1, 1000, "asc", 1, 10000, 1, undefined,
+        filters.minDate, filters.maxDate, filters.courses ?? [], filters.goings ?? [], filters.raceClasses ?? [], filters.raceTypes ?? [],
+        filters.trainer, filters.jockey, undefined, undefined, undefined, undefined, undefined, undefined,
         modelVersionId
       );
       setModelPerformanceRaces(result.data);
@@ -1234,7 +1242,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       const latest = versionsResult.data[0] ?? null;
       if (latest) {
         setSelectedModelVersionId(latest.id);
-        await loadRacesForModelVersion(latest.id);
+        await loadRacesForModelVersion(latest.id, { minDate: latest.runMeta.testDateMin });
       } else {
         setModelPerformanceRaces([]);
         setModelPerformanceLoading(false);
@@ -1247,7 +1255,15 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
   function onSelectModelVersion(id: string) {
     setSelectedModelVersionId(id);
-    loadRacesForModelVersion(id);
+    const version = modelVersions.find(v => v.id === id);
+    loadRacesForModelVersion(id, version ? { minDate: version.runMeta.testDateMin } : {});
+  }
+
+  // Passed to ModelPerformanceDashboard as onApplyFilters — Apply, the date
+  // range picker's own confirm step, and Reset all refetch through here
+  // instead of re-slicing whatever's already loaded.
+  function onApplyModelPerformanceFilters(filters: ModelPerformanceFilters) {
+    loadRacesForModelVersion(selectedModelVersionId, filters);
   }
 
   function renderSplitCard(opts: {
@@ -1942,6 +1958,15 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           loading={modelPerformanceLoading}
           error={modelPerformanceError}
           onClose={() => setShowModelPerformancePanel(false)}
+          onApplyFilters={onApplyModelPerformanceFilters}
+          defaultMinDate={
+            modelVersions.find(v => v.id === selectedModelVersionId)?.runMeta.testDateMin ?? "2000-01-01"
+          }
+          availableCountries={availableCountries}
+          availableCourses={availableCourses}
+          availableGoings={availableGoings}
+          availableRaceClasses={availableRaceClasses}
+          availableRaceTypes={availableRaceTypes}
         />
       )}
       <SaveResultDialog

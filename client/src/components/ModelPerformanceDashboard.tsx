@@ -8,17 +8,60 @@ import { computeRangePnl, computeModelFilteredPnl, formatPnl, formatPct, formatR
 import { DateRangePicker } from "./DateRangePicker";
 import { useResponsive } from "../utils/responsive";
 
+// Server-side filters for the currently-selected model version's race pool —
+// mirrors a subset of chatApi.getIndustrySp's own params. Sent to the parent
+// on Apply / date-range confirm / Reset so it can refetch from
+// GET /api/industry-sp (scoped to modelVersionId) instead of re-slicing
+// whatever races happen to already be loaded — see the "Touching
+// IndustrySpScreen.tsx" AGENTS.md entry for why a client-side-only re-slice
+// of a payload-size-capped batch can never reach the model's real test
+// period. minModelWinProbability is deliberately NOT part of this: both the
+// "without model" and "with model" P&L cards need the same underlying race
+// pool, so that split stays a client-side computation (see withoutModelPnl/
+// withModelPnl below).
+export interface ModelPerformanceFilters {
+  minDate?: string;
+  maxDate?: string;
+  countries?: string[];
+  courses?: string[];
+  goings?: string[];
+  raceClasses?: string[];
+  raceTypes?: string[];
+  trainer?: string;
+  jockey?: string;
+}
+
 interface ModelPerformanceDashboardProps {
   modelVersions: ModelVersion[];
   selectedModelVersionId: string;
   onSelectModelVersion: (id: string) => void;
-  // Races already "scored" for the currently-selected model version — the
-  // parent swaps this array when selection changes, previewing how a future
-  // GET /api/model-versions/:id/isp-races call would behave.
+  // Races the parent has fetched for the currently-selected model version,
+  // already narrowed server-side by the most recently applied
+  // ModelPerformanceFilters (see onApplyFilters below) — this component no
+  // longer re-filters by date/chip here, only trims by trainer/jockey text
+  // (see pnlRaces) and splits by min model win probability.
   races: IspRace[];
   loading: boolean;
   error: string | null;
   onClose: () => void;
+  // Refetches `races` from the server with the given filters — see
+  // IndustrySpScreen's loadRacesForModelVersion.
+  onApplyFilters: (filters: ModelPerformanceFilters) => void;
+  // The selected model version's real held-out test period start
+  // (runMeta.testDateMin) — used as the default/reset lower date bound so
+  // the panel opens on the model's genuine backtest window instead of
+  // whatever races happen to sort first.
+  defaultMinDate: string;
+  // Every course/going/race-class/race-type/country value in the whole
+  // dataset (not just the currently-loaded, filtered race pool) — reused
+  // from the same source as the main Industry SP filter panel so chip
+  // options don't shrink to only-what's-currently-loaded after a filter is
+  // applied.
+  availableCountries: string[];
+  availableCourses: string[];
+  availableGoings: string[];
+  availableRaceClasses: string[];
+  availableRaceTypes: string[];
 }
 
 const CHIP_FILTER_KEYS = ["country", "course", "going", "raceClass", "raceType"] as const;
@@ -70,39 +113,17 @@ const PROPERTY_TOOLTIPS: Record<string, string> = {
     "The average squared gap between the model's predicted win probability and what actually happened (1 for a win, 0 for a loss). Lower is better; 0 would mean perfect predictions.",
 };
 
-function chipValue(race: IspRace, key: ChipFilterKey): string | null {
-  switch (key) {
-    case "country":
-      return race.countryCode;
-    case "course":
-      return race.course;
-    case "going":
-      return race.going;
-    case "raceClass":
-      return race.raceClass;
-    case "raceType":
-      return race.raceType;
-  }
-}
-
 function makeEmptyChipSelection(): Record<ChipFilterKey, Set<string>> {
   return { country: new Set(), course: new Set(), going: new Set(), raceClass: new Set(), raceType: new Set() };
 }
 
-function toYmd(iso: string): string {
-  return iso.slice(0, 10);
-}
+// Calendar lower bound is a fixed constant (not derived from whatever's
+// currently loaded) so the date picker always lets the user pick any date
+// in the dataset's history, not just within the currently-filtered batch.
+const CALENDAR_MIN_DATE = "2000-01-01";
 
-function computeDateBounds(races: IspRace[]): { from: string; to: string } {
-  if (races.length === 0) return { from: "2000-01-01", to: "2099-12-31" };
-  let min = toYmd(races[0].raceTime);
-  let max = min;
-  for (const race of races) {
-    const d = toYmd(race.raceTime);
-    if (d < min) min = d;
-    if (d > max) max = d;
-  }
-  return { from: min, to: max };
+function todayYmd(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 const CAL_CHART_WIDTH = 320;
@@ -126,6 +147,13 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
   loading,
   error,
   onClose,
+  onApplyFilters,
+  defaultMinDate,
+  availableCountries,
+  availableCourses,
+  availableGoings,
+  availableRaceClasses,
+  availableRaceTypes,
 }) => {
   const [draftChipSelected, setDraftChipSelected] = useState<Record<ChipFilterKey, Set<string>>>(makeEmptyChipSelection);
   const [appliedChipSelected, setAppliedChipSelected] = useState<Record<ChipFilterKey, Set<string>>>(makeEmptyChipSelection);
@@ -135,8 +163,8 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
   const [appliedJockeyText, setAppliedJockeyText] = useState("");
   const [draftMinModelWinProbability, setDraftMinModelWinProbability] = useState("0");
   const [appliedMinModelWinProbability, setAppliedMinModelWinProbability] = useState(0);
-  const [appliedFromDate, setAppliedFromDate] = useState(() => computeDateBounds(races).from);
-  const [appliedToDate, setAppliedToDate] = useState(() => computeDateBounds(races).to);
+  const [appliedFromDate, setAppliedFromDate] = useState(defaultMinDate);
+  const [appliedToDate, setAppliedToDate] = useState(() => todayYmd());
   // "table" lists every model version as a row; tapping one drills into
   // "detail" (training params/metrics/filters/P&L for just that version).
   // Deliberately not touched by the races-reset effect below — that effect
@@ -152,13 +180,14 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
   // IndustrySpScreen's filter tooltips.
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
 
-  // Switching model version swaps in a different `races` pool (a different
-  // model may not have scored the same courses/date range) — stale filter
-  // selections from the previous version could silently zero out the new
-  // one's results, so a version switch resets filters back to defaults
-  // rather than leaving them applied against a pool they weren't chosen for.
+  // Switching model version means a different real test period (a different
+  // model's runMeta.testDateMin) and possibly a different scored pool
+  // entirely — stale filter selections from the previous version could
+  // silently zero out the new one's results, so a version switch resets
+  // filters back to that version's own defaults (not the previous version's
+  // loaded races) rather than leaving them applied against a pool they
+  // weren't chosen for.
   useEffect(() => {
-    const bounds = computeDateBounds(races);
     setDraftChipSelected(makeEmptyChipSelection());
     setAppliedChipSelected(makeEmptyChipSelection());
     setDraftTrainerText("");
@@ -167,25 +196,22 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
     setAppliedJockeyText("");
     setDraftMinModelWinProbability("0");
     setAppliedMinModelWinProbability(0);
-    setAppliedFromDate(bounds.from);
-    setAppliedToDate(bounds.to);
+    setAppliedFromDate(defaultMinDate);
+    setAppliedToDate(todayYmd());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [races]);
+  }, [selectedModelVersionId, defaultMinDate]);
 
-  const dateBounds = useMemo(() => computeDateBounds(races), [races]);
-
-  const chipOptions = useMemo(() => {
-    const options = {} as Record<ChipFilterKey, string[]>;
-    for (const key of CHIP_FILTER_KEYS) {
-      const values = new Set<string>();
-      for (const race of races) {
-        const value = chipValue(race, key);
-        if (value != null) values.add(value);
-      }
-      options[key] = Array.from(values).sort();
-    }
-    return options;
-  }, [races]);
+  // Every value a chip can offer, sourced from the whole dataset (not the
+  // currently-loaded/filtered `races`) so picking a value in one category
+  // doesn't make other values in the same category disappear from the menu
+  // — see the ModelPerformanceFilters prop comment above.
+  const chipOptions: Record<ChipFilterKey, string[]> = {
+    country: availableCountries,
+    course: availableCourses,
+    going: availableGoings,
+    raceClass: availableRaceClasses,
+    raceType: availableRaceTypes,
+  };
 
   function toggleChip(key: ChipFilterKey, value: string) {
     setDraftChipSelected(prev => {
@@ -196,11 +222,32 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
     });
   }
 
+  function buildFilters(
+    chips: Record<ChipFilterKey, Set<string>>,
+    trainer: string,
+    jockey: string,
+    fromDate: string,
+    toDate: string
+  ): ModelPerformanceFilters {
+    return {
+      minDate: fromDate,
+      maxDate: toDate,
+      countries: Array.from(chips.country),
+      courses: Array.from(chips.course),
+      goings: Array.from(chips.going),
+      raceClasses: Array.from(chips.raceClass),
+      raceTypes: Array.from(chips.raceType),
+      trainer: trainer || undefined,
+      jockey: jockey || undefined,
+    };
+  }
+
   function applyFilters() {
     setAppliedChipSelected(draftChipSelected);
     setAppliedTrainerText(draftTrainerText);
     setAppliedJockeyText(draftJockeyText);
     setAppliedMinModelWinProbability(Math.min(100, Math.max(0, parseFloat(draftMinModelWinProbability) || 0)));
+    onApplyFilters(buildFilters(draftChipSelected, draftTrainerText, draftJockeyText, appliedFromDate, appliedToDate));
   }
 
   function resetFilters() {
@@ -212,26 +259,20 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
     setAppliedJockeyText("");
     setDraftMinModelWinProbability("0");
     setAppliedMinModelWinProbability(0);
-    setAppliedFromDate(dateBounds.from);
-    setAppliedToDate(dateBounds.to);
+    setAppliedFromDate(defaultMinDate);
+    setAppliedToDate(todayYmd());
+    onApplyFilters(buildFilters(makeEmptyChipSelection(), "", "", defaultMinDate, todayYmd()));
   }
 
-  const filteredRaces = useMemo(() => {
+  // Server has already narrowed `races` by chips/date/trainer/jockey (see
+  // onApplyFilters) — the one thing still needed client-side is trimming
+  // each race's runners down to just the trainer/jockey match, since the
+  // server's $elemMatch confirms a race has a matching runner without
+  // dropping the race's other runners (see AGENTS.md entry above).
+  const pnlRaces = useMemo(() => {
+    if (!appliedTrainerText && !appliedJockeyText) return races;
     return races
-      .filter(race => {
-        for (const key of CHIP_FILTER_KEYS) {
-          const applied = appliedChipSelected[key];
-          if (applied.size > 0) {
-            const value = chipValue(race, key);
-            if (value == null || !applied.has(value)) return false;
-          }
-        }
-        const raceYmd = toYmd(race.raceTime);
-        if (raceYmd < appliedFromDate || raceYmd > appliedToDate) return false;
-        return true;
-      })
       .map(race => {
-        if (!appliedTrainerText && !appliedJockeyText) return race;
         const runners = race.runners.filter(runner => {
           if (appliedTrainerText && !(runner.trainer ?? "").toLowerCase().includes(appliedTrainerText.toLowerCase())) return false;
           if (appliedJockeyText && !(runner.jockey ?? "").toLowerCase().includes(appliedJockeyText.toLowerCase())) return false;
@@ -240,12 +281,12 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
         return { ...race, runners };
       })
       .filter(race => race.runners.length > 0);
-  }, [races, appliedChipSelected, appliedFromDate, appliedToDate, appliedTrainerText, appliedJockeyText]);
+  }, [races, appliedTrainerText, appliedJockeyText]);
 
-  const withoutModelPnl = useMemo(() => computeRangePnl(filteredRaces), [filteredRaces]);
+  const withoutModelPnl = useMemo(() => computeRangePnl(pnlRaces), [pnlRaces]);
   const withModelPnl = useMemo(
-    () => computeModelFilteredPnl(filteredRaces, appliedMinModelWinProbability),
-    [filteredRaces, appliedMinModelWinProbability]
+    () => computeModelFilteredPnl(pnlRaces, appliedMinModelWinProbability),
+    [pnlRaces, appliedMinModelWinProbability]
   );
 
   const selectedVersion = modelVersions.find(v => v.id === selectedModelVersionId) ?? modelVersions[0] ?? null;
@@ -568,11 +609,18 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
                 testID="model-performance-dashboard-date-range-picker"
                 fromDate={appliedFromDate}
                 toDate={appliedToDate}
-                minDate={dateBounds.from}
-                maxDate={dateBounds.to}
+                minDate={CALENDAR_MIN_DATE}
+                maxDate={todayYmd()}
                 onChange={(from, to) => {
                   setAppliedFromDate(from);
                   setAppliedToDate(to);
+                  // The date picker has its own internal Apply/confirm step,
+                  // so (unlike chips/trainer/jockey/min-prob) a date change
+                  // refetches immediately rather than waiting on the
+                  // outer Apply button — matches its pre-existing
+                  // apply-immediately behaviour, now against the server
+                  // instead of the client-side race pool.
+                  onApplyFilters(buildFilters(appliedChipSelected, appliedTrainerText, appliedJockeyText, from, to));
                 }}
               />
             </View>
@@ -628,7 +676,7 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
             </View>
           </Surface>
 
-          {filteredRaces.length === 0 ? (
+          {pnlRaces.length === 0 ? (
             <Text testID="model-performance-dashboard-pnl-empty" style={styles.stateText}>
               No qualifying runners for this filter set.
             </Text>
