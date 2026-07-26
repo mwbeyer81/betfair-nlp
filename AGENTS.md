@@ -2009,5 +2009,19 @@ progress, not a real 30s Playwright timeout firing. Killing it and
 rerunning with `--workers=1` completed normally in ~2.7 minutes. Prefer
 `--workers=1` for this suite on this machine.
 
-Next: merge to local `develop`, push, deploy web (this is a frontend-only
-fix, no backend/Lambda changes). Will update this entry once done.
+**Done — merged, pushed, deployed, live-verified.** Fast-forwarded local
+`develop` to `origin/develop` (`7881e04`, picking up the just-landed
+`codebase-search-chat` work), merged `header-overlap-fix` in
+(`--no-ff`, `7bda639`) — only conflict was `AGENTS.md` (this table row +
+two dated entries landing back-to-back), resolved by keeping both/
+concatenating. Re-verified post-merge: `yarn build` clean, full
+`responsive.spec.ts` + `industry-sp.spec.ts` MSW suite (123 tests,
+`--workers=1`) all pass. Pushed `develop` to origin
+(`7881e04..7bda639`). Deployed web (`apps/web/deploy.sh`) — confirmed live
+at `build-branch=develop`, `build-commit=7bda639`. Then drove a real
+Playwright browser at 375×812 against `https://app.backbet.co.uk/isp`
+directly (not just the MSW mocks) and screenshotted it: the header now
+renders "BackBet" on its own row with "Hide filters ▾" / "Model
+Performance" / "Log In" / "Sign Up" wrapped onto two rows below it, zero
+overlap. No backend/Lambda changes in this task, so no Lambda deploy was
+needed.
