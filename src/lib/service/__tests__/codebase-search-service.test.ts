@@ -240,6 +240,12 @@ describe("CodebaseSearchService", () => {
       expect(mockCreate).toHaveBeenCalledTimes(totalCallsBeforeFinal + 1);
       const finalCallParams = mockCreate.mock.calls[totalCallsBeforeFinal][0];
       expect(finalCallParams.tool_choice).toBe("none");
+      // Regression guard: OpenAI's real API rejects tool_choice without
+      // tools present, even when forcing "none" — the mock here doesn't
+      // enforce that contract (unlike the live API), so this assertion is
+      // the only thing that would catch `tools` being dropped again.
+      expect(finalCallParams.tools).toBeDefined();
+      expect(finalCallParams.tools.length).toBeGreaterThan(0);
     });
   });
 });

@@ -2099,3 +2099,112 @@ actions plus Chat/Events/Runners, no overlap). No backend/Lambda changes,
 so no Lambda deploy needed.
 
 **Done.**
+
+---
+
+## 2026-07-26 — Agent in `~/betfair-nlp-chat-live-test` (branch `test/chat-live-smoke`)
+
+**Task:** User reported (screenshot) the live chat at `app.backbet.co.uk`
+returning `Error: 401 Incorrect API key provided: your-ope**********here`
+— i.e. the deployed `codebase-search-chat` feature from the entry above
+was never actually able to reach OpenAI in production.
+
+**Root cause, confirmed via `aws lambda get-function-configuration`:** the
+`hello-api` Lambda's `OPENAI_API_KEY` environment variable had never
+actually been set — every deploy this session correctly "skipped secrets
+update" (no `config/local.json` present in the deploy worktree, exactly as
+designed), so the app had been running on `config/default.json`'s literal
+placeholder string (`"your-openai-api-key-here"`) in production the whole
+time. Invisible to every test in this repo because they all mock the chat
+service entirely; the previous entry's live curl checks used Basic auth
+(the deprecated auth scheme) against `/health`/`/api/stats`, never actually
+exercised `/api/query` against the real Lambda with the real OpenAI call.
+
+**Fix:** user supplied a new real key. Patched the live Lambda's env vars
+via the established fetch-merge-reapply pattern (`aws lambda
+get-function-configuration` → merge `OPENAI_API_KEY` into the existing
+6-key map in a scratch file → `update-function-configuration --environment
+file://...` → `wait function-updated`) — never constructed the
+`--environment` value from scratch, which would have wiped
+`MONGODB_URI`/`JWT_SECRET`/etc. Scratch files holding the merged secret set
+were deleted immediately after applying.
+
+**Verified live, for real:** minted a JWT signed with the Lambda's actual
+`JWT_SECRET` (fetched quietly via `aws lambda get-function-configuration`,
+never printed) rather than trying to log in with real user credentials —
+discovered along the way that `client/tests-live/api-middleware.spec.ts`'s
+hardcoded `matthew`/`beyer` login no longer authenticates against
+production (that file is already `test.describe.skip`'d with an unrelated
+stale "EC2 instance terminated" note, so this wasn't chased further). Two
+direct `curl`/Playwright `request` calls against
+`https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com/api/query`
+confirmed real, coherent, grounded answers — including the follow-up/
+history-threading path.
+
+**New persistent test:** `client/tests-live/chat-live.spec.ts` — 3 cases
+(general question, history-threaded follow-up, unauthenticated rejection),
+run against the real Lambda + real OpenAI API. Reads `JWT_SECRET` from an
+env var at run time rather than hardcoding a secret or real login
+credentials in the committed file. All 3 pass. This is the regression
+guard that would have caught the original bug immediately — worth running
+after any future Lambda secrets change.
+
+**Done — committed (`4b2f52f`), pushed to `develop`
+(`09b1373..4b2f52f`). No deploy needed** (test-file-only change, doesn't
+touch the running app). Worktree removed, branch deleted (local + remote)
+— nothing left in progress.
+
+---
+
+## 2026-07-26 (later) — Agent in `~/betfair-nlp-fix-tool-choice` (branch `fix/tool-choice-final-call`)
+
+**Task:** User reported (screenshot) a second live bug right after the
+OpenAI-key fix above: mid-conversation (after a discussion about model
+training), asking "Give example feature" returned `Error: 400 Invalid
+value for 'tool_choice': 'tool_choice' is only allowed when 'tools' are
+specified.`
+
+**Root cause:** `codebase-search-service.ts`'s forced final-answer call
+(runs once the 8-round `MAX_ITERATIONS` tool-call cap is hit) passed
+`tool_choice: "none"` without `tools` — OpenAI's real API rejects that
+combination outright, even when forcing "none". The existing mocked unit
+test for this exact code path (`chat — iteration cap`) never caught it
+because the mock doesn't enforce OpenAI's real parameter contract; it
+happily accepted whatever shape was passed.
+
+**Fix:** added `tools: TOOLS` back to that one call
+(`codebase-search-service.ts`). Strengthened the mocked unit test to
+explicitly assert `tools` is present and non-empty on the final call —
+without that assertion this exact regression could recur silently again
+since the mock alone won't catch it.
+
+**Broadened `client/tests-live/chat-live.spec.ts`** significantly, per
+explicit request ("Replicate in persistence test. Add other tests
+similar"):
+- A shared `expectHealthyReply()` helper checking for a list of known
+  error-signature substrings (`incorrect api key`, `tool_choice`,
+  `invalid value for`, raw status codes, etc.) in any reply — generalizes
+  the single hardcoded check from the previous entry into a reusable guard
+  against *any* backend/OpenAI error leaking through disguised as an
+  ordinary chat bubble (both bugs so far share exactly this shape — the
+  frontend prefixes any backend error with "Error: " and renders it with
+  no visual distinction from a real reply).
+- A test replicating the **exact** repro conversation from the screenshot
+  (model-training discussion → "Give example feature" follow-up).
+- A "broad, multi-part question" test as a live-world companion to the
+  now-deterministic unit test — not a guaranteed reproduction of the
+  8-round cap (real model tool-calling isn't fully predictable), but the
+  closest practical live analogue.
+- Direct DB-structure and feature-engineering questions (the feature's
+  original stated goals) and an off-topic-redirect check, for general
+  coverage beyond just this one bug.
+
+**Verified live, for real, against the redeployed Lambda:** all 8 tests in
+`chat-live.spec.ts` pass (39s), including the exact repro scenario that
+previously 400'd.
+
+**Done — committed (`e4fe0e4`), pushed to `develop` (`1c790f9..e4fe0e4`),
+deployed** (`apps/lambda/build.sh` — confirmed live via `aws lambda
+get-function`, fresh `LastModified`/`Successful`; no frontend changes, no
+web deploy needed). Worktree removed, branch deleted (local + remote) —
+nothing left in progress.
