@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { within, userEvent, expect, fn, waitFor } from "@storybook/test";
-import { ModelPerformanceDashboard } from "./ModelPerformanceDashboard";
+import { ModelPerformanceDashboard, ModelPerformanceFilters } from "./ModelPerformanceDashboard";
 import { IspRace, IspRunner, ModelVersion, CalibrationBucket } from "../services/chatApi";
 import { computeRangePnl, computeModelFilteredPnl } from "../utils/ispFormat";
 
@@ -114,6 +114,15 @@ function mockRacesForModelVersion(version: ModelVersion, count = 130): IspRace[]
   const rng = seededRandom(hashCode(version.id));
   const noise = NOISE_BY_VERSION[version.id] ?? 0.3;
   const races: IspRace[] = [];
+  // Anchored to this version's own testDateMin (not a fixed calendar date)
+  // so every mock race falls within its real held-out test period — matches
+  // what GET /api/industry-sp actually returns once IndustrySpScreen passes
+  // minDate: runMeta.testDateMin as the default filter (see
+  // loadRacesForModelVersion), and keeps the default/reset PnL baseline
+  // identical to the unfiltered pool below rather than silently dropping
+  // rows the moment a version-switch or Reset applies that default.
+  const [testMinYear, testMinMonth, testMinDay] = version.runMeta.testDateMin.split("-").map(Number);
+  const testMinUtc = Date.UTC(testMinYear, testMinMonth - 1, testMinDay, 14, 30);
 
   for (let i = 0; i < count; i++) {
     const course = COURSES[Math.floor(rng() * COURSES.length)];
@@ -121,8 +130,16 @@ function mockRacesForModelVersion(version: ModelVersion, count = 130): IspRace[]
     const raceClass = RACE_CLASSES[Math.floor(rng() * RACE_CLASSES.length)];
     const raceType = RACE_TYPES[Math.floor(rng() * RACE_TYPES.length)];
     const countryCode = COUNTRIES[Math.floor(rng() * COUNTRIES.length)];
-    const dayOffset = Math.floor(rng() * 200);
-    const raceTime = new Date(Date.UTC(2026, 0, 1 + dayOffset, 14, 30)).toISOString();
+    // Kept narrow (14 days) and anchored just after testDateMin — the date
+    // picker's calendar caps its upper bound at *today's real date*
+    // (todayYmd() in ModelPerformanceDashboard.tsx), and LATEST's
+    // testDateMin is intentionally close to "now" among these fixtures, so
+    // a wide spread here risked generating races past that cap and getting
+    // silently excluded the moment Apply/Reset re-sends today as maxDate —
+    // exactly the bug this file's own fix guards against, just self-
+    // inflicted by the fixture instead of a real filter.
+    const dayOffset = Math.floor(rng() * 14);
+    const raceTime = new Date(testMinUtc + dayOffset * 24 * 60 * 60 * 1000).toISOString();
     const runnerCount = 6 + Math.floor(rng() * 7);
 
     const isps: number[] = [];
@@ -194,6 +211,35 @@ const RACES_BY_VERSION: Record<string, IspRace[]> = Object.fromEntries(
 
 const LATEST = MODEL_VERSIONS[2];
 
+// Stands in for the server-side filtering GET /api/industry-sp now does
+// (see loadRacesForModelVersion/onApplyModelPerformanceFilters in
+// IndustrySpScreen.tsx) — narrows the full mock pool for a version down to
+// whatever ModelPerformanceFilters the dashboard last applied. Deliberately
+// does NOT filter by trainer/jockey here: the real backend's $elemMatch
+// only confirms a race has *a* matching runner without trimming its other
+// runners, so — same as production — that narrowing happens client-side in
+// ModelPerformanceDashboard's own pnlRaces (substring match on whatever
+// `races` this function returns), not at the mock "server" layer.
+function applyMockFilters(races: IspRace[], filters: ModelPerformanceFilters): IspRace[] {
+  return races.filter(race => {
+    const raceYmd = race.raceTime.slice(0, 10);
+    if (filters.minDate && raceYmd < filters.minDate) return false;
+    if (filters.maxDate && raceYmd > filters.maxDate) return false;
+    if (filters.countries && filters.countries.length > 0 && !filters.countries.includes(race.countryCode)) return false;
+    if (filters.courses && filters.courses.length > 0 && !filters.courses.includes(race.course)) return false;
+    if (filters.goings && filters.goings.length > 0 && (race.going == null || !filters.goings.includes(race.going))) return false;
+    if (
+      filters.raceClasses &&
+      filters.raceClasses.length > 0 &&
+      (race.raceClass == null || !filters.raceClasses.includes(race.raceClass))
+    ) {
+      return false;
+    }
+    if (filters.raceTypes && filters.raceTypes.length > 0 && !filters.raceTypes.includes(race.raceType)) return false;
+    return true;
+  });
+}
+
 const meta: Meta<typeof ModelPerformanceDashboard> = {
   title: "Components/ModelPerformanceDashboard",
   component: ModelPerformanceDashboard,
@@ -206,33 +252,49 @@ const meta: Meta<typeof ModelPerformanceDashboard> = {
     loading: false,
     error: null,
     onClose: fn(),
+    onApplyFilters: fn(),
+    defaultMinDate: LATEST.runMeta.testDateMin,
+    availableCountries: COUNTRIES,
+    availableCourses: COURSES,
+    availableGoings: GOINGS,
+    availableRaceClasses: RACE_CLASSES,
+    availableRaceTypes: RACE_TYPES,
   },
+  // Wraps every story with real useState so version switches and
+  // Apply/date-range/Reset actually refetch (via applyMockFilters) the way
+  // IndustrySpScreen does against the real API, instead of leaving `races`
+  // static — same as a real ChatScreen-style wiring would behave.
+  render: args => <StatefulModelPerformanceDashboard {...args} />,
 };
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// Wraps the (parent-controlled) component with real useState so stories that
-// exercise switching model versions can observe the props actually swapping,
-// same as a future ChatScreen-style wiring would do.
-const ControlledModelPerformanceDashboard: React.FC<{
-  initialSelectedId: string;
-  onSelect: (id: string) => void;
-  onClose: () => void;
-}> = ({ initialSelectedId, onSelect, onClose }) => {
-  const [selectedId, setSelectedId] = useState(initialSelectedId);
+const StatefulModelPerformanceDashboard: React.FC<React.ComponentProps<typeof ModelPerformanceDashboard>> = props => {
+  const [selectedId, setSelectedId] = useState(props.selectedModelVersionId);
+  const [races, setRaces] = useState(props.races);
+
+  function handleSelect(id: string) {
+    setSelectedId(id);
+    setRaces(RACES_BY_VERSION[id] ?? []);
+    props.onSelectModelVersion(id);
+  }
+
+  function handleApply(filters: ModelPerformanceFilters) {
+    setRaces(applyMockFilters(RACES_BY_VERSION[selectedId] ?? [], filters));
+    props.onApplyFilters(filters);
+  }
+
+  const selectedVersion = props.modelVersions.find(v => v.id === selectedId) ?? props.modelVersions[0] ?? null;
+
   return (
     <ModelPerformanceDashboard
-      modelVersions={MODEL_VERSIONS}
+      {...props}
       selectedModelVersionId={selectedId}
-      onSelectModelVersion={id => {
-        setSelectedId(id);
-        onSelect(id);
-      }}
-      races={RACES_BY_VERSION[selectedId]}
-      loading={false}
-      error={null}
-      onClose={onClose}
+      onSelectModelVersion={handleSelect}
+      races={races}
+      onApplyFilters={handleApply}
+      defaultMinDate={selectedVersion?.runMeta.testDateMin ?? "2000-01-01"}
     />
   );
 };
@@ -366,13 +428,8 @@ export const EmptyState: Story = {
 export const SwitchingModelVersionUpdatesTrainingParamsAndMetrics: Story = {
   // Switching versions now goes through the table: open the latest
   // version's detail, go back, then open a different version's detail.
-  render: args => (
-    <ControlledModelPerformanceDashboard
-      initialSelectedId={LATEST.id}
-      onSelect={args.onSelectModelVersion}
-      onClose={args.onClose}
-    />
-  ),
+  // (Uses meta's default StatefulModelPerformanceDashboard render, which
+  // already tracks selection/races via real useState.)
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await openDetailInCanvas(canvas, LATEST.id);
@@ -386,13 +443,6 @@ export const SwitchingModelVersionUpdatesTrainingParamsAndMetrics: Story = {
 };
 
 export const SwitchingModelVersionRecomputesPnlComparison: Story = {
-  render: args => (
-    <ControlledModelPerformanceDashboard
-      initialSelectedId={LATEST.id}
-      onSelect={args.onSelectModelVersion}
-      onClose={args.onClose}
-    />
-  ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await openDetailInCanvas(canvas, LATEST.id);
@@ -451,7 +501,10 @@ export const ApplyingDateRangeFilterNarrowsPnl: Story = {
     await openDetailInCanvas(canvas, LATEST.id);
     const before = canvas.getByTestId("model-performance-dashboard-pnl-without").textContent;
 
-    await pickDateRangeInCanvas(canvas, "2026-02-01", "2026-02-10");
+    // Mock races for LATEST span testDateMin (2026-07-06) .. +13 days; this
+    // covers roughly the first half of that window, narrow enough to
+    // exclude some races without risking zero matches.
+    await pickDateRangeInCanvas(canvas, "2026-07-06", "2026-07-10");
 
     await waitFor(() => {
       const after = canvas.getByTestId("model-performance-dashboard-pnl-without").textContent;
