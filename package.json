@@ -43,6 +43,8 @@
     "uncompress:bz2": "ts-node src/commands/uncompress-bz2.ts",
     "import:industry-sp": "ts-node src/commands/import-industry-sp.ts",
     "precompute:trainer-form": "ts-node src/commands/precompute-trainer-form.ts",
+    "precompute:jockey-form": "ts-node src/commands/precompute-jockey-form.ts",
+    "precompute:horse-form": "ts-node src/commands/precompute-horse-form.ts",
     "mongo:drop-all": "docker-compose -f docker-compose.local.yml exec mongodb mongosh betfair_nlp_dev --eval \"$(cat scripts/drop-all-collections.js)\"",
     "mongo:exec": "node scripts/mongo-exec.js",
     "mongo:check": "node scripts/mongo-exec.js --check",

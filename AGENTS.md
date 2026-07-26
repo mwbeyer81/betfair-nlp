@@ -50,6 +50,17 @@ cd ~/betfair-nlp-<slug>
   branch name matching `<slug>` — the convention every worktree below
   already follows.
 - **Branch from `origin/develop`**, not a possibly-stale local `develop`.
+- **Merge `origin/develop` into your branch frequently while work is still
+  in progress — not just once at branch-creation and once right before your
+  final push.** `develop` moves constantly with several agents active; on
+  2026-07-25 the same `AGENTS.md` conflict was hit three separate times in a
+  row while merging and deploying one feature, purely because each merge was
+  a one-off reaction to a rejected push rather than a habit. Make `git fetch
+  origin develop && git merge origin/develop` something you run periodically
+  mid-task (e.g. before starting a new sub-task, or any time you're about to
+  touch `AGENTS.md` yourself) — catching a small divergence early is a
+  trivial conflict; catching three of them stacked up right before a deploy
+  is not.
 - **Before you push/merge:** re-read this file (top-level instruction above,
   still applies) and add/update your row in the table below.
 - **After merge + deploy:** clean up so the next agent doesn't have to
@@ -80,9 +91,9 @@ tiebreaker.
 | `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; **`develop` just moved significantly (`fd3f394`) — Split A/B's runner-index machinery (`splitByRunners`, `fromRunnerA/toRunnerA/...`) was entirely removed and `IndustrySpScreen.tsx` heavily rewritten, see the dated entry below** — expect this branch's divergence to be much worse now, plan for a careful manual reconciliation, not a plain rebase |
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
-| `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | in progress, not merged — see dated entry below |
-| `~/betfair-nlp-model-versioning-backend` | `model-versioning-backend` | Backend for Model Performance Dashboard: model-version registry, runner tagging, live nav wiring | **merged to `develop` (`489b187`/`d182e99`), not yet deployed** — worktree kept around pending deploy, see dated entries below. Also left a stash (`stash@{0}` as of writing, check `git stash list`) with unrelated uncommitted `ml/train_and_predict.py` feature-engineering work + precompute scripts that predated this merge — not yet reconciled |
-| `~/betfair-nlp-app-knowledge-chat` | `feat/app-knowledge-chat` | Chat can explain the app itself (DB structure, model training, feature engineering) in plain English; also hardening the existing data-query chat path to be verifiably read-only | **committed, live-verified against the real OpenAI API, merging and deploying now** — see dated entry below |
+| `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | merging to `develop` now — reconciling with `model-versioning-backend`'s stashed `train_and_predict.py` WIP below in the same pass, see dated entry below |
+| `~/betfair-nlp-model-versioning-backend` | `model-versioning-backend` | Backend for Model Performance Dashboard: model-version registry, runner tagging, live nav wiring | **merged to `develop` (`489b187`/`d182e99`), not yet deployed** — worktree kept around pending deploy, see dated entries below. The `stash@{0}` `ml/train_and_predict.py`/precompute-scripts WIP it left behind is being reconciled by `comment-nlp-features` (see dated entry below) — that stash can be dropped once confirmed superseded, don't reconcile it a second time |
+| `~/betfair-nlp-codebase-chat` | `feat/codebase-search-chat` | **Full replacement** of the chat feature — deletes the entire MongoDB-query-generation path (`openai-client.ts`, `natural-language-service.ts`, `mongo-script-executor.ts`, both prompt docs) and rebuilds it as an OpenAI tool-calling agent that reads real source files at runtime (a curated, allowlisted "codebase snapshot" bundled alongside `prompts/`), plus real multi-turn conversation memory. Supersedes the `feat/app-knowledge-chat` work merged/deployed earlier today — that work is being deleted, not extended. See dated entry below | in progress, not merged |
 
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`, and
@@ -1272,6 +1283,59 @@ progress.**
 
 ---
 
+## 2026-07-25 (later again) — Agent in `~/betfair-nlp-comment-nlp-features` (branch `comment-nlp-features`), merging develop in
+
+**Task:** Bring `comment-nlp-features` (still just its one `92e38b1` commit,
+branched from `develop` at `de48df3`) up to date with `origin/develop`,
+which had moved 10 commits ahead in the meantime (the model-performance
+table/tooltip work, the ISP date-filter span increase, the split-ab-race
+revert, and their docs updates — see the entries above). Not yet merged to
+`develop` or pushed anywhere.
+
+**Conflict check done before merging:** diffed the file lists of both
+sides first (`git diff --name-only comment-nlp-features...origin/develop`)
+— zero overlap with anything this branch touches
+(`ml/train_and_predict.py`, `import-industry-sp.ts`,
+`precompute-horse-form.ts`, `precompute-jockey-form.ts`,
+`comment-lexicon.ts`, `package.json`). The one shared filename,
+`AGENTS.md`, was only ever touched on the `develop` side — this branch's
+own commit never modified it (the disclosure entry above was originally
+written directly in the *primary* checkout, uncommitted, and evidently
+landed on `develop` through a different path since it's already present at
+the top of this merge, word for word). **Result: `git merge origin/develop`
+applied cleanly with zero conflicts** — no conflict markers, nothing to
+resolve by hand.
+
+**Post-merge verification:** `tsc --noEmit` clean; `comment-lexicon.test.ts`
++ `parse-isp.test.ts` 26/26 pass; `ml/test_features.py` 11/11 pass. Ran the
+full backend `yarn jest src/` (327 tests) and got 58 failures across 8
+suites — looked alarming, so before assuming the merge broke something,
+checked out `origin/develop` alone in a throwaway detached worktree
+(`/tmp/develop-baseline-check`, removed after) and ran the identical suite
+there: **57 failures across the same 8 suites**, byte-for-byte the same
+suite names (`market-definition-dao.integration.test.ts`,
+`price-update-dao.integration.test.ts`, `betfair-service.test.ts`,
+`mongo-script-executor.test.ts`, `natural-language-service.test.ts`,
+`openai-client.test.ts`, `simple.test.ts`,
+`runner-price-updates.test.ts`). The only diff between the two runs'
+pass/fail suite lists is this branch's own new
+`comment-lexicon.test.ts` (11/11 passing). **Confirmed: all 8 failing
+suites are pre-existing on `develop` itself, unrelated to this branch** —
+e.g. `price-update-dao.integration.test.ts` fails to even compile
+(`Property 'getUniqueRunnersByEventId' does not exist on type
+'MarketDefinitionDAO'`), a pre-existing type/API mismatch nothing to do
+with comment-NLP or the trainer/jockey/horse-form work this branch
+bundles. Worth someone picking up separately, but explicitly out of scope
+here.
+
+**Not yet done:** pushing this branch, opening a PR, or merging into
+`develop` for real — this was specifically "catch the branch up and
+document how" per the user's ask, not a request to land it. The full-scale
+eval re-run and the prod/shared-Atlas reseed noted as outstanding in the
+entry above are still outstanding.
+
+---
+
 ## 2026-07-25 (yet later still) — Agent in `~/betfair-nlp-model-versioning-backend` (branch `model-versioning-backend`)
 
 **Task:** Build the backend for the Model Performance Dashboard (all the
@@ -1620,6 +1684,41 @@ by this merge; the unpushed-local-`develop` side (the
 `ModelPerformanceDashboard` commits) is unaffected and still needs
 resolving by whoever owns that, independent of this branch.
 
+**Done — committed (`05fc1d9`), merged to `develop`, pushed, deployed.**
+Committed, then `origin/develop` had advanced again in the meantime (the
+`model-versioning-backend` feature landed) — merged that in too (only
+`AGENTS.md` conflicted, resolved by keeping both worktree-table rows),
+re-verified `tsc --noEmit` and `client && yarn build` clean and re-ran
+`app.test.ts`/`mongo-script-executor.test.ts` against the combined state
+(both touch `app.test.ts`) before pushing: fast-forward `feat/app-knowledge-chat
+-> develop` (`1e46596`). By the time the persistent `~/betfair-nlp-deploy-
+develop` worktree was fast-forwarded to deploy from, `origin/develop` had
+moved once more to `94105e7` (someone else's merge combining both features)
+— re-verified `tsc --noEmit` clean and `app.test.ts`/`mongo-script-executor
+.test.ts` (136 passed, 7 pre-existing skips) on that exact tip before
+running `apps/lambda/build.sh` from it (per the "deploy scripts must run
+from a worktree whose local HEAD actually is `origin/develop`" rule above —
+`~/betfair-nlp-deploy-develop` is a **detached-HEAD** worktree, since the
+primary checkout already holds the `develop` branch name; move it forward
+with `git checkout --detach origin/develop`, not `git checkout develop`).
+Confirmed no `config/local.json` present there, so the deploy correctly
+skipped touching the live `OPENAI_API_KEY`/`MONGODB_URI` env vars. Verified
+live via `aws lambda get-function --function-name hello-api`: fresh
+`LastModified` timestamp matching the deploy, `State: Active`,
+`LastUpdateStatus: Successful`.
+
+**Gotcha for whoever runs `/deploy-lambda` next:** its documented verify
+`curl` (Basic auth) is stale — this app moved to JWT Bearer auth a while
+back (`middleware.ts`'s `jwtAuth`), so `Authorization: Basic ...` 401s on
+every route including `/health`, not just `/api/*`. A clean structured
+`{"error":"Authentication required"}` JSON response (not a 500/timeout) is
+itself proof the Lambda is up and running the new code; the Lambda
+metadata check above is the more reliable verification until that skill
+doc is updated.
+
+Worktree removed, branch deleted (local + remote) — nothing left in
+progress.
+
 Not yet merged, not deployed, worktree left in place for user review.
 
 ---
@@ -1655,3 +1754,125 @@ stashed, untouched — nobody has asked for that reconciliation yet.
 `~/betfair-nlp-model-versioning-backend` worktree removed, branch
 deleted (local — not on remote, since it was never pushed as its own
 branch). Nothing left in progress for this specific task.
+
+---
+
+## 2026-07-25 (once more) — Agent in `~/betfair-nlp-comment-nlp-features` (branch `comment-nlp-features`), real merge conflicts this time
+
+**Task:** Same branch as the two entries above, catching up with `develop`
+again — it had moved 9 more commits since the last (conflict-free) catch-up,
+including `model-versioning-backend` (previous entry). Unlike last time,
+this merge had **real conflicts**, previewed first with `git merge-tree
+--write-tree HEAD origin/develop` (read-only, no working-tree changes) to
+scope them before merging for real: exactly two files, `AGENTS.md`
+(routine — both sides append different dated entries after the same shared
+point, resolved by keeping both, HEAD's first since it was written
+earlier) and **`ml/train_and_predict.py`**, the real one.
+
+**Why `train_and_predict.py` conflicted:** both this branch and
+`model-versioning-backend` (previous entry) were built on top of the
+*same* uncommitted primary-checkout WIP (the trainer/jockey/horse-form
+`NUM_COLS` expansion). `model-versioning-backend` resolved its own
+encounter with that WIP by **stashing it away** (`stash@{0}`, mentioned in
+the previous two entries as "not yet reconciled") and building its
+`TRAINING_PARAMS`/`modelVersionId`/versioning infra on top of the
+*original* minimal `NUM_COLS` instead. So the two branches' versions of
+this file diverged in different directions from the same starting point —
+`develop`'s had the versioning infra but lost the feature-engineering
+columns; this branch had the columns (plus its own 3 comment-NLP ones) but
+no versioning infra.
+
+**Resolution — combined both, didn't pick one side:** took `develop`'s
+version as the base (`TRAINING_PARAMS`/`TRAINING_PARAMS_CAMEL`/
+`EARLY_STOPPING_ROUNDS`/`model_version_id` generation/the per-runner
+`modelVersionId` write-back — required for `ModelVersionDAO` and the
+dashboard to keep working) and re-applied this branch's `CAT_COLS`/
+`NUM_COLS` expansion, `load_dataframe` row-dict fields, and docstring
+paragraphs on top. Net effect: `run_meta` now carries `modelVersionId`,
+`runLabel`, *and* `trainingParams`; `FEATURE_COLS` has all 30 columns
+(the original set + trainer/jockey form + horse career/RPR/TS/beaten-
+distance + this branch's `horseAvgExcuseScore`/`horseTroubleInRunningRate`/
+`horseTravelledWellRate`). **This branch's merge effectively reconciles
+the `model-versioning-backend` stash** mentioned in the two entries above
+— that stash can now be dropped as superseded rather than reconciled a
+second time.
+
+**Verified the hand-merge actually works, not just compiles:** `tsc
+--noEmit` clean, `ml/test_features.py` 11/11 pass, then ran the merged
+script for real against the local dev-subset DB
+(`RUN_LABEL=merge-check MONGODB_URI=mongodb://localhost:27019
+MONGODB_DB_NAME=betfair_nlp_dev_comment_nlp`) — completed without error,
+and the resulting `model_evaluations` doc has both sides' fields present
+simultaneously: `modelVersionId: "xgb-20260725-233808"`, full
+`trainingParams`, and a 30-entry `featureCols` including all three
+comment-NLP columns. Confirms the merge is a real combination, not an
+accidental pick-one-side.
+
+**Next in this same session:** pushing this branch straight to
+`origin develop` (`git push origin comment-nlp-features:develop`, from the
+worktree — not touching the primary checkout's working tree or its local
+`develop` pointer, which will be behind after this and needs a manual
+fast-forward whenever convenient), then running the newly-merged
+`train_and_predict.py` for real against **production** Atlas (per explicit
+user instruction) so a real `modelVersionId` entry appears in the live
+dashboard — the previous entry above confirmed prod currently has zero
+such entries (`GET /api/model-versions` returns `{"data":[],"count":0}`),
+so this will be the first one.
+
+---
+
+## 2026-07-25 (later still) — Agent in `~/betfair-nlp-codebase-chat` (branch `feat/codebase-search-chat`)
+
+**Task (starting):** Full replacement of the chat feature, superseding
+`feat/app-knowledge-chat` (merged/deployed earlier today — that entire
+`responseType: "data"|"about"` design is being deleted, not extended). User
+live-tested the deployed "about the app" fork and found it unreliable —
+natural phrasings ("What does this app do", "How does it work") fell
+through to the old generic MongoDB-script-failure fallback, because
+instructions+query were jammed into a single `user`-role string with zero
+conversation memory. User's direction: *"Delete the existing chat logic. The
+chat feature should just allow users to chat to understand all things about
+the app. Could it search the code base to help give an answer?"*
+
+New design: an OpenAI tool-calling agent (Chat Completions `tools` API,
+`openai@5.16.0` already installed and confirmed to support it) that reads
+real source files at runtime via three read-only tools
+(`list_directory`/`search_code`/`read_file`), scoped to an explicit
+allowlist (`src/lib/dao/`, `src/lib/service/`, one precompute script,
+`ml/train_and_predict.py`, `README.md` — explicitly excluding `AGENTS.md`,
+`config/`, `src/server/`, and the rest of `ml/`'s 988M of data artifacts),
+plus real multi-turn conversation memory threaded from `ChatScreen.tsx`'s
+existing `messages` state. Full plan at
+`~/.claude/plans/create-to-git-work-functional-galaxy.md`.
+
+**Key constraint driving the design:** confirmed via `apps/lambda/build.sh`
+that the deployed Lambda's package is only `handler.js` (esbuild-bundled,
+no raw `.ts` on disk) plus explicitly-copied `config/`/`prompts/` — so a
+"search the codebase" tool only works in production if the searchable files
+are bundled the same way `prompts/` already is, not assumed to exist on
+disk. Solution: a new `scripts/build-codebase-snapshot.sh` copies the
+allowlisted files into `src/lib/service/codebase-snapshot/` (gitignored
+build artifact), and both local dev and the Lambda read from that same
+snapshot directory (not the live repo in dev) so the two environments stay
+structurally identical.
+
+**Touching:** deletes `src/lib/service/openai-client.ts`,
+`natural-language-service.ts`, `mongo-script-executor.ts`,
+`prompts/horse-racing-assistant.md`, `prompts/app-knowledge-assistant.md`
+(and their tests) entirely; new `codebase-file-access.ts` +
+`codebase-search-service.ts` + `prompts/chat-system-prompt.md` +
+`scripts/build-codebase-snapshot.sh`; rewrites `router.ts`'s `/api/query`,
+`apps/lambda/build.sh`, and the frontend chat pieces (`chatApi.ts`,
+`ChatScreen.tsx`, `Message.tsx`, `Message.stories.tsx`) to drop the
+`mongoScript`/`aiAnalysis` concept entirely and thread conversation history
+instead.
+
+**Also, separately from this feature (its own doc-only commit on `develop`
+before this work starts):** added a new standing rule to this file's
+"Working in a worktree" section — merge `origin/develop` into your branch
+*frequently while work is in progress*, not just once at branch-creation and
+once before the final push. The previous task hit the identical `AGENTS.md`
+merge conflict three times in a row while merging/deploying, purely because
+each merge was a one-off reaction to a rejected push rather than a habit.
+
+Will append a completion entry below once shipped/verified.

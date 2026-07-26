@@ -13,6 +13,20 @@ the model should produce an independent view, not a recalibration of the
 market's own price. Also excludes pos/status (the label itself) and
 sortPriority (redundant with num).
 
+Also deliberately excludes the runner's own rpr/ts/beatenDistance (Racing
+Post Rating / Topspeed / beaten distance) — those are POST-RACE performance
+figures for the very race being predicted, so using them directly would
+leak the outcome. horseAvgRPR/horseAvgTS/horseAvgBeatenDistance below are
+the leakage-safe versions: trailing averages from the horse's prior runs
+only, precomputed in src/commands/precompute-horse-form.ts.
+
+Same leakage rule applies to horseAvgExcuseScore/horseTroubleInRunningRate/
+horseTravelledWellRate: these come from tagging the free-text `comment`
+field (Racing Post-style in-running commentary) with a keyword lexicon
+(src/lib/dao/comment-lexicon.ts) and trailing-averaging over the horse's
+last 3 prior runs, same as horseAvgRPR/TS — the current race's own comment
+is never used directly, only prior-run history.
+
 Usage:
     MONGODB_URI=... MONGODB_DB_NAME=... ml/venv/bin/python ml/train_and_predict.py
 """
@@ -36,8 +50,16 @@ MODEL_DIR = Path(__file__).parent / "models"
 MODEL_PATH = MODEL_DIR / "win_probability_model.json"
 RUN_LABEL = os.environ.get("RUN_LABEL", "unlabeled")
 
-CAT_COLS = ["course", "going", "raceType", "raceClass", "trainer", "jockey"]
-NUM_COLS = ["distanceFurlongs", "ran", "num", "draw", "trainerFormRuns", "trainerFormWinRate", "trainerFormROI"]
+CAT_COLS = ["course", "going", "raceType", "raceClass", "trainer", "jockey", "sex", "hg"]
+NUM_COLS = [
+    "distanceFurlongs", "ran", "num", "draw",
+    "trainerFormRuns", "trainerFormWinRate", "trainerFormROI",
+    "jockeyFormRuns", "jockeyFormWinRate", "jockeyFormROI",
+    "officialRating", "wgt", "age",
+    "daysSinceLastRun", "horseCareerRuns", "horseCareerWinRate",
+    "horseAvgRPR", "horseAvgTS", "horseAvgBeatenDistance",
+    "horseAvgExcuseScore", "horseTroubleInRunningRate", "horseTravelledWellRate",
+]
 FEATURE_COLS = CAT_COLS + NUM_COLS
 
 # Single source of truth for make_model()'s XGBoost hyperparams (excluding
@@ -112,9 +134,14 @@ def load_dataframe(collection) -> pd.DataFrame:
         for runner in race.get("runners", []):
             trainer_staked = runner.get("trainerFormStaked")
             trainer_returns = runner.get("trainerFormReturns")
-            roi = np.nan
+            trainer_roi = np.nan
             if trainer_staked:
-                roi = (trainer_returns or 0) / trainer_staked
+                trainer_roi = (trainer_returns or 0) / trainer_staked
+            jockey_staked = runner.get("jockeyFormStaked")
+            jockey_returns = runner.get("jockeyFormReturns")
+            jockey_roi = np.nan
+            if jockey_staked:
+                jockey_roi = (jockey_returns or 0) / jockey_staked
             rows.append({
                 "raceId": race["raceId"],
                 "raceDate": race["raceDate"],
@@ -125,13 +152,30 @@ def load_dataframe(collection) -> pd.DataFrame:
                 "going": race.get("going"),
                 "trainer": runner.get("trainer"),
                 "jockey": runner.get("jockey"),
+                "sex": runner.get("sex"),
+                "hg": runner.get("hg"),
                 "distanceFurlongs": distance_furlongs,
                 "ran": race.get("ran"),
                 "num": runner.get("num"),
                 "draw": runner.get("draw"),
                 "trainerFormRuns": runner.get("trainerFormRuns"),
                 "trainerFormWinRate": runner.get("trainerFormWinRate"),
-                "trainerFormROI": roi,
+                "trainerFormROI": trainer_roi,
+                "jockeyFormRuns": runner.get("jockeyFormRuns"),
+                "jockeyFormWinRate": runner.get("jockeyFormWinRate"),
+                "jockeyFormROI": jockey_roi,
+                "officialRating": runner.get("officialRating"),
+                "wgt": runner.get("wgt"),
+                "age": runner.get("age"),
+                "daysSinceLastRun": runner.get("daysSinceLastRun"),
+                "horseCareerRuns": runner.get("horseCareerRuns"),
+                "horseCareerWinRate": runner.get("horseCareerWinRate"),
+                "horseAvgRPR": runner.get("horseAvgRPR"),
+                "horseAvgTS": runner.get("horseAvgTS"),
+                "horseAvgBeatenDistance": runner.get("horseAvgBeatenDistance"),
+                "horseAvgExcuseScore": runner.get("horseAvgExcuseScore"),
+                "horseTroubleInRunningRate": runner.get("horseTroubleInRunningRate"),
+                "horseTravelledWellRate": runner.get("horseTravelledWellRate"),
                 "label": 1 if runner.get("status") == "WINNER" else 0,
             })
     df = pd.DataFrame(rows)

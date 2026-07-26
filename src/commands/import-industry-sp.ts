@@ -40,6 +40,25 @@ interface RunnerDoc {
   isFavourite: boolean;
   jockey?: string;
   trainer?: string;
+  // Pre-race-known fields (safe as direct model inputs — they describe the
+  // entry, not the outcome). age/sex/hg/officialRating/pattern come straight
+  // from the CSV; wgt is stone-lb ("11-12") converted to total pounds.
+  age: number | null;
+  sex?: string;
+  wgt: number | null;
+  hg?: string;
+  officialRating: number | null;
+  pattern?: string;
+  // Post-race result fields — NEVER feed the current race's own rpr/ts/
+  // beatenDistance/comment into the model as a feature (that's the outcome
+  // leaking into the input). Only safe to use as raw material for a horse's
+  // *trailing* average/rate from its prior runs (see precompute-horse-form.ts,
+  // which also turns `comment`'s free text into structured trailing signals
+  // via src/lib/dao/comment-lexicon.ts).
+  rpr: number | null;
+  ts: number | null;
+  beatenDistance: number | null;
+  comment: string | null;
 }
 
 interface RaceDoc {
@@ -91,6 +110,29 @@ function toNullableInt(raw: string | undefined): number | null {
   if (!trimmed) return null;
   const n = parseInt(trimmed, 10);
   return Number.isNaN(n) ? null : n;
+}
+
+function toNullableFloat(raw: string | undefined): number | null {
+  const trimmed = (raw || "").trim();
+  if (!trimmed) return null;
+  const n = parseFloat(trimmed);
+  return Number.isNaN(n) ? null : n;
+}
+
+// "or"/"rpr"/"ts" use "–" (en dash) rather than an empty string for "not
+// applicable" (e.g. no official rating yet) — toNullableInt already returns
+// null for it via the failed parseInt, but this makes that intent explicit.
+function toNullableRating(raw: string | undefined): number | null {
+  const trimmed = (raw || "").trim();
+  if (!trimmed || trimmed === "–" || trimmed === "-") return null;
+  return toNullableInt(trimmed);
+}
+
+// "11-12" (11 stone 12 lb) -> 166 total pounds. Returns null on any other shape.
+function parseWeightPounds(raw: string | undefined): number | null {
+  const m = (raw || "").trim().match(/^(\d+)-(\d+)$/);
+  if (!m) return null;
+  return parseInt(m[1], 10) * 14 + parseInt(m[2], 10);
 }
 
 function formatMeetingName(course: string, raceDate: string): string {
@@ -187,6 +229,16 @@ async function run() {
         isFavourite,
         jockey: row.jockey || undefined,
         trainer: row.trainer || undefined,
+        age: toNullableInt(row.age),
+        sex: row.sex || undefined,
+        wgt: parseWeightPounds(row.wgt),
+        hg: row.hg || undefined,
+        officialRating: toNullableRating(row.or),
+        pattern: row.pattern || undefined,
+        rpr: toNullableRating(row.rpr),
+        ts: toNullableRating(row.ts),
+        beatenDistance: toNullableFloat(row.ovr_btn),
+        comment: (row.comment || "").trim() || null,
       };
     });
 
