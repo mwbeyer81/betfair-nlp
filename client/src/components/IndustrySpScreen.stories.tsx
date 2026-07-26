@@ -214,6 +214,9 @@ const meta: Meta<typeof IndustrySpScreen> = {
     onRequestAuth: fn(),
     onLogout: fn(),
     onViewRaces: fn(),
+    onNavigateToChat: fn(),
+    onNavigateToEvents: fn(),
+    onNavigateToRunners: fn(),
   },
 };
 

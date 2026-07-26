@@ -44,6 +44,9 @@ interface IndustrySpScreenProps {
   onRequestAuth: () => void;
   onLogout: () => void;
   onViewRaces: (fromRow: number, toRow: number | null) => void;
+  onNavigateToChat: () => void;
+  onNavigateToEvents: () => void;
+  onNavigateToRunners: () => void;
 }
 
 // Filter values are persisted to the URL query string (using the same param
@@ -243,8 +246,15 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   onRequestAuth,
   onLogout,
   onViewRaces,
+  onNavigateToChat,
+  onNavigateToEvents,
+  onNavigateToRunners,
 }) => {
-  const { isDesktop } = useResponsive();
+  const { isTablet, isDesktop } = useResponsive();
+  // Collapsed behind a burger icon on phone widths only — at tablet+ the
+  // action buttons keep rendering inline (see the header JSX below), which
+  // was already verified not to overlap the title at 768px and up.
+  const [navMenuOpen, setNavMenuOpen] = useState(false);
   // A bare, untouched load of /isp (no query string at all) should show
   // nothing until the user explicitly presses Apply — the filter bar and
   // split cards must not silently run a default query and present results
@@ -1273,6 +1283,125 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
   const splitCardStatus: "idle" | "pending" | "loaded" = isLoading ? "pending" : hasLoadedOnce ? "loaded" : "idle";
 
+  // Shared between the tablet+ inline row and the phone-width dropdown menu
+  // below — `closeMenu` only matters for the latter (tablet+ never opens
+  // `navMenuOpen` at all, since the burger button doesn't render there).
+  const renderHeaderActions = (closeMenu: boolean) => {
+    const wrap = (fn: () => void) => () => {
+      if (closeMenu) setNavMenuOpen(false);
+      fn();
+    };
+    return (
+      <>
+        <Button
+          testID="industry-sp-filters-toggle"
+          mode="outlined"
+          compact
+          onPress={wrap(() => setFiltersVisible(v => !v))}
+          style={styles.headerToggleButton}
+          labelStyle={styles.headerToggleButtonLabel}
+        >
+          {filtersVisible ? "Hide filters ▾" : "Show filters ▸"}
+        </Button>
+        <Button
+          testID="industry-sp-model-performance-button"
+          mode="outlined"
+          compact
+          onPress={wrap(loadModelPerformance)}
+          style={styles.headerToggleButton}
+          labelStyle={styles.headerToggleButtonLabel}
+        >
+          Model Performance
+        </Button>
+        {closeMenu && (
+          <>
+            <View style={styles.navMenuDivider} />
+            <Button
+              testID="industry-sp-menu-chat-link"
+              mode="outlined"
+              compact
+              onPress={wrap(onNavigateToChat)}
+              style={styles.headerToggleButton}
+              labelStyle={styles.headerToggleButtonLabel}
+            >
+              Chat
+            </Button>
+            <Button
+              testID="industry-sp-menu-events-link"
+              mode="outlined"
+              compact
+              onPress={wrap(onNavigateToEvents)}
+              style={styles.headerToggleButton}
+              labelStyle={styles.headerToggleButtonLabel}
+            >
+              Events
+            </Button>
+            <Button
+              testID="industry-sp-menu-runners-link"
+              mode="outlined"
+              compact
+              onPress={wrap(onNavigateToRunners)}
+              style={styles.headerToggleButton}
+              labelStyle={styles.headerToggleButtonLabel}
+            >
+              Runners
+            </Button>
+            <View style={styles.navMenuDivider} />
+          </>
+        )}
+        {isAuthenticated ? (
+          <>
+            <Button
+              testID="industry-sp-account-button"
+              mode="outlined"
+              compact
+              onPress={wrap(() => setShowAccountPanel(v => !v))}
+              style={styles.headerToggleButton}
+              labelStyle={styles.headerToggleButtonLabel}
+            >
+              Account
+            </Button>
+            <Button
+              testID="industry-sp-logout-button"
+              mode="contained"
+              compact
+              buttonColor={colors.accent}
+              onPress={wrap(onLogout)}
+              style={styles.headerButton}
+              labelStyle={styles.headerButtonLabel}
+            >
+              Log Out
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              testID="industry-sp-login-button"
+              mode="outlined"
+              compact
+              onPress={wrap(onRequestAuth)}
+              style={styles.headerToggleButton}
+              labelStyle={styles.headerToggleButtonLabel}
+            >
+              Log In
+            </Button>
+            <Button
+              testID="industry-sp-signup-button"
+              mode="contained"
+              compact
+              buttonColor={colors.accent}
+              onPress={wrap(onRequestAuth)}
+              style={styles.headerButton}
+              labelStyle={styles.headerButtonLabel}
+            >
+              Sign Up
+            </Button>
+          </>
+        )}
+      </>
+    );
+  };
+
   return (
     <SafeAreaView testID="industry-sp-screen" style={styles.screen}>
       <Appbar.Header style={styles.appbar}>
@@ -1288,78 +1417,26 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           subtitle={!isLoading ? `${totalRunners} runners · ${totalRaces} races` : undefined}
           subtitleStyle={styles.appbarSubtitle}
         />
-      </Appbar.Header>
-      <View testID="industry-sp-header-actions" style={styles.headerActionsRow}>
-        <Button
-          testID="industry-sp-filters-toggle"
-          mode="outlined"
-          compact
-          onPress={() => setFiltersVisible(v => !v)}
-          style={styles.headerToggleButton}
-          labelStyle={styles.headerToggleButtonLabel}
-        >
-          {filtersVisible ? "Hide filters ▾" : "Show filters ▸"}
-        </Button>
-        <Button
-          testID="industry-sp-model-performance-button"
-          mode="outlined"
-          compact
-          onPress={loadModelPerformance}
-          style={styles.headerToggleButton}
-          labelStyle={styles.headerToggleButtonLabel}
-        >
-          Model Performance
-        </Button>
-        {isAuthenticated ? (
-          <>
-            <Button
-              testID="industry-sp-account-button"
-              mode="outlined"
-              compact
-              onPress={() => setShowAccountPanel(v => !v)}
-              style={styles.headerToggleButton}
-              labelStyle={styles.headerToggleButtonLabel}
-            >
-              Account
-            </Button>
-            <Button
-              testID="industry-sp-logout-button"
-              mode="contained"
-              compact
-              buttonColor={colors.accent}
-              onPress={onLogout}
-              style={styles.headerButton}
-              labelStyle={styles.headerButtonLabel}
-            >
-              Log Out
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button
-              testID="industry-sp-login-button"
-              mode="outlined"
-              compact
-              onPress={onRequestAuth}
-              style={styles.headerToggleButton}
-              labelStyle={styles.headerToggleButtonLabel}
-            >
-              Log In
-            </Button>
-            <Button
-              testID="industry-sp-signup-button"
-              mode="contained"
-              compact
-              buttonColor={colors.accent}
-              onPress={onRequestAuth}
-              style={styles.headerButton}
-              labelStyle={styles.headerButtonLabel}
-            >
-              Sign Up
-            </Button>
-          </>
+        {!isTablet && (
+          <Appbar.Action
+            testID="industry-sp-menu-button"
+            icon="menu"
+            color="white"
+            onPress={() => setNavMenuOpen(v => !v)}
+          />
         )}
-      </View>
+      </Appbar.Header>
+      {isTablet ? (
+        <View testID="industry-sp-header-actions" style={styles.headerActionsRow}>
+          {renderHeaderActions(false)}
+        </View>
+      ) : (
+        navMenuOpen && (
+          <View testID="industry-sp-nav-menu" style={styles.navMenu}>
+            {renderHeaderActions(true)}
+          </View>
+        )
+      )}
 
       {isAuthenticated && showAccountPanel && (
         <View testID="industry-sp-account-panel" style={styles.accountPanel}>
@@ -1842,6 +1919,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     backgroundColor: colors.primary,
+  },
+  // Phone-width burger dropdown (see the `!isTablet` branch in the header
+  // JSX) — a simple stacked column rather than the wide-viewport row, since
+  // there's no horizontal room to spare at these widths.
+  navMenu: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.primary,
+  },
+  navMenuDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    marginVertical: 4,
   },
   headerButton: {
     marginHorizontal: 3,

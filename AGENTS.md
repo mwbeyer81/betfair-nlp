@@ -94,14 +94,12 @@ tiebreaker.
 | `~/betfair-nlp-comment-nlp-features` | `comment-nlp-features` | NLP-mined race-comment trailing form features for the win-probability model | merging to `develop` now — reconciling with `model-versioning-backend`'s stashed `train_and_predict.py` WIP below in the same pass, see dated entry below |
 | `~/betfair-nlp-model-versioning-backend` | `model-versioning-backend` | Backend for Model Performance Dashboard: model-version registry, runner tagging, live nav wiring | **merged to `develop` (`489b187`/`d182e99`), not yet deployed** — worktree kept around pending deploy, see dated entries below. The `stash@{0}` `ml/train_and_predict.py`/precompute-scripts WIP it left behind is being reconciled by `comment-nlp-features` (see dated entry below) — that stash can be dropped once confirmed superseded, don't reconcile it a second time |
 | `~/betfair-nlp-codebase-chat` | `feat/codebase-search-chat` | **Full replacement** of the chat feature — deletes the entire MongoDB-query-generation path (`openai-client.ts`, `natural-language-service.ts`, `mongo-script-executor.ts`, both prompt docs) and rebuilds it as an OpenAI tool-calling agent that reads real source files at runtime (a curated, allowlisted "codebase snapshot" bundled alongside `prompts/`), plus real multi-turn conversation memory. Supersedes the `feat/app-knowledge-chat` work merged/deployed earlier today — that work is being deleted, not extended. See dated entry below | implementation + verification done, **not yet merged** — no live HTTP-level check with a real logged-in user (service layer + supertest both verified separately, see dated entry) |
-| `~/betfair-nlp-header-overlap-fix` | `header-overlap-fix` | Fix the Appbar header buttons (incl. the new "Model Performance" button) overlapping the "BackBet" title on narrow/mobile viewports in production; add persistent narrow-viewport MSW/Playwright tests | merged to `develop` just now, about to push and deploy web — see dated entry below |
-
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
-`social-auth`, `convergence-tooltip`, `split-b-continuation`, and
-`split-ab-race-revert` were merged, clean, and have been removed
-(`git worktree remove` + `git branch -d`, local and remote) as of
-2026-07-25 — this is what "clean up after merge" in the section above
-looks like in practice.
+`social-auth`, `convergence-tooltip`, `split-b-continuation`,
+`split-ab-race-revert`, and `header-overlap-fix` were merged, clean, and
+have been removed (`git worktree remove` + `git branch -d`, local and
+remote where applicable) as of 2026-07-25/26 — this is what "clean up
+after merge" in the section above looks like in practice.
 
 Older entries (2026-07-17 through the `auth-hardening` session) have been
 moved to `AGENTS-archive-2026-07.md` to keep this file readable — see there

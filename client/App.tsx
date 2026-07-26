@@ -126,6 +126,9 @@ export default function App() {
             else params.delete("toRow");
             navigate("/isp/races", params.toString());
           }}
+          onNavigateToChat={() => navigate("/chat")}
+          onNavigateToEvents={() => navigate("/events")}
+          onNavigateToRunners={() => navigate("/runners")}
         />
       );
     }

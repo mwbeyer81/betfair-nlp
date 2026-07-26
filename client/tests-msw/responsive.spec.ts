@@ -192,45 +192,91 @@ test.describe("Responsive layout — /isp filters screen (MSW mocked, iPhone 12 
     await expect(page.getByTestId("industry-sp-filter-apply")).toBeVisible();
   });
 
-  test("header buttons ('Log Out') fit within the viewport", async ({ page }) => {
-    const logoutBtn = page.getByTestId("industry-sp-logout-button");
-    await expect(logoutBtn).toBeVisible();
+  // Regression test: the header action buttons (Show/Hide filters, Model
+  // Performance, Account/Log Out) used to render inline at every viewport
+  // width, including phone widths where there wasn't room — the row
+  // overflowed and painted over the "BackBet" title. They're now collapsed
+  // behind a burger icon on phone widths (`!isTablet`, <768px) instead, with
+  // Chat/Events/Runners links added to the same dropdown (see
+  // `renderHeaderActions` in IndustrySpScreen.tsx). Tablet+ keeps the old
+  // always-visible inline row unchanged — see the 768px+ describe blocks
+  // below, which never open the burger and still assert on
+  // industry-sp-header-actions directly.
+  test("burger menu button is visible, and the menu is closed by default", async ({ page }) => {
+    const menuBtn = page.getByTestId("industry-sp-menu-button");
+    await expect(menuBtn).toBeVisible();
+    const box = (await menuBtn.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
 
-    const logoutBox = await logoutBtn.boundingBox();
-    expect(logoutBox!.x + logoutBox!.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
+    await expect(page.getByTestId("industry-sp-nav-menu")).not.toBeVisible();
+    // The inline row is a tablet+-only element — it must not sneak into the
+    // DOM at phone widths even hidden, since that's exactly the bug that
+    // caused the original overlap.
+    await expect(page.getByTestId("industry-sp-header-actions")).toHaveCount(0);
   });
 
-  // Regression test: the "Model Performance" button used to live inside the
-  // fixed-height Appbar.Header alongside the title and every other action
-  // button, which had no wrap handling — on real narrow phones the button
-  // row overflowed and painted over the "BackBet" title (see
-  // industry-sp-header-actions in IndustrySpScreen.tsx, now a separate
-  // wrapping row below the Appbar rather than packed inside it).
-  test("all header action buttons are visible and fit within the viewport at 375px", async ({ page }) => {
-    const filtersBtn = page.getByTestId("industry-sp-filters-toggle");
-    const modelPerfBtn = page.getByTestId("industry-sp-model-performance-button");
-    const logoutBtn = page.getByTestId("industry-sp-logout-button");
+  test("tapping the burger menu reveals filters/Model Performance/nav links/Log Out, all fitting within the viewport", async ({ page }) => {
+    await page.getByTestId("industry-sp-menu-button").click();
+    const menu = page.getByTestId("industry-sp-nav-menu");
+    await expect(menu).toBeVisible();
 
-    for (const btn of [filtersBtn, modelPerfBtn, logoutBtn]) {
-      await expect(btn).toBeVisible();
-      const box = (await btn.boundingBox())!;
+    const items = [
+      "industry-sp-filters-toggle",
+      "industry-sp-model-performance-button",
+      "industry-sp-menu-chat-link",
+      "industry-sp-menu-events-link",
+      "industry-sp-menu-runners-link",
+      "industry-sp-logout-button",
+    ];
+    for (const testId of items) {
+      const el = page.getByTestId(testId);
+      await expect(el).toBeVisible();
+      const box = (await el.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(IPHONE_12_MINI_VIEWPORT.width + 1);
     }
   });
 
-  test("header title does not overlap the header action buttons", async ({ page }) => {
+  test("header title does not overlap the open nav menu", async ({ page }) => {
+    await page.getByTestId("industry-sp-menu-button").click();
     const title = page.getByTestId("industry-sp-title");
-    const actionsRow = page.getByTestId("industry-sp-header-actions");
+    const menu = page.getByTestId("industry-sp-nav-menu");
     await expect(title).toBeVisible();
-    await expect(actionsRow).toBeVisible();
+    await expect(menu).toBeVisible();
 
     const titleBox = (await title.boundingBox())!;
-    const actionsBox = (await actionsRow.boundingBox())!;
+    const menuBox = (await menu.boundingBox())!;
 
-    // The actions row must start at or below the title's bottom edge — any
-    // overlap means a button is painting over the "BackBet" title.
-    expect(actionsBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height - 1);
+    // The menu must start at or below the title's bottom edge — any overlap
+    // means the dropdown is painting over the "BackBet" title.
+    expect(menuBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height - 1);
+  });
+
+  test("tapping a nav menu item closes the menu", async ({ page }) => {
+    await page.getByTestId("industry-sp-menu-button").click();
+    await expect(page.getByTestId("industry-sp-nav-menu")).toBeVisible();
+
+    await page.getByTestId("industry-sp-filters-toggle").click();
+    await expect(page.getByTestId("industry-sp-nav-menu")).not.toBeVisible();
+  });
+
+  test("Chat/Events/Runners links in the nav menu actually navigate", async ({ page }) => {
+    await page.getByTestId("industry-sp-menu-button").click();
+    await page.getByTestId("industry-sp-menu-chat-link").click();
+    await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.goBack();
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("industry-sp-menu-button").click();
+    await page.getByTestId("industry-sp-menu-events-link").click();
+    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.goBack();
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("industry-sp-menu-button").click();
+    await page.getByTestId("industry-sp-menu-runners-link").click();
+    await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
   });
 });
 
