@@ -2099,3 +2099,57 @@ actions plus Chat/Events/Runners, no overlap). No backend/Lambda changes,
 so no Lambda deploy needed.
 
 **Done.**
+
+---
+
+## 2026-07-26 — Agent in `~/betfair-nlp-chat-live-test` (branch `test/chat-live-smoke`)
+
+**Task:** User reported (screenshot) the live chat at `app.backbet.co.uk`
+returning `Error: 401 Incorrect API key provided: your-ope**********here`
+— i.e. the deployed `codebase-search-chat` feature from the entry above
+was never actually able to reach OpenAI in production.
+
+**Root cause, confirmed via `aws lambda get-function-configuration`:** the
+`hello-api` Lambda's `OPENAI_API_KEY` environment variable had never
+actually been set — every deploy this session correctly "skipped secrets
+update" (no `config/local.json` present in the deploy worktree, exactly as
+designed), so the app had been running on `config/default.json`'s literal
+placeholder string (`"your-openai-api-key-here"`) in production the whole
+time. Invisible to every test in this repo because they all mock the chat
+service entirely; the previous entry's live curl checks used Basic auth
+(the deprecated auth scheme) against `/health`/`/api/stats`, never actually
+exercised `/api/query` against the real Lambda with the real OpenAI call.
+
+**Fix:** user supplied a new real key. Patched the live Lambda's env vars
+via the established fetch-merge-reapply pattern (`aws lambda
+get-function-configuration` → merge `OPENAI_API_KEY` into the existing
+6-key map in a scratch file → `update-function-configuration --environment
+file://...` → `wait function-updated`) — never constructed the
+`--environment` value from scratch, which would have wiped
+`MONGODB_URI`/`JWT_SECRET`/etc. Scratch files holding the merged secret set
+were deleted immediately after applying.
+
+**Verified live, for real:** minted a JWT signed with the Lambda's actual
+`JWT_SECRET` (fetched quietly via `aws lambda get-function-configuration`,
+never printed) rather than trying to log in with real user credentials —
+discovered along the way that `client/tests-live/api-middleware.spec.ts`'s
+hardcoded `matthew`/`beyer` login no longer authenticates against
+production (that file is already `test.describe.skip`'d with an unrelated
+stale "EC2 instance terminated" note, so this wasn't chased further). Two
+direct `curl`/Playwright `request` calls against
+`https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com/api/query`
+confirmed real, coherent, grounded answers — including the follow-up/
+history-threading path.
+
+**New persistent test:** `client/tests-live/chat-live.spec.ts` — 3 cases
+(general question, history-threaded follow-up, unauthenticated rejection),
+run against the real Lambda + real OpenAI API. Reads `JWT_SECRET` from an
+env var at run time rather than hardcoding a secret or real login
+credentials in the committed file. All 3 pass. This is the regression
+guard that would have caught the original bug immediately — worth running
+after any future Lambda secrets change.
+
+**Done — committed (`4b2f52f`), pushed to `develop`
+(`09b1373..4b2f52f`). No deploy needed** (test-file-only change, doesn't
+touch the running app). Worktree removed, branch deleted (local + remote)
+— nothing left in progress.
