@@ -2046,3 +2046,56 @@ renders "BackBet" on its own row with "Hide filters ▾" / "Model
 Performance" / "Log In" / "Sign Up" wrapped onto two rows below it, zero
 overlap. No backend/Lambda changes in this task, so no Lambda deploy was
 needed.
+
+## 2026-07-26 (later) — Agent in primary checkout `/home/ubuntu/betfair-nlp` (branch `develop`)
+
+**Task:** Follow-up on the header-overlap fix above — the user saw the
+deployed wrapped-row header live and said it "looks horrible," asking for
+a proper burger-style dropdown instead, including links to Chat, Model
+Performance, and other app views. Also asked to "use quicker tests" for
+this one.
+
+**Design choice made to minimize test churn:** rather than replacing the
+inline row everywhere, the burger only replaces it below the `isTablet`
+breakpoint (768px) — tablet+ keeps the exact previous inline row
+(`industry-sp-header-actions`) untouched. Playwright's default desktop
+viewport (1280×720) and Storybook's canvas are both well above 768px, so
+every test file that references the header testIDs at default width
+(`tests-msw/industry-sp.spec.ts`, `tests-msw/navigation.spec.ts`, the
+legacy `tests/industry-sp-e2e.spec.ts`, and the Storybook interaction
+suite — 43 references total across those files) needed **zero** changes;
+verified each still passes at its previous baseline (80/80, 13/13, not run
+live since it needs a real dev server + backend up, 54/56 with the same 2
+pre-existing course-chip failures as always). Only
+`tests-msw/responsive.spec.ts`'s 375px block — the one place actually
+exercising the narrow layout — needed rewriting, plus new tests for the
+menu's closed-by-default state, opening it, item/title non-overlap,
+closing on item tap, and the three nav links actually navigating.
+
+**Implementation (`client/src/components/IndustrySpScreen.tsx`):** added
+`onNavigateToChat`/`onNavigateToEvents`/`onNavigateToRunners` props (wired
+in `client/App.tsx` via the existing `navigate()` router, same pattern as
+`ChatScreen`/`AllRunnersScreen`'s own nav callbacks), added `isTablet` to
+the existing `useResponsive()` destructure, added a
+`renderHeaderActions(closeMenu)` helper shared between the tablet+ inline
+row and the phone-width dropdown (`industry-sp-nav-menu`, opened via a new
+`Appbar.Action` burger icon `industry-sp-menu-button`) so the same
+Show/Hide-filters, Model Performance, and Account/Log Out (or Log
+In/Sign Up) buttons aren't duplicated — the phone dropdown additionally
+gets Chat/Events/Runners links the tablet+ row doesn't have. Tapping any
+item in the dropdown closes it first.
+
+**Verified:** `yarn build` clean; `tests-msw/responsive.spec.ts` (45/45),
+`tests-msw/industry-sp.spec.ts` (80/80), `tests-msw/navigation.spec.ts`
+(13/13) all green; Storybook interaction suite for this component 54/56
+(same 2 pre-existing failures as every prior run). Merged `origin/develop`
+(picked up the just-landed `codebase-search-chat` merge/deploy, only
+conflict was the usual append-only `AGENTS.md`), pushed
+(`baa4c39..0eb173e`), deployed web — confirmed live at
+`build-commit=0eb173e`. Drove a real Playwright browser at 375×812 against
+`https://app.backbet.co.uk/isp` directly and screenshotted both states:
+closed (just "BackBet" + burger icon, clean single row) and open (all
+actions plus Chat/Events/Runners, no overlap). No backend/Lambda changes,
+so no Lambda deploy needed.
+
+**Done.**
