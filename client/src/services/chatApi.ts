@@ -115,9 +115,9 @@ export interface IspFilterBounds {
 }
 
 // RacingAPI-backed "Daily Races" feature — a different domain from the ISP
-// types above (no P&L/model fields; RacingAPI's free-plan racecard fields
-// only). See src/lib/dao/daily-race-dao.ts for the backend document shape
-// this mirrors field-for-field.
+// types above, now also carrying a model win-probability view. See
+// src/lib/dao/daily-race-dao.ts for the backend document shape this
+// mirrors field-for-field.
 export interface DailyRaceRunner {
   runnerId: string;
   horse: string;
@@ -145,6 +145,42 @@ export interface DailyRaceRunner {
   jockeyId: string | null;
   lastRun: string | null;
   form: string | null;
+  // Basic-plan-only fields (null on Free-tier ingests). Display-only — see
+  // daily-race-dao.ts's DailyRaceRunnerDoc comment: rpr/ts here are the
+  // horse's CURRENT published rating, not a trailing average, so they're
+  // never what modelWinProbability below is computed from.
+  rpr: string | null;
+  ts: string | null;
+  spotlight: string | null;
+  comment: string | null;
+  trainer14Days: { runs: string; wins: string; percent: string } | null;
+  trainerRtf: string | null;
+  // Computed trailing form (daily-race-feature-service.ts), read-only
+  // against real historical data — same field names/semantics as the ISP
+  // domain's equivalents.
+  trainerFormRuns: number | null;
+  trainerFormWins: number | null;
+  trainerFormWinRate: number | null;
+  trainerFormStaked: number | null;
+  trainerFormReturns: number | null;
+  jockeyFormRuns: number | null;
+  jockeyFormWins: number | null;
+  jockeyFormWinRate: number | null;
+  jockeyFormStaked: number | null;
+  jockeyFormReturns: number | null;
+  daysSinceLastRun: number | null;
+  horseCareerRuns: number | null;
+  horseCareerWinRate: number | null;
+  horseAvgRPR: number | null;
+  horseAvgTS: number | null;
+  horseAvgBeatenDistance: number | null;
+  horseAvgExcuseScore: number | null;
+  horseTroubleInRunningRate: number | null;
+  horseTravelledWellRate: number | null;
+  featuresComputedAt: string | null;
+  // Written by ml/predict_daily_races.py.
+  modelWinProbability: number | null;
+  modelVersionId: string | null;
 }
 
 export interface DailyRace {

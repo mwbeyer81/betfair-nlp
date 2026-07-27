@@ -38,7 +38,8 @@
   "racingApi": {
     "baseUrl": "https://api.theracingapi.com/v1",
     "username": "",
-    "password": ""
+    "password": "",
+    "racecardsPath": ""
   },
   "trainingPipeline": {
     "agentApiKey": ""

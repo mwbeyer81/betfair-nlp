@@ -111,6 +111,13 @@ export const DailyRunnerDetailScreen: React.FC<DailyRunnerDetailScreenProps> = (
               <DetailRow label="Official Rating" value={runner.officialRating || "—"} testID="daily-runner-detail-official-rating" />
               <DetailRow label="Form" value={runner.form || "—"} testID="daily-runner-detail-form" />
               <DetailRow label="Days Since Last Run" value={runner.lastRun || "—"} />
+              {runner.modelWinProbability != null && (
+                <DetailRow
+                  label="Model Win %"
+                  value={`${runner.modelWinProbability.toFixed(1)}%`}
+                  testID="daily-runner-detail-model-win-probability"
+                />
+              )}
             </View>
 
             <View style={styles.section}>

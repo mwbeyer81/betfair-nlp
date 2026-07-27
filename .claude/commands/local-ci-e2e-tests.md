@@ -68,6 +68,27 @@ courses on the same 2026-06-03 date: **Newton Abbot** (`rac_test_0001`,
 runner), **Ascot** (`rac_test_0003`, `rac_test_0004`), **Chepstow**
 (`rac_test_0005`).
 
+Also seeded: an industry-sp/daily-races **overlap fixture**
+(`src/lib/dao/__fixtures__/industry-sp-daily-races-overlap-fixture.json`,
+hand-crafted `industry_starting_prices`-shaped historical races, not the
+real CSV) via `src/commands/seed-industry-sp-overlap-fixture.ts` — same
+trainer ("A Trainer") and horse ("Fixture Star") names as the Daily Races
+fixture above, so `daily-race-feature-service.ts`'s real historical joins
+have deterministic prior history to match against (3 trailing-14-day "A
+Trainer" runs / 1 win; "Fixture Star" has 2 career runs, avg RPR 119).
+Then a real `compute-daily-race-features.ts` + `ml/predict_daily_races.py`
+run, scoring against the committed **CI-fixture model**
+(`ml/fixtures/win_probability_model.ci-fixture.json` +
+`_categories.ci-fixture.json`, a real model trained once offline on the
+CSV slice's full available date range + the overlap fixture — installed
+into `ml/models/` and paired with a `model_evaluations` seed doc,
+`modelVersionId: "ci-fixture-model-v1"`, via
+`src/commands/seed-model-evaluation-fixture.ts`) so no real training run
+sits in the local-ci hot path. This step needs `ml/venv` set up in the
+worktree running the suite (`python3 -m venv ml/venv && ml/venv/bin/pip install -r ml/requirements.txt`)
+— the script checks for it up front and fails with a clear message if
+missing, rather than a confusing Python traceback partway through.
+
 The test user is inserted directly via `scripts/seed-local-ci-user.ts`
 (bcrypt hash, `emailVerified: true`) — bypassing real signup entirely. This
 is only safe/acceptable because the target DB is destroyed and rebuilt on
@@ -78,8 +99,10 @@ deliberately avoided elsewhere in this codebase (see the comment in
 ### Where to look when a run fails
 
 Logs land in `.local-ci/logs/` (git-ignored, wiped at the start of the next
-run): `mongod.log`, `seed-csv.log`, `seed-daily-races.log`, `backend.log`,
-`frontend-build.log`, `frontend.log`.
+run): `mongod.log`, `seed-csv.log`, `seed-daily-races.log`,
+`seed-overlap-fixture.log`, `seed-model-evaluation.log`,
+`compute-daily-race-features.log`, `predict-daily-races.log`,
+`backend.log`, `frontend-build.log`, `frontend.log`.
 
 ### Troubleshooting: "port already in use"
 

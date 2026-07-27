@@ -69,4 +69,38 @@ test.describe("/api/daily-races — real backend + seeded Mongo", () => {
     });
     expect(res.status()).toBe(404);
   });
+
+  test("GET /api/daily-races/race/rac_test_0001 has real, non-null modelWinProbability summing to ~100", async ({ request }) => {
+    const t = await token(request);
+    const res = await request.get(`${API_URL}/api/daily-races/race/rac_test_0001`, {
+      headers: { Authorization: `Bearer ${t}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    const runners = body.data.runners as Array<{ horse: string; modelWinProbability: number | null; modelVersionId: string | null }>;
+    expect(runners.length).toBe(2);
+    for (const runner of runners) {
+      expect(runner.modelWinProbability).not.toBeNull();
+      expect(runner.modelWinProbability).toBeGreaterThanOrEqual(0);
+      expect(runner.modelWinProbability).toBeLessThanOrEqual(100);
+      expect(runner.modelVersionId).toBe("ci-fixture-model-v1");
+    }
+    const sum = runners.reduce((s, r) => s + (r.modelWinProbability ?? 0), 0);
+    expect(sum).toBeCloseTo(100, 0);
+  });
+
+  test("GET /api/daily-races/race/rac_test_0001 has real trailing form for the overlap-fixture horse/trainer", async ({ request }) => {
+    const t = await token(request);
+    const res = await request.get(`${API_URL}/api/daily-races/race/rac_test_0001`, {
+      headers: { Authorization: `Bearer ${t}` },
+    });
+    const body = await res.json();
+    const fixtureStar = body.data.runners.find((r: { horse: string }) => r.horse === "Fixture Star");
+    // From the overlap fixture: 3 trailing-14-day "A Trainer" runs, 1 win;
+    // 2 prior "Fixture Star" runs (career), avg RPR (120+118)/2=119.
+    expect(fixtureStar.trainerFormRuns).toBe(3);
+    expect(fixtureStar.trainerFormWinRate).toBeCloseTo((1 / 3) * 100, 1);
+    expect(fixtureStar.horseCareerRuns).toBe(2);
+    expect(fixtureStar.horseAvgRPR).toBeCloseTo(119, 1);
+  });
 });
