@@ -133,7 +133,7 @@ tiebreaker.
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | **stale, do not merge as-is** — checked 2026-07-27: this branch diverges from `origin/develop` by ~29k deleted lines (missing saved-results, model-performance dashboard, social-auth, and more — branched from a very old point, not intentional deletions). Its only real uncommitted work is small (`LogoMark.tsx` + 2 SVG assets under `client/assets/logo/`, a FontAwesome-based logo mark, plus an `App.tsx` diff wiring it in) — worth salvaging by hand into a fresh worktree if the FontAwesome-icon logo direction is still wanted, but do not merge/rebase this branch wholesale. Superseded for the "consistent header" goal by `feat/unified-header` below (plain-text "BackBet" + sync-icon wordmark, not a FontAweome logo image) — pick this up only if the user wants the logo image, not the burger-menu-consistency problem, which is now solved. |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **done** — merged to `develop`, deployed (Lambda + web), live-verified on prod; worktree can be removed |
-| `~/betfair-nlp-ai-training-battery` | `feat/ai-training-battery` | **Recovered from a session that died mid-task** (killed process, no `AGENTS.md` entry ever written — found via a Claude memory/session search, not a live agent). Task: after each XGBoost retrain, run the new model against a fixed, curated battery of filter combinations (not a replay of user data) and persist each as a `saved_filter_sets` result flagged `createdBy: "agent"` (an "AI Training" badge, no delete button) — extends `feat/saved-results` above rather than `model_evaluations`/`ModelPerformanceDashboard`. Plan: `/home/ubuntu/.claude/plans/sequential-cuddling-cerf.md`. **Done** — the recovered work already matched the plan file-for-file; audited, verified (full test suite + a real Python→HTTP→Mongo smoke test), merged (real conflict in `SavedResultsListScreen.stories.tsx` against `results-white-screen` below — both added new stories after the same point, kept both), pushed to `origin/develop` (`bc1be02`). See dated entry below. | done — merged to `develop`, not yet deployed (needs a real `TRAINING_PIPELINE_API_KEY`) |
+| `~/betfair-nlp-ai-training-battery` | `feat/ai-training-battery` | **Recovered from a session that died mid-task** (killed process, no `AGENTS.md` entry ever written — found via a Claude memory/session search, not a live agent). Task: after each XGBoost retrain, run the new model against a fixed, curated battery of filter combinations (not a replay of user data) and persist each as a `saved_filter_sets` result flagged `createdBy: "agent"` (an "AI Training" badge, no delete button) — extends `feat/saved-results` above rather than `model_evaluations`/`ModelPerformanceDashboard`. Plan: `/home/ubuntu/.claude/plans/sequential-cuddling-cerf.md`. **Done** — the recovered work already matched the plan file-for-file; audited, verified (full test suite + a real Python→HTTP→Mongo smoke test), merged (real conflict in `SavedResultsListScreen.stories.tsx` against `results-white-screen` below — both added new stories after the same point, kept both), pushed to `origin/develop` (`bc1be02`). See dated entry below. | **done** — merged, deployed (Lambda + web), live-verified; feature is inert until the user sets a real `TRAINING_PIPELINE_API_KEY`, see dated entry below; worktree can be removed |
 | `~/betfair-nlp-results-white-screen` | `fix/results-white-screen` | Prod bug: clicking Results showed a blank white screen for a legacy (pre-Split-A/B) saved result — see dated entry below | done, verified, committing/deploying now |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
@@ -3368,9 +3368,21 @@ feat/ai-training-battery:develop`, landed as `bc1be02`, on top of the
 `daily-races`/`results-white-screen`/`prod-repro-scripts`/`worktree-ports`
 work that landed mid-session) — re-verified after the final merge: `yarn
 build` clean, full backend `jest` still the same 42 pre-existing failures.
-**Not yet deployed** — a real `TRAINING_PIPELINE_API_KEY` secret still
-needs generating and setting (server + wherever `ml/train_and_predict.py`
-runs) before the feature does anything in production; deploying with the
-empty default is safe either way (the endpoint fails closed — every call
-gets 401 until a real key exists on both sides). Flagging this to the
-user rather than deploying blind.
+
+**Deployed** — merged one more incoming commit first (`daily-races-cron`,
+clean, no conflicts), then `apps/lambda/build.sh` (confirmed live: `POST
+/api/saved-filter-sets/agent` with no key → `401`, correctly failing
+closed) and `apps/web/deploy.sh` (confirmed live at
+`build-commit=436be59` on `app.backbet.co.uk`). Regression check against
+real prod: `GET /api/saved-filter-sets` for the real logged-in user still
+returns `200`/`success:true` (0 results, as expected — nothing to break).
+
+**Still needs a real `TRAINING_PIPELINE_API_KEY`** — `config/local.json`
+wasn't present so `apps/lambda/build.sh` skipped the secrets update,
+meaning the Lambda's copy of this secret is still the empty default. The
+feature is live but inert until the user generates a real key and sets it
+both on the Lambda (`config/local.json` + redeploy, or directly via `aws
+lambda update-function-configuration`) and wherever
+`ml/train_and_predict.py` actually runs. Until then every
+`POST /api/saved-filter-sets/agent` call — including real training
+runs — 401s, which is the safe failure mode, not a broken one.
