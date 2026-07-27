@@ -132,7 +132,7 @@ tiebreaker.
 | `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; **`develop` just moved significantly (`fd3f394`) — Split A/B's runner-index machinery (`splitByRunners`, `fromRunnerA/toRunnerA/...`) was entirely removed and `IndustrySpScreen.tsx` heavily rewritten, see the dated entry below** — expect this branch's divergence to be much worse now, plan for a careful manual reconciliation, not a plain rebase |
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
-| `~/betfair-nlp-convergence-filters` | `feat/convergence-filters-summary` | Convergence panel filter summary | done, verified, not yet committed (awaiting user confirmation) as of 2026-07-26 — see dated entry below. Touches `IndustrySpScreen.tsx` and `PnlConvergencePanel.tsx` |
+| `~/betfair-nlp-convergence-filters` | `feat/convergence-filters-summary` | Convergence panel filter summary | committed (`8f882ce`), merging to `develop` and deploying now — see dated entry below |
 | `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **merged to `develop`** (`b1696f9`), not yet deployed — see dated entry below |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
@@ -2869,19 +2869,42 @@ the fix in progress elsewhere — sidesteps the hang without needing that
 fix to land first, and doesn't touch the config file itself so there's
 nothing to conflict with.
 
-**Verified:** `yarn build` clean (both before and after merging
-`origin/develop`, which had moved significantly — `local-ci-e2e-tests` and
-`model-perf-filters` both landed mid-task; merged clean via stash/merge/
-pop, no conflicts). Storybook `PnlConvergencePanel.stories.tsx`: 18/18 pass
-(15 previous + 3 new — `NoFiltersAppliedMessageWhenFiltersEmpty`,
-`FiltersSummaryRendersEveryAppliedFilter`,
-`FiltersSummaryVisibleWhileLoading`); full Storybook suite otherwise
-unaffected (same 6 pre-existing failures documented throughout this file —
-2 in `IndustrySpScreen`, run on port 6009 since 6007 was held by a stray
-process). MSW `tests-msw/industry-sp.spec.ts`: 81/81 pass (79 previous + 2
-new/extended — the no-filters assertion added to the existing Graph-button
-test, plus a new dedicated filters-summary test), re-confirmed after the
-`origin/develop` merge.
+**`saved-results` merge integration fix:** `origin/develop` moved again
+mid-task and brought in the `feat/saved-results` merge (`b1696f9`), whose
+`SavedResultDetailScreen.tsx` also renders `PnlConvergencePanel` — with no
+`filters` prop, now required. Rather than papering over it with
+`filters={[]}` (which would have shown a false "No filters applied" on a
+screen whose entire point is a saved, filtered result), added
+`buildFilterSummaryFromParams()` to `client/src/utils/ispFormat.ts` — same
+chip-label output as `IndustrySpScreen`'s own
+`buildConvergenceFilterSummary()`, but built from `SavedFilterSet.filters`
+(the raw `ISP_FILTER_PARAM_NAMES` URL-param string map already stored per
+saved result) instead of live component state. Wired into
+`SavedResultDetailScreen.tsx` and covered by a new assertion on
+`ViewGraphOpensPnlConvergencePanel` in its Storybook stories.
 
-**Not yet committed/pushed** — leaving that to the user's explicit
-confirmation per this repo's commit convention.
+**MSW suite hang note:** hit the `playwright.msw.config.ts` HTML-reporter
+hang-on-failure documented earlier in this file firsthand (a run with a
+real failing test just sat there with zero output for 5 minutes). Worked
+around it with `--reporter=line` on the CLI while the real fix (`af88d46`)
+was still in progress elsewhere; once it landed and was merged in here,
+switched back to the plain `yarn test:msw` for the final verification pass
+below — confirmed it now exits cleanly instead of hanging.
+
+**Verified (final, after merging `origin/develop` three times across the
+task — `local-ci-e2e-tests`/`model-perf-filters`, then `feat/saved-results`,
+then the `af88d46` MSW-hang fix — all clean merges, no conflicts outside
+`AGENTS.md` itself):** `yarn build` clean. Storybook full suite: same 4
+pre-existing failing files documented throughout this file
+(`IndustrySpScreen`/`AllRunnersScreen`/`EventsScreen`/`RunnerDetailScreen`,
+6 individual failures) — `PnlConvergencePanel.stories.tsx` 18/18 and
+`SavedResultDetailScreen.stories.tsx` all pass, including the new/extended
+assertions. `yarn test:msw` (the now-fixed official script): 185/186 —
+the 1 failure (`responsive.spec.ts` "result cards stack in a single column
+... at iPhone 12 mini") is **pre-existing and unrelated**, confirmed by
+running the identical test against a throwaway worktree on a clean
+`origin/develop` (before this branch's changes) and getting the exact same
+failure (`box2.y` received `76`, expected `>=355`) — a `feat/saved-results`
+responsive-layout bug, not touched by anything in this task.
+
+**Done — committed (`8f882ce`), merging to `develop` and deploying next.**
