@@ -130,7 +130,7 @@ tiebreaker.
 | `~/betfair-nlp-deploy-develop` | `develop` (detached) | persistent — `/deploy-web` builds from here | keep |
 | `~/betfair-nlp-deploy-main` | `main` (detached) | persistent — `/deploy-backbet` builds from here | keep |
 | `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; **`develop` just moved significantly (`fd3f394`) — Split A/B's runner-index machinery (`splitByRunners`, `fromRunnerA/toRunnerA/...`) was entirely removed and `IndustrySpScreen.tsx` heavily rewritten, see the dated entry below** — expect this branch's divergence to be much worse now, plan for a careful manual reconciliation, not a plain rebase |
-| `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
+| `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | **stale, do not merge as-is** — checked 2026-07-27: this branch diverges from `origin/develop` by ~29k deleted lines (missing saved-results, model-performance dashboard, social-auth, and more — branched from a very old point, not intentional deletions). Its only real uncommitted work is small (`LogoMark.tsx` + 2 SVG assets under `client/assets/logo/`, a FontAwesome-based logo mark, plus an `App.tsx` diff wiring it in) — worth salvaging by hand into a fresh worktree if the FontAwesome-icon logo direction is still wanted, but do not merge/rebase this branch wholesale. Superseded for the "consistent header" goal by `feat/unified-header` below (plain-text "BackBet" + sync-icon wordmark, not a FontAweome logo image) — pick this up only if the user wants the logo image, not the burger-menu-consistency problem, which is now solved. |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **done** — merged to `develop`, deployed (Lambda + web), live-verified on prod; worktree can be removed |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
@@ -2920,3 +2920,108 @@ directly as `48dbf84`), deployed via `apps/web/deploy.sh` — confirmed live
 at `build-commit=48dbf84` on app.backbet.co.uk. No backend/Lambda change
 (frontend-only). Worktree removed (`git worktree remove` + `git branch
 -d`) — nothing left in progress.**
+
+---
+
+## 2026-07-27 — Agent in `~/betfair-nlp-unified-header` (branch `feat/unified-header`)
+
+**Task:** User asked that every view use exactly the same burger menu (same
+items) and the same "BackBet" logo/icon/header bar. Audited all 13 screens
+first (see below) — found real inconsistency: 5 screens had their own
+copy of the burger-menu logic instead of sharing `useHeaderMenu`/
+`HeaderActionsContainer`, `IndustrySpScreen` had a fully hand-rolled
+duplicate (`navMenuOpen`), 6 "back-only" detail screens had zero burger
+menu at all, and `SavedResultDetailScreen` had no header whatsoever.
+Titles varied screen to screen ("Events", "Chat Assistant", a race/
+runner/trainer name) instead of the BackBet brand.
+
+**Also found and abandoned:** `.claude/worktrees/backbet-header-logo`
+(listed above as "in progress") turned out to be badly stale — diverges
+from `origin/develop` by ~29k deleted lines (missing `feat/saved-results`,
+the model-performance dashboard, social-auth, and more — branched from a
+very old point, not intentional deletions). Did not touch or merge it;
+flagged in the Active Worktrees row above for whoever wants to salvage
+its actual new work (a `LogoMark.tsx` FontAwesome-icon logo, uncommitted)
+by hand into a fresh branch.
+
+**Fix:** new `client/src/components/AppHeader.tsx` — one component every
+screen now renders, owning the "BackBet" + sync-icon title, the burger
+menu (still built on the existing `useHeaderMenu`/`HeaderActionsContainer`
+pair, not reinvented), a self-contained Account panel
+(`chatApi.getMe()`), and an `extraActions` render-prop slot for each
+screen's own buttons (Filters/Model Performance toggle, sort toggles,
+Export, etc — these kept their original testIDs). The menu's item set is
+now identical everywhere: Industry SP / Chat / Events / Runners, then
+Account + Results + Log Out (authenticated) or Log In + Sign Up
+(anonymous, `/isp` family only). Screens now take `navigate` directly
+instead of individual `onNavigateToX` callback props, which shrank
+`App.tsx`'s per-route wiring substantially. `AuthScreen.tsx` deliberately
+left untouched — it's a pre-login form, not a navigable view, and already
+shows the same "BackBet" text.
+
+**Real bug found and fixed along the way, affecting every screen already
+in production before this task:** `Appbar.Content`'s `subtitle` prop is
+MD2-only in react-native-paper (`{!isV3 && subtitle ? ... : null}` in
+`AppbarContent.tsx`) — silently no-ops under this app's `MD3LightTheme`.
+Every screen's runner/race counts, meeting names, etc. passed via
+`subtitle` had **never actually rendered**, before or after this task's
+changes (confirmed by inspecting the rendered DOM directly — the
+subtitle `<Text>` was never in the tree at all). `AppHeader` now renders
+the subtitle as a second line inside its own custom `title` node instead
+of relying on that dead prop — this is a real, if minor, visible fix, not
+a side effect of the refactor.
+
+**Two real regressions found and fixed during verification (not
+pre-existing):**
+1. Two Storybook mobile-viewport stories (`AllRunnersScreen`/
+   `EventsScreen` `MobileHeaderButtonsVisible`, `MobileExportModalFitsViewport`,
+   `RendersAtIphone12`) had been "fixed" by a test-updating pass to open the
+   burger menu first — but Storybook's `viewport` parameter only resizes
+   the iframe's CSS box, not the real window `useResponsive()` reads
+   from, so `isTablet` stays true regardless and the burger button never
+   renders at any Storybook viewport. Reverted those steps back to
+   asserting the buttons are inline (matching every other viewport story
+   in these files, and matching `origin/develop`'s original versions).
+2. `AllRunnersScreen.stories.tsx`'s `ScreenLoaded` still asserted on two
+   separate texts ("All Runners" and the counts) that used to come from
+   separate Appbar title/subtitle props — now one combined subtitle
+   string. Updated the assertion.
+
+**Confirmed pre-existing, unrelated, left alone (already documented
+multiple times earlier in this file):** `IndustrySpScreen`'s 2 course-chip
+Set-to-string URL bugs, `EventsScreen`'s `EventBadgesVisible` (asserts a
+`event-price-updates-badge` testID that doesn't exist in the component at
+all), `RunnerDetailScreen`'s `TrainerLinkCallsOnNavigateToTrainer`
+(mock race type "Chase" → "Jumps", but the test still asserts "Flat" —
+present verbatim, unchanged, on `origin/develop` too). One test —
+`responsive.spec.ts`'s "result cards stack in a single column" — was
+independently fixed by another session (`d097314`, landed on `develop`
+mid-task) for the exact same root cause I'd separately diagnosed
+(fixture sort-order assumption, not a real layout bug); merged cleanly,
+kept both fixes' intent.
+
+**Worktree gotchas hit, matching this file's existing warnings:** this
+worktree needed its own `node_modules`/`client/node_modules` symlinks
+(`ln -s` to the primary checkout, same as every worktree here) *and* a
+`data` symlink too — `yarn test:e2e:local-ci`'s CSV-seed step failed with
+`ENOENT` on `data/kaggle-horse-racing-uk-ireland/...` until that was
+added. `data` shows as untracked in `git status` despite being gitignored
+(`data/` pattern doesn't match a symlink named `data` without a trailing
+slash) — same already-documented gotcha as `node_modules`; used `git add
+-u` plus explicitly naming new files rather than `git add -A`/`.` to
+avoid ever staging it.
+
+**Verified:** `yarn build` clean. Storybook full suite: 308/313 (5
+pre-existing failures above, confirmed unrelated). `yarn test:msw`:
+186/186. Backend Supertest (`app.test.ts`, unaffected — no backend files
+touched): 139/146 (7 skipped, pre-existing). `yarn test:e2e:local-ci`:
+18/18, including a dedicated "Results is reachable from every screen's
+nav" check.
+
+**Done — committed (`96549ba`), merged `origin/develop` (`d49238f`,
+one trivial comment-only conflict in `responsive.spec.ts` against the
+independent `d097314` fix), pushed directly to `develop`, deployed via
+`apps/web/deploy.sh` — confirmed live at `build-commit=d49238f` on
+app.backbet.co.uk, and spot-checked with a real headless-browser hit
+against `/isp` showing the full BackBet header + burger menu rendering
+correctly in production. No backend/Lambda change (frontend-only).**
