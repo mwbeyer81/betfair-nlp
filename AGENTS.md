@@ -34,6 +34,47 @@ integration-tests.md` for how to start/seed it if it's ever down.
 behind `yarn server:docker`/`mongo:up`/etc.) is untouched and still works
 independently of this.
 
+## MSW Playwright suite (`yarn test:msw`): was hanging, now fixed (2026-07-26)
+
+If you ever see an *old* `playwright test --config playwright.msw.config.ts`
+process sitting there for a long time with zero output, **it wasn't running
+slow tests — it had already finished and hung**. Root cause:
+`client/playwright.msw.config.ts`'s `reporter: "html"` defaulted to
+`open: "on-failure"`, and Playwright's own HTML reporter, when it opens,
+does `await new Promise(() => {})` — the process never exited on its own
+if *any* test failed. Real execution time for the whole 176-test suite is
+only ~3 minutes on this VM's 2 CPU cores (Playwright's own default caps it
+at 1 worker here regardless of `fullyParallel`) — everything after that
+was just the report server sitting on port 9323 waiting for a `Ctrl-C`
+that never came.
+
+**Fixed**: `reporter` is now `[["list"], ["html", { open: "never" }]]` —
+streams live progress and always exits on its own, pass or fail.
+`test:msw` is also now wrapped in `timeout 300` as a permanent safety net
+in case anything ever hangs again for a different reason. The one test
+that was actually failing (`all-runners.spec.ts`'s "sort=asc is sent on
+initial load") had a real bug: it did a second `page.goto()` mid-test
+(re-bootstrapping the whole app — fonts, auth-restore, etc.) but only
+asserted `all-runners-loading` was `not.toBeVisible()`, which passes
+instantly for an element that doesn't exist *yet* — so the assertion
+raced ahead of the real fetch. Fixed by waiting for `all-runners-screen`
+to be visible first, matching the same sequencing `beforeEach` already
+used correctly. (Also fixed a related `route.continue()`/`route.fallback()`
+mixup in the same test, needed to let the request reach `fixtures.ts`'s
+mock at all instead of hitting the real network.)
+
+**Confirmed CPU-contention finding, not fixed (an environment fact, not a
+bug)**: this VM has only 2 CPU cores. Running the MSW suite while another
+agent's Playwright/Chromium run is *also* active concurrently (confirmed:
+load average hit 7+ on this 2-core box during an overlap with
+`~/betfair-nlp-convergence-filters` also running `tests-msw/
+industry-sp.spec.ts`) causes real, non-flaky-looking test failures
+(timeouts) purely from starvation — a full clean re-run immediately after
+the other process finished passed 176/176 with no code changes in
+between. If your `test:msw` run has unexpected failures, check
+`ps aux | grep playwright` for another agent's concurrent run before
+assuming your own changes broke something.
+
 ## Working in a worktree
 
 Do non-trivial work in its own git worktree, not in the primary checkout —
