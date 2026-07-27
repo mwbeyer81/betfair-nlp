@@ -136,7 +136,7 @@ tiebreaker.
 | `~/betfair-nlp-ai-training-battery` | `feat/ai-training-battery` | **Recovered from a session that died mid-task** (killed process, no `AGENTS.md` entry ever written — found via a Claude memory/session search, not a live agent). Task: after each XGBoost retrain, run the new model against a fixed, curated battery of filter combinations (not a replay of user data) and persist each as a `saved_filter_sets` result flagged `createdBy: "agent"` (an "AI Training" badge, no delete button) — extends `feat/saved-results` above rather than `model_evaluations`/`ModelPerformanceDashboard`. Plan: `/home/ubuntu/.claude/plans/sequential-cuddling-cerf.md`. **Done** — the recovered work already matched the plan file-for-file; audited, verified (full test suite + a real Python→HTTP→Mongo smoke test), merged (real conflict in `SavedResultsListScreen.stories.tsx` against `results-white-screen` below — both added new stories after the same point, kept both), pushed to `origin/develop` (`bc1be02`). See dated entry below. | **done** — merged, deployed (Lambda + web), live-verified; feature is inert until the user sets a real `TRAINING_PIPELINE_API_KEY`, see dated entry below; worktree can be removed |
 | `~/betfair-nlp-results-white-screen` | `fix/results-white-screen` | Prod bug: clicking Results showed a blank white screen for a legacy (pre-Split-A/B) saved result — see dated entry below | done, verified, committing/deploying now |
 | `~/betfair-nlp-results-filter-sort` | `feat/results-filter-sort` | Results screen (`SavedResultsListScreen.tsx`): add an icon to the existing "AI Training" badge, add a User/Agent source filter (All / Mine / AI Training), confirm date+PnL sort already works via the existing sort toggle. **Touches `SavedResultsListScreen.tsx`/`.stories.tsx`, `tests-msw/saved-results.spec.ts`, `tests-local-ci/saved-results-ui.spec.ts`** — watch for conflicts with any other worktree still touching that screen. | in progress |
-| `.claude/worktrees/ml-prediction-api` | `worktree-ml-prediction-api` | Serve the win-probability model over an internal API instead of requiring a manual retrain/script run for predictions — new container-image Python Lambda (`apps/ml-api/`, no web framework, reuses `CAT_COLS`/`NUM_COLS`/`normalize_within_race` from `ml/train_and_predict.py` + the row-shaping logic from `ml/predict_daily_races.py`'s `load_daily_dataframe`), invoked via IAM `lambda:InvokeFunction` from the existing `hello-api` Node Lambda (no public Function URL), model artifact durable in a new S3 bucket + baked into the image at build time. New `src/lib/service/prediction-api-client.ts` (mirrors `racing-api-client.ts`), new `POST /api/daily-races/predict` route. **v1 is on-demand/manually-triggered only — not wired into the existing EventBridge daily cron** (user's explicit choice). Full plan: `/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`. Note: created via the harness `EnterWorktree` tool, which defaulted to branching off `main` (no `ml/` dir) — had to `git merge origin/develop` by hand before setup could proceed; branch is `worktree-ml-prediction-api`, not the `name` given to the tool. | in progress |
+| `.claude/worktrees/ml-prediction-api` | `worktree-ml-prediction-api` | Serve the win-probability model over an internal API instead of requiring a manual retrain/script run for predictions — new container-image Python Lambda (`apps/ml-api/`, no web framework, reuses `CAT_COLS`/`NUM_COLS`/`normalize_within_race` from `ml/train_and_predict.py` + the row-shaping logic from `ml/predict_daily_races.py`'s `load_daily_dataframe`), invoked via IAM `lambda:InvokeFunction` from the existing `hello-api` Node Lambda (no public Function URL), model artifact durable in a new S3 bucket + baked into the image at build time. New `src/lib/service/prediction-api-client.ts` (mirrors `racing-api-client.ts`), new `POST /api/daily-races/predict` route. **v1 is on-demand/manually-triggered only — not wired into the existing EventBridge daily cron** (user's explicit choice). Full plan: `/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`. See dated entry below for what was verified. | **done — merged (`d84ce7f`), pushed, deployed, live-verified**; worktree removed |
 | `~/betfair-nlp-daily-races-model` | `daily-races-model` | Score today's Daily Races runners with the existing XGBoost win-probability model — new read-only feature-computation step (`daily-race-feature-service.ts`, queries `industry_starting_prices` but never writes to it) + new predict-only `ml/predict_daily_races.py` + a `Model {x}%` badge/detail row in the UI. Full plan: `/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md` (file has since been overwritten with the follow-up `ml-prediction-api` plan below — see git history if you need the original). See dated entry below for what was verified. | **done — merged, deployed (Lambda `apps/lambda/build.sh` + web `apps/web/deploy.sh`, `develop@25a6aff` live on `app.backbet.co.uk`), live-verified**: retrained the model for real on the full 109,775-race prod dataset (AUC 0.707, `modelVersionId=xgb-20260727-171521` — the historical `industry_starting_prices` data itself is stale, stops 2026-05-27, so trailing trainer/jockey/horse form is near-empty for current dates; user explicitly chose to ship anyway, caveated), ran `compute-daily-race-features.ts` + `predict_daily_races.py` against real prod Mongo, confirmed all 52 of today's (2026-07-27) races have `modelWinProbability` summing to ~100% per race. Worktree removed. |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
@@ -3493,3 +3493,94 @@ model badge) are additive and harmless to deploy with no data behind
 them — asked the user whether to deploy those and/or run the pipeline
 manually against production Mongo now that the code is merged. Worktree
 kept (not removed) pending that decision.
+
+---
+
+## 2026-07-27 (later) — Agent in `.claude/worktrees/ml-prediction-api` (branch `worktree-ml-prediction-api`)
+
+**Task:** the daily-races-model work above required a manual local
+retrain to get usable predictions — a trained model from the day before
+(`xgb-20260726-110115`) was unrecoverable since `ml/models/` is
+gitignored and machine-local. User asked: serve the model over an API
+instead. Full plan (overwrote the completed daily-races-model plan in
+the same plan file — see git history for the original):
+`/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`.
+
+**Built:** container-image Python Lambda `ml-prediction-api` (`apps/ml-api/`)
+serving the already-trained model — no MongoDB access, no web framework,
+just a bare `handler(event, context)` reusing `CAT_COLS`/`NUM_COLS`/
+`normalize_within_race` from `ml/train_and_predict.py` + the row-shaping/
+ROI-derivation logic from `ml/predict_daily_races.py`'s
+`load_daily_dataframe`. Invoked only via IAM `lambda:InvokeFunction` from
+`hello-api` (new `invoke-ml-prediction-api` policy on the shared
+`lambda-basic-exec` role) — never a public Function URL or API Gateway
+route. Model durability: new `upload_model_to_s3()` step in
+`train_and_predict.py` (env-var guarded, same pattern as
+`run_filter_battery()`), new S3 bucket `betfair-nlp-ml-models`, baked into
+the image at build time by `apps/ml-api/build.sh` rather than downloaded
+at cold start (reproducible deploys — `Code.ImageUri` unambiguously
+answers "which model is live"). New `src/lib/service/prediction-api-client.ts`
+(mirrors `racing-api-client.ts`, `InvokeCommand` instead of `fetch`) +
+`DailyRaceService.predictDailyRaces()` + `POST /api/daily-races/predict` —
+**v1 is on-demand/manually-triggered only**, per the user's explicit
+choice, not wired into the existing EventBridge daily cron.
+
+**Infra gotchas hit, worth knowing about:**
+- **No Docker was installed on this VM** — had to `sudo apt-get install
+  docker.io` + `sudo usermod -aG docker ubuntu` (group membership needs a
+  fresh shell/session or `sg docker -c "..."` to take effect without one —
+  used the latter throughout this session).
+- **A failed `npm install`/`yarn add -W` attempt broke the *shared*
+  `node_modules/.bin`** in the primary checkout (`npm warn reify Removing
+  non-directory node_modules` — npm unlinked the worktree's symlink to
+  primary's real `node_modules`, wrote the new package through to the real
+  target directory, then errored on an unrelated `vite`-nested `esbuild`
+  postinstall version mismatch before rebuilding `.bin`). This affected
+  **every worktree symlinking to primary's `node_modules`**, not just this
+  one. Fixed by hand — a small Node script scanning every installed
+  package's `package.json` `bin` field and relinking `node_modules/.bin`
+  directly, skipping npm/yarn's install machinery (and its lifecycle
+  scripts) entirely. **If you hit `npx tsc`/`npx <anything>` mysteriously
+  failing repo-wide, check `ls node_modules/.bin | wc -l` before assuming
+  it's your own change** — it may already be broken from an earlier
+  session's install attempt in a sibling worktree.
+- **`~/betfair-nlp-deploy-develop` (and presumably `~/betfair-nlp-deploy-main`)
+  has its own real, separately-installed `node_modules`** — not symlinked
+  to primary — so a new dependency added in a feature worktree needs a
+  plain `yarn install` in the deploy worktree too before `apps/lambda/build.sh`'s
+  esbuild bundle step will resolve it (hit as `Could not resolve
+  "@aws-sdk/client-lambda"` on first deploy attempt).
+- **`EnterWorktree` defaulted to branching off `main`, not `develop`**
+  (no `ml/` directory existed) — had to `git merge origin/develop` by hand
+  before any repo-specific worktree setup could proceed. Branch ended up
+  named `worktree-ml-prediction-api`, not the `name` given to the tool.
+- **Lambda cold start at the default 30s timeout / 512MB memory timed out**
+  loading pandas/xgboost/numpy + a 48.6MB model — bumped to 60s timeout /
+  2048MB memory (more memory also means more CPU during init in Lambda),
+  cold start then completed in ~8s, warm invokes <1s.
+
+**Verified:** 9 Python unit tests (`apps/ml-api/test_handler.py`, against
+the committed CI-fixture model, no AWS/Mongo needed) + 4 new Supertest
+tests (mocked `PredictionApiClient`, verifying auth/request-shaping/
+write-back) + full `local-ci-e2e.sh` (28/28, unaffected — still calls
+`ml/predict_daily_races.py` directly, no dependency on the new Lambda) +
+full `npx jest` (no new failures beyond the pre-existing baseline) — all
+in both the worktree and again in the primary checkout post-merge. Live:
+real `aws lambda invoke` against the deployed `ml-prediction-api` (correct
+predictions, correct auth rejection on a wrong key); the real Node
+`PredictionApiClient` invoked it successfully with real AWS credentials;
+`DailyRaceService.predictDailyRaces()` run against real production Mongo
+scored all 52 of today's races via the new Lambda path with results
+identical to the existing script-based path. Merged (`d84ce7f`), pushed,
+`hello-api` redeployed with the new route (env secrets merged in —
+`PREDICTION_API_KEY`/`PREDICTION_API_FUNCTION_NAME`/`PREDICTION_API_REGION`
+added via a read-merge-write against the Lambda's existing env vars, all
+11 prior secrets preserved — **not** via `apps/lambda/build.sh`'s
+config/local.json path, which would need every secret section present or
+it errors/blanks missing ones), confirmed healthy via CloudWatch (clean
+cold start, no errors). Full HTTP-route-level proof through a real
+logged-in browser session wasn't done (no production user credentials
+available in this session) — everything below the JWT-auth layer (IAM
+permission, the Lambda itself, the Node client, the service
+orchestration) is verified for real; the untested slice is exactly the
+pre-existing, unchanged `jwtAuth` middleware itself.
