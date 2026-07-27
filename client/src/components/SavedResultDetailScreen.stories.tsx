@@ -114,6 +114,15 @@ export const ViewGraphOpensPnlConvergencePanel: Story = {
     const graphBtn = await canvas.findByTestId("saved-result-detail-view-graph");
     await userEvent.click(graphBtn);
     await expect(canvas.findByTestId("pnl-convergence-panel")).resolves.toBeInTheDocument();
+
+    // The saved result's own filters (courses/dates) must show up on the
+    // graph the same way a live convergence result's do — the graph is a
+    // static snapshot, so this is the only place left that still shows
+    // what actually produced it.
+    await expect(canvas.getByTestId("pnl-convergence-filter-chip-courses")).toHaveTextContent("Courses: Ascot");
+    await expect(canvas.getByTestId("pnl-convergence-filter-chip-date")).toHaveTextContent(
+      "Date: 2026-01-01 → 2026-01-01"
+    );
   },
 };
 

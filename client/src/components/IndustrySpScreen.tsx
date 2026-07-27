@@ -376,6 +376,11 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [convergencePoints, setConvergencePoints] = useState<RaceConvergencePoint[]>([]);
   const [convergenceLoading, setConvergenceLoading] = useState(false);
   const [convergenceError, setConvergenceError] = useState<string | null>(null);
+  // Human-readable summary of whichever filters actually narrowed the
+  // convergence result being viewed — captured at the moment "Graph" is
+  // pressed (see loadConvergence) so it can't drift out of sync with a
+  // filter the user goes on to edit but hasn't re-Applied yet.
+  const [convergenceFilters, setConvergenceFilters] = useState<{ key: string; label: string }[]>([]);
 
   // "Model Performance" button — opens a dashboard of every model-training
   // run (params + metrics), with P&L for the currently-selected version
@@ -1158,6 +1163,64 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     });
   }
 
+  // Builds the same non-default-only filter list loadConvergence's request
+  // actually sends (mirrors the "only send what differs from
+  // FILTER_DEFAULTS" convention already used for the URL query params
+  // above) — so a user looking at a convergence result can see exactly what
+  // narrowed it, without cross-referencing the Filters screen from memory.
+  function buildConvergenceFilterSummary(): { key: string; label: string }[] {
+    const summary: { key: string; label: string }[] = [];
+    if (minDate !== FILTER_DEFAULTS.minDate || maxDate !== FILTER_DEFAULTS.maxDate) {
+      summary.push({ key: "date", label: `Date: ${minDate} → ${maxDate}` });
+    }
+    if (minRunners !== FILTER_DEFAULTS.minRunners || maxRunners !== FILTER_DEFAULTS.maxRunners) {
+      summary.push({ key: "runners", label: `Runners: ${minRunners}–${maxRunners}` });
+    }
+    if (minIsp !== FILTER_DEFAULTS.minIsp || maxIsp !== FILTER_DEFAULTS.maxIsp) {
+      summary.push({ key: "isp", label: `ISP: ${minIsp}–${maxIsp}` });
+    }
+    if (minRunnersInRange !== FILTER_DEFAULTS.minInIspRange || maxRunnersInRange !== FILTER_DEFAULTS.maxInIspRange) {
+      summary.push({ key: "inIspRange", label: `In-range runners: ${minRunnersInRange}–${maxRunnersInRange}` });
+    }
+    if (selectedCountries.size > 0) {
+      summary.push({ key: "countries", label: `Countries: ${[...selectedCountries].sort().join(", ")}` });
+    }
+    if (selectedCourses.size > 0) {
+      summary.push({ key: "courses", label: `Courses: ${[...selectedCourses].sort().join(", ")}` });
+    }
+    if (selectedGoings.size > 0) {
+      summary.push({ key: "goings", label: `Going: ${[...selectedGoings].sort().join(", ")}` });
+    }
+    if (selectedRaceClasses.size > 0) {
+      summary.push({ key: "raceClasses", label: `Class: ${[...selectedRaceClasses].sort().join(", ")}` });
+    }
+    if (selectedRaceTypes.size > 0) {
+      summary.push({ key: "raceTypes", label: `Type: ${[...selectedRaceTypes].sort().join(", ")}` });
+    }
+    if (trainerSearch) {
+      summary.push({ key: "trainer", label: `Trainer: ${trainerSearch}` });
+    }
+    if (jockeySearch) {
+      summary.push({ key: "jockey", label: `Jockey: ${jockeySearch}` });
+    }
+    if (minTrainerFormRunners > 0) {
+      summary.push({
+        key: "trainerForm",
+        label:
+          trainerFormMinWinRate > 0
+            ? `Trainer form: ≥${trainerFormMinWinRate}% win rate`
+            : "Trainer form: has recent form",
+      });
+    }
+    if (minModelWinProbability > 0) {
+      summary.push({ key: "modelWinProbability", label: `Model win probability: ≥${minModelWinProbability}%` });
+    }
+    if (onlyModelBeatsSp) {
+      summary.push({ key: "modelBeatsSp", label: "Model beats SP" });
+    }
+    return summary;
+  }
+
   // Opens the P&L convergence graph for one split's own race range — reads
   // the same fromRowA/toRowA/fromRowB/toRowB state the result card itself
   // renders from, so the graph's range always matches what the card/box
@@ -1167,6 +1230,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   async function loadConvergence(id: "a" | "b") {
     setShowConvergencePanel(true);
     setConvergenceError(null);
+    setConvergenceFilters(buildConvergenceFilterSummary());
     const fromRow = id === "a" ? fromRowA : fromRowB;
     const toRow = (id === "a" ? toRowA : toRowB) ?? totalRaces;
     // A split with zero races (e.g. an empty result) has nothing to
@@ -1946,6 +2010,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           points={convergencePoints}
           loading={convergenceLoading}
           error={convergenceError}
+          filters={convergenceFilters}
           onClose={() => setShowConvergencePanel(false)}
         />
       )}

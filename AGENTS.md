@@ -91,7 +91,7 @@ tiebreaker.
 | `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; **`develop` just moved significantly (`fd3f394`) — Split A/B's runner-index machinery (`splitByRunners`, `fromRunnerA/toRunnerA/...`) was entirely removed and `IndustrySpScreen.tsx` heavily rewritten, see the dated entry below** — expect this branch's divergence to be much worse now, plan for a careful manual reconciliation, not a plain rebase |
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
-| `~/betfair-nlp-convergence-filters` | `feat/convergence-filters-summary` | Convergence panel filter summary | in progress, not merged — uncommitted changes touching `IndustrySpScreen.tsx` and `PnlConvergencePanel.tsx` as of 2026-07-26 (found via `git worktree list`, not previously listed here — table was stale) |
+| `~/betfair-nlp-convergence-filters` | `feat/convergence-filters-summary` | Convergence panel filter summary | done, verified, not yet committed (awaiting user confirmation) as of 2026-07-26 — see dated entry below. Touches `IndustrySpScreen.tsx` and `PnlConvergencePanel.tsx` |
 | `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **merged to `develop`** (`b1696f9`), not yet deployed — see dated entry below |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
@@ -2775,3 +2775,72 @@ deployed via `apps/web/deploy.sh` — confirmed live at
 fix only changes what query params the existing client-side call sends),
 so no Lambda deploy needed. Worktree removed (`git worktree remove` +
 `git branch -d`, local and remote branch — see table above).**
+
+---
+
+## 2026-07-26 — Agent in `~/betfair-nlp-convergence-filters` (branch `feat/convergence-filters-summary`)
+
+**Task:** User reported (screenshot of `app.backbet.co.uk`'s P&L
+Convergence graph) that there was no way to tell which filters (date
+range, course, model thresholds, etc.) produced the result set being
+viewed — the graph screen only ever showed race counts and ROI%, with the
+actual filter state living implicitly in `IndustrySpScreen.tsx`'s own
+component state and never passed down.
+
+**Fix:** `IndustrySpScreen.tsx` gained a `buildConvergenceFilterSummary()`
+helper (mirrors the existing "only include what differs from
+`FILTER_DEFAULTS`" convention already used for URL query params) and a new
+`convergenceFilters` state, captured at the moment `loadConvergence` is
+called — so it can't drift out of sync with a filter the user edits after
+opening the graph but hasn't re-Applied yet. `PnlConvergencePanel.tsx`
+gained a `filters: {key,label}[]` prop, rendered as a chip row right below
+the header (visible in every state — loading/error/empty/data) —
+`pnl-convergence-filters-summary` container,
+`pnl-convergence-filter-chip-{key}` per chip, or
+`pnl-convergence-no-filters` when the array is empty (the default range,
+nothing narrowed).
+
+**Node_modules note for whoever creates a worktree next:** this worktree
+had no `node_modules` at all on creation (no shared symlink existed here,
+unlike what the `social-auth` entry's aside implied) — symlinked both
+`node_modules` (root) and `client/node_modules` from the primary checkout
+rather than a full `yarn install`, since no dependency changed. Fine for a
+docs/frontend-only change; don't do this if you're adding a new package
+(see the `social-auth` entry's `yarn.lock` warning).
+
+**MSW test-writing gotcha:** the new MSW Playwright test initially clicked
+`industry-sp-course-Cheltenham` before ever pressing Apply once — failed
+with the chip simply not existing yet ("Apply to load options" placeholder
+still showing). Course/going/class/type chip *options* only populate from
+a `/splits` response's own arrays, so a fresh `/isp` load needs one
+filter-less Apply first to load the chip list before a chip can be
+clicked, then a second Apply to actually commit the selection — same
+two-step shape already used by the existing "Apply commits a pending
+course chip..." test elsewhere in this file, just not obvious from a fresh
+`page.goto` in a different `describe` block without that block's own
+`beforeEach`.
+
+**MSW suite hang note:** hit the `playwright.msw.config.ts` HTML-reporter
+hang-on-failure documented earlier in this file firsthand (a run with a
+real failing test just sat there with zero output for 5 minutes).
+Worked around it with `--reporter=line` on the CLI rather than waiting for
+the fix in progress elsewhere — sidesteps the hang without needing that
+fix to land first, and doesn't touch the config file itself so there's
+nothing to conflict with.
+
+**Verified:** `yarn build` clean (both before and after merging
+`origin/develop`, which had moved significantly — `local-ci-e2e-tests` and
+`model-perf-filters` both landed mid-task; merged clean via stash/merge/
+pop, no conflicts). Storybook `PnlConvergencePanel.stories.tsx`: 18/18 pass
+(15 previous + 3 new — `NoFiltersAppliedMessageWhenFiltersEmpty`,
+`FiltersSummaryRendersEveryAppliedFilter`,
+`FiltersSummaryVisibleWhileLoading`); full Storybook suite otherwise
+unaffected (same 6 pre-existing failures documented throughout this file —
+2 in `IndustrySpScreen`, run on port 6009 since 6007 was held by a stray
+process). MSW `tests-msw/industry-sp.spec.ts`: 81/81 pass (79 previous + 2
+new/extended — the no-filters assertion added to the existing Graph-button
+test, plus a new dedicated filters-summary test), re-confirmed after the
+`origin/develop` merge.
+
+**Not yet committed/pushed** — leaving that to the user's explicit
+confirmation per this repo's commit convention.

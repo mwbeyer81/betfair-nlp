@@ -33,6 +33,7 @@ const meta: Meta<typeof PnlConvergencePanel> = {
     points: samplePoints(200),
     loading: false,
     error: null,
+    filters: [],
     onClose: fn(),
   },
 };
@@ -278,5 +279,63 @@ export const JumpToRaceButtonDisabledWhenInputEmpty: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByTestId("pnl-convergence-jump-button")).toBeDisabled();
+  },
+};
+
+export const NoFiltersAppliedMessageWhenFiltersEmpty: Story = {
+  // Requested live: the graph gave no indication of which filters produced
+  // its result set. An empty filters array (the default range, nothing
+  // narrowed) must say so explicitly rather than showing nothing.
+  args: {
+    filters: [],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("pnl-convergence-no-filters")).toHaveTextContent("No filters applied");
+    await expect(canvas.queryByTestId("pnl-convergence-filters-summary")).not.toBeInTheDocument();
+  },
+};
+
+export const FiltersSummaryRendersEveryAppliedFilter: Story = {
+  // Requested live: the exact filters behind a convergence result (date
+  // range, course, model thresholds, ...) should be visible on the graph
+  // screen itself, not just implicitly held in the Filters screen's state.
+  args: {
+    filters: [
+      { key: "date", label: "Date: 2024-01-01 → 2024-01-31" },
+      { key: "courses", label: "Courses: Ascot, Newmarket" },
+      { key: "modelWinProbability", label: "Model win probability: ≥60%" },
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByTestId("pnl-convergence-no-filters")).not.toBeInTheDocument();
+    const summary = canvas.getByTestId("pnl-convergence-filters-summary");
+    await expect(summary).toBeInTheDocument();
+    await expect(canvas.getByTestId("pnl-convergence-filter-chip-date")).toHaveTextContent(
+      "Date: 2024-01-01 → 2024-01-31"
+    );
+    await expect(canvas.getByTestId("pnl-convergence-filter-chip-courses")).toHaveTextContent(
+      "Courses: Ascot, Newmarket"
+    );
+    await expect(canvas.getByTestId("pnl-convergence-filter-chip-modelWinProbability")).toHaveTextContent(
+      "Model win probability: ≥60%"
+    );
+  },
+};
+
+export const FiltersSummaryVisibleWhileLoading: Story = {
+  // The filter summary is captured at the moment the graph is opened, so
+  // it must render even before the data itself has loaded — otherwise a
+  // slow request briefly looks like the filters weren't applied at all.
+  args: {
+    points: [],
+    loading: true,
+    filters: [{ key: "date", label: "Date: 2024-01-01 → 2024-01-31" }],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("pnl-convergence-loading")).toBeInTheDocument();
+    await expect(canvas.getByTestId("pnl-convergence-filter-chip-date")).toBeInTheDocument();
   },
 };

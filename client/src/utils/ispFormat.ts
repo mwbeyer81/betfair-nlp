@@ -115,6 +115,66 @@ export function formatRaceDate(isoTime: string): string {
   }
 }
 
+// Builds the same human-readable filter-summary chips PnlConvergencePanel
+// shows (see IndustrySpScreen.buildConvergenceFilterSummary) from a raw
+// URL-param string map instead of live component state — used by
+// SavedResultDetailScreen, whose SavedFilterSet.filters is exactly this
+// shape (see the comment on SavedFilterSet in chatApi.ts: "the raw
+// ISP_FILTER_PARAM_NAMES string map"). Only params that actually narrow
+// the result are included, same "silent unless it did something" rule as
+// IndustrySpScreen's own URL-writing (fromRowA/toRowA/fromRowB/toRowB/sort
+// deliberately excluded — those describe the split, not a content filter).
+export function buildFilterSummaryFromParams(params: Record<string, string>): { key: string; label: string }[] {
+  const summary: { key: string; label: string }[] = [];
+  if (params.minDate || params.maxDate) {
+    summary.push({ key: "date", label: `Date: ${params.minDate ?? "?"} → ${params.maxDate ?? "?"}` });
+  }
+  if (params.minRunners || params.maxRunners) {
+    summary.push({ key: "runners", label: `Runners: ${params.minRunners ?? "?"}–${params.maxRunners ?? "?"}` });
+  }
+  if (params.minIsp || params.maxIsp) {
+    summary.push({ key: "isp", label: `ISP: ${params.minIsp ?? "?"}–${params.maxIsp ?? "?"}` });
+  }
+  if (params.minInIspRange || params.maxInIspRange) {
+    summary.push({ key: "inIspRange", label: `In-range runners: ${params.minInIspRange ?? "?"}–${params.maxInIspRange ?? "?"}` });
+  }
+  if (params.countries) {
+    summary.push({ key: "countries", label: `Countries: ${params.countries.split(",").sort().join(", ")}` });
+  }
+  if (params.courses) {
+    summary.push({ key: "courses", label: `Courses: ${params.courses.split(",").sort().join(", ")}` });
+  }
+  if (params.goings) {
+    summary.push({ key: "goings", label: `Going: ${params.goings.split(",").sort().join(", ")}` });
+  }
+  if (params.raceClasses) {
+    summary.push({ key: "raceClasses", label: `Class: ${params.raceClasses.split(",").sort().join(", ")}` });
+  }
+  if (params.raceTypes) {
+    summary.push({ key: "raceTypes", label: `Type: ${params.raceTypes.split(",").sort().join(", ")}` });
+  }
+  if (params.trainer) {
+    summary.push({ key: "trainer", label: `Trainer: ${params.trainer}` });
+  }
+  if (params.jockey) {
+    summary.push({ key: "jockey", label: `Jockey: ${params.jockey}` });
+  }
+  if (params.hasTrainerForm === "true") {
+    const rate = parseFloat(params.trainerFormMinWinRate ?? "0");
+    summary.push({
+      key: "trainerForm",
+      label: rate > 0 ? `Trainer form: ≥${rate}% win rate` : "Trainer form: has recent form",
+    });
+  }
+  if (params.minModelWinProbability) {
+    summary.push({ key: "modelWinProbability", label: `Model win probability: ≥${params.minModelWinProbability}%` });
+  }
+  if (params.onlyModelBeatsSp === "true") {
+    summary.push({ key: "modelBeatsSp", label: "Model beats SP" });
+  }
+  return summary;
+}
+
 // Mirrors the same Flat/Jumps bucketing used server-side in
 // src/commands/precompute-trainer-form.ts (toFormCategory there) — kept in
 // sync manually since the trainer-form badge's category needs to match

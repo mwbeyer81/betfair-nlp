@@ -10,6 +10,11 @@ interface PnlConvergencePanelProps {
   points: RaceConvergencePoint[];
   loading: boolean;
   error: string | null;
+  // Non-default filters (date range, courses, going, model thresholds, ...)
+  // that narrowed this specific result — captured by the caller at the
+  // moment the graph was opened. Empty means the full, unfiltered default
+  // range was used.
+  filters: { key: string; label: string }[];
   onClose: () => void;
 }
 
@@ -39,7 +44,7 @@ const SCALE_WARMUP_POINTS = 10;
 // firstRowNumber/lastRowNumber below show the same numbers that split's own
 // card does — not always starting at 1 (see loadConvergence in
 // IndustrySpScreen.tsx).
-export const PnlConvergencePanel: React.FC<PnlConvergencePanelProps> = ({ points, loading, error, onClose }) => {
+export const PnlConvergencePanel: React.FC<PnlConvergencePanelProps> = ({ points, loading, error, filters, onClose }) => {
   const firstRowNumber = points.length > 0 ? points[0].raceRowNumber : 0;
   const lastRowNumber = points.length > 0 ? points[points.length - 1].raceRowNumber : 0;
   const finalRoi = points.length > 0 ? points[points.length - 1].roiPercent : null;
@@ -176,6 +181,20 @@ export const PnlConvergencePanel: React.FC<PnlConvergencePanelProps> = ({ points
       </View>
 
       <Divider />
+
+      {filters.length > 0 ? (
+        <View testID="pnl-convergence-filters-summary" style={styles.filtersRow}>
+          {filters.map(f => (
+            <View key={f.key} testID={`pnl-convergence-filter-chip-${f.key}`} style={styles.filterChip}>
+              <Text style={styles.filterChipText}>{f.label}</Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text testID="pnl-convergence-no-filters" style={styles.noFiltersText}>
+          No filters applied — full default range
+        </Text>
+      )}
 
       <ScrollView contentContainerStyle={styles.body}>
         {loading ? (
@@ -353,6 +372,32 @@ const styles = StyleSheet.create({
   body: {
     padding: spacing.lg,
     gap: spacing.md,
+  },
+  filtersRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+  },
+  filterChip: {
+    backgroundColor: colors.primaryLight,
+    borderRadius: radii.sm,
+    paddingVertical: spacing.xs / 2,
+    paddingHorizontal: spacing.sm,
+  },
+  filterChipText: {
+    fontSize: 11,
+    color: colors.primary,
+    fontWeight: "600",
+  },
+  noFiltersText: {
+    fontSize: 11,
+    color: colors.textTertiary,
+    textAlign: "center",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    fontStyle: "italic",
   },
   centerRow: {
     flexDirection: "row",

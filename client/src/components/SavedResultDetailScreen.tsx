@@ -4,6 +4,7 @@ import { Text, Button, ActivityIndicator } from "react-native-paper";
 import { chatApi, SavedFilterSet } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
+import { buildFilterSummaryFromParams } from "../utils/ispFormat";
 import { colors, spacing } from "../theme";
 
 interface SavedResultDetailScreenProps {
@@ -89,7 +90,13 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
         </View>
       )}
       {!loading && !error && result && showGraph && (
-        <PnlConvergencePanel points={result.graphPoints} loading={false} error={null} onClose={() => setShowGraph(false)} />
+        <PnlConvergencePanel
+          points={result.graphPoints}
+          loading={false}
+          error={null}
+          filters={buildFilterSummaryFromParams(result.filters)}
+          onClose={() => setShowGraph(false)}
+        />
       )}
     </SafeAreaView>
   );

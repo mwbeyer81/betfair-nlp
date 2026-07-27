@@ -808,6 +808,9 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
     await expect(page.getByTestId("pnl-convergence-final-roi")).toBeVisible();
     // Split A's own graph is races 1-450 (its own fromRow/toRow).
     await expect(page.getByTestId("pnl-convergence-range-subtitle")).toHaveText("Races 1–450");
+    // No filter (course/going/date/...) was ever touched this test — the
+    // panel must say so explicitly rather than leaving the user to guess.
+    await expect(page.getByTestId("pnl-convergence-no-filters")).toBeVisible();
 
     await page.getByTestId("pnl-convergence-panel-close").click();
     await expect(page.getByTestId("pnl-convergence-panel")).not.toBeVisible();
@@ -820,6 +823,47 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
     await expect(page.getByTestId("pnl-convergence-panel")).toBeVisible();
     await expect(page.getByTestId("pnl-convergence-chart")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("pnl-convergence-range-subtitle")).toHaveText("Races 451–900");
+  });
+
+  test("the P&L convergence panel shows exactly which filters produced its result", async ({ page }) => {
+    // Requested live via screenshot: the convergence graph gave no
+    // indication of which filters (course, date range, ...) narrowed the
+    // result being viewed — only implicit in the Filters screen's own
+    // state. The panel must surface a summary of exactly what was applied.
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      await route.fulfill({
+        json: {
+          success: true, totalRaces: 900, totalRunners: 1000, raceCap: 1000,
+          filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+          countries: ["GB", "IE"], courses: ["Cheltenham", "Ascot"], goings: ["Good", "Soft"],
+          raceClasses: ["Class 1", "Class 2"], raceTypes: ["Chase", "Hurdle"],
+          splitA: { fromRow: 1, toRow: 450, total: 450, totalRunners: 500, pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } },
+          splitB: { fromRow: 451, toRow: 900, total: 450, totalRunners: 500, pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 } },
+        },
+      });
+    });
+
+    // Course chip options only populate from a /splits response's own
+    // `courses` field — before any Apply, the row shows "Apply to load
+    // options" with no clickable chip yet (see the "bare load" describe
+    // block above). Apply once with nothing selected first so the chip
+    // exists, then select it and Apply again to actually commit the filter.
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-course-Cheltenham").click();
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-split-graph-button-a").click();
+    await expect(page.getByTestId("pnl-convergence-panel")).toBeVisible();
+
+    await expect(page.getByTestId("pnl-convergence-no-filters")).not.toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-filters-summary")).toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-filter-chip-courses")).toHaveText("Courses: Cheltenham");
   });
 
   test("Split B's Graph button uses the range that was actually applied, not a fabricated continuation from Split A", async ({ page }) => {
