@@ -747,13 +747,16 @@ test.describe("Responsive layout — /results (MSW mocked, iPhone 12 mini, 375px
   test("result cards stack in a single column and remain tappable", async ({ page }) => {
     await page.goto("/results");
     await expect(page.getByTestId("saved-results-loading")).not.toBeVisible({ timeout: 10000 });
-    const card1 = page.getByTestId("saved-results-item-mock-result-1");
-    const card2 = page.getByTestId("saved-results-item-mock-result-2");
-    await expect(card1).toBeVisible();
-    await expect(card2).toBeVisible();
-    const box1 = await card1.boundingBox();
-    const box2 = await card2.boundingBox();
-    // Stacked, not side-by-side — card2 starts below card1 ends.
-    expect(box2!.y).toBeGreaterThanOrEqual(box1!.y + box1!.height - 1);
+    // The screen sorts newest-first by createdAt (SavedResultsListScreen.tsx),
+    // and mock-result-2 has the later createdAt in fixtures.ts, so it's the
+    // top card and mock-result-1 is second, not the other way around.
+    const topCard = page.getByTestId("saved-results-item-mock-result-2");
+    const bottomCard = page.getByTestId("saved-results-item-mock-result-1");
+    await expect(topCard).toBeVisible();
+    await expect(bottomCard).toBeVisible();
+    const topBox = await topCard.boundingBox();
+    const bottomBox = await bottomCard.boundingBox();
+    // Stacked, not side-by-side — bottomCard starts below topCard ends.
+    expect(bottomBox!.y).toBeGreaterThanOrEqual(topBox!.y + topBox!.height - 1);
   });
 });
