@@ -3377,12 +3377,28 @@ closed) and `apps/web/deploy.sh` (confirmed live at
 real prod: `GET /api/saved-filter-sets` for the real logged-in user still
 returns `200`/`success:true` (0 results, as expected — nothing to break).
 
-**Still needs a real `TRAINING_PIPELINE_API_KEY`** — `config/local.json`
-wasn't present so `apps/lambda/build.sh` skipped the secrets update,
-meaning the Lambda's copy of this secret is still the empty default. The
-feature is live but inert until the user generates a real key and sets it
-both on the Lambda (`config/local.json` + redeploy, or directly via `aws
-lambda update-function-configuration`) and wherever
-`ml/train_and_predict.py` actually runs. Until then every
-`POST /api/saved-filter-sets/agent` call — including real training
-runs — 401s, which is the safe failure mode, not a broken one.
+**`TRAINING_PIPELINE_API_KEY` now set on the live Lambda** — per the
+user's explicit request, generated a random 32-byte hex key
+(`openssl rand -hex 32`), set it via `aws lambda
+update-function-configuration` directly (**not** `apps/lambda/build.sh`'s
+`config/local.json` path — that script's secrets branch replaces the
+*entire* `Environment.Variables` map from a hardcoded list that doesn't
+even include this key, so using it here would have silently dropped it
+right back to empty on the next deploy that went through it; worth fixing
+in `build.sh` itself at some point). Instead: fetched the Lambda's current
+full env-var map read-only via `get-function-configuration`, merged in
+just the new key locally, wrote the merged map back — every existing
+secret (Mongo/JWT/OpenAI/Resend/RacingAPI) preserved untouched, confirmed
+via a real login (`200`) immediately after. Verified the new key
+authenticates (`201`), a wrong key still 401s, cleaned up the verification
+doc directly from prod Mongo by `_id` (agent results aren't deletable via
+the API by design, per the plan). Deleted the local temp files holding the
+full merged env-var map (all secrets) right after the AWS call.
+
+**Not recorded in this file or anywhere in git** — the raw key value was
+only ever shown to the user directly in chat and briefly held in this
+session's scratchpad (`/tmp/claude-.../scratchpad/`, not part of the
+repo). Whoever runs `ml/train_and_predict.py` going forward needs that
+same value passed as `TRAINING_PIPELINE_API_KEY` in its environment —
+ask the user for it (they were given it directly) rather than regenerating
+a new one, which would silently desync from what's on the Lambda.
