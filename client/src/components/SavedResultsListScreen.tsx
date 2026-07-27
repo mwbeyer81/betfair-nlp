@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View, ScrollView, StyleSheet, SafeAreaView, TouchableOpacity } from "react-native";
 import { Text, Button, ActivityIndicator, Surface, IconButton } from "react-native-paper";
 import Svg, { Path } from "react-native-svg";
-import { chatApi, SavedFilterSet } from "../services/chatApi";
+import { chatApi, SavedFilterSet, SavedFilterSetPnlStats } from "../services/chatApi";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
 import { useResponsive } from "../utils/responsive";
@@ -23,11 +23,27 @@ type SortBy = "date" | "pnl" | "name";
 const SPARK_WIDTH = 120;
 const SPARK_HEIGHT = 36;
 
+// Split A/Split B are two independent tests, each with its own cumulative
+// P&L series restarting from its own first race — concatenating them into
+// one line would show a discontinuous jump right at the split boundary
+// (Split B's series doesn't pick up where Split A's left off), which reads
+// as a rendering bug rather than two separate results. Split A's own series
+// is used as the at-a-glance preview instead; the detail screen (opened by
+// tapping the card) shows both splits' own full graphs separately.
+function combinedPnlStats(result: SavedFilterSet): SavedFilterSetPnlStats {
+  return {
+    staked: result.splitA.pnlStats.staked + result.splitB.pnlStats.staked,
+    returns: result.splitA.pnlStats.returns + result.splitB.pnlStats.returns,
+    pnl: result.splitA.pnlStats.pnl + result.splitB.pnlStats.pnl,
+    count: result.splitA.pnlStats.count + result.splitB.pnlStats.count,
+  };
+}
+
 // A minimal, axis-less trend line — same react-native-svg Path technique as
 // ModelPerformanceDashboard's calibration chart, just without any of its
 // tooltip/axis machinery, since this only needs to hint at shape at card
 // size, not be inspected.
-function Sparkline({ points }: { points: SavedFilterSet["graphPoints"] }) {
+function Sparkline({ points }: { points: SavedFilterSet["splitA"]["graphPoints"] }) {
   if (points.length < 2) return null;
   const rois = points.map(p => p.roiPercent);
   const minRoi = Math.min(...rois, 0);
@@ -79,7 +95,7 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
   }, []);
 
   const sorted = [...results].sort((a, b) => {
-    if (sortBy === "pnl") return b.pnlStats.pnl - a.pnlStats.pnl;
+    if (sortBy === "pnl") return combinedPnlStats(b).pnl - combinedPnlStats(a).pnl;
     if (sortBy === "name") return a.name.localeCompare(b.name);
     return b.createdAt.localeCompare(a.createdAt);
   });
@@ -139,7 +155,8 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
           {!loading && !error && sorted.length > 0 && (
             <View testID="saved-results-list" style={[styles.resultCards, isDesktop && styles.resultCardsRow]}>
               {sorted.map(result => {
-                const pnlPositive = result.pnlStats.pnl >= 0;
+                const pnl = combinedPnlStats(result);
+                const pnlPositive = pnl.pnl >= 0;
                 return (
                   <View key={result.id} style={isDesktop ? styles.resultCardFlex : undefined}>
                     <TouchableOpacity testID={`saved-results-item-${result.id}`} onPress={() => onOpenResult(result.id)} activeOpacity={0.8}>
@@ -159,13 +176,13 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
                         <View style={styles.resultBody}>
                           <View>
                             <Text style={[styles.resultPnl, pnlPositive ? styles.pnlPos : styles.pnlNeg]}>
-                              {formatPnl(result.pnlStats.pnl)}
+                              {formatPnl(pnl.pnl)}
                             </Text>
                             <Text style={[styles.resultPct, pnlPositive ? styles.pnlPos : styles.pnlNeg]}>
-                              ({formatPct(result.pnlStats.pnl, result.pnlStats.staked)})
+                              ({formatPct(pnl.pnl, pnl.staked)})
                             </Text>
                           </View>
-                          <Sparkline points={result.graphPoints} />
+                          <Sparkline points={result.splitA.graphPoints} />
                         </View>
                         {confirmDeleteId === result.id && (
                           <View style={styles.confirmDeleteRow}>

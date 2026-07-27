@@ -9,13 +9,28 @@ const MOCK_RESULT = {
   id: "result-1",
   name: "Ascot favourites",
   filters: { courses: "Ascot", minDate: "2026-01-01", maxDate: "2026-01-01" },
-  pnlStats: { staked: 20, returns: 15, pnl: -5, count: 4 },
-  graphPoints: [
-    { raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 0, cumulativePnl: -5, roiPercent: -100 },
-    { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 9, cumulativePnl: -1, roiPercent: -10 },
-    { raceRowNumber: 3, cumulativeStaked: 15, cumulativeReturns: 15, cumulativePnl: 0, roiPercent: 0 },
-    { raceRowNumber: 4, cumulativeStaked: 20, cumulativeReturns: 15, cumulativePnl: -5, roiPercent: -25 },
-  ],
+  splitA: {
+    fromRow: 1,
+    toRow: 2,
+    total: 2,
+    totalRunners: 6,
+    pnlStats: { staked: 10, returns: 11, pnl: 1, count: 2 },
+    graphPoints: [
+      { raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 6, cumulativePnl: 1, roiPercent: 20 },
+      { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 11, cumulativePnl: 1, roiPercent: 10 },
+    ],
+  },
+  splitB: {
+    fromRow: 3,
+    toRow: 4,
+    total: 2,
+    totalRunners: 6,
+    pnlStats: { staked: 10, returns: 6, pnl: -4, count: 2 },
+    graphPoints: [
+      { raceRowNumber: 3, cumulativeStaked: 5, cumulativeReturns: 5, cumulativePnl: 0, roiPercent: 0 },
+      { raceRowNumber: 4, cumulativeStaked: 10, cumulativeReturns: 6, cumulativePnl: -4, roiPercent: -40 },
+    ],
+  },
   createdAt: "2026-01-15T09:00:00.000Z",
 };
 
@@ -58,19 +73,25 @@ export const HeaderRenders: Story = {
   },
 };
 
+// Requested live (screenshot): the detail view only ever showed one
+// combined number, while the live /isp screen it was saved from always
+// shows Split A and Split B as two independent tests — the saved snapshot
+// must show the same two-split breakdown, not a merged summary.
 export const ItemsRendered: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.findByTestId("split-detail-panel-a")).resolves.toBeInTheDocument();
-    await expect(canvas.findByTestId("split-detail-pnl-a")).resolves.toHaveTextContent("-£5.00");
+    await expect(canvas.findByTestId("saved-result-split-card-a")).resolves.toHaveTextContent("races 1–2");
+    await expect(canvas.getByTestId("saved-result-split-pnl-a")).toHaveTextContent("+£1.00");
+    await expect(canvas.getByTestId("saved-result-split-card-b")).toHaveTextContent("races 3–4");
+    await expect(canvas.getByTestId("saved-result-split-pnl-b")).toHaveTextContent("-£4.00");
   },
 };
 
-export const CloseButton: Story = {
+export const BackButtonCallsOnBack: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
-    const closeBtn = await canvas.findByTestId("split-detail-panel-filters-a");
-    await userEvent.click(closeBtn);
+    const backBtn = await canvas.findByTestId("saved-result-detail-back-button");
+    await userEvent.click(backBtn);
     await expect(args.onBack).toHaveBeenCalledTimes(1);
   },
 };
@@ -121,12 +142,28 @@ export const NotFoundShowsError: Story = {
   },
 };
 
-export const ViewGraphOpensPnlConvergencePanel: Story = {
+export const SplitDetailsButtonOpensSplitDetailPanel: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const graphBtn = await canvas.findByTestId("saved-result-detail-view-graph");
-    await userEvent.click(graphBtn);
+    const detailsBtn = await canvas.findByTestId("saved-result-split-details-button-a");
+    await userEvent.click(detailsBtn);
+    await expect(canvas.findByTestId("split-detail-panel-a")).resolves.toBeInTheDocument();
+    await expect(canvas.getByTestId("split-detail-pnl-a")).toHaveTextContent("+£1.00");
+
+    const closeBtn = await canvas.findByTestId("split-detail-panel-filters-a");
+    await userEvent.click(closeBtn);
+    await expect(canvas.queryByTestId("split-detail-panel-a")).not.toBeInTheDocument();
+  },
+};
+
+export const SplitGraphButtonOpensThatSplitsOwnPnlConvergencePanel: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const graphBtnB = await canvas.findByTestId("saved-result-split-graph-button-b");
+    await userEvent.click(graphBtnB);
     await expect(canvas.findByTestId("pnl-convergence-panel")).resolves.toBeInTheDocument();
+    // Split B's own range (3–4), not Split A's or a combined range.
+    await expect(canvas.getByTestId("pnl-convergence-range-subtitle")).toHaveTextContent("Races 3–4");
 
     // The saved result's own filters (courses/dates) must show up on the
     // graph the same way a live convergence result's do — the graph is a

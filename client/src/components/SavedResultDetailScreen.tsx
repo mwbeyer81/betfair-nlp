@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet, SafeAreaView } from "react-native";
+import { View, StyleSheet, SafeAreaView, ScrollView } from "react-native";
 import { Text, Button, ActivityIndicator } from "react-native-paper";
-import { chatApi, SavedFilterSet } from "../services/chatApi";
+import { chatApi, SavedFilterSet, SavedFilterSetSplit } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
 import { AppHeader } from "./AppHeader";
-import { buildFilterSummaryFromParams } from "../utils/ispFormat";
-import { colors, spacing } from "../theme";
+import { buildFilterSummaryFromParams, formatPnl, formatPct } from "../utils/ispFormat";
+import { colors, radii, spacing } from "../theme";
 import type { Route } from "../hooks/useRouter";
 
 interface SavedResultDetailScreenProps {
@@ -16,6 +16,67 @@ interface SavedResultDetailScreenProps {
   id: string;
   onBack: () => void;
   onRestore: (filters: Record<string, string>) => void;
+}
+
+// The live Filters screen's own Split A/Split B card look (see
+// IndustrySpScreen's renderSplitCard/splitCard styles) — mirrored here so a
+// saved result reads as close as possible to what the user actually saw at
+// save time, rather than a differently-shaped summary.
+function SplitCard({
+  id,
+  label,
+  split,
+  onDetails,
+  onGraph,
+}: {
+  id: "a" | "b";
+  label: string;
+  split: SavedFilterSetSplit;
+  onDetails: () => void;
+  onGraph: () => void;
+}) {
+  const effectiveTo = split.toRow ?? split.total;
+  return (
+    <View testID={`saved-result-split-card-${id}`} style={styles.splitCard}>
+      <Text style={styles.splitCardLabel}>
+        {label} — races {split.fromRow}–{effectiveTo}
+      </Text>
+      {split.pnlStats.staked > 0 ? (
+        <Text testID={`saved-result-split-pnl-${id}`} style={[styles.pnlHeadline, split.pnlStats.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+          {formatPnl(split.pnlStats.pnl)}{" "}
+          <Text style={[styles.pnlPct, split.pnlStats.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+            ({formatPct(split.pnlStats.pnl, split.pnlStats.staked)})
+          </Text>
+        </Text>
+      ) : (
+        <Text testID={`saved-result-split-empty-${id}`} style={styles.splitEmptyText}>
+          No qualifying bets in this split.
+        </Text>
+      )}
+      <View style={styles.splitButtonRow}>
+        <Button
+          testID={`saved-result-split-details-button-${id}`}
+          mode="outlined"
+          compact
+          onPress={onDetails}
+          style={styles.splitDetailsButton}
+          labelStyle={styles.splitDetailsButtonLabel}
+        >
+          Details
+        </Button>
+        <Button
+          testID={`saved-result-split-graph-button-${id}`}
+          mode="outlined"
+          compact
+          onPress={onGraph}
+          style={styles.splitDetailsButton}
+          labelStyle={styles.splitDetailsButtonLabel}
+        >
+          Graph
+        </Button>
+      </View>
+    </View>
+  );
 }
 
 export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = ({
@@ -29,7 +90,8 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
   const [result, setResult] = useState<SavedFilterSet | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showGraph, setShowGraph] = useState(false);
+  const [detailSplit, setDetailSplit] = useState<"a" | "b" | null>(null);
+  const [graphSplit, setGraphSplit] = useState<"a" | "b" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +118,9 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
     onBack();
   }
 
+  const detailedSplit = detailSplit === "a" ? result?.splitA : detailSplit === "b" ? result?.splitB : null;
+  const graphedSplit = graphSplit === "a" ? result?.splitA : graphSplit === "b" ? result?.splitB : null;
+
   return (
     <SafeAreaView testID="saved-result-detail-screen" style={styles.screen}>
       <AppHeader
@@ -79,27 +144,42 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
           </Button>
         </View>
       )}
-      {!loading && !error && result && !showGraph && (
+      {!loading && !error && result && graphedSplit == null && (
         <View style={styles.detailContainer}>
           {/* SplitDetailPanel is a full-screen position:"absolute" overlay by
               design (zIndex 100) — the action bar below sits in its own
               higher-zIndex absolute layer so it floats above it, rather than
               being a normal ScrollView sibling that the panel would cover. */}
-          <SplitDetailPanel
-            id="a"
-            label={result.name}
-            fromRow={1}
-            toRow={result.pnlStats.count}
-            totalRaces={result.pnlStats.count}
-            totalRunners={result.pnlStats.count}
-            pnl={result.pnlStats}
-            onClose={onBack}
-            onViewRaces={() => {}}
-          />
+          {detailedSplit != null && detailSplit != null && (
+            <SplitDetailPanel
+              id={detailSplit}
+              label={detailSplit === "a" ? "Split A" : "Split B"}
+              fromRow={detailedSplit.fromRow}
+              toRow={detailedSplit.toRow ?? detailedSplit.total}
+              totalRaces={detailedSplit.total}
+              totalRunners={detailedSplit.totalRunners}
+              pnl={detailedSplit.pnlStats}
+              onClose={() => setDetailSplit(null)}
+              onViewRaces={() => {}}
+            />
+          )}
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            <SplitCard
+              id="a"
+              label="Split A"
+              split={result.splitA}
+              onDetails={() => setDetailSplit("a")}
+              onGraph={() => setGraphSplit("a")}
+            />
+            <SplitCard
+              id="b"
+              label="Split B"
+              split={result.splitB}
+              onDetails={() => setDetailSplit("b")}
+              onGraph={() => setGraphSplit("b")}
+            />
+          </ScrollView>
           <View style={styles.actionsRow}>
-            <Button testID="saved-result-detail-view-graph" mode="contained" onPress={() => setShowGraph(true)} style={styles.actionButton}>
-              View full graph
-            </Button>
             <Button testID="saved-result-detail-restore" mode="contained" buttonColor={colors.accent} onPress={() => onRestore(result.filters)} style={styles.actionButton}>
               Restore filters
             </Button>
@@ -109,13 +189,13 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
           </View>
         </View>
       )}
-      {!loading && !error && result && showGraph && (
+      {!loading && !error && result && graphedSplit != null && (
         <PnlConvergencePanel
-          points={result.graphPoints}
+          points={graphedSplit.graphPoints}
           loading={false}
           error={null}
           filters={buildFilterSummaryFromParams(result.filters)}
-          onClose={() => setShowGraph(false)}
+          onClose={() => setGraphSplit(null)}
         />
       )}
     </SafeAreaView>
@@ -128,6 +208,51 @@ const styles = StyleSheet.create({
   errorText: { color: colors.danger },
   backButton: { marginTop: spacing.md },
   detailContainer: { flex: 1, position: "relative" },
+  scrollContent: { padding: spacing.md, gap: spacing.md, paddingBottom: spacing.xl * 3 },
+  splitCard: {
+    backgroundColor: colors.text,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  splitCardLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.85)",
+  },
+  splitEmptyText: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.5)",
+  },
+  pnlHeadline: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  pnlPct: {
+    fontSize: 13,
+    fontWeight: "400",
+    opacity: 0.8,
+  },
+  pnlPos: {
+    color: colors.pnlPositive,
+  },
+  pnlNeg: {
+    color: colors.pnlNegative,
+  },
+  splitButtonRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  splitDetailsButton: {
+    borderRadius: radii.sm,
+    borderColor: "rgba(255,255,255,0.4)",
+  },
+  splitDetailsButtonLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#fff",
+  },
   actionsRow: {
     position: "absolute",
     bottom: 0,

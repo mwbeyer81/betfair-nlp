@@ -1,4 +1,4 @@
-import { SavedFilterSetDAO, SavedFilterSetDocument, SavedFilterSetGraphPoint, SavedFilterSetPnlStats } from "../dao/saved-filter-set-dao";
+import { SavedFilterSetDAO, SavedFilterSetDocument, SavedFilterSetSplit } from "../dao/saved-filter-set-dao";
 import { IndustrySpService } from "./industry-sp-service";
 import { DatabaseConnection } from "../../config/database";
 
@@ -11,8 +11,8 @@ export interface SavedFilterSetApiResponse {
   id: string;
   name: string;
   filters: Record<string, string>;
-  pnlStats: SavedFilterSetPnlStats;
-  graphPoints: SavedFilterSetGraphPoint[];
+  splitA: SavedFilterSetSplit;
+  splitB: SavedFilterSetSplit;
   createdAt: string;
 }
 
@@ -21,15 +21,19 @@ function toApiResponse(doc: SavedFilterSetDocument): SavedFilterSetApiResponse {
     id: doc._id!.toString(),
     name: doc.name,
     filters: doc.filters,
-    pnlStats: doc.pnlStats,
-    graphPoints: doc.graphPoints,
+    splitA: doc.splitA,
+    splitB: doc.splitB,
     createdAt: doc.createdAt,
   };
 }
 
 // Params needed to recompute a filter set's qualifying races — same shape
-// IndustrySpService.getRaceConvergenceSeries already takes. Built by the
-// router from the raw filters string map (see POST /api/saved-filter-sets).
+// IndustrySpService.getSplitStats/getRaceConvergenceSeries already take.
+// Built by the router from the raw filters string map (see POST
+// /api/saved-filter-sets). fromRowA/toRowA/fromRowB/toRowB are the same
+// explicit-split-boundary params getSplitStats already accepts — null means
+// "not explicitly set", which getSplitStats resolves to the default
+// half/half divide, exactly like the live Filters screen does.
 export interface ComputeSnapshotParams {
   minRunners: number;
   maxRunners: number;
@@ -38,6 +42,10 @@ export interface ComputeSnapshotParams {
   maxIsp: number;
   minInIspRange: number;
   maxInIspRange: number;
+  fromRowA: number | null;
+  toRowA: number | null;
+  fromRowB: number | null;
+  toRowB: number | null;
   minRaceTime: string | null;
   maxRaceTime: string | null;
   courses: string[];
@@ -108,7 +116,12 @@ export class SavedFilterSetService {
     filters: Record<string, string>,
     computeParams: ComputeSnapshotParams
   ): Promise<SavedFilterSetApiResponse> {
-    const points = await this.industrySpService.getRaceConvergenceSeries(
+    // Same resolver the live /api/industry-sp/splits route uses — resolves
+    // explicit fromRowA/toRowA/fromRowB/toRowB if the caller set them, or
+    // the default half/half divide otherwise, so a saved snapshot's Split
+    // A/B always match what the Filters screen itself was showing at save
+    // time (never a re-derived or approximated range).
+    const splits = await this.industrySpService.getSplitStats(
       computeParams.minRunners,
       computeParams.maxRunners,
       computeParams.countries,
@@ -116,6 +129,10 @@ export class SavedFilterSetService {
       computeParams.maxIsp,
       computeParams.minInIspRange,
       computeParams.maxInIspRange,
+      computeParams.fromRowA,
+      computeParams.toRowA,
+      computeParams.fromRowB,
+      computeParams.toRowB,
       computeParams.minRaceTime,
       computeParams.maxRaceTime,
       computeParams.courses,
@@ -129,25 +146,40 @@ export class SavedFilterSetService {
       computeParams.maxTrainerFormRunners,
       computeParams.minModelWinProbability,
       computeParams.onlyModelBeatsSp,
-      1,
       SAVE_SNAPSHOT_MAX_ROWS
     );
 
-    const last = points[points.length - 1];
-    const pnlStats: SavedFilterSetPnlStats = {
-      staked: last?.cumulativeStaked ?? 0,
-      returns: last?.cumulativeReturns ?? 0,
-      pnl: last?.cumulativePnl ?? 0,
-      count: points.length,
-    };
+    const [pointsA, pointsB] = await Promise.all([
+      this.industrySpService.getRaceConvergenceSeries(
+        computeParams.minRunners, computeParams.maxRunners, computeParams.countries,
+        computeParams.minIsp, computeParams.maxIsp, computeParams.minInIspRange, computeParams.maxInIspRange,
+        computeParams.minRaceTime, computeParams.maxRaceTime,
+        computeParams.courses, computeParams.goings, computeParams.raceClasses, computeParams.raceTypes,
+        computeParams.trainerSearch, computeParams.jockeySearch,
+        computeParams.trainerFormMinWinRate, computeParams.minTrainerFormRunners, computeParams.maxTrainerFormRunners,
+        computeParams.minModelWinProbability, computeParams.onlyModelBeatsSp,
+        splits.splitA.fromRow, splits.splitA.toRow ?? splits.totalRaces
+      ),
+      this.industrySpService.getRaceConvergenceSeries(
+        computeParams.minRunners, computeParams.maxRunners, computeParams.countries,
+        computeParams.minIsp, computeParams.maxIsp, computeParams.minInIspRange, computeParams.maxInIspRange,
+        computeParams.minRaceTime, computeParams.maxRaceTime,
+        computeParams.courses, computeParams.goings, computeParams.raceClasses, computeParams.raceTypes,
+        computeParams.trainerSearch, computeParams.jockeySearch,
+        computeParams.trainerFormMinWinRate, computeParams.minTrainerFormRunners, computeParams.maxTrainerFormRunners,
+        computeParams.minModelWinProbability, computeParams.onlyModelBeatsSp,
+        splits.splitB.fromRow, splits.splitB.toRow ?? splits.totalRaces
+      ),
+    ]);
+
     const name = rawName?.trim() ? rawName.trim() : buildAutoName(filters);
 
     const doc = await this.savedFilterSetDAO.create({
       userId,
       name,
       filters,
-      pnlStats,
-      graphPoints: points,
+      splitA: { ...splits.splitA, graphPoints: pointsA },
+      splitB: { ...splits.splitB, graphPoints: pointsB },
       createdAt: new Date().toISOString(),
     });
     return toApiResponse(doc);

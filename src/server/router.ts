@@ -640,6 +640,19 @@ router.post("/api/auth/resend-verification", async (req, res) => {
 // screen itself would have shown.
 function computeSnapshotParamsFromFilters(filters: Record<string, string>) {
   const { minRaceTime, maxRaceTime } = parseDateRangeParams(filters.minDate, filters.maxDate);
+  // Same "omit entirely means let getSplitStats compute the default 50/50
+  // split" convention as /api/industry-sp/splits above — a saved result
+  // from before an explicit split edit (or one that never touched the
+  // split boxes) has no fromRowA/etc in its filters map at all, which is
+  // exactly what should resolve to the default divide here too.
+  const fromRowARaw = parseInt(filters.fromRowA);
+  const toRowARaw = parseInt(filters.toRowA);
+  const fromRowBRaw = parseInt(filters.fromRowB);
+  const toRowBRaw = parseInt(filters.toRowB);
+  const fromRowA = isNaN(fromRowARaw) ? null : Math.max(1, fromRowARaw);
+  const toRowA = isNaN(toRowARaw) ? null : Math.max(1, toRowARaw);
+  const fromRowB = isNaN(fromRowBRaw) ? null : Math.max(1, fromRowBRaw);
+  const toRowB = isNaN(toRowBRaw) ? null : Math.max(1, toRowBRaw);
   return {
     minRunners: Math.max(1, parseInt(filters.minRunners) || 1),
     maxRunners: Math.min(100, Math.max(1, parseInt(filters.maxRunners) || 30)),
@@ -648,6 +661,10 @@ function computeSnapshotParamsFromFilters(filters: Record<string, string>) {
     maxIsp: Math.min(100000, parseFloat(filters.maxIsp) || 1000),
     minInIspRange: Math.max(1, parseInt(filters.minInIspRange) || 1),
     maxInIspRange: Math.min(10000, Math.max(1, parseInt(filters.maxInIspRange) || 10000)),
+    fromRowA,
+    toRowA,
+    fromRowB,
+    toRowB,
     minRaceTime,
     maxRaceTime,
     courses: parseCsvListParam(filters.courses),

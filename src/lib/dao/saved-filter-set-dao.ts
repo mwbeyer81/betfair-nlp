@@ -15,6 +15,20 @@ export interface SavedFilterSetGraphPoint {
   roiPercent: number;
 }
 
+// One split's resolved snapshot — fromRow/toRow/total/totalRunners mirror
+// exactly what IndustrySpService.getSplitStats() resolved at save time
+// (explicit fromRowA/toRowA/fromRowB/toRowB if the caller set them, or the
+// default half/half divide otherwise), so a saved result's Split A/B always
+// match what the live Filters screen would have shown for the same filters.
+export interface SavedFilterSetSplit {
+  fromRow: number;
+  toRow: number | null;
+  total: number;
+  totalRunners: number;
+  pnlStats: SavedFilterSetPnlStats;
+  graphPoints: SavedFilterSetGraphPoint[];
+}
+
 // filters is stored as the exact URL-param string map IndustrySpScreen's own
 // syncUrl() writes (see client/src/utils/ispUrlParams.ts's
 // ISP_FILTER_PARAM_NAMES) — one representation used for persistence,
@@ -25,8 +39,8 @@ export interface SavedFilterSetDocument {
   userId: string;
   name: string;
   filters: Record<string, string>;
-  pnlStats: SavedFilterSetPnlStats;
-  graphPoints: SavedFilterSetGraphPoint[];
+  splitA: SavedFilterSetSplit;
+  splitB: SavedFilterSetSplit;
   createdAt: string;
 }
 

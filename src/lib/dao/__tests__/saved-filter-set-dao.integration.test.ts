@@ -11,11 +11,27 @@ function makeDoc(overrides: Partial<SavedFilterSetDocument> = {}): Omit<SavedFil
     userId: "user-a",
     name: "Nottingham favourites",
     filters: { courses: "Nottingham", minDate: "2026-06-03", maxDate: "2026-06-03" },
-    pnlStats: { staked: 100, returns: 120, pnl: 20, count: 6 },
-    graphPoints: [
-      { raceRowNumber: 1, cumulativeStaked: 20, cumulativeReturns: 0, cumulativePnl: -20, roiPercent: -100 },
-      { raceRowNumber: 2, cumulativeStaked: 40, cumulativeReturns: 40, cumulativePnl: 0, roiPercent: 0 },
-    ],
+    splitA: {
+      fromRow: 1,
+      toRow: 3,
+      total: 3,
+      totalRunners: 10,
+      pnlStats: { staked: 60, returns: 70, pnl: 10, count: 3 },
+      graphPoints: [
+        { raceRowNumber: 1, cumulativeStaked: 20, cumulativeReturns: 0, cumulativePnl: -20, roiPercent: -100 },
+        { raceRowNumber: 2, cumulativeStaked: 40, cumulativeReturns: 40, cumulativePnl: 0, roiPercent: 0 },
+      ],
+    },
+    splitB: {
+      fromRow: 4,
+      toRow: 6,
+      total: 3,
+      totalRunners: 11,
+      pnlStats: { staked: 40, returns: 50, pnl: 10, count: 3 },
+      graphPoints: [
+        { raceRowNumber: 4, cumulativeStaked: 20, cumulativeReturns: 25, cumulativePnl: 5, roiPercent: 25 },
+      ],
+    },
     createdAt: "2026-01-01T09:00:00.000Z",
     ...overrides,
   };
@@ -50,8 +66,10 @@ describe("SavedFilterSetDAO (integration)", () => {
     expect(fetched).not.toBeNull();
     expect(fetched?.name).toBe("Nottingham favourites");
     expect(fetched?.filters).toEqual({ courses: "Nottingham", minDate: "2026-06-03", maxDate: "2026-06-03" });
-    expect(fetched?.pnlStats).toEqual({ staked: 100, returns: 120, pnl: 20, count: 6 });
-    expect(fetched?.graphPoints).toHaveLength(2);
+    expect(fetched?.splitA.pnlStats).toEqual({ staked: 60, returns: 70, pnl: 10, count: 3 });
+    expect(fetched?.splitA.graphPoints).toHaveLength(2);
+    expect(fetched?.splitB.pnlStats).toEqual({ staked: 40, returns: 50, pnl: 10, count: 3 });
+    expect(fetched?.splitB.graphPoints).toHaveLength(1);
   });
 
   it("listByUser returns that user's docs newest first", async () => {
@@ -100,17 +118,22 @@ describe("SavedFilterSetDAO (integration)", () => {
     expect(typeof doc.userId).toBe("string");
     expect(typeof doc.name).toBe("string");
     expect(typeof doc.createdAt).toBe("string");
-    expect(typeof doc.pnlStats.staked).toBe("number");
-    expect(typeof doc.pnlStats.returns).toBe("number");
-    expect(typeof doc.pnlStats.pnl).toBe("number");
-    expect(typeof doc.pnlStats.count).toBe("number");
-    expect(Array.isArray(doc.graphPoints)).toBe(true);
-    for (const p of doc.graphPoints) {
-      expect(typeof p.raceRowNumber).toBe("number");
-      expect(typeof p.cumulativeStaked).toBe("number");
-      expect(typeof p.cumulativeReturns).toBe("number");
-      expect(typeof p.cumulativePnl).toBe("number");
-      expect(typeof p.roiPercent).toBe("number");
+    for (const split of [doc.splitA, doc.splitB]) {
+      expect(typeof split.fromRow).toBe("number");
+      expect(typeof split.total).toBe("number");
+      expect(typeof split.totalRunners).toBe("number");
+      expect(typeof split.pnlStats.staked).toBe("number");
+      expect(typeof split.pnlStats.returns).toBe("number");
+      expect(typeof split.pnlStats.pnl).toBe("number");
+      expect(typeof split.pnlStats.count).toBe("number");
+      expect(Array.isArray(split.graphPoints)).toBe(true);
+      for (const p of split.graphPoints) {
+        expect(typeof p.raceRowNumber).toBe("number");
+        expect(typeof p.cumulativeStaked).toBe("number");
+        expect(typeof p.cumulativeReturns).toBe("number");
+        expect(typeof p.cumulativePnl).toBe("number");
+        expect(typeof p.roiPercent).toBe("number");
+      }
     }
   });
 });

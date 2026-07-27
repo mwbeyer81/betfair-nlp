@@ -454,36 +454,70 @@ async function setupApiMocks(page: Page) {
   // test/anonTest fixtures below) — mirrors real create/list/get/delete
   // semantics closely enough to test the full UI loop against a static
   // build, without a real backend.
+  interface MockSavedSplit {
+    fromRow: number;
+    toRow: number | null;
+    total: number;
+    totalRunners: number;
+    pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    graphPoints: { raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[];
+  }
   const mockSavedResults: {
     id: string;
     name: string;
     filters: Record<string, string>;
-    pnlStats: { staked: number; returns: number; pnl: number; count: number };
-    graphPoints: { raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[];
+    splitA: MockSavedSplit;
+    splitB: MockSavedSplit;
     createdAt: string;
   }[] = [
     {
       id: "mock-result-1",
       name: "Ascot favourites",
       filters: { courses: "Ascot", minDate: "2026-01-01", maxDate: "2026-01-01" },
-      pnlStats: { staked: 20, returns: 15, pnl: -5, count: 4 },
-      graphPoints: [
-        { raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 0, cumulativePnl: -5, roiPercent: -100 },
-        { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 9, cumulativePnl: -1, roiPercent: -10 },
-        { raceRowNumber: 3, cumulativeStaked: 15, cumulativeReturns: 15, cumulativePnl: 0, roiPercent: 0 },
-        { raceRowNumber: 4, cumulativeStaked: 20, cumulativeReturns: 15, cumulativePnl: -5, roiPercent: -25 },
-      ],
+      splitA: {
+        fromRow: 1,
+        toRow: 2,
+        total: 2,
+        totalRunners: 6,
+        pnlStats: { staked: 10, returns: 11, pnl: 1, count: 2 },
+        graphPoints: [
+          { raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 6, cumulativePnl: 1, roiPercent: 20 },
+          { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 11, cumulativePnl: 1, roiPercent: 10 },
+        ],
+      },
+      splitB: {
+        fromRow: 3,
+        toRow: 4,
+        total: 2,
+        totalRunners: 6,
+        pnlStats: { staked: 10, returns: 6, pnl: -4, count: 2 },
+        graphPoints: [
+          { raceRowNumber: 3, cumulativeStaked: 5, cumulativeReturns: 5, cumulativePnl: 0, roiPercent: 0 },
+          { raceRowNumber: 4, cumulativeStaked: 10, cumulativeReturns: 6, cumulativePnl: -4, roiPercent: -40 },
+        ],
+      },
       createdAt: "2026-01-15T09:00:00.000Z",
     },
     {
       id: "mock-result-2",
       name: "Nottingham class 1",
       filters: { courses: "Nottingham", raceClasses: "Class 1" },
-      pnlStats: { staked: 10, returns: 18, pnl: 8, count: 2 },
-      graphPoints: [
-        { raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 9, cumulativePnl: 4, roiPercent: 80 },
-        { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 18, cumulativePnl: 8, roiPercent: 80 },
-      ],
+      splitA: {
+        fromRow: 1,
+        toRow: 1,
+        total: 1,
+        totalRunners: 3,
+        pnlStats: { staked: 5, returns: 9, pnl: 4, count: 1 },
+        graphPoints: [{ raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 9, cumulativePnl: 4, roiPercent: 80 }],
+      },
+      splitB: {
+        fromRow: 2,
+        toRow: 2,
+        total: 1,
+        totalRunners: 3,
+        pnlStats: { staked: 5, returns: 9, pnl: 4, count: 1 },
+        graphPoints: [{ raceRowNumber: 2, cumulativeStaked: 5, cumulativeReturns: 9, cumulativePnl: 4, roiPercent: 80 }],
+      },
       createdAt: "2026-01-20T09:00:00.000Z",
     },
   ];
@@ -495,8 +529,8 @@ async function setupApiMocks(page: Page) {
         id: `mock-result-${mockSavedResults.length + 1}`,
         name: body.name?.trim() || `Auto name · ${Object.values(body.filters)[0] ?? "All races"}`,
         filters: body.filters,
-        pnlStats: { staked: 20, returns: 15, pnl: -5, count: 4 },
-        graphPoints: mockSavedResults[0].graphPoints,
+        splitA: mockSavedResults[0].splitA,
+        splitB: mockSavedResults[0].splitB,
         createdAt: new Date().toISOString(),
       };
       mockSavedResults.unshift(created);

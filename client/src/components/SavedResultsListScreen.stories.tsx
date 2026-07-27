@@ -10,22 +10,51 @@ const MOCK_RESULTS = [
     id: "result-1",
     name: "Ascot favourites",
     filters: { courses: "Ascot" },
-    pnlStats: { staked: 20, returns: 15, pnl: -5, count: 4 },
-    graphPoints: [
-      { raceRowNumber: 1, cumulativeStaked: 10, cumulativeReturns: 8, cumulativePnl: -2, roiPercent: -20 },
-      { raceRowNumber: 2, cumulativeStaked: 20, cumulativeReturns: 15, cumulativePnl: -5, roiPercent: -25 },
-    ],
+    // Combined across both splits (staked 20, returns 15, pnl -5) is what
+    // the list card's headline shows — see combinedPnlStats below.
+    splitA: {
+      fromRow: 1,
+      toRow: 1,
+      total: 1,
+      totalRunners: 3,
+      pnlStats: { staked: 10, returns: 8, pnl: -2, count: 2 },
+      graphPoints: [
+        { raceRowNumber: 1, cumulativeStaked: 10, cumulativeReturns: 8, cumulativePnl: -2, roiPercent: -20 },
+      ],
+    },
+    splitB: {
+      fromRow: 2,
+      toRow: 2,
+      total: 1,
+      totalRunners: 3,
+      pnlStats: { staked: 10, returns: 7, pnl: -3, count: 2 },
+      graphPoints: [
+        { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 7, cumulativePnl: -3, roiPercent: -30 },
+      ],
+    },
     createdAt: "2026-01-15T09:00:00.000Z",
   },
   {
     id: "result-2",
     name: "Nottingham class 1",
     filters: { courses: "Nottingham" },
-    pnlStats: { staked: 10, returns: 18, pnl: 8, count: 2 },
-    graphPoints: [
-      { raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 9, cumulativePnl: 4, roiPercent: 80 },
-      { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 18, cumulativePnl: 8, roiPercent: 80 },
-    ],
+    // Combined: staked 10, returns 18, pnl 8.
+    splitA: {
+      fromRow: 1,
+      toRow: 1,
+      total: 1,
+      totalRunners: 2,
+      pnlStats: { staked: 5, returns: 9, pnl: 4, count: 1 },
+      graphPoints: [{ raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 9, cumulativePnl: 4, roiPercent: 80 }],
+    },
+    splitB: {
+      fromRow: 2,
+      toRow: 2,
+      total: 1,
+      totalRunners: 2,
+      pnlStats: { staked: 5, returns: 9, pnl: 4, count: 1 },
+      graphPoints: [{ raceRowNumber: 2, cumulativeStaked: 5, cumulativeReturns: 9, cumulativePnl: 4, roiPercent: 80 }],
+    },
     createdAt: "2026-01-20T09:00:00.000Z",
   },
 ];

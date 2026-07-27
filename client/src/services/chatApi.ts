@@ -211,6 +211,20 @@ export interface SavedFilterSetGraphPoint {
   roiPercent: number;
 }
 
+// One split's resolved snapshot, computed at save time via the same
+// getSplitStats/getRaceConvergenceSeries the live Filters screen's own
+// Split A/B cards use — fromRow/toRow are the true resolved race range
+// (explicit if the user had edited the split boxes, the default half/half
+// divide otherwise), never re-derived on the client.
+export interface SavedFilterSetSplit {
+  fromRow: number;
+  toRow: number | null;
+  total: number;
+  totalRunners: number;
+  pnlStats: SavedFilterSetPnlStats;
+  graphPoints: SavedFilterSetGraphPoint[];
+}
+
 // filters is the raw ISP_FILTER_PARAM_NAMES string map — the exact query
 // params IndustrySpScreen's own syncUrl() writes (see
 // client/src/utils/ispUrlParams.ts) — so restoring is just navigating to
@@ -219,8 +233,8 @@ export interface SavedFilterSet {
   id: string;
   name: string;
   filters: Record<string, string>;
-  pnlStats: SavedFilterSetPnlStats;
-  graphPoints: SavedFilterSetGraphPoint[];
+  splitA: SavedFilterSetSplit;
+  splitB: SavedFilterSetSplit;
   createdAt: string;
 }
 

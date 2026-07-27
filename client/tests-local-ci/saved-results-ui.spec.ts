@@ -61,10 +61,18 @@ test.describe("Saved Results — full loop against seeded slice (real frontend +
     await page.locator('[data-testid^="saved-results-item-"]').filter({ hasText: "Detail flow test" }).click();
 
     await expect(page.getByTestId("saved-result-detail-screen")).toBeVisible({ timeout: 10000 });
+    // The detail view shows Split A and Split B as two independent cards,
+    // matching the live Filters screen's own split cards — a "Details"
+    // button per split opens the full SplitDetailPanel breakdown.
+    await expect(page.getByTestId("saved-result-split-card-a")).toBeVisible();
+    await expect(page.getByTestId("saved-result-split-card-b")).toBeVisible();
+    await page.getByTestId("saved-result-split-details-button-a").click();
     await expect(page.getByTestId("split-detail-panel-a")).toBeVisible();
     await expect(page.getByTestId("split-detail-pnl-a")).toBeVisible();
+    await page.getByTestId("split-detail-panel-filters-a").click();
+    await expect(page.getByTestId("split-detail-panel-a")).not.toBeVisible();
 
-    await page.getByTestId("saved-result-detail-view-graph").click();
+    await page.getByTestId("saved-result-split-graph-button-a").click();
     await expect(page.getByTestId("pnl-convergence-panel")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("pnl-convergence-panel-close").click();
     await expect(page.getByTestId("pnl-convergence-panel")).not.toBeVisible();

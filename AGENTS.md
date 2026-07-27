@@ -133,6 +133,7 @@ tiebreaker.
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | **stale, do not merge as-is** — checked 2026-07-27: this branch diverges from `origin/develop` by ~29k deleted lines (missing saved-results, model-performance dashboard, social-auth, and more — branched from a very old point, not intentional deletions). Its only real uncommitted work is small (`LogoMark.tsx` + 2 SVG assets under `client/assets/logo/`, a FontAwesome-based logo mark, plus an `App.tsx` diff wiring it in) — worth salvaging by hand into a fresh worktree if the FontAwesome-icon logo direction is still wanted, but do not merge/rebase this branch wholesale. Superseded for the "consistent header" goal by `feat/unified-header` below (plain-text "BackBet" + sync-icon wordmark, not a FontAweome logo image) — pick this up only if the user wants the logo image, not the burger-menu-consistency problem, which is now solved. |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **done** — merged to `develop`, deployed (Lambda + web), live-verified on prod; worktree can be removed |
+| `~/betfair-nlp-saved-results-splits` | `fix/saved-results-splits` | Saved Results only ever computed/stored/showed one combined snapshot, even though the live Filters screen always splits into Split A/Split B — see dated entry below | done, verified (Supertest, DAO integration, Storybook, MSW, and the real-backend `local-ci-e2e` suite), committing/deploying now |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
@@ -3066,3 +3067,99 @@ relied on Storybook + MSW instead, both of which exercise this exact
 component's real code with mocked auth, which is the same code now
 deployed. Worktree removed, branch deleted (local + remote via the
 `push origin ...:develop` above) — nothing left in progress.**
+
+---
+
+## 2026-07-27 — Agent in `~/betfair-nlp-saved-results-splits` (branch `fix/saved-results-splits`)
+
+**Task:** User reported (three screenshots) that a saved Result's detail
+view showed one combined "All races" card (10000 races, +£349.62), while
+the live `/isp` Filters screen it was saved from always shows two
+independent Split A/Split B cards (races 1–337: -£74.93; races 338–675:
+-£78.99) — genuinely different numbers, not just a different label. The
+saved snapshot was silently discarding the split entirely.
+
+**Root cause:** `SavedFilterSetService.saveResult` never read
+`fromRowA/toRowA/fromRowB/toRowB` from the saved filters at all — it called
+`IndustrySpService.getRaceConvergenceSeries` exactly once, hardcoded to
+`fromRow=1, toRow=10000` (`SAVE_SNAPSHOT_MAX_ROWS`), i.e. always "every
+matched race, combined." `computeSnapshotParamsFromFilters` in
+`router.ts` didn't even parse the split params out of the filters map.
+
+**Fix — full split-aware snapshot, threaded end to end:**
+- `saved-filter-set-dao.ts`: `SavedFilterSetDocument` now stores `splitA`/
+  `splitB` (each `{fromRow, toRow, total, totalRunners, pnlStats,
+  graphPoints}`), replacing the flat top-level `pnlStats`/`graphPoints`.
+- `saved-filter-set-service.ts`: `saveResult` now calls
+  `IndustrySpService.getSplitStats` first (the *exact* resolver the live
+  `/api/industry-sp/splits` route already uses — explicit boundaries if the
+  user had edited the split boxes, the default half/half divide otherwise),
+  then `getRaceConvergenceSeries` twice, once per resolved split's own
+  range, in parallel.
+- `router.ts`: `computeSnapshotParamsFromFilters` now parses
+  `fromRowA/toRowA/fromRowB/toRowB` the same way `/api/industry-sp/splits`
+  already does (omitted → `null` → default divide).
+- `chatApi.ts`: `SavedFilterSet.splitA`/`splitB` replace `pnlStats`/
+  `graphPoints`.
+- `SavedResultDetailScreen.tsx`: completely rebuilt — two `SplitCard`s
+  (mirroring `IndustrySpScreen`'s own `renderSplitCard` styling/labels
+  exactly, "as close as possible to the live Filters view" per the ask),
+  each with its own **Details** button (opens the existing
+  `SplitDetailPanel`, unmodified) and **Graph** button (opens
+  `PnlConvergencePanel` with that split's own `graphPoints`). Removed the
+  old single always-visible `SplitDetailPanel` + one "View full graph"
+  button.
+- `SavedResultsListScreen.tsx`: the list card still shows one headline
+  number (a list of many results has no room for two cards each) — now an
+  explicit `combinedPnlStats()` sum of both splits, not a stray leftover
+  field. Sparkline preview uses Split A's own `graphPoints` only — Split
+  A/B are two *independent* cumulative series each restarting at their own
+  first race; concatenating them would show a discontinuous jump right at
+  the boundary, which reads as a rendering bug.
+
+**Test-writing gotchas worth recording:**
+- The new MSW test initially clicked a course chip before ever pressing
+  Apply once — failed because chip *options* only populate from a
+  `/splits` response's own arrays (see the `pnl-convergence-filters-summary`
+  entry above for the identical gotcha) — needed one filter-less Apply
+  first to load the chip list, then a second Apply to commit it.
+- The new `saved-results-api.spec.ts` (real backend + seeded Mongo)
+  assertion `expect(data.splitA.pnlStats.count).toBe(referenceA.length)`
+  failed for real (`Expected: 3, Received: 32`) — turned out to be a test
+  bug, not a service bug: `pnlStats.count` is **horses backed** (a runner
+  sum, `$sum: "$inRangeRunnersCount"` in `industry-sp-dao.ts`), the same
+  field `SplitDetailPanel`'s "Horses backed" row already shows — not the
+  race count, which is `graphPoints.length` instead. Fixed the assertion
+  rather than the service; **anyone touching split `pnlStats.count` again,
+  it's runners, not races.**
+- `saved-results-ui.spec.ts` (same real-backend suite) still asserted
+  `split-detail-panel-a`/`saved-result-detail-view-graph` — the old
+  always-visible-panel testIDs, gone now that Details/Graph are per-split
+  buttons behind a tap. Updated to the new flow.
+- Ran the real `yarn test:e2e:local-ci` suite twice from this worktree —
+  first pass caught both bugs above; **do not double-background a
+  long-running suite** (`cmd > log 2>&1 & ; echo done` inside a single
+  `run_in_background: true` Bash call detaches the real process from the
+  tool's own completion tracking — the tool reports "done" immediately
+  while the suite keeps running unmonitored). Second run used a plain
+  foregrounded `timeout 240 yarn test:e2e:local-ci` inside one
+  `run_in_background` call instead, which tracked correctly.
+- This worktree had neither `node_modules` (symlinked from the primary
+  checkout, no dependency changes) nor the gitignored `data/` seed CSV
+  needed by `yarn test:e2e:local-ci` — symlinked
+  `data/kaggle-horse-racing-uk-ireland` from the primary checkout too.
+  Needed for anyone else running that suite from a fresh worktree.
+
+**Verified:** `yarn build` (both `src/` and `client/`) clean throughout.
+Supertest `app.test.ts`: 139/146 (7 pre-existing skips, unaffected).
+`saved-filter-set-dao.integration.test.ts` (real local Mongo): 6/6.
+Storybook: `SavedResultDetailScreen.stories.tsx` and
+`SavedResultsListScreen.stories.tsx` both fully pass; full suite otherwise
+309/314 — same 5 pre-existing failures documented throughout this file.
+`yarn test:msw`: 187/187, including all 9 `saved-results.spec.ts` tests
+(3 new/rewritten for the split UI). `yarn test:e2e:local-ci` (real
+backend + real throwaway Mongo, no mocking): 18/18 on the second run,
+after fixing the two real bugs the first run caught.
+
+**Not yet committed/pushed** — leaving that to the user's explicit
+confirmation per this repo's commit convention.

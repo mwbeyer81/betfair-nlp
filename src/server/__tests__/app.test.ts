@@ -44,13 +44,21 @@ const mockUsers: MockUserDoc[] = [
 
 // In-memory "saved_filter_sets" table backing the mocked collection below —
 // stateful across tests in this file, same pattern as mockUsers.
+interface MockSavedFilterSetSplit {
+  fromRow: number;
+  toRow: number | null;
+  total: number;
+  totalRunners: number;
+  pnlStats: { staked: number; returns: number; pnl: number; count: number };
+  graphPoints: unknown[];
+}
 interface MockSavedFilterSetDoc {
   _id: InstanceType<typeof ObjectId>;
   userId: string;
   name: string;
   filters: Record<string, string>;
-  pnlStats: { staked: number; returns: number; pnl: number; count: number };
-  graphPoints: unknown[];
+  splitA: MockSavedFilterSetSplit;
+  splitB: MockSavedFilterSetSplit;
   createdAt: string;
 }
 const mockSavedFilterSets: MockSavedFilterSetDoc[] = [];
@@ -1392,10 +1400,19 @@ describe("API Endpoints", () => {
       expect(response.body.data.filters).toEqual({ courses: "Ascot", minDate: "2026-01-01", maxDate: "2026-01-01" });
       // From the shared aggregate mock's convergence-point fixture
       // (cumulativeStaked: 1, cumulativeReturns: 2) — see the "Shared mock"
-      // comment above the aggregate mock definition.
-      expect(response.body.data.pnlStats).toEqual({ staked: 1, returns: 2, pnl: 1, count: 1 });
-      expect(response.body.data.graphPoints).toHaveLength(1);
-      expect(response.body.data.graphPoints[0]).toMatchObject({ raceRowNumber: 1, cumulativeStaked: 1, cumulativeReturns: 2, cumulativePnl: 1 });
+      // comment above the aggregate mock definition. The mock returns the
+      // same fixture regardless of which split's own query is in flight, so
+      // both Split A and Split B resolve to identical numbers here — that's
+      // a property of this generic mock, not something the real endpoint
+      // guarantees for two genuinely different splits.
+      for (const split of ["splitA", "splitB"] as const) {
+        expect(response.body.data[split].pnlStats).toEqual({ staked: 1, returns: 2, pnl: 1, count: 1 });
+        expect(response.body.data[split].graphPoints).toHaveLength(1);
+        expect(response.body.data[split].graphPoints[0]).toMatchObject({ raceRowNumber: 1, cumulativeStaked: 1, cumulativeReturns: 2, cumulativePnl: 1 });
+        expect(typeof response.body.data[split].fromRow).toBe("number");
+        expect(typeof response.body.data[split].total).toBe("number");
+        expect(typeof response.body.data[split].totalRunners).toBe("number");
+      }
       savedId = response.body.data.id;
     });
 
