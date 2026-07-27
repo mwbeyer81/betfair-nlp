@@ -139,20 +139,34 @@ tiebreaker.
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
 `local-ci-e2e-tests`, `model-perf-filters`, `convergence-filters-summary`,
-`saved-results-splits`, and `daily-races` were merged, clean, and have been
-removed (`git worktree remove` + `git branch -d`, local and remote where
-applicable) as of 2026-07-25/27 — this is what "clean up after merge" in
-the section above looks like in practice. `codebase-search-chat` was
-merged, pushed, and deployed (both Lambda and web). `local-ci-e2e-tests`
-was docs/test-infra only (no `src/`/`client/src/` changes), so no deploy
-was needed — merged to `develop` and pushed straight through. `daily-races`
-(new RacingAPI-backed Daily Races feature + general-purpose worktree
-port-allocation skill, full plan:
-`/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`) was
-merged, deployed (Lambda `b215c78`-era code + web `develop@ca87d75`), and
-live-verified against production (`client/tests-live/daily-races-live.spec.ts`
-passes against the real deployed app — burger menu → Daily Races screen
-loads with no error state).
+`saved-results-splits`, `daily-races`, and `daily-races-cron` were merged,
+clean, and have been removed (`git worktree remove` + `git branch -d`,
+local and remote where applicable) as of 2026-07-25/27 — this is what
+"clean up after merge" in the section above looks like in practice.
+`codebase-search-chat` was merged, pushed, and deployed (both Lambda and
+web). `local-ci-e2e-tests` was docs/test-infra only (no
+`src/`/`client/src/` changes), so no deploy was needed — merged to
+`develop` and pushed straight through. `daily-races` (new RacingAPI-backed
+Daily Races feature + general-purpose worktree port-allocation skill, full
+plan: `/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`)
+was merged, deployed (Lambda `b215c78`-era code + web `develop@ca87d75`),
+and live-verified against production
+(`client/tests-live/daily-races-live.spec.ts` passes against the real
+deployed app — burger menu → Daily Races screen loads with no error
+state). `daily-races-cron` (AWS EventBridge → the existing `hello-api`
+Lambda, daily at 06:00 UTC, not a VM crontab — user's explicit choice; see
+`.claude/commands/daily-races-cron.md`) was merged, and the Lambda code +
+EventBridge rule/target/permission were deployed via `build.sh` +
+`scripts/setup-daily-races-schedule.sh`. The `RACINGAPI_USERNAME`/`PASSWORD`
+Lambda secrets needed a manual fetch-merge-reapply (auto-mode classifier
+blocked the agent from reading/writing the Lambda's existing secrets even
+after the user said "grant permission this once" in-conversation — that
+approval doesn't change the actual permission-system gate; the user ran
+the `aws lambda update-function-configuration` merge themselves via `!`).
+Live-verified: manual `aws lambda invoke` with a synthetic
+`{"source":"aws.events"}` payload succeeded, `GET /api/daily-races`
+against prod returned 52 real races, and the live Playwright spec passed
+against the real deployed app afterward.
 
 Older entries (2026-07-17 through the `auth-hardening` session) have been
 moved to `AGENTS-archive-2026-07.md` to keep this file readable — see there
