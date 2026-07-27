@@ -87,9 +87,15 @@ if [ -f "$LOCAL_CONFIG" ]; then
   TWILIO_ACCOUNT_SID=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.twilio && c.twilio.accountSid) || '')")
   TWILIO_AUTH_TOKEN=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.twilio && c.twilio.authToken) || '')")
   TWILIO_VERIFY_SERVICE_SID=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.twilio && c.twilio.verifyServiceSid) || '')")
+  # racingApi.* — used by the scheduled daily-races ingest (EventBridge ->
+  # this Lambda, see .claude/commands/daily-races-cron.md), not by any HTTP
+  # route directly. Same optional/blank-default pattern as email/google/twilio.
+  RACINGAPI_USERNAME=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.racingApi && c.racingApi.username) || '')")
+  RACINGAPI_PASSWORD=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.racingApi && c.racingApi.password) || '')")
+  RACINGAPI_BASE_URL=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.racingApi && c.racingApi.baseUrl) || 'https://api.theracingapi.com/v1')")
   aws lambda update-function-configuration \
     --function-name hello-api \
-    --environment "Variables={MONGODB_URI=$MONGODB_URI,MONGODB_DB_NAME=$MONGODB_DB_NAME,OPENAI_API_KEY=$OPENAI_API_KEY,JWT_SECRET=$JWT_SECRET,RESEND_API_KEY=$RESEND_API_KEY,EMAIL_FROM_ADDRESS=$EMAIL_FROM_ADDRESS,API_URL=$API_URL,GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID,TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID,TWILIO_AUTH_TOKEN=$TWILIO_AUTH_TOKEN,TWILIO_VERIFY_SERVICE_SID=$TWILIO_VERIFY_SERVICE_SID}" \
+    --environment "Variables={MONGODB_URI=$MONGODB_URI,MONGODB_DB_NAME=$MONGODB_DB_NAME,OPENAI_API_KEY=$OPENAI_API_KEY,JWT_SECRET=$JWT_SECRET,RESEND_API_KEY=$RESEND_API_KEY,EMAIL_FROM_ADDRESS=$EMAIL_FROM_ADDRESS,API_URL=$API_URL,GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID,TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID,TWILIO_AUTH_TOKEN=$TWILIO_AUTH_TOKEN,TWILIO_VERIFY_SERVICE_SID=$TWILIO_VERIFY_SERVICE_SID,RACINGAPI_USERNAME=$RACINGAPI_USERNAME,RACINGAPI_PASSWORD=$RACINGAPI_PASSWORD,RACINGAPI_BASE_URL=$RACINGAPI_BASE_URL}" \
     --region eu-north-1 \
     --output text --query FunctionName
 else
