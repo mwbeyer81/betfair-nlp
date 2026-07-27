@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { View, ScrollView, StyleSheet, SafeAreaView, TouchableOpacity } from "react-native";
-import { Text, Button, ActivityIndicator, Surface, IconButton } from "react-native-paper";
+import { Text, Button, ActivityIndicator, Surface, IconButton, Chip } from "react-native-paper";
 import Svg, { Path } from "react-native-svg";
 import { chatApi, SavedFilterSet, SavedFilterSetPnlStats } from "../services/chatApi";
 import { PageContainer } from "./PageContainer";
@@ -165,12 +165,25 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
                           <Text variant="titleSmall" style={styles.resultName} numberOfLines={1}>
                             {result.name}
                           </Text>
-                          <IconButton
-                            testID={`saved-results-item-${result.id}-delete`}
-                            icon="delete-outline"
-                            size={18}
-                            onPress={() => setConfirmDeleteId(result.id)}
-                          />
+                          {result.createdBy === "agent" && (
+                            <Chip
+                              testID={`saved-results-item-${result.id}-agent-badge`}
+                              compact
+                              mode="flat"
+                              style={styles.agentBadge}
+                              textStyle={styles.agentBadgeText}
+                            >
+                              AI Training
+                            </Chip>
+                          )}
+                          {result.createdBy !== "agent" && (
+                            <IconButton
+                              testID={`saved-results-item-${result.id}-delete`}
+                              icon="delete-outline"
+                              size={18}
+                              onPress={() => setConfirmDeleteId(result.id)}
+                            />
+                          )}
                         </View>
                         <Text style={styles.resultDate}>{formatRaceDate(result.createdAt)}</Text>
                         <View style={styles.resultBody}>
@@ -235,6 +248,8 @@ const styles = StyleSheet.create({
   resultCard: { borderRadius: radii.md, padding: spacing.md, gap: spacing.xs },
   resultCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   resultName: { flex: 1, fontWeight: "700" },
+  agentBadge: { backgroundColor: colors.primaryLight },
+  agentBadgeText: { color: colors.primary, fontSize: 11, fontWeight: "700" },
   resultDate: { fontSize: 12, color: colors.textSecondary },
   resultBody: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.xs },
   resultPnl: { fontSize: 18, fontWeight: "700" },

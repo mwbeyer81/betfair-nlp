@@ -34,6 +34,13 @@ export interface SavedFilterSetSplit {
 // ISP_FILTER_PARAM_NAMES) — one representation used for persistence,
 // snapshot computation, and restore, so there's no risk of drift between
 // what Apply writes to the URL and what Save persists.
+// createdBy/modelVersionId are both optional and additive — this collection
+// already has real production documents from before these fields existed,
+// and this app has no migration tooling, so absence must stay meaningful:
+// a doc with no createdBy is a pre-existing user-saved result, exactly as
+// before. Only the AI training pipeline sets createdBy: "agent" (see
+// AGENT_USER_ID below), tagged with the modelVersionId of the training run
+// that produced it.
 export interface SavedFilterSetDocument {
   _id?: ObjectId;
   userId: string;
@@ -42,12 +49,22 @@ export interface SavedFilterSetDocument {
   splitA: SavedFilterSetSplit;
   splitB: SavedFilterSetSplit;
   createdAt: string;
+  createdBy?: "user" | "agent";
+  modelVersionId?: string;
 }
 
-// First user-owned MongoDB resource in this codebase — every method takes
-// and filters by userId, and there is no "get any doc by id" method, so
-// cross-user leakage can't happen even if a route forgets an ownership
-// check.
+// Reserved userId for agent-generated results — deliberately not a valid
+// ObjectId hex string, so it can never collide with a real user's
+// `_id.toString()`. Agent docs are cross-user by design (any logged-in user
+// should see them), which is why they get their own DAO methods below
+// instead of going through listByUser/getByIdForUser/deleteByIdForUser.
+export const AGENT_USER_ID = "agent:training-battery";
+
+// First user-owned MongoDB resource in this codebase — every per-user
+// method takes and filters by userId, and there is no "get any doc by id"
+// method scoped to a real user, so cross-user leakage can't happen even if
+// a route forgets an ownership check. (Agent-generated docs are the one
+// deliberate exception — see listAgentGenerated/getAgentGeneratedById.)
 export class SavedFilterSetDAO {
   private collection: Collection<SavedFilterSetDocument>;
 
@@ -73,5 +90,16 @@ export class SavedFilterSetDAO {
     if (!ObjectId.isValid(id)) return false;
     const { deletedCount } = await this.collection.deleteOne({ _id: new ObjectId(id), userId });
     return deletedCount === 1;
+  }
+
+  // Cross-user by design — agent-generated training results aren't any one
+  // user's private data, every logged-in user should see the same list.
+  public async listAgentGenerated(): Promise<SavedFilterSetDocument[]> {
+    return await this.collection.find({ createdBy: "agent" }).sort({ createdAt: -1 }).toArray();
+  }
+
+  public async getAgentGeneratedById(id: string): Promise<SavedFilterSetDocument | null> {
+    if (!ObjectId.isValid(id)) return null;
+    return await this.collection.findOne({ _id: new ObjectId(id), createdBy: "agent" });
   }
 }

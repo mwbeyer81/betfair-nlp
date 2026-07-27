@@ -60,6 +60,8 @@ interface MockSavedFilterSetDoc {
   splitA: MockSavedFilterSetSplit;
   splitB: MockSavedFilterSetSplit;
   createdAt: string;
+  createdBy?: "user" | "agent";
+  modelVersionId?: string;
 }
 const mockSavedFilterSets: MockSavedFilterSetDoc[] = [];
 
@@ -244,17 +246,23 @@ jest.mock("../../config/database", () => ({
                 mockSavedFilterSets.push({ ...doc, _id } as MockSavedFilterSetDoc);
                 return { insertedId: _id };
               }),
-              find: jest.fn().mockImplementation((query: { userId?: string }) => ({
+              find: jest.fn().mockImplementation((query: { userId?: string; createdBy?: string }) => ({
                 sort: jest.fn().mockReturnThis(),
                 toArray: jest.fn().mockResolvedValue(
                   mockSavedFilterSets
-                    .filter(d => d.userId === query?.userId)
+                    .filter(d => (query?.createdBy === "agent" ? d.createdBy === "agent" : d.userId === query?.userId))
                     .slice()
                     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
                 ),
               })),
-              findOne: jest.fn().mockImplementation(async (query: { _id?: unknown; userId?: string }) => {
-                return mockSavedFilterSets.find(d => String(d._id) === String(query?._id) && d.userId === query?.userId) ?? null;
+              findOne: jest.fn().mockImplementation(async (query: { _id?: unknown; userId?: string; createdBy?: string }) => {
+                return (
+                  mockSavedFilterSets.find(
+                    d =>
+                      String(d._id) === String(query?._id) &&
+                      (query?.createdBy === "agent" ? d.createdBy === "agent" : d.userId === query?.userId)
+                  ) ?? null
+                );
               }),
               deleteOne: jest.fn().mockImplementation(async (query: { _id?: unknown; userId?: string }) => {
                 const index = mockSavedFilterSets.findIndex(d => String(d._id) === String(query?._id) && d.userId === query?.userId);
@@ -1499,6 +1507,74 @@ describe("API Endpoints", () => {
         .set("Authorization", `Bearer ${authToken}`)
         .expect(404);
     });
+
+  describe("POST /api/saved-filter-sets/agent", () => {
+    const VALID_API_KEY = "test-training-pipeline-api-key"; // matches config/test.json's trainingPipeline.agentApiKey
+    const VALID_BODY = { filters: { courses: "Ascot" }, name: "AI Training · All races · xgb-20260727-101500", modelVersionId: "xgb-20260727-101500" };
+
+    it("rejects with 401 when no API key header is sent", async () => {
+      await request(app).post("/api/saved-filter-sets/agent").send(VALID_BODY).expect(401);
+    });
+
+    it("rejects with 401 when the API key header is wrong", async () => {
+      await request(app)
+        .post("/api/saved-filter-sets/agent")
+        .set("x-training-pipeline-api-key", "not-the-real-key")
+        .send(VALID_BODY)
+        .expect(401);
+    });
+
+    it("rejects with 400 when filters/name/modelVersionId are missing", async () => {
+      await request(app)
+        .post("/api/saved-filter-sets/agent")
+        .set("x-training-pipeline-api-key", VALID_API_KEY)
+        .send({ name: "No filters", modelVersionId: "xgb-1" })
+        .expect(400);
+      await request(app)
+        .post("/api/saved-filter-sets/agent")
+        .set("x-training-pipeline-api-key", VALID_API_KEY)
+        .send({ filters: { courses: "Ascot" }, modelVersionId: "xgb-1" })
+        .expect(400);
+      await request(app)
+        .post("/api/saved-filter-sets/agent")
+        .set("x-training-pipeline-api-key", VALID_API_KEY)
+        .send({ filters: { courses: "Ascot" }, name: "No model version" })
+        .expect(400);
+    });
+
+    let agentResultId: string;
+
+    it("succeeds with the correct key, returns createdBy:'agent' and the given modelVersionId", async () => {
+      const response = await request(app)
+        .post("/api/saved-filter-sets/agent")
+        .set("x-training-pipeline-api-key", VALID_API_KEY)
+        .send(VALID_BODY)
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.createdBy).toBe("agent");
+      expect(response.body.data.modelVersionId).toBe("xgb-20260727-101500");
+      expect(response.body.data.name).toBe(VALID_BODY.name);
+      agentResultId = response.body.data.id;
+    });
+
+    it("the created agent result appears in GET /api/saved-filter-sets for any logged-in user", async () => {
+      for (const token of [authToken, secondUserToken]) {
+        const response = await request(app)
+          .get("/api/saved-filter-sets")
+          .set("Authorization", `Bearer ${token}`)
+          .expect(200);
+        expect(response.body.data.some((r: { id: string }) => r.id === agentResultId)).toBe(true);
+      }
+    });
+
+    it("the created agent result is not deletable via the per-user DELETE route", async () => {
+      await request(app)
+        .delete(`/api/saved-filter-sets/${agentResultId}`)
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(404);
+    });
+  });
   });
 
   describe("GET /api/industry-sp/filter-bounds", () => {

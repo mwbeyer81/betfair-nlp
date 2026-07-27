@@ -368,6 +368,43 @@ router.get("/api/model-versions", async (_req, res) => {
   }
 });
 
+// Service-to-service auth for the ML training pipeline (ml/train_and_predict.py)
+// — a fixed shared secret, not a user JWT, since the caller is an unattended
+// script with no logged-in user. Requires the configured secret to be
+// non-empty so an unset TRAINING_PIPELINE_API_KEY (config/default.json ships
+// "") always rejects rather than accidentally matching an empty header.
+function isValidAgentApiKey(req: express.Request): boolean {
+  const key = req.headers["x-training-pipeline-api-key"];
+  const expected = config.get<string>("trainingPipeline.agentApiKey");
+  return typeof key === "string" && expected.length > 0 && key === expected;
+}
+
+// Lives up here with the other pre-jwtAuth public routes (rather than beside
+// its 4 sibling /api/saved-filter-sets routes below router.use(jwtAuth)),
+// because it must skip JWT auth entirely — computeSnapshotParamsFromFilters
+// is a hoisted function declaration further down this file, safe to call
+// from here. One doc per curated filter-battery entry, reusing the exact
+// same aggregation path (via SavedFilterSetService.saveAgentResult) that
+// the live Filters screen's own Save button uses.
+router.post("/api/saved-filter-sets/agent", async (req, res) => {
+  if (!isValidAgentApiKey(req)) return res.status(401).json({ success: false, error: "Invalid or missing API key" });
+  try {
+    if (!savedFilterSetService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const filters = req.body?.filters && typeof req.body.filters === "object" ? (req.body.filters as Record<string, string>) : null;
+    const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+    const modelVersionId = typeof req.body?.modelVersionId === "string" ? req.body.modelVersionId.trim() : "";
+    if (!filters) return res.status(400).json({ success: false, error: "filters is required" });
+    if (!name) return res.status(400).json({ success: false, error: "name is required" });
+    if (!modelVersionId) return res.status(400).json({ success: false, error: "modelVersionId is required" });
+    const computeParams = computeSnapshotParamsFromFilters(filters);
+    const data = await savedFilterSetService.saveAgentResult(name, filters, computeParams, modelVersionId);
+    res.status(201).json({ success: true, data });
+  } catch (error) {
+    console.error("saveAgentFilterSet error:", error);
+    res.status(500).json({ success: false, error: "Failed to save agent result" });
+  }
+});
+
 router.get("/api/industry-sp/splits", async (req, res) => {
   try {
     if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });

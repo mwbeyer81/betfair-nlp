@@ -1,4 +1,4 @@
-import { SavedFilterSetDAO, SavedFilterSetDocument, SavedFilterSetSplit } from "../dao/saved-filter-set-dao";
+import { AGENT_USER_ID, SavedFilterSetDAO, SavedFilterSetDocument, SavedFilterSetSplit } from "../dao/saved-filter-set-dao";
 import { IndustrySpService } from "./industry-sp-service";
 import { DatabaseConnection } from "../../config/database";
 
@@ -14,6 +14,8 @@ export interface SavedFilterSetApiResponse {
   splitA: SavedFilterSetSplit;
   splitB: SavedFilterSetSplit;
   createdAt: string;
+  createdBy: "user" | "agent";
+  modelVersionId?: string;
 }
 
 function toApiResponse(doc: SavedFilterSetDocument): SavedFilterSetApiResponse {
@@ -24,6 +26,10 @@ function toApiResponse(doc: SavedFilterSetDocument): SavedFilterSetApiResponse {
     splitA: doc.splitA,
     splitB: doc.splitB,
     createdAt: doc.createdAt,
+    // Absent on legacy docs saved before this field existed — default to
+    // "user" so the frontend never has to special-case undefined.
+    createdBy: doc.createdBy ?? "user",
+    modelVersionId: doc.modelVersionId,
   };
 }
 
@@ -110,17 +116,15 @@ export class SavedFilterSetService {
     this.industrySpService = industrySpService ?? new IndustrySpService();
   }
 
-  public async saveResult(
-    userId: string,
-    rawName: string | undefined,
-    filters: Record<string, string>,
+  // Same resolver the live /api/industry-sp/splits route uses — resolves
+  // explicit fromRowA/toRowA/fromRowB/toRowB if the caller set them, or the
+  // default half/half divide otherwise, so a saved snapshot's Split A/B
+  // always match what the Filters screen itself was showing at save time
+  // (never a re-derived or approximated range). Shared by saveResult and
+  // saveAgentResult so there's exactly one call site for these aggregations.
+  private async computeSplits(
     computeParams: ComputeSnapshotParams
-  ): Promise<SavedFilterSetApiResponse> {
-    // Same resolver the live /api/industry-sp/splits route uses — resolves
-    // explicit fromRowA/toRowA/fromRowB/toRowB if the caller set them, or
-    // the default half/half divide otherwise, so a saved snapshot's Split
-    // A/B always match what the Filters screen itself was showing at save
-    // time (never a re-derived or approximated range).
+  ): Promise<{ splitA: SavedFilterSetSplit; splitB: SavedFilterSetSplit }> {
     const splits = await this.industrySpService.getSplitStats(
       computeParams.minRunners,
       computeParams.maxRunners,
@@ -172,27 +176,76 @@ export class SavedFilterSetService {
       ),
     ]);
 
+    return {
+      splitA: { ...splits.splitA, graphPoints: pointsA },
+      splitB: { ...splits.splitB, graphPoints: pointsB },
+    };
+  }
+
+  public async saveResult(
+    userId: string,
+    rawName: string | undefined,
+    filters: Record<string, string>,
+    computeParams: ComputeSnapshotParams
+  ): Promise<SavedFilterSetApiResponse> {
+    const { splitA, splitB } = await this.computeSplits(computeParams);
     const name = rawName?.trim() ? rawName.trim() : buildAutoName(filters);
 
     const doc = await this.savedFilterSetDAO.create({
       userId,
       name,
       filters,
-      splitA: { ...splits.splitA, graphPoints: pointsA },
-      splitB: { ...splits.splitB, graphPoints: pointsB },
+      splitA,
+      splitB,
       createdAt: new Date().toISOString(),
     });
     return toApiResponse(doc);
   }
 
+  // Called by the ML training pipeline (via POST /api/saved-filter-sets/agent)
+  // once per filter in its curated battery, right after a retrain — reuses
+  // the exact same aggregation code path as saveResult so an agent result's
+  // numbers mean exactly what the live Filters screen would show for the
+  // same filters, just stored under the reserved AGENT_USER_ID and flagged
+  // createdBy: "agent" so it's cross-user-visible but not user-owned.
+  public async saveAgentResult(
+    name: string,
+    filters: Record<string, string>,
+    computeParams: ComputeSnapshotParams,
+    modelVersionId: string
+  ): Promise<SavedFilterSetApiResponse> {
+    const { splitA, splitB } = await this.computeSplits(computeParams);
+
+    const doc = await this.savedFilterSetDAO.create({
+      userId: AGENT_USER_ID,
+      name,
+      filters,
+      splitA,
+      splitB,
+      createdAt: new Date().toISOString(),
+      createdBy: "agent",
+      modelVersionId,
+    });
+    return toApiResponse(doc);
+  }
+
   public async listForUser(userId: string): Promise<SavedFilterSetApiResponse[]> {
-    const docs = await this.savedFilterSetDAO.listByUser(userId);
-    return docs.map(toApiResponse);
+    const [ownDocs, agentDocs] = await Promise.all([
+      this.savedFilterSetDAO.listByUser(userId),
+      this.savedFilterSetDAO.listAgentGenerated(),
+    ]);
+    return [...ownDocs, ...agentDocs]
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .map(toApiResponse);
   }
 
   public async getForUser(id: string, userId: string): Promise<SavedFilterSetApiResponse | null> {
     const doc = await this.savedFilterSetDAO.getByIdForUser(id, userId);
-    return doc ? toApiResponse(doc) : null;
+    if (doc) return toApiResponse(doc);
+    // Not owned by this user — could still be an agent-generated result,
+    // which any logged-in user is allowed to view (not private data).
+    const agentDoc = await this.savedFilterSetDAO.getAgentGeneratedById(id);
+    return agentDoc ? toApiResponse(agentDoc) : null;
   }
 
   public async deleteForUser(id: string, userId: string): Promise<boolean> {

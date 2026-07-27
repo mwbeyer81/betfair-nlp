@@ -112,6 +112,43 @@ describe("SavedFilterSetDAO (integration)", () => {
     expect(await dao.deleteByIdForUser(id, "user-a")).toBe(false);
   });
 
+  it("listAgentGenerated returns only createdBy:'agent' docs, newest first, regardless of userId", async () => {
+    await dao.create(makeDoc({ userId: "user-a", name: "User's own result" }));
+    await dao.create(
+      makeDoc({ userId: "agent:training-battery", name: "Older agent result", createdAt: "2026-01-01T09:00:00.000Z", createdBy: "agent", modelVersionId: "xgb-20260101-000000" })
+    );
+    await dao.create(
+      makeDoc({ userId: "agent:training-battery", name: "Newer agent result", createdAt: "2026-02-01T09:00:00.000Z", createdBy: "agent", modelVersionId: "xgb-20260201-000000" })
+    );
+
+    const agentResults = await dao.listAgentGenerated();
+    expect(agentResults.map(r => r.name)).toEqual(["Newer agent result", "Older agent result"]);
+    expect(agentResults.every(r => r.createdBy === "agent")).toBe(true);
+  });
+
+  it("a legacy doc without createdBy is absent from listAgentGenerated but present in listByUser (back-compat)", async () => {
+    await dao.create(makeDoc({ userId: "user-a", name: "Legacy result" }));
+
+    expect(await dao.listAgentGenerated()).toEqual([]);
+    const ownResults = await dao.listByUser("user-a");
+    expect(ownResults.map(r => r.name)).toEqual(["Legacy result"]);
+    expect(ownResults[0].createdBy).toBeUndefined();
+  });
+
+  it("getAgentGeneratedById hits for an agent doc and misses for a user-owned doc", async () => {
+    const agentDoc = await dao.create(
+      makeDoc({ userId: "agent:training-battery", name: "Agent result", createdBy: "agent", modelVersionId: "xgb-20260101-000000" })
+    );
+    const userDoc = await dao.create(makeDoc({ userId: "user-a", name: "User result" }));
+
+    const fetchedAgent = await dao.getAgentGeneratedById(agentDoc._id!.toString());
+    expect(fetchedAgent?.name).toBe("Agent result");
+
+    expect(await dao.getAgentGeneratedById(userDoc._id!.toString())).toBeNull();
+    expect(await dao.getAgentGeneratedById(new ObjectId().toString())).toBeNull();
+    expect(await dao.getAgentGeneratedById("not-a-valid-object-id")).toBeNull();
+  });
+
   it("each returned doc has the expected field shape", async () => {
     await dao.create(makeDoc());
     const [doc] = await dao.listByUser("user-a");

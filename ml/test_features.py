@@ -11,7 +11,12 @@ import unittest
 
 import pandas as pd
 
-from train_and_predict import parse_distance_furlongs, normalize_within_race
+from train_and_predict import (
+    parse_distance_furlongs,
+    normalize_within_race,
+    build_agent_result_name,
+    FILTER_BATTERY,
+)
 
 
 class TestParseDistanceFurlongs(unittest.TestCase):
@@ -63,6 +68,29 @@ class TestNormalizeWithinRace(unittest.TestCase):
         result = normalize_within_race(df, "raw_pred", "modelWinProbability")
         self.assertAlmostEqual(result["modelWinProbability"].iloc[0], 50.0, places=6)
         self.assertAlmostEqual(result["modelWinProbability"].iloc[1], 50.0, places=6)
+
+
+class TestBuildAgentResultName(unittest.TestCase):
+    def test_formats_label_and_model_version_id(self):
+        self.assertEqual(
+            build_agent_result_name("All races", "xgb-20260727-101500"),
+            "AI Training · All races · xgb-20260727-101500",
+        )
+
+    def test_different_label(self):
+        self.assertEqual(
+            build_agent_result_name("Favourites (low ISP)", "xgb-20260101-000000"),
+            "AI Training · Favourites (low ISP) · xgb-20260101-000000",
+        )
+
+
+class TestFilterBattery(unittest.TestCase):
+    def test_every_entry_has_a_non_empty_label_and_dict_filters(self):
+        self.assertGreater(len(FILTER_BATTERY), 0)
+        for entry in FILTER_BATTERY:
+            self.assertIsInstance(entry["label"], str)
+            self.assertGreater(len(entry["label"]), 0)
+            self.assertIsInstance(entry["filters"], dict)
 
 
 if __name__ == "__main__":

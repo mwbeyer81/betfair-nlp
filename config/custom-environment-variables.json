@@ -32,5 +32,8 @@
     "baseUrl": "RACINGAPI_BASE_URL",
     "username": "RACINGAPI_USERNAME",
     "password": "RACINGAPI_PASSWORD"
+  },
+  "trainingPipeline": {
+    "agentApiKey": "TRAINING_PIPELINE_API_KEY"
   }
 }

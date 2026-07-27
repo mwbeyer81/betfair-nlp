@@ -236,6 +236,8 @@ export interface SavedFilterSet {
   splitA: SavedFilterSetSplit;
   splitB: SavedFilterSetSplit;
   createdAt: string;
+  createdBy: "user" | "agent";
+  modelVersionId?: string;
 }
 
 export interface SavedFilterSetResponse {

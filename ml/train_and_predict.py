@@ -29,6 +29,12 @@ is never used directly, only prior-run history.
 
 Usage:
     MONGODB_URI=... MONGODB_DB_NAME=... ml/venv/bin/python ml/train_and_predict.py
+
+Two more env vars are optional and only affect the filter-battery step at
+the end of a run (see FILTER_BATTERY/run_filter_battery below): API_BASE_URL
+(defaults to http://localhost:3000) and TRAINING_PIPELINE_API_KEY. If the
+API key isn't set, the battery step is skipped (logged, not an error) — so a
+local run against a DB with no Node server running still succeeds.
 """
 
 import os
@@ -39,6 +45,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import requests
 import xgboost as xgb
 from pymongo import MongoClient, UpdateOne
 from sklearn.metrics import roc_auc_score, log_loss, brier_score_loss
@@ -48,6 +55,8 @@ EVALUATIONS_COLLECTION_NAME = "model_evaluations"
 BATCH_SIZE = 1000
 MODEL_DIR = Path(__file__).parent / "models"
 MODEL_PATH = MODEL_DIR / "win_probability_model.json"
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:3000")
+TRAINING_PIPELINE_API_KEY = os.environ.get("TRAINING_PIPELINE_API_KEY", "")
 RUN_LABEL = os.environ.get("RUN_LABEL", "unlabeled")
 
 CAT_COLS = ["course", "going", "raceType", "raceClass", "trainer", "jockey", "sex", "hg"]
@@ -87,6 +96,22 @@ TRAINING_PARAMS_CAMEL = {
     "randomState": TRAINING_PARAMS["random_state"],
     "earlyStoppingRounds": EARLY_STOPPING_ROUNDS,
 }
+
+# Curated, hand-picked filter combinations exercised once per training run —
+# deliberately NOT exhaustive/combinatorial and NOT a replay of any user's
+# saved filter sets, just a handful of meaningfully different slices of the
+# live Filters screen's own filter surface (client/src/utils/ispUrlParams.ts's
+# ISP_FILTER_PARAM_NAMES), run against whatever data exists in
+# industry_starting_prices at the time of this training run. See
+# run_filter_battery() below for how each entry gets persisted.
+FILTER_BATTERY = [
+    {"label": "All races", "filters": {}},
+    {"label": "Model beats SP", "filters": {"onlyModelBeatsSp": "true"}},
+    {"label": "High model confidence", "filters": {"minModelWinProbability": "70"}},
+    {"label": "Favourites (low ISP)", "filters": {"maxIsp": "3"}},
+    {"label": "Small fields", "filters": {"maxRunners": "8"}},
+    {"label": "Large fields", "filters": {"minRunners": "16"}},
+]
 
 _DISTANCE_RE = re.compile(r"^(?:(\d+)m)?(?:(\d*)(½)?f)?$")
 
@@ -190,6 +215,36 @@ def chronological_split(df: pd.DataFrame, holdout_frac: float):
     dates = sorted(df["raceDate"].unique())
     cutoff = dates[int(len(dates) * (1 - holdout_frac))]
     return df[df["raceDate"] < cutoff].copy(), df[df["raceDate"] >= cutoff].copy()
+
+
+def build_agent_result_name(label: str, model_version_id: str) -> str:
+    return f"AI Training · {label} · {model_version_id}"
+
+
+def run_filter_battery(model_version_id: str):
+    """POSTs one saved-filter-set result per FILTER_BATTERY entry to the
+    Node API (POST /api/saved-filter-sets/agent), tagged createdBy="agent"
+    and this model_version_id, so SavedResultsListScreen shows a record of
+    how the freshly retrained model performed under each filter slice.
+    Best-effort: an individual entry failing (or the API key being unset for
+    a local run with no Node server) is logged and skipped, never fatal —
+    the model has already been trained/saved/written back by this point."""
+    if not TRAINING_PIPELINE_API_KEY:
+        print("TRAINING_PIPELINE_API_KEY not set — skipping filter battery.", file=sys.stderr)
+        return
+    for entry in FILTER_BATTERY:
+        name = build_agent_result_name(entry["label"], model_version_id)
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/api/saved-filter-sets/agent",
+                json={"filters": entry["filters"], "name": name, "modelVersionId": model_version_id},
+                headers={"x-training-pipeline-api-key": TRAINING_PIPELINE_API_KEY},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            print(f"  saved agent result: {name}")
+        except Exception as e:
+            print(f"  filter battery entry '{entry['label']}' failed: {e}", file=sys.stderr)
 
 
 def make_model(early_stopping: bool) -> xgb.XGBClassifier:
@@ -337,6 +392,9 @@ def run():
         collection.bulk_write(ops, ordered=False)
         written += len(ops)
     print(f"Done. Updated {written} races.")
+
+    print("\nRunning filter battery against the newly retrained model...")
+    run_filter_battery(model_version_id)
 
     client.close()
 

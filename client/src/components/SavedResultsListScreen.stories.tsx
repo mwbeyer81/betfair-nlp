@@ -33,6 +33,7 @@ const MOCK_RESULTS = [
       ],
     },
     createdAt: "2026-01-15T09:00:00.000Z",
+    createdBy: "user" as const,
   },
   {
     id: "result-2",
@@ -56,6 +57,31 @@ const MOCK_RESULTS = [
       graphPoints: [{ raceRowNumber: 2, cumulativeStaked: 5, cumulativeReturns: 9, cumulativePnl: 4, roiPercent: 80 }],
     },
     createdAt: "2026-01-20T09:00:00.000Z",
+    createdBy: "user" as const,
+  },
+  {
+    id: "result-3",
+    name: "AI Training · All races · xgb-20260301-090000",
+    filters: {},
+    splitA: {
+      fromRow: 1,
+      toRow: 1,
+      total: 1,
+      totalRunners: 5,
+      pnlStats: { staked: 20, returns: 25, pnl: 5, count: 3 },
+      graphPoints: [{ raceRowNumber: 1, cumulativeStaked: 20, cumulativeReturns: 25, cumulativePnl: 5, roiPercent: 25 }],
+    },
+    splitB: {
+      fromRow: 2,
+      toRow: 2,
+      total: 1,
+      totalRunners: 5,
+      pnlStats: { staked: 20, returns: 22, pnl: 2, count: 3 },
+      graphPoints: [{ raceRowNumber: 2, cumulativeStaked: 20, cumulativeReturns: 22, cumulativePnl: 2, roiPercent: 10 }],
+    },
+    createdAt: "2026-03-01T09:00:00.000Z",
+    createdBy: "agent" as const,
+    modelVersionId: "xgb-20260301-090000",
   },
 ];
 
@@ -173,5 +199,24 @@ export const DeleteButtonRemovesItemAfterConfirm: Story = {
     await userEvent.click(canvas.getByTestId("saved-results-item-result-1-delete"));
     await userEvent.click(canvas.getByTestId("saved-results-item-result-1-confirm-delete"));
     await waitFor(() => expect(canvas.queryByTestId("saved-results-item-result-1")).not.toBeInTheDocument());
+  },
+};
+
+export const AgentBadgeShown: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("saved-results-item-result-3-agent-badge")).resolves.toBeInTheDocument();
+    await canvas.findByTestId("saved-results-item-result-1");
+    await expect(canvas.queryByTestId("saved-results-item-result-1-agent-badge")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("saved-results-item-result-2-agent-badge")).not.toBeInTheDocument();
+  },
+};
+
+export const AgentResultHasNoDeleteButton: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("saved-results-item-result-3-agent-badge");
+    await expect(canvas.queryByTestId("saved-results-item-result-3-delete")).not.toBeInTheDocument();
+    await expect(canvas.getByTestId("saved-results-item-result-1-delete")).toBeInTheDocument();
   },
 };
