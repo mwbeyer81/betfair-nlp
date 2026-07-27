@@ -21,12 +21,6 @@ test.describe("Events view — MSW mocked network", () => {
     await expect(page.getByText("Leopardstown 1st Feb")).toBeVisible();
   });
 
-  test("shows stats bar with mocked counts", async ({ page }) => {
-    await expect(page.getByTestId("events-stats-bar")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("events-total-runners")).toContainText("109 runners");
-    await expect(page.getByTestId("events-total-races")).toContainText("8 races");
-  });
-
   test("docs and runners badges visible per event", async ({ page }) => {
     await expect(page.getByTestId("event-docs-badge-33858191")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("event-runners-badge-33858191")).toBeVisible();

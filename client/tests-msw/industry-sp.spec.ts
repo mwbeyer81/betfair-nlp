@@ -203,7 +203,7 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
   test("nav link from /events opens /isp", async ({ page }) => {
     await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("events-nav-isp").click();
+    await page.getByTestId("events-menu-isp-link").click();
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
   });
 

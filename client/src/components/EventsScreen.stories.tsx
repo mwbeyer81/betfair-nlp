@@ -1,6 +1,6 @@
 import React from "react";
 import type { Meta, StoryObj } from "@storybook/react";
-import { within, userEvent, expect, fn, waitFor } from "@storybook/test";
+import { within, userEvent, expect, fn } from "@storybook/test";
 import { http, HttpResponse } from "msw";
 import { EventsScreen } from "./EventsScreen";
 
@@ -42,7 +42,6 @@ const meta: Meta<typeof EventsScreen> = {
   args: {
     navigate: fn(),
     isAuthenticated: true,
-    onNavigateToIsp: fn(),
     onLogout: fn(),
   },
 };
@@ -100,11 +99,6 @@ export const EventsLoaded: Story = {
 
     await expect(canvas.getByTestId("events-screen")).toBeInTheDocument();
 
-    // Stats bar appears — element exists immediately but content updates async
-    await expect(canvas.findByTestId("events-stats-bar")).resolves.toBeInTheDocument();
-    await waitFor(() => expect(canvas.getByTestId("events-total-runners")).toHaveTextContent("109 runners"), { timeout: 5000 });
-    await expect(canvas.getByTestId("events-total-races")).toHaveTextContent("8 races");
-
     // Event list renders
     await expect(canvas.findByTestId("event-group-item-33858191")).resolves.toBeInTheDocument();
     await expect(canvas.findByText("Cheltenham 1st Jan")).resolves.toBeInTheDocument();
@@ -138,12 +132,11 @@ export const IspNavLinkNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
 
-    const ispLink = await canvas.findByTestId("events-nav-isp");
+    const ispLink = canvas.getByTestId("events-menu-isp-link");
     await expect(ispLink).toBeInTheDocument();
-    await expect(ispLink).toHaveTextContent("Industry SP →");
 
     await userEvent.click(ispLink);
-    await expect(args.onNavigateToIsp).toHaveBeenCalledTimes(1);
+    await expect(args.navigate).toHaveBeenCalledWith("/isp");
   },
 };
 

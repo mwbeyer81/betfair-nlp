@@ -277,7 +277,6 @@ export default function App() {
       <EventsScreen
         navigate={navigate}
         isAuthenticated={isAuthenticated}
-        onNavigateToIsp={() => navigate("/isp")}
         onLogout={onLogout}
       />
     );

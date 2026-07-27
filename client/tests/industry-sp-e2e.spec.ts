@@ -261,9 +261,8 @@ test.describe("GET /api/industry-sp/splits (live server @ localhost:3000)", () =
 test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
   test("nav link on Events screen navigates to /isp full-screen view", async ({ page }) => {
     await goToEvents(page);
-    await expect(page.getByTestId("events-stats-bar")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-nav-isp").click();
+    await page.getByTestId("events-menu-isp-link").click();
 
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("events-screen")).not.toBeVisible();

@@ -20,7 +20,6 @@ import {
   EventGroup,
   MarketDefinitionDoc,
   Race,
-  Stats,
 } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import type { Route } from "../hooks/useRouter";
@@ -28,21 +27,18 @@ import type { Route } from "../hooks/useRouter";
 interface EventsScreenProps {
   navigate: (to: Route, query?: string) => void;
   isAuthenticated: boolean;
-  onNavigateToIsp: () => void;
   onLogout?: () => void;
 }
 
 export const EventsScreen: React.FC<EventsScreenProps> = ({
   navigate,
   isAuthenticated,
-  onNavigateToIsp,
   onLogout,
 }) => {
   const [groups, setGroups] = useState<EventGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<Stats | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [sort, setSort] = useState<"asc" | "desc">("asc");
@@ -68,14 +64,10 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
       setError(null);
       setGroups([]);
       try {
-        const [result, statsData] = await Promise.all([
-          chatApi.getEventGroups(1, PAGE_SIZE, sort),
-          chatApi.getStats(),
-        ]);
+        const result = await chatApi.getEventGroups(1, PAGE_SIZE, sort);
         setGroups(result.data);
         setPage(1);
         setTotalPages(result.totalPages);
-        setStats(statsData);
       } catch {
         setError("Failed to load events");
       } finally {
@@ -132,28 +124,6 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
 
   return (
     <SafeAreaView testID="events-screen" style={styles.screen}>
-      <View testID="events-stats-bar" style={styles.statsBar}>
-        <Text
-          testID="events-total-runners"
-          style={[styles.statText, styles.statLinkText]}
-          onPress={() => navigate("/runners")}
-        >
-          {stats != null ? stats.totalRunners : "—"} runners
-        </Text>
-        <Text style={styles.statDot}>·</Text>
-        <Text testID="events-total-races" style={styles.statText}>
-          {stats != null ? stats.totalRaces : "—"} races
-        </Text>
-        <Text style={styles.statDot}>·</Text>
-        <Text
-          testID="events-nav-isp"
-          style={[styles.statText, styles.statLinkText]}
-          onPress={onNavigateToIsp}
-        >
-          Industry SP →
-        </Text>
-      </View>
-
       <AppHeader
         navigate={navigate}
         isAuthenticated={isAuthenticated}
@@ -290,29 +260,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  statsBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 5,
-    backgroundColor: colors.primaryLight,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  statText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    fontWeight: "600",
-  },
-  statLinkText: {
-    color: colors.primary,
-    textDecorationLine: "underline",
-  },
-  statDot: {
-    fontSize: 12,
-    color: colors.textTertiary,
   },
   headerButton: {
     marginHorizontal: 3,

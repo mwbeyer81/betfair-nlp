@@ -25,12 +25,12 @@ test.describe("Routing — MSW mocked network", () => {
     await expect(page.getByTestId("events-screen")).not.toBeVisible();
   });
 
-  test("clicking runners stat navigates to /runners", async ({ page }) => {
+  test("clicking Runners in the burger menu navigates to /runners", async ({ page }) => {
     await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("event-group-loading")).not.toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-total-runners").click();
+    await page.getByTestId("events-menu-runners-link").click();
 
     await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("/runners");
@@ -97,11 +97,11 @@ test.describe("Routing — MSW mocked network", () => {
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
   });
 
-  test("Industry SP → link on Events screen navigates to /isp", async ({ page }) => {
+  test("Industry SP link in the burger menu on Events screen navigates to /isp", async ({ page }) => {
     await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-nav-isp").click();
+    await page.getByTestId("events-menu-isp-link").click();
 
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("/isp");
