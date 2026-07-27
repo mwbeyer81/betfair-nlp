@@ -37,6 +37,7 @@ API key isn't set, the battery step is skipped (logged, not an error) — so a
 local run against a DB with no Node server running still succeeds.
 """
 
+import json
 import os
 import re
 import sys
@@ -55,6 +56,11 @@ EVALUATIONS_COLLECTION_NAME = "model_evaluations"
 BATCH_SIZE = 1000
 MODEL_DIR = Path(__file__).parent / "models"
 MODEL_PATH = MODEL_DIR / "win_probability_model.json"
+# Training-time category values for each CAT_COLS column, read by
+# ml/predict_daily_races.py so a freshly-built prediction dataframe's
+# pandas category codes line up with what the saved model's splits were
+# trained on — see that script for why this matters.
+CATEGORIES_PATH = MODEL_DIR / "win_probability_model_categories.json"
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:3000")
 TRAINING_PIPELINE_API_KEY = os.environ.get("TRAINING_PIPELINE_API_KEY", "")
 RUN_LABEL = os.environ.get("RUN_LABEL", "unlabeled")
@@ -360,6 +366,11 @@ def run():
     MODEL_DIR.mkdir(exist_ok=True)
     final_model.save_model(str(MODEL_PATH))
     print(f"Saved model to {MODEL_PATH}")
+
+    categories = {c: df[c].cat.categories.tolist() for c in CAT_COLS}
+    with open(CATEGORIES_PATH, "w") as f:
+        json.dump(categories, f)
+    print(f"Saved category lists to {CATEGORIES_PATH}")
 
     print("\nGenerating final predictions and normalizing within each race...")
     raw = final_model.predict_proba(df[FEATURE_COLS])[:, 1]

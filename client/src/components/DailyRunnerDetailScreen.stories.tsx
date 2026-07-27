@@ -20,6 +20,7 @@ const MOCK_RACE = {
       damsire: "Star Damsire", damsireId: "dsi_1", trainer: "A Trainer", trainerId: "trn_1",
       owner: "Owner", ownerId: "own_1", number: "1", draw: "0", headgear: "", lbs: "154",
       officialRating: "98", jockey: "B Jockey", jockeyId: "jky_1", lastRun: "21", form: "1-21",
+      modelWinProbability: 41.7, modelVersionId: "xgb-test-version",
     },
   ],
 };
@@ -66,6 +67,7 @@ export const ItemsRendered: Story = {
     await expect(canvas.getByTestId("daily-runner-detail-trainer")).toHaveTextContent("A Trainer");
     await expect(canvas.getByTestId("daily-runner-detail-jockey")).toHaveTextContent("B Jockey");
     await expect(canvas.getByTestId("daily-runner-detail-form")).toHaveTextContent("1-21");
+    await expect(canvas.getByTestId("daily-runner-detail-model-win-probability")).toHaveTextContent("41.7%");
   },
 };
 

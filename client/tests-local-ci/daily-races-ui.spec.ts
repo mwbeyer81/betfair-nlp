@@ -4,6 +4,11 @@ import { test, expect } from "@playwright/test";
 // no mocking anywhere. Mirrors isp-races-ui.spec.ts's ?email=&password=
 // URL-login convention. Seeded via src/commands/seed-daily-races-fixture.ts
 // (see local-ci-e2e.sh Step 3b) — 5 races across 3 courses on 2026-06-03.
+// Also seeded (Step 3c-3e): the industry-sp overlap fixture (real prior
+// history for trainer "A Trainer"/horse "Fixture Star"), the committed
+// CI-fixture model, and a real compute-daily-race-features.ts +
+// predict_daily_races.py run — so Fixture Star has a real, non-null
+// modelWinProbability by the time these tests run.
 const APP_URL = "http://localhost:8090/";
 
 async function gotoDailyRaces(page: import("@playwright/test").Page) {
@@ -36,5 +41,27 @@ test.describe("Daily Races against the seeded fixture (real frontend + backend)"
     await expect(page.getByTestId("daily-runner-detail-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("daily-runner-detail-course")).toHaveText("Newton Abbot");
     await expect(page.getByTestId("daily-runner-detail-trainer")).toHaveText("A Trainer");
+  });
+
+  test("model win-probability badge is visible and numeric for the overlap-fixture horse", async ({ page }) => {
+    await gotoDailyRaces(page);
+    await page.getByTestId("daily-races-event-newton-abbot-2026-06-03").click();
+    await expect(page.getByTestId("daily-race-event-screen")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("daily-race-event-race-rac_test_0001").click();
+    await expect(page.getByTestId("daily-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-race-loading")).not.toBeVisible({ timeout: 15000 });
+
+    const badge = page.getByTestId("daily-race-item-model-hrs_test_0001");
+    await expect(badge).toBeVisible();
+    const text = (await badge.textContent()) ?? "";
+    const match = text.match(/Model (\d+)%/);
+    expect(match).not.toBeNull();
+    const pct = Number(match![1]);
+    expect(pct).toBeGreaterThanOrEqual(0);
+    expect(pct).toBeLessThanOrEqual(100);
+
+    await page.getByTestId("daily-race-item-hrs_test_0001").click();
+    await expect(page.getByTestId("daily-runner-detail-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-runner-detail-model-win-probability")).toBeVisible();
   });
 });

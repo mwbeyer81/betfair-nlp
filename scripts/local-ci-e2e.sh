@@ -27,6 +27,7 @@ CSV_SOURCE="data/kaggle-horse-racing-uk-ireland/extracted/mini-update.csv"
 SEED_FROM_DATE="2026-06-03"
 SEED_TO_DATE="2026-06-03"
 MONGOD_BIN="/home/ubuntu/mongodb-local/bin/mongod"
+PYTHON_BIN="ml/venv/bin/python"
 
 log() { echo "[local-ci-e2e] $*"; }
 
@@ -40,6 +41,13 @@ if [ -f "$SCRATCH_DIR/mongod.pid" ]; then
   log "Found stale mongod.pid from a previous run — attempting to kill it."
   kill "$(cat "$SCRATCH_DIR/mongod.pid")" 2>/dev/null || true
   sleep 1
+fi
+
+if [ ! -x "$PYTHON_BIN" ]; then
+  echo "[local-ci-e2e] ERROR: $PYTHON_BIN not found." >&2
+  echo "This worktree needs its own real Python venv (not symlinked) for the daily-races" >&2
+  echo "model prediction step: python3 -m venv ml/venv && ml/venv/bin/pip install -r ml/requirements.txt" >&2
+  exit 1
 fi
 
 for p in "$MONGO_PORT" "$BACKEND_PORT" "$FRONTEND_PORT"; do
@@ -149,6 +157,40 @@ log "Seeded $BUILT_COUNT races."
 log "Seeding Daily Races fixture into $MONGO_DB_NAME..."
 MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" \
   npx ts-node src/commands/seed-daily-races-fixture.ts 2>&1 | tee "$SCRATCH_DIR/logs/seed-daily-races.log"
+
+# --- Step 3c: seed the industry_starting_prices/daily-races overlap fixture -
+# Deliberately overlapping trainer/jockey/horse names with the Daily Races
+# fixture above, so daily-race-feature-service.ts's real historical joins
+# have something real to match — see
+# src/lib/dao/__fixtures__/industry-sp-daily-races-overlap-fixture.json.
+log "Seeding industry-sp/daily-races overlap fixture..."
+MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" \
+  npx ts-node src/commands/seed-industry-sp-overlap-fixture.ts 2>&1 | tee "$SCRATCH_DIR/logs/seed-overlap-fixture.log"
+
+# --- Step 3d: install the committed CI-fixture model + seed its evaluation -
+# A real model trained once, offline, on the CSV slice's full available date
+# range + the overlap fixture (see ml/fixtures/) — keeps local-ci fast and
+# deterministic, no real training run in the hot path.
+log "Installing CI-fixture model..."
+mkdir -p ml/models
+cp ml/fixtures/win_probability_model.ci-fixture.json ml/models/win_probability_model.json
+cp ml/fixtures/win_probability_model_categories.ci-fixture.json ml/models/win_probability_model_categories.json
+MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" \
+  npx ts-node src/commands/seed-model-evaluation-fixture.ts 2>&1 | tee "$SCRATCH_DIR/logs/seed-model-evaluation.log"
+
+# --- Step 3e: compute daily-race features + predict win probabilities ------
+# Read-only against industry_starting_prices (the CSV slice + overlap
+# fixture seeded above) — see daily-race-feature-service.ts. Then scores
+# daily_racecards with the CI-fixture model installed above — no retraining.
+log "Computing daily race features..."
+MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" DAILY_RACE_DATE="$SEED_FROM_DATE" \
+  npx ts-node src/commands/compute-daily-race-features.ts 2>&1 | tee "$SCRATCH_DIR/logs/compute-daily-race-features.log"
+
+log "Running daily-races model prediction..."
+# predict_daily_races.py imports train_and_predict.py via a same-directory
+# relative import, so it must run with cwd=ml/ (not repo root).
+(cd ml && MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" DAILY_RACE_DATE="$SEED_FROM_DATE" \
+  "$REPO_ROOT/$PYTHON_BIN" predict_daily_races.py) 2>&1 | tee "$SCRATCH_DIR/logs/predict-daily-races.log"
 
 # --- Step 4: seed hardcoded test user ---------------------------------------
 log "Seeding hardcoded test user..."

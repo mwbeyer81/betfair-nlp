@@ -102,6 +102,11 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                   {runner.form && (
                     <Text style={styles.formBadge}>{runner.form}</Text>
                   )}
+                  {runner.modelWinProbability != null && (
+                    <Text testID={`daily-race-item-model-${runner.runnerId}`} style={styles.modelBadge}>
+                      Model {runner.modelWinProbability.toFixed(0)}%
+                    </Text>
+                  )}
                 </TouchableOpacity>
               ))}
             </PageContainer>
@@ -139,4 +144,15 @@ const styles = StyleSheet.create({
   badge: { fontSize: 11, color: colors.textSecondary, maxWidth: 140 },
   drawBadge: { fontSize: 11, color: colors.textTertiary, backgroundColor: colors.background, paddingHorizontal: 5, paddingVertical: 1, borderRadius: radii.sm },
   formBadge: { fontSize: 11, fontWeight: "600", color: colors.accent, backgroundColor: colors.primaryLight, paddingHorizontal: 5, paddingVertical: 1, borderRadius: radii.sm },
+  modelBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.accent,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+  },
 });

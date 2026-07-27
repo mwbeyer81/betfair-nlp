@@ -19,6 +19,7 @@ const MOCK_RACE = {
       damsire: "Star Damsire", damsireId: "dsi_1", trainer: "A Trainer", trainerId: "trn_1",
       owner: "Owner", ownerId: "own_1", number: "1", draw: "0", headgear: "", lbs: "154",
       officialRating: "98", jockey: "B Jockey", jockeyId: "jky_1", lastRun: "21", form: "1-21",
+      modelWinProbability: 62.5, modelVersionId: "xgb-test-version",
     },
     {
       runnerId: "hrs_2", horse: "Second Fixture", age: "5", sex: "mare", sexCode: "M", colour: "ch",
@@ -71,6 +72,20 @@ export const ItemsRendered: Story = {
     for (const runner of MOCK_RACE.runners) {
       await expect(canvas.getByTestId(`daily-race-item-${runner.runnerId}`)).toBeInTheDocument();
     }
+  },
+};
+
+export const ModelBadgeVisible: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-race-list");
+    const badge = canvas.getByTestId(`daily-race-item-model-${MOCK_RACE.runners[0].runnerId}`);
+    await expect(badge).toBeInTheDocument();
+    await expect(badge).toHaveTextContent("Model 63%");
+    // Second runner has no modelWinProbability — badge must not render at all.
+    await expect(
+      canvas.queryByTestId(`daily-race-item-model-${MOCK_RACE.runners[1].runnerId}`)
+    ).not.toBeInTheDocument();
   },
 };
 
