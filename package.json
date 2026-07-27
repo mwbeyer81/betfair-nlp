@@ -31,6 +31,7 @@
     "test:coverage": "jest --coverage",
     "test:service": "jest src/lib/service",
     "test:server": "jest src/server",
+    "test:racing-api-live": "jest --config jest.live.config.js",
     "lint": "eslint src/**/*.ts",
     "clean": "rm -rf dist",
     "format": "prettier --write \"src/**/*.{ts,js,json}\"",

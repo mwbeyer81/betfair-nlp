@@ -747,9 +747,9 @@ test.describe("Responsive layout — /results (MSW mocked, iPhone 12 mini, 375px
   test("result cards stack in a single column and remain tappable", async ({ page }) => {
     await page.goto("/results");
     await expect(page.getByTestId("saved-results-loading")).not.toBeVisible({ timeout: 10000 });
-    // Default sort is "date" (newest first) — mock-result-2 (20 Jan) sorts
-    // ahead of mock-result-1 (15 Jan), so it's the one on top, not
-    // declaration order.
+    // The screen sorts newest-first by createdAt (SavedResultsListScreen.tsx),
+    // and mock-result-2 has the later createdAt in fixtures.ts, so it's the
+    // top card and mock-result-1 is second, not the other way around.
     const topCard = page.getByTestId("saved-results-item-mock-result-2");
     const bottomCard = page.getByTestId("saved-results-item-mock-result-1");
     await expect(topCard).toBeVisible();

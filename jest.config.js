@@ -8,6 +8,7 @@ module.exports = {
     'test-utils\\.ts$',
     'setup\\.ts$',
     '__tests__/fixtures/',
+    '\\.live\\.test\\.ts$',
   ],
   transform: {
     '^.+\\.ts$': 'ts-jest',
