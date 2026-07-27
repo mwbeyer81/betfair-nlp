@@ -41,14 +41,30 @@ test.describe("All Runners screen - sort order toggle (MSW mocked)", () => {
 
   test("sort=asc is sent on initial load", async ({ page }) => {
     const sorts: string[] = [];
+    // route.fallback() (not route.continue()) — Playwright invokes route
+    // handlers LIFO, so continue() here would send this test's *initial*
+    // load straight to the real network (bypassing fixtures.ts's
+    // already-registered mock) since there's no prior successful load for
+    // the UI to fall back on, unlike the "sort=desc" test above which only
+    // intercepts a later click-triggered refetch. That's what was actually
+    // timing out.
     await page.route("**/api/runners*", async (route) => {
       const url = new URL(route.request().url());
       const s = url.searchParams.get("sort");
       if (s) sorts.push(s);
-      await route.continue();
+      await route.fallback();
     });
 
     await page.goto("/runners");
+    // A fresh page.goto() re-bootstraps the whole app (fonts, auth restore,
+    // etc. — confirmed via request logging: font/bundle requests re-fire),
+    // so `all-runners-loading` doesn't exist in the DOM yet the instant
+    // this resolves. `.not.toBeVisible()` on a not-yet-rendered element
+    // passes immediately rather than waiting for it — that's what let this
+    // assertion sail through *before* the real fetch had even fired,
+    // matching the exact `beforeEach` sequencing (screen visible, then
+    // loading gone) closes that race.
+    await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("all-runners-loading")).not.toBeVisible({ timeout: 15000 });
     expect(sorts.some(s => s === "asc")).toBe(true);
   });
