@@ -136,6 +136,7 @@ tiebreaker.
 | `~/betfair-nlp-ai-training-battery` | `feat/ai-training-battery` | **Recovered from a session that died mid-task** (killed process, no `AGENTS.md` entry ever written — found via a Claude memory/session search, not a live agent). Task: after each XGBoost retrain, run the new model against a fixed, curated battery of filter combinations (not a replay of user data) and persist each as a `saved_filter_sets` result flagged `createdBy: "agent"` (an "AI Training" badge, no delete button) — extends `feat/saved-results` above rather than `model_evaluations`/`ModelPerformanceDashboard`. Plan: `/home/ubuntu/.claude/plans/sequential-cuddling-cerf.md`. **Done** — the recovered work already matched the plan file-for-file; audited, verified (full test suite + a real Python→HTTP→Mongo smoke test), merged (real conflict in `SavedResultsListScreen.stories.tsx` against `results-white-screen` below — both added new stories after the same point, kept both), pushed to `origin/develop` (`bc1be02`). See dated entry below. | **done** — merged, deployed (Lambda + web), live-verified; feature is inert until the user sets a real `TRAINING_PIPELINE_API_KEY`, see dated entry below; worktree can be removed |
 | `~/betfair-nlp-results-white-screen` | `fix/results-white-screen` | Prod bug: clicking Results showed a blank white screen for a legacy (pre-Split-A/B) saved result — see dated entry below | done, verified, committing/deploying now |
 | `~/betfair-nlp-results-filter-sort` | `feat/results-filter-sort` | Results screen (`SavedResultsListScreen.tsx`): add an icon to the existing "AI Training" badge, add a User/Agent source filter (All / Mine / AI Training), confirm date+PnL sort already works via the existing sort toggle. **Touches `SavedResultsListScreen.tsx`/`.stories.tsx`, `tests-msw/saved-results.spec.ts`, `tests-local-ci/saved-results-ui.spec.ts`** — watch for conflicts with any other worktree still touching that screen. | in progress |
+| `~/betfair-nlp-daily-races-model` | `daily-races-model` | Score today's Daily Races runners with the existing XGBoost win-probability model — new read-only feature-computation step (`daily-race-feature-service.ts`, queries `industry_starting_prices` but never writes to it) + new predict-only `ml/predict_daily_races.py` + a `Model {x}%` badge/detail row in the UI. Full plan: `/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`. See dated entry below for what was verified. | **done — merged to `develop`, pushed (`743a30b`); NOT deployed** (plan's "Non-goals" explicitly scoped this to local/manual execution — Python/XGBoost can't run in the Node.js Lambda). Frontend/backend code changes (new display fields, model badge) are additive and harmless if deployed with no data. Worktree kept until a deploy decision is made. |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
@@ -3417,3 +3418,77 @@ repo). Whoever runs `ml/train_and_predict.py` going forward needs that
 same value passed as `TRAINING_PIPELINE_API_KEY` in its environment —
 ask the user for it (they were given it directly) rather than regenerating
 a new one, which would silently desync from what's on the Lambda.
+
+---
+
+## 2026-07-27 — Agent in `~/betfair-nlp-daily-races-model` (branch `daily-races-model`)
+
+**Task:** Score today's Daily Races runners with the existing XGBoost
+win-probability model. Full plan:
+`/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`.
+
+**Critical constraint, held throughout:** `industry_starting_prices` (the
+real historical training collection) is read-only for this whole feature
+— every runner in an unresolved today's-race would get `label=0` (no
+`status: WINNER` yet), silently corrupting the next real retrain. New
+`daily-race-feature-service.ts` issues targeted read-only queries against
+it and writes computed features only onto `daily_racecards`. Mechanically
+verified, not just code-reviewed: `scripts/live-verify-daily-race-features.ts`
+fingerprints (count + sha256 of a 500-doc sample) `industry_starting_prices`
+before/after a real run against real dev Mongo and asserts no change.
+
+**RacingAPI Basic plan:** despite the user reporting an upgrade,
+`/v1/racecards/basic` and `/v1/results/today` still returned 401 "Basic
+Plan required" as of this session (confirmed via
+`scripts/live-verify-daily-races-basic.ts` against the real API) — auth
+itself works fine, Free-tier `/racecards/free` succeeds. Implementation
+proceeded anyway on Free-tier data (endpoint path is config-driven,
+`racingApi.racecardsPath`/`RACINGAPI_RACECARDS_PATH`, so flipping to Basic
+later needs zero code change). **Worth the user checking on their end —
+the upgrade doesn't appear to be live.**
+
+**Built:** new `ml/predict_daily_races.py` (predict-only, no retraining —
+loads the saved model + a new sidecar `win_probability_model_categories.json`
+that `train_and_predict.py` now also persists, needed so prediction-time
+pandas category codes line up with what XGBoost's saved splits were
+trained on) + `Model {x}%` badge on `DailyRaceScreen` and a "Model Win %"
+detail row on `DailyRunnerDetailScreen`. A committed CI-fixture model
+(`ml/fixtures/win_probability_model.ci-fixture.json`, real training run
+on the CSV slice + a hand-crafted overlap fixture, 46 estimators, AUC
+0.62) keeps `local-ci-e2e.sh` fast/deterministic — no real training run
+in the test hot path.
+
+**Verified:**
+- `npx tsc --noEmit -p .` / `cd client && yarn build` clean.
+- 15 new Jest unit tests (`daily-race-feature-service.test.ts`) pass,
+  including an explicit 14-day trailing-window boundary test.
+- Full `scripts/local-ci-e2e.sh`: 28/28 Playwright tests pass, both in
+  the worktree and again in the primary checkout after merge — new
+  assertions cover real (fixture-derived) non-null `modelWinProbability`
+  in range, per-race sums ≈100, and exact trailing-form values matching
+  the hand-computed overlap fixture.
+- All three manual live-verification scripts (`live:verify-daily-races`)
+  run for real against real dev Mongo + real RacingAPI + the real
+  production-trained model: script 1 correctly detects Basic is still not
+  live; script 2 proves the read-only guarantee via before/after
+  fingerprint; script 3 scored 52 real today's-races with 0 out-of-range
+  probabilities, 0 bad race sums, 69% favorite-plausibility. Cleaned up
+  the one test artifact this left in shared dev Mongo (a `model_evaluations`
+  doc `ci-fixture-model-v1`) afterward; left the real `daily_racecards`
+  data in place.
+
+**Merged and pushed to `origin/develop`** (`git merge --no-ff
+daily-races-model`, clean, no conflicts — commit `5402fe6` merged in as
+part of the fast-forward push to `743a30b`). Re-verified in the primary
+checkout post-merge: `tsc`/`yarn build` clean, full `local-ci-e2e.sh`
+28/28 again.
+
+**Not deployed** — per the plan's explicit "Non-goals" section, wiring
+the Python feature-compute + prediction steps into the production
+EventBridge/Lambda cron is out of scope (Python/XGBoost can't run in that
+Node.js Lambda runtime; a follow-up plan would need to pick a Python
+compute target). The TypeScript/frontend changes (new display fields,
+model badge) are additive and harmless to deploy with no data behind
+them — asked the user whether to deploy those and/or run the pipeline
+manually against production Mongo now that the code is merged. Worktree
+kept (not removed) pending that decision.
