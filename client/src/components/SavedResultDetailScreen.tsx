@@ -120,6 +120,12 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
 
   const detailedSplit = detailSplit === "a" ? result?.splitA : detailSplit === "b" ? result?.splitB : null;
   const graphedSplit = graphSplit === "a" ? result?.splitA : graphSplit === "b" ? result?.splitB : null;
+  // Same real bug as SavedResultsListScreen's isLegacyResult(): a result
+  // saved before the Split A/B schema change has neither field at all.
+  // Rendering the two SplitCards below on one of these threw mid-render
+  // with no error boundary anywhere in the app to catch it — check this
+  // before assuming result.splitA/splitB exist.
+  const isLegacyResult = result != null && (result.splitA == null || result.splitB == null);
 
   return (
     <SafeAreaView testID="saved-result-detail-screen" style={styles.screen}>
@@ -144,7 +150,26 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
           </Button>
         </View>
       )}
-      {!loading && !error && result && graphedSplit == null && (
+      {!loading && !error && result && isLegacyResult && (
+        <View style={styles.detailContainer}>
+          <View style={styles.centered}>
+            <Text testID="saved-result-detail-legacy-notice" style={styles.legacyNoticeText}>
+              This result was saved before this app's Split A/B update and
+              can't be displayed. Delete it and save a fresh one from the
+              Filters screen.
+            </Text>
+          </View>
+          <View style={styles.actionsRow}>
+            <Button testID="saved-result-detail-restore" mode="contained" buttonColor={colors.accent} onPress={() => onRestore(result.filters)} style={styles.actionButton}>
+              Restore filters
+            </Button>
+            <Button testID="saved-result-detail-delete" mode="outlined" textColor={colors.danger} onPress={handleDelete} style={styles.actionButton}>
+              Delete
+            </Button>
+          </View>
+        </View>
+      )}
+      {!loading && !error && result && !isLegacyResult && graphedSplit == null && (
         <View style={styles.detailContainer}>
           {/* SplitDetailPanel is a full-screen position:"absolute" overlay by
               design (zIndex 100) — the action bar below sits in its own
@@ -167,14 +192,14 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
             <SplitCard
               id="a"
               label="Split A"
-              split={result.splitA}
+              split={result.splitA!}
               onDetails={() => setDetailSplit("a")}
               onGraph={() => setGraphSplit("a")}
             />
             <SplitCard
               id="b"
               label="Split B"
-              split={result.splitB}
+              split={result.splitB!}
               onDetails={() => setDetailSplit("b")}
               onGraph={() => setGraphSplit("b")}
             />
@@ -207,6 +232,7 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.md },
   errorText: { color: colors.danger },
   backButton: { marginTop: spacing.md },
+  legacyNoticeText: { fontSize: 14, color: colors.textSecondary, textAlign: "center" },
   detailContainer: { flex: 1, position: "relative" },
   scrollContent: { padding: spacing.md, gap: spacing.md, paddingBottom: spacing.xl * 3 },
   splitCard: {

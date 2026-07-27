@@ -282,12 +282,23 @@ export interface SavedFilterSetSplit {
 // params IndustrySpScreen's own syncUrl() writes (see
 // client/src/utils/ispUrlParams.ts) — so restoring is just navigating to
 // /isp with these as the query string, no parsing needed.
+//
+// splitA/splitB are optional (not just "always present since this app
+// version") — a real, reported bug: any saved_filter_sets document
+// created before the Split A/B schema change has neither field at all
+// (the old shape stored a single flat pnlStats/graphPoints instead), and
+// nothing migrates old documents on deploy. Reading result.splitA.pnlStats
+// on such a doc threw mid-render with no error boundary anywhere in the
+// app to catch it, blanking the whole screen — see
+// SavedResultsListScreen's isLegacyResult()/SavedResultDetailScreen's
+// equivalent guard, both of which exist specifically because this can and
+// does happen for real.
 export interface SavedFilterSet {
   id: string;
   name: string;
   filters: Record<string, string>;
-  splitA: SavedFilterSetSplit;
-  splitB: SavedFilterSetSplit;
+  splitA?: SavedFilterSetSplit;
+  splitB?: SavedFilterSetSplit;
   createdAt: string;
 }
 
