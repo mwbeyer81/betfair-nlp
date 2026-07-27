@@ -3025,3 +3025,44 @@ independent `d097314` fix), pushed directly to `develop`, deployed via
 app.backbet.co.uk, and spot-checked with a real headless-browser hit
 against `/isp` showing the full BackBet header + burger menu rendering
 correctly in production. No backend/Lambda change (frontend-only).**
+
+---
+
+## 2026-07-27 (later) — Agent in `~/betfair-nlp-remove-stats-bar` (branch `fix/remove-redundant-stats-bar`)
+
+**Task:** User screenshotted `app.backbet.co.uk`'s live `/events` view and
+pointed out a thin "N runners · N races · Industry SP →" bar sitting
+above the new `AppHeader` — asked to remove it and check every other
+screen for the same issue. Checked all 13 screens' JSX directly
+(everything before the first `<AppHeader` in each `return`) —
+`EventsScreen.tsx` was the only one with anything stacked above it; a
+leftover from before the header-unification task above, never cleaned up
+since its two links (Runners, Industry SP →) duplicate items already in
+`AppHeader`'s burger menu.
+
+**Fix:** removed the bar's JSX, the `stats`/`setStats` state and its
+`chatApi.getStats()` call (only consumer), the now-redundant
+`onNavigateToIsp` prop, and the dead `statsBar`/`statText`/
+`statLinkText`/`statDot` styles. Updated the one Storybook story and 6
+MSW/e2e test files that referenced the removed testIDs
+(`events-stats-bar`/`events-total-runners`/`events-total-races`/
+`events-nav-isp`) to use the burger-menu equivalents
+(`events-menu-runners-link`/`events-menu-isp-link`) instead — same nav
+outcome, just through the shared menu now. Left `EventGroupsPanel.tsx`
+alone despite it having an *identical* stats-bar implementation with the
+same testIDs — confirmed via grep it's not imported/rendered anywhere in
+the app, dead code unrelated to what the user saw live.
+
+**Verified:** `yarn build` clean. Storybook: 308/313 (same 5
+pre-existing failures as every entry above, confirmed unaffected).
+`yarn test:msw`: 185/185 (186 minus the one test that covered the
+now-removed feature). `yarn test:e2e:local-ci`: 18/18.
+
+**Done — committed (`3455866`), pushed directly to `develop`, deployed
+via `apps/web/deploy.sh` — confirmed live at `build-commit=3455866` on
+app.backbet.co.uk. Could not live-verify the actual `/events` DOM itself
+(it's behind the login wall and this session has no real credentials) —
+relied on Storybook + MSW instead, both of which exercise this exact
+component's real code with mocked auth, which is the same code now
+deployed. Worktree removed, branch deleted (local + remote via the
+`push origin ...:develop` above) — nothing left in progress.**
