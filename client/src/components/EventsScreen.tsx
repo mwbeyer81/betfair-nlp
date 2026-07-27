@@ -7,7 +7,6 @@ import {
 } from "react-native";
 import {
   Text,
-  Appbar,
   Button,
   Chip,
   ActivityIndicator,
@@ -15,8 +14,7 @@ import {
 import { EventDocsPanel } from "./EventDocsPanel";
 import { RunnersPanel } from "./RunnersPanel";
 import { PageContainer } from "./PageContainer";
-import { HeaderActionsContainer } from "./HeaderActionsContainer";
-import { useHeaderMenu } from "../utils/useHeaderMenu";
+import { AppHeader } from "./AppHeader";
 import {
   chatApi,
   EventGroup,
@@ -25,20 +23,19 @@ import {
   Stats,
 } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
+import type { Route } from "../hooks/useRouter";
 
 interface EventsScreenProps {
-  onNavigateToChat: () => void;
-  onNavigateToAllRunners: () => void;
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
   onNavigateToIsp: () => void;
-  onNavigateToResults: () => void;
   onLogout?: () => void;
 }
 
 export const EventsScreen: React.FC<EventsScreenProps> = ({
-  onNavigateToChat,
-  onNavigateToAllRunners,
+  navigate,
+  isAuthenticated,
   onNavigateToIsp,
-  onNavigateToResults,
   onLogout,
 }) => {
   const [groups, setGroups] = useState<EventGroup[]>([]);
@@ -48,7 +45,6 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
   const [stats, setStats] = useState<Stats | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const { isTablet, open: menuOpen, setOpen: setMenuOpen, wrap } = useHeaderMenu();
   const [sort, setSort] = useState<"asc" | "desc">("asc");
   const PAGE_SIZE = 20;
 
@@ -140,7 +136,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
         <Text
           testID="events-total-runners"
           style={[styles.statText, styles.statLinkText]}
-          onPress={onNavigateToAllRunners}
+          onPress={() => navigate("/runners")}
         >
           {stats != null ? stats.totalRunners : "—"} runners
         </Text>
@@ -158,27 +154,16 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
         </Text>
       </View>
 
-      <View style={styles.headerWrapper}>
-        <Appbar.Header style={styles.appbar}>
-          <Appbar.Content title="Events" titleStyle={styles.appbarTitle} />
-          {!isTablet && (
-            <Appbar.Action
-              testID="events-menu-button"
-              icon="menu"
-              color="white"
-              onPress={() => setMenuOpen(v => !v)}
-            />
-          )}
-        </Appbar.Header>
-        <HeaderActionsContainer
-          isTablet={isTablet}
-          open={menuOpen}
-          inlineTestId="events-header-actions"
-          menuTestId="events-nav-menu"
-        >
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        subtitle="Events"
+        testIdPrefix="events"
+        extraActions={wrap => (
           <Button
             testID="events-sort-toggle"
-            mode="contained-tonal"
+            mode="outlined"
             compact
             onPress={wrap(() => setSort(s => (s === "asc" ? "desc" : "asc")))}
             style={styles.headerButton}
@@ -186,43 +171,8 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
           >
             {sort === "asc" ? "Oldest first" : "Newest first"}
           </Button>
-          <Button
-            testID="events-screen-chat-button"
-            mode="contained"
-            compact
-            buttonColor={colors.accent}
-            onPress={wrap(onNavigateToChat)}
-            style={styles.headerButton}
-            labelStyle={styles.headerButtonLabel}
-          >
-            Chat →
-          </Button>
-          <Button
-            testID="events-screen-results-button"
-            mode="contained"
-            compact
-            buttonColor={colors.accent}
-            onPress={wrap(onNavigateToResults)}
-            style={styles.headerButton}
-            labelStyle={styles.headerButtonLabel}
-          >
-            Results →
-          </Button>
-          {onLogout && (
-            <Button
-              testID="events-screen-logout-button"
-              mode="contained"
-              compact
-              buttonColor={colors.danger}
-              onPress={wrap(onLogout)}
-              style={styles.headerButton}
-              labelStyle={styles.headerButtonLabel}
-            >
-              Logout
-            </Button>
-          )}
-        </HeaderActionsContainer>
-      </View>
+        )}
+      />
 
       <View style={styles.body}>
         {isLoading && (
@@ -363,19 +313,6 @@ const styles = StyleSheet.create({
   statDot: {
     fontSize: 12,
     color: colors.textTertiary,
-  },
-  headerWrapper: {
-    position: "relative",
-    zIndex: 10,
-  },
-  appbar: {
-    backgroundColor: colors.primary,
-    elevation: 4,
-  },
-  appbarTitle: {
-    color: "white",
-    fontSize: 20,
-    fontWeight: "700",
   },
   headerButton: {
     marginHorizontal: 3,

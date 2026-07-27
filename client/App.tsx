@@ -88,6 +88,9 @@ export default function App() {
     );
   }
 
+  const onLogout = () => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); };
+  const onRequestAuth = () => setShowAuthOverlay(true);
+
   const content = (() => {
     // Events/Chat/Runners stay behind the login wall exactly as before.
     // The /isp family is public — it renders below regardless of
@@ -96,28 +99,18 @@ export default function App() {
       return <AuthScreen onAuthenticated={() => setIsAuthenticated(true)} />;
     }
     if (route === "/chat") {
-      return (
-        <ChatScreen
-          onLogout={() => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); }}
-          onNavigateToEvents={() => navigate("/events")}
-          onNavigateToResults={() => navigate("/results")}
-        />
-      );
+      return <ChatScreen navigate={navigate} isAuthenticated={isAuthenticated} onLogout={onLogout} />;
     }
     if (route === "/runners") {
-      return (
-        <AllRunnersScreen
-          onNavigateToEvents={() => navigate("/events")}
-          onNavigateToResults={() => navigate("/results")}
-        />
-      );
+      return <AllRunnersScreen navigate={navigate} isAuthenticated={isAuthenticated} onLogout={onLogout} />;
     }
     if (route === "/isp") {
       return (
         <IndustrySpScreen
+          navigate={navigate}
           isAuthenticated={isAuthenticated}
-          onRequestAuth={() => setShowAuthOverlay(true)}
-          onLogout={() => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); }}
+          onRequestAuth={onRequestAuth}
+          onLogout={onLogout}
           // Filter Apply/Reset update the URL directly via history.replaceState
           // (see updateUrlParams), which doesn't flow back through this hook's
           // `queryParams` state — read window.location.search directly here so
@@ -134,16 +127,16 @@ export default function App() {
             else params.delete("toRow");
             navigate("/isp/races", params.toString());
           }}
-          onNavigateToChat={() => navigate("/chat")}
-          onNavigateToEvents={() => navigate("/events")}
-          onNavigateToRunners={() => navigate("/runners")}
-          onNavigateToResults={() => navigate("/results")}
         />
       );
     }
     if (route === "/isp/races") {
       return (
         <IspRacesScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          onRequestAuth={onRequestAuth}
           onBack={() => navigate("/isp", window.location.search.slice(1))}
           onNavigateToMeeting={(meetingId) => navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}`)}
           onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}`)}
@@ -160,6 +153,10 @@ export default function App() {
       const meetingId = queryParams.get("id") ?? "";
       return (
         <IndustryMeetingScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          onRequestAuth={onRequestAuth}
           meetingId={meetingId}
           // The user drilled into this meeting from the races list, so "back"
           // returns there (not the filters screen they aren't editing).
@@ -178,6 +175,10 @@ export default function App() {
       const raceId = parseInt(queryParams.get("id") ?? "", 10);
       return (
         <IndustryRaceScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          onRequestAuth={onRequestAuth}
           raceId={raceId}
           onNavigateToMeeting={(meetingId) => navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}`)}
           onNavigateToIsp={() => navigate("/isp/races")}
@@ -196,6 +197,10 @@ export default function App() {
       const back = resolveReturn(queryParams, "/isp/races");
       return (
         <RunnerDetailScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          onRequestAuth={onRequestAuth}
           raceId={raceId}
           runnerId={runnerId}
           onBack={() => navigate(back.route, back.query)}
@@ -213,6 +218,10 @@ export default function App() {
       const back = resolveReturn(queryParams, "/isp/races");
       return (
         <RunnerHistoryScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          onRequestAuth={onRequestAuth}
           runnerName={runnerName}
           onBack={() => navigate(back.route, back.query)}
           onNavigateToRunner={(raceId, runnerId) =>
@@ -227,6 +236,10 @@ export default function App() {
       const back = resolveReturn(queryParams, "/isp/races");
       return (
         <TrainerDetailScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          onRequestAuth={onRequestAuth}
           trainer={trainer}
           formCategory={formCategory}
           onBack={() => navigate(back.route, back.query)}
@@ -239,12 +252,11 @@ export default function App() {
     if (route === "/results") {
       return (
         <SavedResultsListScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
           onBack={() => navigate("/events")}
           onOpenResult={(id) => navigate("/results/detail", `id=${id}`)}
-          onNavigateToChat={() => navigate("/chat")}
-          onNavigateToEvents={() => navigate("/events")}
-          onNavigateToRunners={() => navigate("/runners")}
-          onNavigateToIsp={() => navigate("/isp")}
         />
       );
     }
@@ -252,6 +264,9 @@ export default function App() {
       const id = queryParams.get("id") ?? "";
       return (
         <SavedResultDetailScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
           id={id}
           onBack={() => navigate("/results")}
           onRestore={(filters) => navigate("/isp", new URLSearchParams(filters).toString())}
@@ -260,11 +275,10 @@ export default function App() {
     }
     return (
       <EventsScreen
-        onNavigateToChat={() => navigate("/chat")}
-        onNavigateToAllRunners={() => navigate("/runners")}
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
         onNavigateToIsp={() => navigate("/isp")}
-        onLogout={() => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); }}
-        onNavigateToResults={() => navigate("/results")}
+        onLogout={onLogout}
       />
     );
   })();

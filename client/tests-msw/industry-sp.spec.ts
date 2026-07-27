@@ -748,7 +748,7 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
     await page.getByTestId("industry-sp-view-races-button-a").click();
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-sp-races-back").click();
+    await page.getByTestId("industry-sp-races-back-button").click();
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     // The split cards must still show real data immediately — proves the
     // cache actually populated state, not just that no request fired.
@@ -1012,7 +1012,7 @@ test.describe("Industry SP filters screen - session cache across navigation (MSW
     // Leave and come back — reuses the filtered result's cache entry.
     await page.getByTestId("industry-sp-view-races-button-a").click();
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("industry-sp-races-back").click();
+    await page.getByTestId("industry-sp-races-back-button").click();
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible();
     expect(splitsRequests.length).toBe(2);
@@ -1363,7 +1363,7 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
   });
 
   test("← Filters button returns to /isp", async ({ page }) => {
-    await page.getByTestId("industry-sp-races-back").click();
+    await page.getByTestId("industry-sp-races-back-button").click();
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
   });
 });
@@ -1466,7 +1466,7 @@ test.describe("Industry SP meeting/race drill-down (MSW mocked)", () => {
     await page.getByTestId("industry-sp-meeting-link-Cheltenham|2025-01-01").click();
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-meeting-back").click();
+    await page.getByTestId("industry-meeting-back-button").click();
 
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toMatch(/\/isp\/races(\?|$)/);
@@ -1489,7 +1489,7 @@ test.describe("Industry SP meeting/race drill-down (MSW mocked)", () => {
     await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-race-back").click();
+    await page.getByTestId("industry-race-back-button").click();
 
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("/isp/meeting?id=");

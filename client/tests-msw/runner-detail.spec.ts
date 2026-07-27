@@ -37,7 +37,7 @@ test.describe("Runner Detail — tap-through from Races list (MSW mocked)", () =
     await page.getByTestId("industry-sp-item-12347").click();
     await expect(page.getByTestId("runner-detail-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("runner-detail-back").click();
+    await page.getByTestId("runner-detail-back-button").click();
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("maxInIspRange=30");
     expect(page.url()).toContain("sort=desc");
@@ -53,7 +53,7 @@ test.describe("Runner Detail — tap-through from Races list (MSW mocked)", () =
     await expect(page.getByTestId("runner-history-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("/isp/runner/history");
 
-    await page.getByTestId("runner-history-back").click();
+    await page.getByTestId("runner-history-back-button").click();
     await expect(page.getByTestId("runner-detail-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("/isp/runner");
     expect(page.url()).not.toContain("/isp/runner/history");
@@ -67,7 +67,7 @@ test.describe("Runner Detail — tap-through from Meeting and Race screens (MSW 
     await page.getByTestId("industry-meeting-item-12347").click();
 
     await expect(page.getByTestId("runner-detail-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("runner-detail-back").click();
+    await page.getByTestId("runner-detail-back-button").click();
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
   });
 
@@ -77,7 +77,7 @@ test.describe("Runner Detail — tap-through from Meeting and Race screens (MSW 
     await page.getByTestId("industry-race-item-12347").click();
 
     await expect(page.getByTestId("runner-detail-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("runner-detail-back").click();
+    await page.getByTestId("runner-detail-back-button").click();
     await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("/isp/race");
   });

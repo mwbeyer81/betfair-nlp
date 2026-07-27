@@ -40,7 +40,7 @@ test.describe("Routing — MSW mocked network", () => {
     await page.goto("/runners");
     await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("all-runners-screen-events-button").click();
+    await page.getByTestId("all-runners-menu-events-link").click();
 
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
     expect(page.url()).toMatch(/\/events/);
@@ -50,7 +50,7 @@ test.describe("Routing — MSW mocked network", () => {
     await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-screen-chat-button").click();
+    await page.getByTestId("events-menu-chat-link").click();
 
     await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("events-screen")).not.toBeVisible();
@@ -60,7 +60,7 @@ test.describe("Routing — MSW mocked network", () => {
     await page.goto("/chat");
     await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-button").click();
+    await page.getByTestId("chat-menu-events-link").click();
 
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("chat-screen")).not.toBeVisible();
@@ -70,7 +70,7 @@ test.describe("Routing — MSW mocked network", () => {
     await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-screen-chat-button").click();
+    await page.getByTestId("events-menu-chat-link").click();
     await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 5000 });
 
     expect(page.url()).toContain("/chat");
@@ -80,7 +80,7 @@ test.describe("Routing — MSW mocked network", () => {
     await page.goto("/chat");
     await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-button").click();
+    await page.getByTestId("chat-menu-events-link").click();
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
 
     expect(page.url()).toMatch(/\/events/);
@@ -90,7 +90,7 @@ test.describe("Routing — MSW mocked network", () => {
     await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-screen-chat-button").click();
+    await page.getByTestId("events-menu-chat-link").click();
     await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 5000 });
 
     await page.goBack();

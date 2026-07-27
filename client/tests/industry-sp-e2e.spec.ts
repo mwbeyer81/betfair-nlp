@@ -513,7 +513,7 @@ test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
     await page.getByTestId("industry-sp-view-races-button-a").click();
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-sp-races-back").click();
+    await page.getByTestId("industry-sp-races-back-button").click();
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("maxInIspRange=5");
     await expect(page.getByTestId("industry-sp-max-rir-value")).toHaveValue("5");
@@ -562,7 +562,7 @@ test.describe("Industry SP races screen (Expo web @ localhost:80)", () => {
   test("← Filters button navigates back to /isp", async ({ page }) => {
     await gotoIspRaces(page);
 
-    await page.getByTestId("industry-sp-races-back").click();
+    await page.getByTestId("industry-sp-races-back-button").click();
 
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-sp-races-screen")).not.toBeVisible();
@@ -923,7 +923,7 @@ test.describe("Meeting and race drill-down navigation (real app at localhost:80)
     await page.locator('[data-testid^="industry-sp-meeting-link-"]').first().click();
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-meeting-back").click();
+    await page.getByTestId("industry-meeting-back-button").click();
 
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-meeting-screen")).not.toBeVisible();
@@ -958,7 +958,7 @@ test.describe("Meeting and race drill-down navigation (real app at localhost:80)
     await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 30000 });
 
-    await page.getByTestId("industry-race-back").click();
+    await page.getByTestId("industry-race-back-button").click();
 
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toBe(meetingUrl);

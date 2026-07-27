@@ -54,6 +54,9 @@ const meta: Meta<typeof IndustryMeetingScreen> = {
     msw: { handlers: defaultHandlers },
   },
   args: {
+    navigate: fn(),
+    isAuthenticated: true,
+    onLogout: fn(),
     meetingId: MEETING_ID,
     onBack: fn(),
     onNavigateToRace: fn(),
@@ -90,7 +93,7 @@ export const BackButton: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-meeting-list");
-    await userEvent.click(canvas.getByTestId("industry-meeting-back"));
+    await userEvent.click(canvas.getByTestId("industry-meeting-back-button"));
     await expect(args.onBack).toHaveBeenCalledTimes(1);
   },
 };

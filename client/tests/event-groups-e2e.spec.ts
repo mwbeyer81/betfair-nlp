@@ -28,14 +28,14 @@ test.describe("Event Groups feature (Expo web @ localhost:80)", () => {
   test("Chat → button navigates to chat view", async ({ page }) => {
     await page.goto(APP_URL);
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("events-screen-chat-button").click();
+    await page.getByTestId("events-menu-chat-link").click();
     await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 5000 });
   });
 
   test("← Events button in chat view navigates back to events", async ({ page }) => {
     await page.goto(`${APP_URL}chat`);
     await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("events-button").click();
+    await page.getByTestId("chat-menu-events-link").click();
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
   });
 });

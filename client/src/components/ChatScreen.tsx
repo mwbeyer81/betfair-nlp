@@ -7,13 +7,13 @@ import {
   Platform,
   SafeAreaView,
 } from "react-native";
-import { Appbar, Text, Button } from "react-native-paper";
+import { Text } from "react-native-paper";
 import { Message } from "./Message";
 import { ChatInput } from "./ChatInput";
-import { HeaderActionsContainer } from "./HeaderActionsContainer";
-import { useHeaderMenu } from "../utils/useHeaderMenu";
+import { AppHeader } from "./AppHeader";
 import { chatApi } from "../services/chatApi";
-import { colors, radii, spacing } from "../theme";
+import { colors, spacing } from "../theme";
+import type { Route } from "../hooks/useRouter";
 
 interface MessageData {
   id: string;
@@ -28,17 +28,16 @@ interface MessageData {
 const MAX_HISTORY_TURNS = 20;
 
 interface ChatScreenProps {
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
   onLogout?: () => void;
-  onNavigateToEvents: () => void;
-  onNavigateToResults: () => void;
 }
 
 export const ChatScreen: React.FC<ChatScreenProps> = ({
+  navigate,
+  isAuthenticated,
   onLogout,
-  onNavigateToEvents,
-  onNavigateToResults,
 }) => {
-  const { isTablet, open: menuOpen, setOpen: setMenuOpen, wrap } = useHeaderMenu();
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [queryHistory, setQueryHistory] = useState<string[]>([]);
@@ -99,59 +98,13 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   return (
     <SafeAreaView testID="chat-screen" style={styles.container}>
-      <View style={styles.headerWrapper}>
-        <Appbar.Header style={styles.appbar}>
-          <Appbar.Content title="Chat Assistant" titleStyle={styles.appbarTitle} />
-          {!isTablet && (
-            <Appbar.Action
-              testID="chat-menu-button"
-              icon="menu"
-              color="white"
-              onPress={() => setMenuOpen(v => !v)}
-            />
-          )}
-        </Appbar.Header>
-        <HeaderActionsContainer
-          isTablet={isTablet}
-          open={menuOpen}
-          inlineTestId="chat-header-actions"
-          menuTestId="chat-nav-menu"
-        >
-          <Button
-            testID="events-button"
-            mode="contained-tonal"
-            onPress={wrap(onNavigateToEvents)}
-            compact
-            style={styles.headerButton}
-            labelStyle={styles.headerButtonLabel}
-          >
-            ← Events
-          </Button>
-          <Button
-            testID="chat-screen-results-button"
-            mode="contained-tonal"
-            onPress={wrap(onNavigateToResults)}
-            compact
-            style={styles.headerButton}
-            labelStyle={styles.headerButtonLabel}
-          >
-            Results →
-          </Button>
-          {onLogout && (
-            <Button
-              testID="chat-logout-button"
-              mode="contained"
-              onPress={wrap(onLogout)}
-              compact
-              buttonColor={colors.danger}
-              style={styles.headerButton}
-              labelStyle={styles.headerButtonLabel}
-            >
-              Logout
-            </Button>
-          )}
-        </HeaderActionsContainer>
-      </View>
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        subtitle="Chat Assistant"
+        testIdPrefix="chat"
+      />
 
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
@@ -193,27 +146,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  headerWrapper: {
-    position: "relative",
-    zIndex: 10,
-  },
-  appbar: {
-    backgroundColor: colors.primary,
-    elevation: 4,
-  },
-  appbarTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "600",
-  },
-  headerButton: {
-    marginHorizontal: 4,
-    borderRadius: radii.md,
-  },
-  headerButtonLabel: {
-    fontSize: 13,
-    fontWeight: "600",
   },
   keyboardAvoidingView: {
     flex: 1,

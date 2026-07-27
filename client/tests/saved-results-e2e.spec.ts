@@ -56,7 +56,7 @@ test.describe("Saved Results — full loop (dev backend/frontend, shared dev Mon
   test("badge/nav is reachable from the Events screen", async ({ page }) => {
     await page.goto(`${APP_URL}events?email=matthew%40backbet.co.uk&password=beyer`);
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("events-screen-results-button").click();
+    await page.getByTestId("events-menu-results-link").click();
     await expect(page.getByTestId("saved-results-screen")).toBeVisible({ timeout: 10000 });
   });
 });

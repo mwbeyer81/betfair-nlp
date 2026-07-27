@@ -79,7 +79,7 @@ test.describe("Runner History (MSW mocked)", () => {
   test("back returns to /isp/races when reached via a bare deep link (no returnRoute)", async ({ page }) => {
     await page.goto("/isp/runner/history?runnerName=" + encodeURIComponent("Fact To File"));
     await expect(page.getByTestId("runner-history-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("runner-history-back").click();
+    await page.getByTestId("runner-history-back-button").click();
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
   });
 });

@@ -84,8 +84,9 @@ const meta: Meta<typeof AllRunnersScreen> = {
     msw: { handlers: defaultHandlers },
   },
   args: {
-    onNavigateToEvents: fn(),
-    onNavigateToResults: fn(),
+    navigate: fn(),
+    isAuthenticated: true,
+    onLogout: fn(),
   },
 };
 
@@ -151,8 +152,9 @@ export const ScreenLoaded: Story = {
     await expect(canvas.getByTestId("all-runners-screen")).toBeInTheDocument();
     await expect(canvas.findByTestId("all-runners-list")).resolves.toBeInTheDocument();
 
-    await expect(canvas.findByText("All Runners")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("4/4 runners · 2/2 races")).resolves.toBeInTheDocument();
+    // "All Runners" + the counts are now one combined AppHeader subtitle
+    // line rather than a separate Appbar title/subtitle pair.
+    await expect(canvas.findByText("All Runners · 4/4 runners · 2/2 races")).resolves.toBeInTheDocument();
   },
 };
 
@@ -178,10 +180,10 @@ export const EventsButtonNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
 
-    const btn = canvas.getByTestId("all-runners-screen-events-button");
+    const btn = canvas.getByTestId("all-runners-menu-events-link");
     await expect(btn).toBeInTheDocument();
     await userEvent.click(btn);
-    await expect(args.onNavigateToEvents).toHaveBeenCalledTimes(1);
+    await expect(args.navigate).toHaveBeenCalledWith("/events");
   },
 };
 
@@ -189,10 +191,10 @@ export const ResultsButtonNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
 
-    const btn = canvas.getByTestId("all-runners-screen-results-button");
+    const btn = canvas.getByTestId("all-runners-menu-results-link");
     await expect(btn).toBeInTheDocument();
     await userEvent.click(btn);
-    await expect(args.onNavigateToResults).toHaveBeenCalledTimes(1);
+    await expect(args.navigate).toHaveBeenCalledWith("/results");
   },
 };
 
@@ -569,8 +571,13 @@ export const MobileHeaderButtonsVisible: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("all-runners-list");
 
+    // Storybook's viewport addon only resizes the iframe's CSS viewport, not
+    // the real browser window useResponsive() reads from — isTablet stays
+    // true here same as at any other width, so header actions render inline
+    // rather than behind the burger (matches every other viewport story in
+    // this file).
     const sortBtn = canvas.getByTestId("all-runners-sort-toggle");
-    const eventsBtn = canvas.getByTestId("all-runners-screen-events-button");
+    const eventsBtn = canvas.getByTestId("all-runners-menu-events-link");
 
     await expect(sortBtn).toBeInTheDocument();
     await expect(eventsBtn).toBeInTheDocument();

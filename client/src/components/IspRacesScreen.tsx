@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
-import { Text, Appbar, Button, ActivityIndicator } from "react-native-paper";
+import { Text, Button, ActivityIndicator } from "react-native-paper";
 import { chatApi, IspRace, IspRunner } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
+import { AppHeader } from "./AppHeader";
+import type { Route } from "../hooks/useRouter";
 import {
   stakeToWin1,
   formatGbp,
@@ -33,6 +35,10 @@ import {
 const PAGE_SIZE = 20;
 
 interface IspRacesScreenProps {
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
+  onLogout?: () => void;
+  onRequestAuth?: () => void;
   onBack: () => void;
   onNavigateToMeeting: (meetingId: string) => void;
   onNavigateToRace: (raceId: number) => void;
@@ -44,6 +50,10 @@ interface IspRacesScreenProps {
 // filters screen (/isp) — it reads the committed filter values straight out
 // of the URL rather than offering its own editing UI.
 export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
+  navigate,
+  isAuthenticated,
+  onLogout,
+  onRequestAuth,
   onBack,
   onNavigateToMeeting,
   onNavigateToRace,
@@ -179,25 +189,19 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
 
   return (
     <SafeAreaView testID="industry-sp-races-screen" style={styles.screen}>
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content
-          title="Races"
-          subtitle={!isLoading ? `${visibleRunners} runners · ${visibleRaces.length}/${totalRaces} races` : undefined}
-          titleStyle={styles.appbarTitle}
-          subtitleStyle={styles.appbarSubtitle}
-        />
-        <Button
-          testID="industry-sp-races-back"
-          mode="contained"
-          compact
-          buttonColor={colors.accent}
-          onPress={onBack}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          ← Filters
-        </Button>
-      </Appbar.Header>
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        onRequestAuth={onRequestAuth}
+        onBack={onBack}
+        subtitle={
+          !isLoading
+            ? `Races · ${visibleRunners} runners · ${visibleRaces.length}/${totalRaces} races`
+            : "Races"
+        }
+        testIdPrefix="industry-sp-races"
+      />
 
       <View testID="industry-sp-races-toolbar" style={styles.toolbar}>
         <Button
@@ -380,27 +384,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  appbar: {
-    backgroundColor: colors.primary,
-    elevation: 4,
-  },
-  appbarTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  appbarSubtitle: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 11,
-  },
-  headerButton: {
-    marginHorizontal: 3,
-    borderRadius: radii.md,
-  },
-  headerButtonLabel: {
-    fontSize: 11,
-    fontWeight: "600",
   },
   toolbar: {
     flexDirection: "row",

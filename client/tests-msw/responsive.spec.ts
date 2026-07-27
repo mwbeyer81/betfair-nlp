@@ -74,7 +74,7 @@ test.describe("Responsive layout — /runners (MSW mocked, 375px)", () => {
     await page.getByTestId("all-runners-menu-button").click();
 
     const sortBtn = page.getByTestId("all-runners-sort-toggle");
-    const eventsBtn = page.getByTestId("all-runners-screen-events-button");
+    const eventsBtn = page.getByTestId("all-runners-menu-events-link");
 
     await expect(sortBtn).toBeVisible();
     await expect(eventsBtn).toBeVisible();
@@ -199,7 +199,7 @@ test.describe("Responsive layout — /events (MSW mocked, iPhone 12 mini, 375px)
     await page.getByTestId("events-menu-button").click();
     await expect(page.getByTestId("events-nav-menu")).toBeVisible();
 
-    for (const testId of ["events-sort-toggle", "events-screen-chat-button"]) {
+    for (const testId of ["events-sort-toggle", "events-menu-chat-link"]) {
       const el = page.getByTestId(testId);
       await expect(el).toBeVisible();
       const box = (await el.boundingBox())!;
@@ -228,7 +228,7 @@ test.describe("Responsive layout — /chat (MSW mocked, iPhone 12 mini, 375px)",
     const menu = page.getByTestId("chat-nav-menu");
     await expect(menu).toBeVisible();
 
-    for (const testId of ["events-button", "chat-logout-button"]) {
+    for (const testId of ["chat-menu-events-link", "chat-logout-button"]) {
       const el = page.getByTestId(testId);
       await expect(el).toBeVisible();
       const box = (await el.boundingBox())!;
@@ -455,7 +455,7 @@ test.describe("Responsive layout — /isp/races screen (MSW mocked, iPhone 12 mi
 
   test("header buttons ('First → Last', '← Filters') fit within the viewport", async ({ page }) => {
     const sortBtn = page.getByTestId("industry-sp-sort-toggle");
-    const backBtn = page.getByTestId("industry-sp-races-back");
+    const backBtn = page.getByTestId("industry-sp-races-back-button");
     await expect(sortBtn).toBeVisible();
     await expect(backBtn).toBeVisible();
 
@@ -523,7 +523,7 @@ test.describe("Responsive layout — /runners (MSW mocked, 768px)", () => {
 
   test("all header buttons visible at 768px", async ({ page }) => {
     await expect(page.getByTestId("all-runners-sort-toggle")).toBeVisible();
-    await expect(page.getByTestId("all-runners-screen-events-button")).toBeVisible();
+    await expect(page.getByTestId("all-runners-menu-events-link")).toBeVisible();
   });
 
   test("filter-apply button visible without scrolling at 768px", async ({ page }) => {
@@ -541,7 +541,7 @@ test.describe("Responsive layout — /runners (MSW mocked, 1280px)", () => {
 
   test("all header buttons visible at 1280px", async ({ page }) => {
     await expect(page.getByTestId("all-runners-sort-toggle")).toBeVisible();
-    await expect(page.getByTestId("all-runners-screen-events-button")).toBeVisible();
+    await expect(page.getByTestId("all-runners-menu-events-link")).toBeVisible();
     await expect(page.getByTestId("all-runners-filter-apply")).toBeVisible();
   });
 });
@@ -584,7 +584,7 @@ test.describe("Responsive layout — /events (MSW mocked, laptop 1440px)", () =>
 
   test("header buttons still visible at 1440px", async ({ page }) => {
     await expect(page.getByTestId("events-sort-toggle")).toBeVisible();
-    await expect(page.getByTestId("events-screen-chat-button")).toBeVisible();
+    await expect(page.getByTestId("events-menu-chat-link")).toBeVisible();
   });
 });
 
@@ -747,13 +747,17 @@ test.describe("Responsive layout — /results (MSW mocked, iPhone 12 mini, 375px
   test("result cards stack in a single column and remain tappable", async ({ page }) => {
     await page.goto("/results");
     await expect(page.getByTestId("saved-results-loading")).not.toBeVisible({ timeout: 10000 });
-    const card1 = page.getByTestId("saved-results-item-mock-result-1");
-    const card2 = page.getByTestId("saved-results-item-mock-result-2");
-    await expect(card1).toBeVisible();
-    await expect(card2).toBeVisible();
-    const box1 = await card1.boundingBox();
-    const box2 = await card2.boundingBox();
-    // Stacked, not side-by-side — card2 starts below card1 ends.
-    expect(box2!.y).toBeGreaterThanOrEqual(box1!.y + box1!.height - 1);
+    // Default sort is "date" (newest first) — mock-result-2 (20 Jan) sorts
+    // ahead of mock-result-1 (15 Jan), so it's the one on top, not
+    // declaration order.
+    const topCard = page.getByTestId("saved-results-item-mock-result-2");
+    const bottomCard = page.getByTestId("saved-results-item-mock-result-1");
+    await expect(topCard).toBeVisible();
+    await expect(bottomCard).toBeVisible();
+    const topBox = await topCard.boundingBox();
+    const bottomBox = await bottomCard.boundingBox();
+    // Stacked, not side-by-side — same x, bottomCard starts below topCard ends.
+    expect(bottomBox!.x).toBe(topBox!.x);
+    expect(bottomBox!.y).toBeGreaterThanOrEqual(topBox!.y + topBox!.height - 1);
   });
 });

@@ -1,22 +1,21 @@
 import React, { useEffect, useState } from "react";
 import { View, ScrollView, StyleSheet, SafeAreaView, TouchableOpacity } from "react-native";
-import { Text, Appbar, Button, ActivityIndicator, Surface, IconButton } from "react-native-paper";
+import { Text, Button, ActivityIndicator, Surface, IconButton } from "react-native-paper";
 import Svg, { Path } from "react-native-svg";
 import { chatApi, SavedFilterSet } from "../services/chatApi";
 import { PageContainer } from "./PageContainer";
-import { HeaderActionsContainer } from "./HeaderActionsContainer";
-import { useHeaderMenu } from "../utils/useHeaderMenu";
+import { AppHeader } from "./AppHeader";
 import { useResponsive } from "../utils/responsive";
 import { colors, radii, spacing } from "../theme";
 import { formatPnl, formatPct, formatRaceDate } from "../utils/ispFormat";
+import type { Route } from "../hooks/useRouter";
 
 interface SavedResultsListScreenProps {
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
+  onLogout?: () => void;
   onBack: () => void;
   onOpenResult: (id: string) => void;
-  onNavigateToChat: () => void;
-  onNavigateToEvents: () => void;
-  onNavigateToRunners: () => void;
-  onNavigateToIsp: () => void;
 }
 
 type SortBy = "date" | "pnl" | "name";
@@ -46,15 +45,13 @@ function Sparkline({ points }: { points: SavedFilterSet["graphPoints"] }) {
 }
 
 export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
+  navigate,
+  isAuthenticated,
+  onLogout,
   onBack,
   onOpenResult,
-  onNavigateToChat,
-  onNavigateToEvents,
-  onNavigateToRunners,
-  onNavigateToIsp,
 }) => {
-  const { isTablet, isDesktop } = useResponsive();
-  const { open: menuOpen, setOpen: setMenuOpen, wrap } = useHeaderMenu();
+  const { isDesktop } = useResponsive();
   const [results, setResults] = useState<SavedFilterSet[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,28 +95,17 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
 
   return (
     <SafeAreaView testID="saved-results-screen" style={styles.screen}>
-      <View style={styles.headerWrapper}>
-        <Appbar.Header style={styles.appbar}>
-          <Appbar.BackAction testID="saved-results-back-button" color="white" onPress={onBack} />
-          <Appbar.Content title="Results" titleStyle={styles.appbarTitle} />
-          {!isTablet && (
-            <Appbar.Action
-              testID="saved-results-menu-button"
-              icon="menu"
-              color="white"
-              onPress={() => setMenuOpen(v => !v)}
-            />
-          )}
-        </Appbar.Header>
-        <HeaderActionsContainer
-          isTablet={isTablet}
-          open={menuOpen}
-          inlineTestId="saved-results-header-actions"
-          menuTestId="saved-results-nav-menu"
-        >
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        onBack={onBack}
+        subtitle="Results"
+        testIdPrefix="saved-results"
+        extraActions={wrap => (
           <Button
             testID="saved-results-sort-toggle"
-            mode="contained-tonal"
+            mode="outlined"
             compact
             onPress={wrap(() =>
               setSortBy(s => (s === "date" ? "pnl" : s === "pnl" ? "name" : "date"))
@@ -129,20 +115,8 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
           >
             Sort: {sortBy === "date" ? "Newest" : sortBy === "pnl" ? "PnL" : "Name"}
           </Button>
-          <Button testID="saved-results-screen-isp-button" mode="contained" compact buttonColor={colors.accent} onPress={wrap(onNavigateToIsp)} style={styles.headerButton} labelStyle={styles.headerButtonLabel}>
-            Filters →
-          </Button>
-          <Button testID="saved-results-screen-events-button" mode="contained" compact buttonColor={colors.accent} onPress={wrap(onNavigateToEvents)} style={styles.headerButton} labelStyle={styles.headerButtonLabel}>
-            Events →
-          </Button>
-          <Button testID="saved-results-screen-chat-button" mode="contained" compact buttonColor={colors.accent} onPress={wrap(onNavigateToChat)} style={styles.headerButton} labelStyle={styles.headerButtonLabel}>
-            Chat →
-          </Button>
-          <Button testID="saved-results-screen-runners-button" mode="contained" compact buttonColor={colors.accent} onPress={wrap(onNavigateToRunners)} style={styles.headerButton} labelStyle={styles.headerButtonLabel}>
-            Runners →
-          </Button>
-        </HeaderActionsContainer>
-      </View>
+        )}
+      />
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <PageContainer>
@@ -230,9 +204,6 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  headerWrapper: { position: "relative", zIndex: 10 },
-  appbar: { backgroundColor: colors.primary },
-  appbarTitle: { color: "white", fontWeight: "700" },
   headerButton: { borderRadius: radii.sm, marginLeft: spacing.xs },
   headerButtonLabel: { fontSize: 12, fontWeight: "600" },
   scroll: { flex: 1 },

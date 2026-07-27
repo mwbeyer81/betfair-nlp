@@ -42,12 +42,10 @@ const meta: Meta<typeof SavedResultsListScreen> = {
   component: SavedResultsListScreen,
   parameters: { layout: "fullscreen", msw: { handlers: defaultHandlers } },
   args: {
+    navigate: fn(),
+    isAuthenticated: true,
     onBack: fn(),
     onOpenResult: fn(),
-    onNavigateToChat: fn(),
-    onNavigateToEvents: fn(),
-    onNavigateToRunners: fn(),
-    onNavigateToIsp: fn(),
   },
 };
 

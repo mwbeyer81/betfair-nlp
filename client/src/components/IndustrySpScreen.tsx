@@ -10,12 +10,10 @@ import {
 } from "react-native";
 import {
   Text,
-  Appbar,
   Button,
   Chip,
   Checkbox,
   ActivityIndicator,
-  Icon,
 } from "react-native-paper";
 import { chatApi, IspFilterBounds, PnlStats, RaceConvergencePoint, IspRace, ModelVersion } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
@@ -25,6 +23,8 @@ import { SaveResultDialog } from "./SaveResultDialog";
 import { buildAutoResultNamePreview } from "../utils/savedResultName";
 import { DateRangePicker } from "./DateRangePicker";
 import { PageContainer } from "./PageContainer";
+import { AppHeader } from "./AppHeader";
+import type { Route } from "../hooks/useRouter";
 import { buildSplitsCacheKey, readSplitsCache, writeSplitsCache, CachedSplitsResult } from "../utils/ispSplitsCache";
 import { useResponsive } from "../utils/responsive";
 import { colors, radii, spacing } from "../theme";
@@ -42,14 +42,11 @@ import {
 } from "../utils/ispUrlParams";
 
 interface IndustrySpScreenProps {
+  navigate: (to: Route, query?: string) => void;
   isAuthenticated: boolean;
   onRequestAuth: () => void;
   onLogout: () => void;
   onViewRaces: (fromRow: number, toRow: number | null) => void;
-  onNavigateToChat: () => void;
-  onNavigateToEvents: () => void;
-  onNavigateToRunners: () => void;
-  onNavigateToResults: () => void;
 }
 
 // Filter values are persisted to the URL query string (using the same param
@@ -245,20 +242,13 @@ function resolveSplitPair(
 }
 
 export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
+  navigate,
   isAuthenticated,
   onRequestAuth,
   onLogout,
   onViewRaces,
-  onNavigateToChat,
-  onNavigateToEvents,
-  onNavigateToRunners,
-  onNavigateToResults,
 }) => {
-  const { isTablet, isDesktop } = useResponsive();
-  // Collapsed behind a burger icon on phone widths only — at tablet+ the
-  // action buttons keep rendering inline (see the header JSX below), which
-  // was already verified not to overlap the title at 768px and up.
-  const [navMenuOpen, setNavMenuOpen] = useState(false);
+  const { isDesktop } = useResponsive();
   // A bare, untouched load of /isp (no query string at all) should show
   // nothing until the user explicitly presses Apply — the filter bar and
   // split cards must not silently run a default query and present results
@@ -353,12 +343,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // AuthResult in chatApi.ts for why verification status lives outside it.
   const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
   const [resendStatus, setResendStatus] = useState<"idle" | "sending" | "sent" | "already-verified" | "error">("idle");
-  // Which email is actually signed in — surfaced via the Account button/
-  // panel below. Fetched alongside emailVerified (same chatApi.getMe()
-  // call), since there's no other reason to hit that endpoint separately.
+  // Which email is actually signed in — drives the verify-email reminder
+  // banner below (the header's own Account button/panel, in AppHeader,
+  // fetches this independently for its own display). Fetched alongside
+  // emailVerified (same chatApi.getMe() call), since there's no other
+  // reason to hit that endpoint separately.
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
-  const [accountPhone, setAccountPhone] = useState<string | null>(null);
-  const [showAccountPanel, setShowAccountPanel] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [savingResult, setSavingResult] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -467,8 +457,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       setEmailVerified(null);
       setResendStatus("idle");
       setAccountEmail(null);
-      setAccountPhone(null);
-      setShowAccountPanel(false);
       return;
     }
     // Never left uncaught — a network hiccup here must not crash the page,
@@ -477,7 +465,6 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       if (!cancelled) {
         setEmailVerified(me?.emailVerified ?? null);
         setAccountEmail(me?.email ?? null);
-        setAccountPhone(me?.phone ?? null);
       }
     }).catch(() => {
       if (!cancelled) setEmailVerified(null);
@@ -1419,202 +1406,40 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
   const splitCardStatus: "idle" | "pending" | "loaded" = isLoading ? "pending" : hasLoadedOnce ? "loaded" : "idle";
 
-  // Shared between the tablet+ inline row and the phone-width dropdown menu
-  // below — `closeMenu` only matters for the latter (tablet+ never opens
-  // `navMenuOpen` at all, since the burger button doesn't render there).
-  const renderHeaderActions = (closeMenu: boolean) => {
-    const wrap = (fn: () => void) => () => {
-      if (closeMenu) setNavMenuOpen(false);
-      fn();
-    };
-    return (
-      <>
-        <Button
-          testID="industry-sp-filters-toggle"
-          mode="outlined"
-          compact
-          onPress={wrap(() => setFiltersVisible(v => !v))}
-          style={styles.headerToggleButton}
-          labelStyle={styles.headerToggleButtonLabel}
-        >
-          {filtersVisible ? "Hide filters ▾" : "Show filters ▸"}
-        </Button>
-        <Button
-          testID="industry-sp-model-performance-button"
-          mode="outlined"
-          compact
-          onPress={wrap(loadModelPerformance)}
-          style={styles.headerToggleButton}
-          labelStyle={styles.headerToggleButtonLabel}
-        >
-          Model Performance
-        </Button>
-        {closeMenu && (
-          <>
-            <View style={styles.navMenuDivider} />
-            <Button
-              testID="industry-sp-menu-chat-link"
-              mode="outlined"
-              compact
-              onPress={wrap(onNavigateToChat)}
-              style={styles.headerToggleButton}
-              labelStyle={styles.headerToggleButtonLabel}
-            >
-              Chat
-            </Button>
-            <Button
-              testID="industry-sp-menu-events-link"
-              mode="outlined"
-              compact
-              onPress={wrap(onNavigateToEvents)}
-              style={styles.headerToggleButton}
-              labelStyle={styles.headerToggleButtonLabel}
-            >
-              Events
-            </Button>
-            <Button
-              testID="industry-sp-menu-runners-link"
-              mode="outlined"
-              compact
-              onPress={wrap(onNavigateToRunners)}
-              style={styles.headerToggleButton}
-              labelStyle={styles.headerToggleButtonLabel}
-            >
-              Runners
-            </Button>
-            <View style={styles.navMenuDivider} />
-          </>
-        )}
-        {isAuthenticated ? (
-          <>
-            <Button
-              testID="industry-sp-account-button"
-              mode="outlined"
-              compact
-              onPress={wrap(() => setShowAccountPanel(v => !v))}
-              style={styles.headerToggleButton}
-              labelStyle={styles.headerToggleButtonLabel}
-            >
-              Account
-            </Button>
-            <Button
-              testID="industry-sp-menu-results-link"
-              mode="contained"
-              compact
-              buttonColor={colors.accent}
-              onPress={wrap(onNavigateToResults)}
-              style={styles.headerButton}
-              labelStyle={styles.headerButtonLabel}
-            >
-              Results →
-            </Button>
-            <Button
-              testID="industry-sp-logout-button"
-              mode="contained"
-              compact
-              buttonColor={colors.accent}
-              onPress={wrap(onLogout)}
-              style={styles.headerButton}
-              labelStyle={styles.headerButtonLabel}
-            >
-              Log Out
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button
-              testID="industry-sp-login-button"
-              mode="outlined"
-              compact
-              onPress={wrap(onRequestAuth)}
-              style={styles.headerToggleButton}
-              labelStyle={styles.headerToggleButtonLabel}
-            >
-              Log In
-            </Button>
-            <Button
-              testID="industry-sp-signup-button"
-              mode="contained"
-              compact
-              buttonColor={colors.accent}
-              onPress={wrap(onRequestAuth)}
-              style={styles.headerButton}
-              labelStyle={styles.headerButtonLabel}
-            >
-              Sign Up
-            </Button>
-          </>
-        )}
-      </>
-    );
-  };
-
   return (
     <SafeAreaView testID="industry-sp-screen" style={styles.screen}>
-      <View style={styles.headerWrapper}>
-        <Appbar.Header style={styles.appbar}>
-          <Appbar.Content
-            title={
-              <View testID="industry-sp-title" style={styles.appbarTitleRow}>
-                <Text style={styles.appbarTitle}>BackBet</Text>
-                <View style={styles.appbarSyncIcon}>
-                  <Icon source="sync" size={16} color="white" />
-                </View>
-              </View>
-            }
-            subtitle={!isLoading ? `${totalRunners} runners · ${totalRaces} races` : undefined}
-            subtitleStyle={styles.appbarSubtitle}
-          />
-          {!isTablet && (
-            <Appbar.Action
-              testID="industry-sp-menu-button"
-              icon="menu"
-              color="white"
-              onPress={() => setNavMenuOpen(v => !v)}
-            />
-          )}
-        </Appbar.Header>
-        {isTablet ? (
-          <View testID="industry-sp-header-actions" style={styles.headerActionsRow}>
-            {renderHeaderActions(false)}
-          </View>
-        ) : (
-          navMenuOpen && (
-            <View testID="industry-sp-nav-menu" style={styles.navMenu}>
-              {renderHeaderActions(true)}
-            </View>
-          )
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        onRequestAuth={onRequestAuth}
+        subtitle={!isLoading ? `${totalRunners} runners · ${totalRaces} races` : undefined}
+        testIdPrefix="industry-sp"
+        extraActions={wrap => (
+          <>
+            <Button
+              testID="industry-sp-filters-toggle"
+              mode="outlined"
+              compact
+              onPress={wrap(() => setFiltersVisible(v => !v))}
+              style={styles.headerToggleButton}
+              labelStyle={styles.headerToggleButtonLabel}
+            >
+              {filtersVisible ? "Hide filters ▾" : "Show filters ▸"}
+            </Button>
+            <Button
+              testID="industry-sp-model-performance-button"
+              mode="outlined"
+              compact
+              onPress={wrap(loadModelPerformance)}
+              style={styles.headerToggleButton}
+              labelStyle={styles.headerToggleButtonLabel}
+            >
+              Model Performance
+            </Button>
+          </>
         )}
-      </View>
-
-      {isAuthenticated && showAccountPanel && (
-        <View testID="industry-sp-account-panel" style={styles.accountPanel}>
-          <Text style={styles.accountPanelText}>
-            {/* A phone-only or emailless-Google account has no email at
-                all — fall back to the phone number rather than showing
-                the "…" not-yet-loaded placeholder forever. */}
-            Signed in as {accountEmail ?? accountPhone ?? "…"}
-          </Text>
-          <Text style={styles.accountPanelStatus}>
-            {!accountEmail
-              ? ""
-              : emailVerified === true
-                ? "Email verified"
-                : emailVerified === false
-                  ? "Email not verified"
-                  : ""}
-          </Text>
-          <Button
-            testID="industry-sp-account-panel-close"
-            mode="text"
-            compact
-            onPress={() => setShowAccountPanel(false)}
-          >
-            Close
-          </Button>
-        </View>
-      )}
-
+      />
       {/*
         Deliberately outside the ScrollView below (like the Appbar) so it's
         immediately visible without scrolling on any viewport — the whole
@@ -2075,95 +1900,10 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
   },
-  headerWrapper: {
-    position: "relative",
-    zIndex: 10,
-  },
-  appbar: {
-    backgroundColor: colors.primary,
-    elevation: 4,
-  },
-  appbarTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 1,
-  },
-  // Row is center-aligned (appbarTitleRow), which already puts the icon
-  // very close to the text's vertical center — this nudges it down just a
-  // few px more so only the arrow's lower tip dips past the text baseline,
-  // not the whole glyph. Previous attempt used flex-end (aligns to the
-  // bottom of the full line box, well below the visible glyph) plus a
-  // further negative offset, which pushed the icon much too low.
-  appbarSyncIcon: {
-    marginTop: 5,
-  },
-  appbarTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  appbarSubtitle: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 11,
-  },
-  // Lives below the Appbar (not inside it) so the action buttons can wrap
-  // onto multiple lines on narrow viewports instead of overflowing/
-  // overlapping the fixed-height Appbar.Header and its title.
-  headerActionsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    backgroundColor: colors.primary,
-  },
-  // Phone-width burger dropdown (see the `!isTablet` branch in the header
-  // JSX) — anchored under the burger icon on the right, sized to its
-  // content rather than stretching edge-to-edge like a full-width bar
-  // (that was the previous version's look, before `alignItems: "stretch"`
-  // was replaced with "flex-end" here).
-  navMenu: {
-    position: "absolute",
-    top: "100%",
-    right: spacing.sm,
-    zIndex: 1000,
-    elevation: 8,
-    flexDirection: "column",
-    alignItems: "flex-end",
-    gap: 6,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-    marginTop: spacing.xs,
-    backgroundColor: colors.primary,
-    borderRadius: radii.md,
-    minWidth: 200,
-    maxWidth: 260,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-  },
-  navMenuDivider: {
-    alignSelf: "stretch",
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.25)",
-    marginVertical: 4,
-  },
-  headerButton: {
-    marginHorizontal: 3,
-    borderRadius: radii.md,
-  },
   headerButtonLabel: {
     fontSize: 11,
     fontWeight: "600",
   },
-  // Lives in the Appbar now (moved out of its own toolbar row below the
-  // header) — outlined in white to read against the dark primary-color
-  // header, same as headerButton's dark-background context but left
-  // uncolored (vs. headerButton's accent fill) so it doesn't visually
-  // compete with the "← Events" navigation action next to it.
   headerToggleButton: {
     marginHorizontal: 3,
     borderRadius: radii.md,
@@ -2524,28 +2264,5 @@ const styles = StyleSheet.create({
   verifyBannerActions: {
     flexDirection: "row",
     gap: spacing.sm,
-  },
-  accountPanel: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  accountPanelText: {
-    color: colors.primary,
-    fontWeight: "600",
-    flexShrink: 1,
-    fontSize: 13,
-  },
-  accountPanelStatus: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    flexShrink: 1,
   },
 });

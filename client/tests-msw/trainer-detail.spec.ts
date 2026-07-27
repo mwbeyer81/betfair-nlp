@@ -23,7 +23,7 @@ test.describe("Trainer Detail — tap-through from runner rows (MSW mocked)", ()
     await page.getByTestId("industry-sp-item-trainer-12347").click();
     await expect(page.getByTestId("trainer-detail-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("trainer-detail-back").click();
+    await page.getByTestId("trainer-detail-back-button").click();
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
   });
 
@@ -36,7 +36,7 @@ test.describe("Trainer Detail — tap-through from runner rows (MSW mocked)", ()
     await page.getByTestId("runner-detail-trainer-link").click();
     await expect(page.getByTestId("trainer-detail-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("trainer-detail-back").click();
+    await page.getByTestId("trainer-detail-back-button").click();
     await expect(page.getByTestId("runner-detail-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("/isp/runner");
   });

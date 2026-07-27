@@ -96,17 +96,17 @@ test.describe("Saved Results — full loop against seeded slice (real frontend +
   test("Results is reachable from every screen's nav", async ({ page }) => {
     await page.goto(`${APP_URL}events?email=matthew%40backbet.co.uk&password=beyer`);
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("events-screen-results-button").click();
+    await page.getByTestId("events-menu-results-link").click();
     await expect(page.getByTestId("saved-results-screen")).toBeVisible({ timeout: 10000 });
 
     await page.goto(`${APP_URL}chat?email=matthew%40backbet.co.uk&password=beyer`);
     await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("chat-screen-results-button").click();
+    await page.getByTestId("chat-menu-results-link").click();
     await expect(page.getByTestId("saved-results-screen")).toBeVisible({ timeout: 10000 });
 
     await page.goto(`${APP_URL}runners?email=matthew%40backbet.co.uk&password=beyer`);
     await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("all-runners-screen-results-button").click();
+    await page.getByTestId("all-runners-menu-results-link").click();
     await expect(page.getByTestId("saved-results-screen")).toBeVisible({ timeout: 10000 });
   });
 

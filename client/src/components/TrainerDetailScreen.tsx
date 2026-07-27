@@ -1,12 +1,18 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { View, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
-import { Text, Appbar, Button, ActivityIndicator } from "react-native-paper";
+import { Text, Button, ActivityIndicator } from "react-native-paper";
 import { chatApi, TrainerFormDoc, TrainerFormCategory } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { DateRangePicker } from "./DateRangePicker";
+import { AppHeader } from "./AppHeader";
+import type { Route } from "../hooks/useRouter";
 
 interface TrainerDetailScreenProps {
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
+  onLogout?: () => void;
+  onRequestAuth?: () => void;
   trainer: string;
   formCategory: TrainerFormCategory;
   onBack: () => void;
@@ -17,6 +23,10 @@ const ABSOLUTE_MIN_DATE = "2015-01-01";
 const ABSOLUTE_MAX_DATE = "2026-12-31";
 
 export const TrainerDetailScreen: React.FC<TrainerDetailScreenProps> = ({
+  navigate,
+  isAuthenticated,
+  onLogout,
+  onRequestAuth,
   trainer,
   formCategory,
   onBack,
@@ -60,25 +70,15 @@ export const TrainerDetailScreen: React.FC<TrainerDetailScreenProps> = ({
 
   return (
     <SafeAreaView testID="trainer-detail-screen" style={styles.screen}>
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content
-          title={trainer}
-          subtitle={`${formCategory} form`}
-          titleStyle={styles.appbarTitle}
-          subtitleStyle={styles.appbarSubtitle}
-        />
-        <Button
-          testID="trainer-detail-back"
-          mode="contained"
-          compact
-          buttonColor={colors.accent}
-          onPress={onBack}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          ← Back
-        </Button>
-      </Appbar.Header>
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        onRequestAuth={onRequestAuth}
+        onBack={onBack}
+        subtitle={`${trainer} · ${formCategory} form`}
+        testIdPrefix="trainer-detail"
+      />
 
       {isLoading && (
         <View testID="trainer-detail-loading" style={styles.centered}>
@@ -159,11 +159,6 @@ export const TrainerDetailScreen: React.FC<TrainerDetailScreenProps> = ({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  appbar: { backgroundColor: colors.primary, elevation: 4 },
-  appbarTitle: { color: "white", fontSize: 18, fontWeight: "700" },
-  appbarSubtitle: { color: "rgba(255,255,255,0.8)", fontSize: 11 },
-  headerButton: { marginHorizontal: 3, borderRadius: radii.md },
-  headerButtonLabel: { fontSize: 11, fontWeight: "600" },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl, gap: spacing.md },
   loadingText: { color: colors.textSecondary },
   errorText: { color: colors.danger, fontSize: 16 },

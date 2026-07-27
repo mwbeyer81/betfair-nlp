@@ -35,6 +35,9 @@ const meta: Meta<typeof RunnerDetailScreen> = {
   component: RunnerDetailScreen,
   parameters: { layout: "fullscreen", msw: { handlers: defaultHandlers } },
   args: {
+    navigate: fn(),
+    isAuthenticated: true,
+    onLogout: fn(),
     raceId: RACE_ID,
     runnerId: RUNNER_ID,
     onBack: fn(),
@@ -59,7 +62,7 @@ export const BackButtonCallsOnBack: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("runner-detail-list");
-    await userEvent.click(canvas.getByTestId("runner-detail-back"));
+    await userEvent.click(canvas.getByTestId("runner-detail-back-button"));
     await expect(args.onBack).toHaveBeenCalledTimes(1);
   },
 };

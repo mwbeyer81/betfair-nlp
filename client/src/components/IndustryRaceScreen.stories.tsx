@@ -38,6 +38,9 @@ const meta: Meta<typeof IndustryRaceScreen> = {
     msw: { handlers: defaultHandlers },
   },
   args: {
+    navigate: fn(),
+    isAuthenticated: true,
+    onLogout: fn(),
     raceId: RACE_ID,
     onNavigateToMeeting: fn(),
     onNavigateToIsp: fn(),
@@ -83,7 +86,7 @@ export const BackButtonNavigatesToMeeting: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-race-list");
-    await userEvent.click(canvas.getByTestId("industry-race-back"));
+    await userEvent.click(canvas.getByTestId("industry-race-back-button"));
     await expect(args.onNavigateToMeeting).toHaveBeenCalledWith(MOCK_RACE.meetingId);
   },
 };

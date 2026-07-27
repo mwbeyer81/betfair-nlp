@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, TextInput as RNTextInput, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
-import { Text, Appbar, Button, Chip, Checkbox, ActivityIndicator } from "react-native-paper";
+import { Text, Button, Chip, Checkbox, ActivityIndicator } from "react-native-paper";
 import { chatApi, IspRace, IspFilterBounds } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { DateRangePicker } from "./DateRangePicker";
+import { AppHeader } from "./AppHeader";
+import type { Route } from "../hooks/useRouter";
 import {
   formatGbp,
   formatPnl,
@@ -22,6 +24,10 @@ const ABSOLUTE_MIN_DATE = "2015-01-01";
 const ABSOLUTE_MAX_DATE = "2026-12-31";
 
 interface RunnerHistoryScreenProps {
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
+  onLogout?: () => void;
+  onRequestAuth?: () => void;
   runnerName: string;
   onBack: () => void;
   onNavigateToRunner: (raceId: number, runnerId: number) => void;
@@ -35,6 +41,10 @@ interface RunnerHistoryScreenProps {
 // mean touching an already-stable, fully-tested screen for a filter set
 // that's a strict subset here anyway.
 export const RunnerHistoryScreen: React.FC<RunnerHistoryScreenProps> = ({
+  navigate,
+  isAuthenticated,
+  onLogout,
+  onRequestAuth,
   runnerName,
   onBack,
   onNavigateToRunner,
@@ -218,25 +228,15 @@ export const RunnerHistoryScreen: React.FC<RunnerHistoryScreenProps> = ({
 
   return (
     <SafeAreaView testID="runner-history-screen" style={styles.screen}>
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content
-          title={runnerName}
-          subtitle="Runner History"
-          titleStyle={styles.appbarTitle}
-          subtitleStyle={styles.appbarSubtitle}
-        />
-        <Button
-          testID="runner-history-back"
-          mode="contained"
-          compact
-          buttonColor={colors.accent}
-          onPress={onBack}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          ← Back
-        </Button>
-      </Appbar.Header>
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        onRequestAuth={onRequestAuth}
+        onBack={onBack}
+        subtitle={`${runnerName} · Runner History`}
+        testIdPrefix="runner-history"
+      />
 
       <View testID="runner-history-filter-bar" style={styles.filterBar}>
         {renderChipRow("Course", "course", availableCourses, draftSelectedCourses, setDraftSelectedCourses)}
@@ -369,11 +369,6 @@ export const RunnerHistoryScreen: React.FC<RunnerHistoryScreenProps> = ({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  appbar: { backgroundColor: colors.primary, elevation: 4 },
-  appbarTitle: { color: "white", fontSize: 18, fontWeight: "700" },
-  appbarSubtitle: { color: "rgba(255,255,255,0.8)", fontSize: 11 },
-  headerButton: { marginHorizontal: 3, borderRadius: radii.md },
-  headerButtonLabel: { fontSize: 11, fontWeight: "600" },
   filterBar: {
     backgroundColor: colors.surface,
     borderBottomWidth: 1,

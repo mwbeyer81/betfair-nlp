@@ -48,6 +48,9 @@ const meta: Meta<typeof RunnerHistoryScreen> = {
   component: RunnerHistoryScreen,
   parameters: { layout: "fullscreen", msw: { handlers: defaultHandlers } },
   args: {
+    navigate: fn(),
+    isAuthenticated: true,
+    onLogout: fn(),
     runnerName: RUNNER_NAME,
     onBack: fn(),
     onNavigateToRunner: fn(),
@@ -68,7 +71,7 @@ export const BackButtonCallsOnBack: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("runner-history-list");
-    await userEvent.click(canvas.getByTestId("runner-history-back"));
+    await userEvent.click(canvas.getByTestId("runner-history-back-button"));
     await expect(args.onBack).toHaveBeenCalledTimes(1);
   },
 };

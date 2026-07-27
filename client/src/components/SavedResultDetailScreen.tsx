@@ -4,16 +4,28 @@ import { Text, Button, ActivityIndicator } from "react-native-paper";
 import { chatApi, SavedFilterSet } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
+import { AppHeader } from "./AppHeader";
 import { buildFilterSummaryFromParams } from "../utils/ispFormat";
 import { colors, spacing } from "../theme";
+import type { Route } from "../hooks/useRouter";
 
 interface SavedResultDetailScreenProps {
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
+  onLogout?: () => void;
   id: string;
   onBack: () => void;
   onRestore: (filters: Record<string, string>) => void;
 }
 
-export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = ({ id, onBack, onRestore }) => {
+export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = ({
+  navigate,
+  isAuthenticated,
+  onLogout,
+  id,
+  onBack,
+  onRestore,
+}) => {
   const [result, setResult] = useState<SavedFilterSet | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +58,14 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
 
   return (
     <SafeAreaView testID="saved-result-detail-screen" style={styles.screen}>
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        onBack={onBack}
+        subtitle={result?.name ?? "Result"}
+        testIdPrefix="saved-result-detail"
+      />
       {loading && (
         <View testID="saved-result-detail-loading" style={styles.centered}>
           <ActivityIndicator size="large" animating color={colors.primary} />

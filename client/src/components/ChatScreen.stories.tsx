@@ -82,8 +82,8 @@ const meta: Meta<typeof ChatScreen> = {
     ),
   ],
   args: {
-    onNavigateToEvents: fn(),
-    onNavigateToResults: fn(),
+    navigate: fn(),
+    isAuthenticated: true,
     onLogout: fn(),
   },
 };
@@ -97,10 +97,10 @@ export const EventsButtonNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
 
-    const eventsBtn = canvas.getByTestId("events-button");
+    const eventsBtn = canvas.getByTestId("chat-menu-events-link");
     await expect(eventsBtn).toBeInTheDocument();
     await userEvent.click(eventsBtn);
-    await expect(args.onNavigateToEvents).toHaveBeenCalledTimes(1);
+    await expect(args.navigate).toHaveBeenCalledWith("/events");
   },
 };
 
@@ -108,10 +108,10 @@ export const ResultsButtonNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
 
-    const resultsBtn = canvas.getByTestId("chat-screen-results-button");
+    const resultsBtn = canvas.getByTestId("chat-menu-results-link");
     await expect(resultsBtn).toBeInTheDocument();
     await userEvent.click(resultsBtn);
-    await expect(args.onNavigateToResults).toHaveBeenCalledTimes(1);
+    await expect(args.navigate).toHaveBeenCalledWith("/results");
   },
 };
 

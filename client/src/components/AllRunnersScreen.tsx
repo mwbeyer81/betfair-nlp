@@ -9,7 +9,6 @@ import {
 } from "react-native";
 import {
   Text,
-  Appbar,
   Button,
   Chip,
   ActivityIndicator,
@@ -20,13 +19,14 @@ import {
 import { chatApi, RaceWithEvent, Runner, PnlStats, RunnerFilterBounds } from "../services/chatApi";
 import { exportToCsv, exportToXlsx } from "../utils/exportRunners";
 import { PageContainer } from "./PageContainer";
-import { HeaderActionsContainer } from "./HeaderActionsContainer";
-import { useHeaderMenu } from "../utils/useHeaderMenu";
+import { AppHeader } from "./AppHeader";
 import { colors, statusPill, radii, spacing } from "../theme";
+import type { Route } from "../hooks/useRouter";
 
 interface AllRunnersScreenProps {
-  onNavigateToEvents: () => void;
-  onNavigateToResults: () => void;
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
+  onLogout?: () => void;
 }
 
 function stakeToWin1(bsp: number): number {
@@ -93,8 +93,9 @@ function formatRaceDate(isoTime: string): string {
 }
 
 export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
-  onNavigateToEvents,
-  onNavigateToResults,
+  navigate,
+  isAuthenticated,
+  onLogout,
 }) => {
   const [races, setRaces] = useState<RaceWithEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -127,7 +128,6 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const [filterBounds, setFilterBounds] = useState<RunnerFilterBounds | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const { isTablet, open: menuOpen, setOpen: setMenuOpen, wrap } = useHeaderMenu();
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const PAGE_SIZE = 20;
 
@@ -248,78 +248,46 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
 
   return (
     <SafeAreaView testID="all-runners-screen" style={styles.screen}>
-      <View style={styles.headerWrapper}>
-        <Appbar.Header style={styles.appbar}>
-          <Appbar.Content
-            title="All Runners"
-            subtitle={!isLoading ? `${visibleRunners}/${totalRunners} runners · ${displayRaces.length}/${totalRaces} races` : undefined}
-            titleStyle={styles.appbarTitle}
-            subtitleStyle={styles.appbarSubtitle}
-          />
-          {!isTablet && (
-            <Appbar.Action
-              testID="all-runners-menu-button"
-              icon="menu"
-              color="white"
-              onPress={() => setMenuOpen(v => !v)}
-            />
-          )}
-        </Appbar.Header>
-        <HeaderActionsContainer
-          isTablet={isTablet}
-          open={menuOpen}
-          inlineTestId="all-runners-header-actions"
-          menuTestId="all-runners-nav-menu"
-        >
-          <Button
-            testID="all-runners-sort-toggle"
-            mode="contained-tonal"
-            compact
-            onPress={wrap(() => setSortOrder(o => o === "asc" ? "desc" : "asc"))}
-            style={styles.headerButton}
-            labelStyle={styles.headerButtonLabel}
-          >
-            {sortOrder === "asc" ? "First → Last" : "Last → First"}
-          </Button>
-          {!isLoading && displayRaces.length > 0 && (
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        subtitle={
+          !isLoading
+            ? `All Runners · ${visibleRunners}/${totalRunners} runners · ${displayRaces.length}/${totalRaces} races`
+            : "All Runners"
+        }
+        testIdPrefix="all-runners"
+        extraActions={wrap => (
+          <>
             <Button
-              testID="all-runners-export-btn"
-              mode="contained"
+              testID="all-runners-sort-toggle"
+              mode="outlined"
               compact
-              buttonColor={colors.success}
-              onPress={wrap(() => !isExporting && setShowExportModal(true))}
-              disabled={isExporting}
+              onPress={wrap(() => setSortOrder(o => o === "asc" ? "desc" : "asc"))}
               style={styles.headerButton}
               labelStyle={styles.headerButtonLabel}
-              loading={isExporting}
             >
-              Export
+              {sortOrder === "asc" ? "First → Last" : "Last → First"}
             </Button>
-          )}
-          <Button
-            testID="all-runners-screen-events-button"
-            mode="contained"
-            compact
-            buttonColor={colors.accent}
-            onPress={wrap(onNavigateToEvents)}
-            style={styles.headerButton}
-            labelStyle={styles.headerButtonLabel}
-          >
-            ← Events
-          </Button>
-          <Button
-            testID="all-runners-screen-results-button"
-            mode="contained"
-            compact
-            buttonColor={colors.accent}
-            onPress={wrap(onNavigateToResults)}
-            style={styles.headerButton}
-            labelStyle={styles.headerButtonLabel}
-          >
-            Results →
-          </Button>
-        </HeaderActionsContainer>
-      </View>
+            {!isLoading && displayRaces.length > 0 && (
+              <Button
+                testID="all-runners-export-btn"
+                mode="contained"
+                compact
+                buttonColor={colors.success}
+                onPress={wrap(() => !isExporting && setShowExportModal(true))}
+                disabled={isExporting}
+                style={styles.headerButton}
+                labelStyle={styles.headerButtonLabel}
+                loading={isExporting}
+              >
+                Export
+              </Button>
+            )}
+          </>
+        )}
+      />
 
       {/* Filter bar — kept as custom for density */}
       <PageContainer maxWidth={1200}>
@@ -724,23 +692,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  headerWrapper: {
-    position: "relative",
-    zIndex: 10,
-  },
-  appbar: {
-    backgroundColor: colors.primary,
-    elevation: 4,
-  },
-  appbarTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  appbarSubtitle: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 11,
   },
   headerButton: {
     marginHorizontal: 3,

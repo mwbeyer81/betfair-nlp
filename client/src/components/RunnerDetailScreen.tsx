@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
-import { Text, Appbar, Button, ActivityIndicator } from "react-native-paper";
+import { Text, Button, ActivityIndicator } from "react-native-paper";
 import { chatApi, IspRace, IspRunner } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
+import { AppHeader } from "./AppHeader";
+import type { Route } from "../hooks/useRouter";
 import {
   stakeToWin1,
   formatGbp,
@@ -20,6 +22,10 @@ import {
 } from "../utils/ispFormat";
 
 interface RunnerDetailScreenProps {
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
+  onLogout?: () => void;
+  onRequestAuth?: () => void;
   raceId: number;
   runnerId: number;
   onBack: () => void;
@@ -37,6 +43,10 @@ function DetailRow({ label, value, testID }: { label: string; value: string; tes
 }
 
 export const RunnerDetailScreen: React.FC<RunnerDetailScreenProps> = ({
+  navigate,
+  isAuthenticated,
+  onLogout,
+  onRequestAuth,
   raceId,
   runnerId,
   onBack,
@@ -70,25 +80,19 @@ export const RunnerDetailScreen: React.FC<RunnerDetailScreenProps> = ({
 
   return (
     <SafeAreaView testID="runner-detail-screen" style={styles.screen}>
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content
-          title={runner ? runner.name : "Runner"}
-          subtitle={race ? `${race.course} · ${formatRaceDate(race.raceTime)}` : undefined}
-          titleStyle={styles.appbarTitle}
-          subtitleStyle={styles.appbarSubtitle}
-        />
-        <Button
-          testID="runner-detail-back"
-          mode="contained"
-          compact
-          buttonColor={colors.accent}
-          onPress={onBack}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          ← Back
-        </Button>
-      </Appbar.Header>
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        onRequestAuth={onRequestAuth}
+        onBack={onBack}
+        subtitle={
+          runner
+            ? `${runner.name}${race ? ` · ${race.course} · ${formatRaceDate(race.raceTime)}` : ""}`
+            : "Runner"
+        }
+        testIdPrefix="runner-detail"
+      />
 
       {isLoading && (
         <View testID="runner-detail-loading" style={styles.centered}>
@@ -218,11 +222,6 @@ export const RunnerDetailScreen: React.FC<RunnerDetailScreenProps> = ({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  appbar: { backgroundColor: colors.primary, elevation: 4 },
-  appbarTitle: { color: "white", fontSize: 18, fontWeight: "700" },
-  appbarSubtitle: { color: "rgba(255,255,255,0.8)", fontSize: 11 },
-  headerButton: { marginHorizontal: 3, borderRadius: radii.md },
-  headerButtonLabel: { fontSize: 11, fontWeight: "600" },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl, gap: spacing.md },
   loadingText: { color: colors.textSecondary },
   errorText: { color: colors.danger, fontSize: 16 },

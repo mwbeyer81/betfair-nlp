@@ -34,6 +34,9 @@ const meta: Meta<typeof TrainerDetailScreen> = {
   component: TrainerDetailScreen,
   parameters: { layout: "fullscreen", msw: { handlers: defaultHandlers } },
   args: {
+    navigate: fn(),
+    isAuthenticated: true,
+    onLogout: fn(),
     trainer: "W P Mullins",
     formCategory: "Flat",
     onBack: fn(),
@@ -57,7 +60,7 @@ export const BackButtonCallsOnBack: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("trainer-detail-list");
-    await userEvent.click(canvas.getByTestId("trainer-detail-back"));
+    await userEvent.click(canvas.getByTestId("trainer-detail-back-button"));
     await expect(args.onBack).toHaveBeenCalledTimes(1);
   },
 };

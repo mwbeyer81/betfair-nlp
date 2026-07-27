@@ -80,6 +80,9 @@ const meta: Meta<typeof IspRacesScreen> = {
     msw: { handlers: defaultHandlers },
   },
   args: {
+    navigate: fn(),
+    isAuthenticated: true,
+    onLogout: fn(),
     onBack: fn(),
     onNavigateToMeeting: fn(),
     onNavigateToRace: fn(),
@@ -154,7 +157,9 @@ export const ScreenLoaded: Story = {
 
     await expect(canvas.getByTestId("industry-sp-races-screen")).toBeInTheDocument();
     await expect(canvas.findByTestId("industry-sp-list")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("Races")).resolves.toBeInTheDocument();
+    // "Races" (plus counts) is now folded into the AppHeader subtitle
+    // rather than being its own Appbar title.
+    await expect(canvas.findByText(/Races/)).resolves.toBeInTheDocument();
   },
 };
 
@@ -163,8 +168,8 @@ export const BackButtonCallsOnBack: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    const btn = canvas.getByTestId("industry-sp-races-back");
-    await expect(btn).toHaveTextContent("Filters");
+    const btn = canvas.getByTestId("industry-sp-races-back-button");
+    await expect(btn).toBeInTheDocument();
     await userEvent.click(btn);
     await expect(args.onBack).toHaveBeenCalledTimes(1);
   },

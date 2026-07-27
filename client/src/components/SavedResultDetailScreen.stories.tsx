@@ -29,6 +29,9 @@ const meta: Meta<typeof SavedResultDetailScreen> = {
   component: SavedResultDetailScreen,
   parameters: { layout: "fullscreen", msw: { handlers: defaultHandlers } },
   args: {
+    navigate: fn(),
+    isAuthenticated: true,
+    onLogout: fn(),
     id: "result-1",
     onBack: fn(),
     onRestore: fn(),
@@ -42,6 +45,16 @@ export const PanelVisible: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.findByTestId("saved-result-detail-screen")).resolves.toBeInTheDocument();
+  },
+};
+
+// This screen previously had no header at all — now it shares the standard
+// AppHeader (BackBet branding + back arrow) like every other screen.
+export const HeaderRenders: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("saved-result-detail-title")).resolves.toHaveTextContent("BackBet");
+    await expect(canvas.getByTestId("saved-result-detail-back-button")).toBeInTheDocument();
   },
 };
 

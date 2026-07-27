@@ -210,14 +210,11 @@ const meta: Meta<typeof IndustrySpScreen> = {
     // anonymous-access cap existed) keep seeing the same "no banner, Log
     // Out button" chrome they always have — stories specifically about
     // the anonymous state override isAuthenticated: false below.
+    navigate: fn(),
     isAuthenticated: true,
     onRequestAuth: fn(),
     onLogout: fn(),
     onViewRaces: fn(),
-    onNavigateToChat: fn(),
-    onNavigateToEvents: fn(),
-    onNavigateToRunners: fn(),
-    onNavigateToResults: fn(),
   },
 };
 
@@ -377,14 +374,14 @@ export const DefaultSplitsAreHalfAndHalf: Story = {
 export const ResultsLinkCallsOnNavigateToResults: Story = {
   // A fresh mock, not meta.args' shared instance — see the comment on
   // LogOutButtonCallsOnLogout below for why.
-  args: { onNavigateToResults: fn() },
+  args: { navigate: fn() },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
 
     const btn = canvas.getByTestId("industry-sp-menu-results-link");
     await expect(btn).toBeInTheDocument();
     await userEvent.click(btn);
-    await expect(args.onNavigateToResults).toHaveBeenCalledTimes(1);
+    await expect(args.navigate).toHaveBeenCalledWith("/results");
   },
 };
 

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
-import { Text, Appbar, Button, ActivityIndicator } from "react-native-paper";
+import { Text, Button, ActivityIndicator } from "react-native-paper";
 import { chatApi, IspRace, IspRunner } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
+import { AppHeader } from "./AppHeader";
+import type { Route } from "../hooks/useRouter";
 import {
   stakeToWin1,
   formatGbp,
@@ -21,6 +23,10 @@ import {
 } from "../utils/ispFormat";
 
 interface IndustryMeetingScreenProps {
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
+  onLogout?: () => void;
+  onRequestAuth?: () => void;
   meetingId: string;
   onBack: () => void;
   onNavigateToRace: (raceId: number) => void;
@@ -29,6 +35,10 @@ interface IndustryMeetingScreenProps {
 }
 
 export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
+  navigate,
+  isAuthenticated,
+  onLogout,
+  onRequestAuth,
   meetingId,
   onBack,
   onNavigateToRace,
@@ -61,25 +71,19 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
 
   return (
     <SafeAreaView testID="industry-meeting-screen" style={styles.screen}>
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content
-          title={meetingName || "Meeting"}
-          subtitle={!isLoading ? `${races.length} races · ${totalRunners} runners` : undefined}
-          titleStyle={styles.appbarTitle}
-          subtitleStyle={styles.appbarSubtitle}
-        />
-        <Button
-          testID="industry-meeting-back"
-          mode="contained"
-          compact
-          buttonColor={colors.accent}
-          onPress={onBack}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          ← Industry SP
-        </Button>
-      </Appbar.Header>
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        onRequestAuth={onRequestAuth}
+        onBack={onBack}
+        subtitle={
+          !isLoading
+            ? `${meetingName || "Meeting"} · ${races.length} races · ${totalRunners} runners`
+            : meetingName || "Meeting"
+        }
+        testIdPrefix="industry-meeting"
+      />
 
       <View testID="industry-meeting-toolbar" style={styles.toolbar}>
         <Button
@@ -243,27 +247,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  appbar: {
-    backgroundColor: colors.primary,
-    elevation: 4,
-  },
-  appbarTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  appbarSubtitle: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 11,
-  },
-  headerButton: {
-    marginHorizontal: 3,
-    borderRadius: radii.md,
-  },
-  headerButtonLabel: {
-    fontSize: 11,
-    fontWeight: "600",
   },
   toolbar: {
     flexDirection: "row",
