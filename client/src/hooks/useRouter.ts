@@ -12,7 +12,11 @@ export type Route =
   | "/isp/runner/history"
   | "/isp/trainer"
   | "/results"
-  | "/results/detail";
+  | "/results/detail"
+  | "/daily-races"
+  | "/daily-races/event"
+  | "/daily-races/race"
+  | "/daily-races/runner";
 
 const STATIC_ROUTES = [
   "/events",
@@ -27,6 +31,10 @@ const STATIC_ROUTES = [
   "/isp/trainer",
   "/results",
   "/results/detail",
+  "/daily-races",
+  "/daily-races/event",
+  "/daily-races/race",
+  "/daily-races/runner",
 ];
 
 function pathToRoute(path: string): Route {

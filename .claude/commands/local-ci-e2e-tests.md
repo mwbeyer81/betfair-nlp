@@ -36,6 +36,15 @@ alongside a developer's normal local session without any collision. If a
 port is already in use, the script aborts with an error naming it rather
 than silently picking another (the test specs hardcode these ports).
 
+Overridable via `LOCAL_CI_MONGO_PORT`/`LOCAL_CI_BACKEND_PORT`/`LOCAL_CI_FRONTEND_PORT`
+env vars (defaults unchanged) if you need two worktrees running this suite
+at the same time — see `/worktree-ports`. Note this only moves the
+server-side ports; the spec files under `client/tests-local-ci/` still
+hardcode `localhost:3050`/`localhost:8090` in their requests/`page.goto`
+calls, so a fully isolated concurrent run also needs those literals updated
+to match — not done today, since every existing spec already hardcodes them
+this way.
+
 ### Seeded data
 
 `data/kaggle-horse-racing-uk-ireland/extracted/mini-update.csv`, restricted
@@ -51,6 +60,14 @@ against the raw CSV row, not assumed. Note `data/` itself is gitignored (as
 it already was before this suite existed) — the CSV must already be present
 on whatever machine runs this, same as every other seeding path in this repo.
 
+Also seeded: a Daily Races fixture (`src/lib/dao/__fixtures__/daily-racecards-free-response.json`,
+a hand-written realistic `/v1/racecards/free` shape, never the real live
+RacingAPI) via `src/commands/seed-daily-races-fixture.ts` — 5 races across 3
+courses on the same 2026-06-03 date: **Newton Abbot** (`rac_test_0001`,
+2 runners including "Fixture Star"/trainer "A Trainer"; `rac_test_0002`, 1
+runner), **Ascot** (`rac_test_0003`, `rac_test_0004`), **Chepstow**
+(`rac_test_0005`).
+
 The test user is inserted directly via `scripts/seed-local-ci-user.ts`
 (bcrypt hash, `emailVerified: true`) — bypassing real signup entirely. This
 is only safe/acceptable because the target DB is destroyed and rebuilt on
@@ -61,8 +78,8 @@ deliberately avoided elsewhere in this codebase (see the comment in
 ### Where to look when a run fails
 
 Logs land in `.local-ci/logs/` (git-ignored, wiped at the start of the next
-run): `mongod.log`, `seed-csv.log`, `backend.log`, `frontend-build.log`,
-`frontend.log`.
+run): `mongod.log`, `seed-csv.log`, `seed-daily-races.log`, `backend.log`,
+`frontend-build.log`, `frontend.log`.
 
 ### Troubleshooting: "port already in use"
 

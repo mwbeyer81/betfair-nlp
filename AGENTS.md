@@ -133,18 +133,26 @@ tiebreaker.
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | **stale, do not merge as-is** — checked 2026-07-27: this branch diverges from `origin/develop` by ~29k deleted lines (missing saved-results, model-performance dashboard, social-auth, and more — branched from a very old point, not intentional deletions). Its only real uncommitted work is small (`LogoMark.tsx` + 2 SVG assets under `client/assets/logo/`, a FontAwesome-based logo mark, plus an `App.tsx` diff wiring it in) — worth salvaging by hand into a fresh worktree if the FontAwesome-icon logo direction is still wanted, but do not merge/rebase this branch wholesale. Superseded for the "consistent header" goal by `feat/unified-header` below (plain-text "BackBet" + sync-icon wordmark, not a FontAweome logo image) — pick this up only if the user wants the logo image, not the burger-menu-consistency problem, which is now solved. |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **done** — merged to `develop`, deployed (Lambda + web), live-verified on prod; worktree can be removed |
-| `~/betfair-nlp-ai-training-battery` | `feat/ai-training-battery` | **Recovered from a session that died mid-task** (killed process, no `AGENTS.md` entry ever written — found via a Claude memory/session search, not a live agent). Task: after each XGBoost retrain, run the new model against a fixed, curated battery of filter combinations (not a replay of user data) and persist each as a `saved_filter_sets` result flagged `createdBy: "agent"` (an "AI Training" badge, no delete button) — extends `feat/saved-results` above rather than `model_evaluations`/`ModelPerformanceDashboard`. Plan: `/home/ubuntu/.claude/plans/sequential-cuddling-cerf.md`. Substantial uncommitted work found matching the plan (backend route/DAO/service, frontend badge, ML battery runner, partial tests) — resuming to finish it. **Touches `src/lib/dao/saved-filter-set-dao.ts`/`-service.ts`/`router.ts`/`SavedResultsListScreen.tsx`/`ml/train_and_predict.py`** — also watch `~/betfair-nlp-advanced-filters` (undocumented, in progress, touching `industry-sp-dao.ts`/`industry-sp-service.ts`, which this feature's split-resolution calls into). | in progress |
+| `~/betfair-nlp-ai-training-battery` | `feat/ai-training-battery` | **Recovered from a session that died mid-task** (killed process, no `AGENTS.md` entry ever written — found via a Claude memory/session search, not a live agent). Task: after each XGBoost retrain, run the new model against a fixed, curated battery of filter combinations (not a replay of user data) and persist each as a `saved_filter_sets` result flagged `createdBy: "agent"` (an "AI Training" badge, no delete button) — extends `feat/saved-results` above rather than `model_evaluations`/`ModelPerformanceDashboard`. Plan: `/home/ubuntu/.claude/plans/sequential-cuddling-cerf.md`. **Done** — the recovered work already matched the plan file-for-file; audited, verified (full test suite + a real Python→HTTP→Mongo smoke test), merged (real conflict in `SavedResultsListScreen.stories.tsx` against `results-white-screen` below — both added new stories after the same point, kept both), committed as `4661e89`. See dated entry below. | done — merged, not yet deployed |
+| `~/betfair-nlp-results-white-screen` | `fix/results-white-screen` | Prod bug: clicking Results showed a blank white screen for a legacy (pre-Split-A/B) saved result — see dated entry below | done, verified, committing/deploying now |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
 `local-ci-e2e-tests`, `model-perf-filters`, `convergence-filters-summary`,
-and `saved-results-splits` were merged, clean, and have been removed (`git worktree remove` +
-`git branch -d`, local and remote where applicable) as of 2026-07-25/26 —
-this is what "clean up after merge" in the section above looks like in
-practice. `codebase-search-chat` was merged, pushed, and deployed (both
-Lambda and web). `local-ci-e2e-tests` was docs/test-infra only (no
-`src/`/`client/src/` changes), so no deploy was needed — merged to
-`develop` and pushed straight through.
+`saved-results-splits`, and `daily-races` were merged, clean, and have been
+removed (`git worktree remove` + `git branch -d`, local and remote where
+applicable) as of 2026-07-25/27 — this is what "clean up after merge" in
+the section above looks like in practice. `codebase-search-chat` was
+merged, pushed, and deployed (both Lambda and web). `local-ci-e2e-tests`
+was docs/test-infra only (no `src/`/`client/src/` changes), so no deploy
+was needed — merged to `develop` and pushed straight through. `daily-races`
+(new RacingAPI-backed Daily Races feature + general-purpose worktree
+port-allocation skill, full plan:
+`/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`) was
+merged, deployed (Lambda `b215c78`-era code + web `develop@ca87d75`), and
+live-verified against production (`client/tests-live/daily-races-live.spec.ts`
+passes against the real deployed app — burger menu → Daily Races screen
+loads with no error state).
 
 Older entries (2026-07-17 through the `auth-hardening` session) have been
 moved to `AGENTS-archive-2026-07.md` to keep this file readable — see there
@@ -3187,3 +3195,173 @@ enough.
 
 Worktree removed, branch deleted (local + remote via the
 `push origin ...:develop` above) — nothing left in progress.
+
+---
+
+## 2026-07-27 (later) — Agent in `~/betfair-nlp-results-white-screen` (branch `fix/results-white-screen`)
+
+**Task:** User reported clicking "Results" on prod showed a blank white
+screen — the exact production-data risk flagged (but left to the user to
+resolve manually) at the end of the `saved-results-splits` entry above.
+
+**Root cause, confirmed twice — locally via MSW, then against the real
+deployed bundle:** `SavedResultsListScreen.combinedPnlStats()` read
+`result.splitA.pnlStats`/`result.splitB.pnlStats` with no guard. Any
+`saved_filter_sets` document created before the Split A/B schema change has
+neither field at all (the old shape stored one flat `pnlStats`/
+`graphPoints` instead) — nothing migrates old documents on deploy, and the
+user's own 2 pre-existing saved results were exactly this shape. Reading
+`.pnlStats` off `undefined` threw mid-render; **this app has no error
+boundary anywhere** (confirmed via grep), so React unmounted the entire
+tree instead of just the one bad card — a blank white screen, not a caught
+error, exactly as reported.
+
+**New skill added: `.claude/commands/prod-repro-scripts.md`** — a new
+category of test script, distinct from every existing one (`tests-msw`/
+Storybook = repeatable CI-style regression, `tests-live` = repeatable
+live-environment regression, `tests-local-ci` = repeatable throwaway-stack
+regression). A prod-repro script is **run once**, points at the real
+deployed `app.backbet.co.uk` (never localhost, never a fresh local build),
+and exists purely to prove a specific reported bug is present in the
+bundle that's live *right now* — kept afterward as a historical record,
+not maintained or re-run routinely. New
+`client/playwright.prod-repro.config.ts` (baseURL = prod, no `webServer`
+block — nothing to start, the target is already live) and
+`client/scripts/prod-repro/results-white-screen-2026-07-27.spec.ts`, which
+reproduced this exact bug against production via `page.route()`
+interception (no real credentials or data touched — a locally-set fake
+JWT plus a mocked `/api/saved-filter-sets` response was enough to prove
+the *deployed* code crashes on a legacy-shaped doc). Ran before any fix
+landed and failed exactly as expected
+(`getByTestId('saved-results-screen')` → `<element(s) not found>` after
+loading resolved) — that failure is the confirmation this bug is real in
+prod, not just in theory.
+
+**Fix:** `chatApi.ts`'s `SavedFilterSet.splitA`/`splitB` are now optional
+(honestly reflecting that a real API response can lack them, not a
+"just in case" guard). `SavedResultsListScreen.tsx` gained
+`isLegacyResult()` — a legacy doc now renders a degraded, delete-only card
+("Saved before this app's Split A/B update — delete and re-save to see it
+here") instead of crashing, and normal results next to it are unaffected.
+`SavedResultDetailScreen.tsx` got the equivalent guard for direct
+navigation to a legacy result's URL. No backend touched at all — this was
+purely a frontend robustness gap.
+
+**Test-writing gotcha:** the first version of the permanent MSW regression
+test asserted `saved-results-screen` visible immediately after `page.goto()`
+— trivially passed on the loading spinner, before the fetch resolves and
+the crash (or, post-fix, the degraded card) would actually render. Had to
+wait for `saved-results-loading` to clear first, **then** re-check the
+screen was still there — same lesson as the temp repro script, worth
+remembering for any test asserting "the page didn't crash."
+
+**Verified:** `yarn build` clean. Storybook:
+`SavedResultsListScreen.stories.tsx`/`SavedResultDetailScreen.stories.tsx`
+both fully pass (2 new legacy-doc stories); full suite otherwise 311/316 —
+same 5 pre-existing failures documented throughout this file. `yarn
+test:msw`: 190/190, including 3 new regression tests in
+`saved-results.spec.ts` (degraded card + delete, mixed legacy/normal
+results, direct-navigation to a legacy detail URL).
+
+**Done — committed (`c7e91c6`), pushed directly to `develop`, deployed via
+`apps/web/deploy.sh` (frontend-only, no Lambda change) — confirmed live at
+`build-commit=c7e91c6` on app.backbet.co.uk. Re-ran
+`client/scripts/prod-repro/results-white-screen-2026-07-27.spec.ts`
+against the now-live site (`playwright.prod-repro.config.ts`, real
+`app.backbet.co.uk`, same interception as before) — passes, closing the
+loop the skill describes: the same script that proved the bug was live
+now proves the fix is live too. Worktree removed, branch deleted (local +
+remote via the `push origin ...:develop` above) — nothing left in
+progress.**
+
+---
+
+## 2026-07-27 (later) — Agent in `~/betfair-nlp-ai-training-battery` (branch `feat/ai-training-battery`), recovering a dead session's work
+
+**Task:** the user reported losing an agent mid-task and asked me to find
+it. Searched `AGENTS.md` (no entry — the session died before it could
+write one) and `git worktree list`, found this worktree already existed
+on branch `feat/ai-training-battery` with substantial uncommitted changes
+but no feature commit yet. Found the actual plan via a memory/session
+search — grepped `~/.claude/plans/*.md` for related keywords and matched
+`sequential-cuddling-cerf.md` ("AI Training Battery Results"), then
+identified the source session itself (`3f832020-b93a-4c4d-9d18-a3d32764e8b1`,
+named "training results" via `custom-title`/`agent-name` records in its
+own transcript) by grepping `~/.claude/projects/-home-ubuntu-betfair-nlp/*.jsonl`
+for the plan filename — its transcript ends on a bare `Exit code 144` tool
+result with no further turns, confirming a hard kill, not a normal
+completion.
+
+**Task, per the recovered plan:** after each XGBoost retrain, run the new
+model against a fixed, curated battery of filter combinations (not a
+replay of any user's own saved filters) and persist each as a
+`saved_filter_sets` result flagged `createdBy: "agent"`, extending
+`feat/saved-results` (merged/deployed earlier — see above) rather than
+`model_evaluations`/`ModelPerformanceDashboard`.
+
+**Audit before touching anything:** read every file in the existing diff
+against the plan section-by-section (DAO, service, router, config,
+`chatApi.ts`, `SavedResultsListScreen.tsx`, `ml/train_and_predict.py`, and
+all 4 planned test tiers — DAO integration, Supertest, Storybook, ML
+`unittest`). Found it already matched the plan closely and correctly,
+including already being built on top of `feat/saved-results-splits`'s
+Split A/B schema (merged after the session died, so the recovered work
+correctly used `splitA`/`splitB`, not the older flat `pnlStats`/
+`graphPoints` shape) — nothing needed rewriting, only verifying.
+
+**Verified, nothing missing:**
+- `yarn build` (client) clean.
+- Full backend `npx jest`: same 6 pre-existing failing suites / 42
+  failures as this session's established baseline (`runner-price-updates`,
+  `market-definition-dao`, `betfair-service`, `simple`,
+  `openai-integration`, `price-update-dao` — none touch this feature).
+  New coverage (DAO cross-userId listing/back-compat/hit-miss, Supertest
+  401/400/201/cross-user-visibility/non-deletability) all green.
+- `ml/venv/bin/python -m unittest test_features` (run from `ml/`, not via
+  `pytest` — this venv has no `pytest` module installed) — 14/14,
+  including the 3 new `build_agent_result_name`/`FILTER_BATTERY` tests.
+- `yarn storybook:test-runner` (port 6009, checked `ps aux | grep
+  storybook` first, nothing running): same pre-existing failures as this
+  session's own earlier baseline (course-chip Set-serialization,
+  `AllRunnersScreen`, `EventBadgesVisible`, `RunnerDetailScreen`
+  trainer-link) — `AgentBadgeShown`/`AgentResultHasNoDeleteButton` both
+  pass.
+- **Real manual smoke test** (plan's step 6): stood up a fully throwaway
+  stack — `mongod` on port 27021, seeded the standard one-day CSV slice
+  (25 races) via `import:industry-sp`, started the real Node server on
+  port 3060 with `TRAINING_PIPELINE_API_KEY` set via env, then called the
+  **actual Python `run_filter_battery()`** (not a re-implementation)
+  against it with `API_BASE_URL` pointed at that server. All 6 battery
+  entries POSTed successfully; queried Mongo directly and confirmed 7
+  agent docs (6 from the real run + 1 from an earlier direct-`curl` check)
+  with correctly *different* Split A/B counts per filter (e.g. "All races"
+  99/94 runners vs. "Favourites" 10/9 vs. "Small fields" 49/50) — proving
+  real filter application end-to-end, not identical/cached results. Tore
+  down the throwaway `mongod`/server afterward; left an unrelated orphaned
+  `ts-node` process (pid 63003, started 09:58:55 — almost certainly a
+  leftover from the dead session itself) untouched rather than guessing at
+  its state.
+
+**Merge:** `origin/develop` had moved 9 commits (notably
+`fix/results-white-screen`, landed after the session died — fixed a real
+prod bug where a legacy pre-Split-A/B saved result crashed the whole
+Results list). One real conflict, in
+`SavedResultsListScreen.stories.tsx` — both branches added new stories
+right after the same `DeleteButtonRemovesItemAfterConfirm` story (mine:
+`AgentBadgeShown`/`AgentResultHasNoDeleteButton`; theirs:
+`LegacyResultWithoutSplitsShowsDegradedCard`), resolved by keeping both.
+`SavedResultsListScreen.tsx` itself auto-merged cleanly — the agent-badge
+logic and the legacy-card guard don't touch the same lines. Re-verified
+after merging: `yarn build` clean, full `jest` still the same 42
+pre-existing failures (now 349 passed, up from 339 — the 10 new tests
+from `results-white-screen` merging in cleanly alongside this feature's
+own).
+
+**Gitignore gotcha (same one hit in the `saved-results` session above):**
+`ml/venv/` and `data/` in `.gitignore` don't match the symlinks this
+worktree already had for both (`ml/venv -> .../betfair-nlp/ml/venv`,
+`data -> .../betfair-nlp/data`) — `git add -A` would have tried to commit
+both. Staged files explicitly instead.
+
+**Committed** (`4661e89`) — not yet pushed/deployed at the time of this
+entry; see the worktree table above for current status.

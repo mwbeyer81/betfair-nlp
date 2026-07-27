@@ -196,6 +196,64 @@ async function setupApiMocks(page: Page) {
     route.fulfill({ json: { success: true, data: race } });
   });
 
+  function dailyRunner(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      runnerId: "hrs_1", horse: "Fixture Star", age: "6", sex: "gelding", sexCode: "G", colour: "b",
+      region: "GB", dam: "Star Dam", damId: "dam_1", sire: "Star Sire", sireId: "sir_1",
+      damsire: "Star Damsire", damsireId: "dsi_1", trainer: "A Trainer", trainerId: "trn_1",
+      owner: "Owner", ownerId: "own_1", number: "1", draw: "0", headgear: "", lbs: "154",
+      officialRating: "98", jockey: "B Jockey", jockeyId: "jky_1", lastRun: "21", form: "1-21",
+      ...overrides,
+    };
+  }
+
+  const MOCK_DAILY_RACES = [
+    {
+      raceId: "rac_test_0001", eventId: "newton-abbot-2026-06-03", course: "Newton Abbot", date: "2026-06-03",
+      offTime: "1:50", offDt: "2026-06-03T13:50:00+01:00", raceName: "Novices' Hurdle",
+      distanceF: "16.0", region: "GB", raceClass: "Class 4", type: "Hurdle", ageBand: "4yo+",
+      prize: "£3,769", fieldSize: "2", going: "Good", surface: "Turf",
+      runners: [
+        dailyRunner(),
+        dailyRunner({ runnerId: "hrs_2", horse: "Second Fixture", trainer: "C Trainer", jockey: "D Jockey", number: "2" }),
+      ],
+    },
+    {
+      raceId: "rac_test_0002", eventId: "newton-abbot-2026-06-03", course: "Newton Abbot", date: "2026-06-03",
+      offTime: "2:25", offDt: "2026-06-03T14:25:00+01:00", raceName: "Handicap Chase",
+      distanceF: "24.0", region: "GB", raceClass: "Class 3", type: "Chase", ageBand: "5yo+",
+      prize: "£5,912", fieldSize: "1", going: "Good", surface: "Turf",
+      runners: [dailyRunner({ runnerId: "hrs_3", horse: "Chase Fixture", number: "1" })],
+    },
+    {
+      raceId: "rac_test_0003", eventId: "ascot-2026-06-03", course: "Ascot", date: "2026-06-03",
+      offTime: "3:05", offDt: "2026-06-03T15:05:00+01:00", raceName: "Maiden Stakes",
+      distanceF: "8.0", region: "GB", raceClass: "Class 2", type: "Flat", ageBand: "3yo",
+      prize: "£9,400", fieldSize: "1", going: "Good to Firm", surface: "Turf",
+      runners: [dailyRunner({ runnerId: "hrs_4", horse: "Ascot Fixture", number: "1" })],
+    },
+  ];
+
+  await page.route((url) => url.pathname === "/api/daily-races", (route) => {
+    route.fulfill({ json: { success: true, data: MOCK_DAILY_RACES, count: MOCK_DAILY_RACES.length } });
+  });
+
+  await page.route((url) => url.pathname.startsWith("/api/daily-races/event/"), (route) => {
+    const eventId = decodeURIComponent(route.request().url().split("/api/daily-races/event/")[1]);
+    const data = MOCK_DAILY_RACES.filter((r) => r.eventId === eventId);
+    route.fulfill({ json: { success: true, data, count: data.length } });
+  });
+
+  await page.route((url) => url.pathname.startsWith("/api/daily-races/race/"), (route) => {
+    const raceId = decodeURIComponent(route.request().url().split("/api/daily-races/race/")[1]);
+    const race = MOCK_DAILY_RACES.find((r) => r.raceId === raceId);
+    if (!race) {
+      route.fulfill({ status: 404, json: { success: false, error: "Race not found" } });
+      return;
+    }
+    route.fulfill({ json: { success: true, data: race } });
+  });
+
   const MOCK_INDUSTRY_SP_RACE = {
     raceId: 914592,
     meetingId: "Cheltenham|2025-01-01",

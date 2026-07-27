@@ -4,6 +4,7 @@ import config from "config";
 import { CodebaseSearchService, ChatHistoryTurn } from "../lib/service/codebase-search-service";
 import { BetfairService } from "../lib/service/betfair-service";
 import { IndustrySpService } from "../lib/service/industry-sp-service";
+import { DailyRaceService } from "../lib/service/daily-race-service";
 import { TrainerFormService } from "../lib/service/trainer-form-service";
 import { ModelVersionService } from "../lib/service/model-version-service";
 import { SavedFilterSetService } from "../lib/service/saved-filter-set-service";
@@ -19,6 +20,7 @@ let dbConnection: DatabaseConnection | null = null;
 let codebaseSearchService: CodebaseSearchService | null = null;
 let betfairService: BetfairService | null = null;
 let industrySpService: IndustrySpService | null = null;
+let dailyRaceService: DailyRaceService | null = null;
 let trainerFormService: TrainerFormService | null = null;
 let modelVersionService: ModelVersionService | null = null;
 let savedFilterSetService: SavedFilterSetService | null = null;
@@ -51,6 +53,12 @@ export const initializeServices = async () => {
       await industrySpService.createIndexes();
     } catch (indexError) {
       console.warn("industry-sp createIndexes failed (non-fatal, queries may be slower):", indexError);
+    }
+    dailyRaceService = new DailyRaceService();
+    try {
+      await dailyRaceService.createIndexes();
+    } catch (indexError) {
+      console.warn("daily-race createIndexes failed (non-fatal, queries may be slower):", indexError);
     }
     trainerFormService = new TrainerFormService();
     try {
@@ -664,6 +672,46 @@ router.post("/api/auth/resend-verification", async (req, res) => {
     }
     console.error("resendVerification failed:", error);
     return res.status(500).json({ error: "Failed to resend verification email" });
+  }
+});
+
+// Daily Races (RacingAPI-backed) — login-gated, unlike the public
+// /api/industry-sp/* family, since this is a new user-facing view rather
+// than the historical/public ISP data.
+router.get("/api/daily-races", async (req, res) => {
+  try {
+    if (!dailyRaceService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const date = typeof req.query.date === "string" && req.query.date.trim() ? req.query.date.trim() : new Date().toISOString().slice(0, 10);
+    const data = await dailyRaceService.getDailyRaces(date);
+    res.status(200).json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error("getDailyRaces error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch daily races" });
+  }
+});
+
+router.get("/api/daily-races/event/:eventId", async (req, res) => {
+  try {
+    if (!dailyRaceService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const data = await dailyRaceService.getDailyRacesByEvent(req.params.eventId);
+    res.status(200).json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error("getDailyRacesByEvent error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch event" });
+  }
+});
+
+router.get("/api/daily-races/race/:raceId", async (req, res) => {
+  try {
+    if (!dailyRaceService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    // raceId is a RacingAPI string (e.g. "rac_123") — no parseInt, unlike
+    // industry-sp's numeric raceId.
+    const race = await dailyRaceService.getDailyRaceById(req.params.raceId);
+    if (!race) return res.status(404).json({ success: false, error: "Race not found" });
+    res.status(200).json({ success: true, data: race });
+  } catch (error) {
+    console.error("getDailyRaceById error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch race" });
   }
 });
 

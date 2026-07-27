@@ -193,3 +193,38 @@ export const DeleteButtonCallsOnBack: Story = {
     await expect(args.onBack).toHaveBeenCalledTimes(1);
   },
 };
+
+// Regression coverage for a real production bug (reported live: clicking
+// Results showed a blank white screen). Navigating directly to a legacy
+// saved result's detail URL (no splitA/splitB) must show a notice, not
+// crash — there is no error boundary anywhere in this app to catch the
+// render-time throw that used to happen reading result.splitA.pnlStats.
+export const LegacyResultWithoutSplitsShowsNoticeInstead: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/saved-filter-sets/:id`, () =>
+          HttpResponse.json({
+            success: true,
+            data: {
+              id: "legacy-result-1",
+              name: "Pre-fix save",
+              filters: { courses: "Ascot" },
+              pnlStats: { staked: 20, returns: 15, pnl: -5, count: 4 },
+              graphPoints: [{ raceRowNumber: 1, cumulativeStaked: 20, cumulativeReturns: 15, cumulativePnl: -5, roiPercent: -25 }],
+              createdAt: "2026-01-15T09:00:00.000Z",
+            },
+          })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("saved-result-detail-legacy-notice")).resolves.toHaveTextContent(
+      "Split A/B update"
+    );
+    await expect(canvas.getByTestId("saved-result-detail-delete")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("saved-result-split-card-a")).not.toBeInTheDocument();
+  },
+};

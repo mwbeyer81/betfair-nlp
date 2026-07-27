@@ -44,6 +44,8 @@
     "process:basic:docker": "docker-compose -f docker-compose.local.yml exec api-server yarn process:basic:local",
     "uncompress:bz2": "ts-node src/commands/uncompress-bz2.ts",
     "import:industry-sp": "ts-node src/commands/import-industry-sp.ts",
+    "fetch:daily-races": "ts-node src/commands/fetch-daily-races.ts",
+    "seed:daily-races-fixture": "ts-node src/commands/seed-daily-races-fixture.ts",
     "precompute:trainer-form": "ts-node src/commands/precompute-trainer-form.ts",
     "precompute:jockey-form": "ts-node src/commands/precompute-jockey-form.ts",
     "precompute:horse-form": "ts-node src/commands/precompute-horse-form.ts",
