@@ -10,7 +10,8 @@
   "app": {
     "name": "betfair-nlp",
     "version": "1.0.0",
-    "environment": "development"
+    "environment": "development",
+    "apiUrl": "http://localhost:3000"
   },
   "logging": {
     "level": "info",
@@ -22,8 +23,25 @@
   "jwt": {
     "secret": ""
   },
-  "auth": {
-    "username": "matthew",
-    "password": "beyer"
+  "email": {
+    "apiKey": "",
+    "fromAddress": "BackBet <onboarding@resend.dev>"
+  },
+  "google": {
+    "clientId": ""
+  },
+  "twilio": {
+    "accountSid": "",
+    "authToken": "",
+    "verifyServiceSid": ""
+  },
+  "racingApi": {
+    "baseUrl": "https://api.theracingapi.com/v1",
+    "username": "",
+    "password": "",
+    "racecardsPath": ""
+  },
+  "trainingPipeline": {
+    "agentApiKey": ""
   }
 }

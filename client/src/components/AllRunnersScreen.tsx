@@ -9,7 +9,6 @@ import {
 } from "react-native";
 import {
   Text,
-  Appbar,
   Button,
   Chip,
   ActivityIndicator,
@@ -19,10 +18,15 @@ import {
 } from "react-native-paper";
 import { chatApi, RaceWithEvent, Runner, PnlStats, RunnerFilterBounds } from "../services/chatApi";
 import { exportToCsv, exportToXlsx } from "../utils/exportRunners";
+import { PageContainer } from "./PageContainer";
+import { AppHeader } from "./AppHeader";
 import { colors, statusPill, radii, spacing } from "../theme";
+import type { Route } from "../hooks/useRouter";
 
 interface AllRunnersScreenProps {
-  onNavigateToEvents: () => void;
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
+  onLogout?: () => void;
 }
 
 function stakeToWin1(bsp: number): number {
@@ -89,7 +93,9 @@ function formatRaceDate(isoTime: string): string {
 }
 
 export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
-  onNavigateToEvents,
+  navigate,
+  isAuthenticated,
+  onLogout,
 }) => {
   const [races, setRaces] = useState<RaceWithEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -242,52 +248,49 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
 
   return (
     <SafeAreaView testID="all-runners-screen" style={styles.screen}>
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content
-          title="All Runners"
-          subtitle={!isLoading ? `${visibleRunners}/${totalRunners} runners · ${displayRaces.length}/${totalRaces} races` : undefined}
-          titleStyle={styles.appbarTitle}
-          subtitleStyle={styles.appbarSubtitle}
-        />
-        <Button
-          testID="all-runners-sort-toggle"
-          mode="contained-tonal"
-          compact
-          onPress={() => setSortOrder(o => o === "asc" ? "desc" : "asc")}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          {sortOrder === "asc" ? "First → Last" : "Last → First"}
-        </Button>
-        {!isLoading && displayRaces.length > 0 && (
-          <Button
-            testID="all-runners-export-btn"
-            mode="contained"
-            compact
-            buttonColor={colors.success}
-            onPress={() => !isExporting && setShowExportModal(true)}
-            disabled={isExporting}
-            style={styles.headerButton}
-            labelStyle={styles.headerButtonLabel}
-            loading={isExporting}
-          >
-            Export
-          </Button>
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        subtitle={
+          !isLoading
+            ? `All Runners · ${visibleRunners}/${totalRunners} runners · ${displayRaces.length}/${totalRaces} races`
+            : "All Runners"
+        }
+        testIdPrefix="all-runners"
+        extraActions={wrap => (
+          <>
+            <Button
+              testID="all-runners-sort-toggle"
+              mode="outlined"
+              compact
+              onPress={wrap(() => setSortOrder(o => o === "asc" ? "desc" : "asc"))}
+              style={styles.headerButton}
+              labelStyle={styles.headerButtonLabel}
+            >
+              {sortOrder === "asc" ? "First → Last" : "Last → First"}
+            </Button>
+            {!isLoading && displayRaces.length > 0 && (
+              <Button
+                testID="all-runners-export-btn"
+                mode="contained"
+                compact
+                buttonColor={colors.success}
+                onPress={wrap(() => !isExporting && setShowExportModal(true))}
+                disabled={isExporting}
+                style={styles.headerButton}
+                labelStyle={styles.headerButtonLabel}
+                loading={isExporting}
+              >
+                Export
+              </Button>
+            )}
+          </>
         )}
-        <Button
-          testID="all-runners-screen-events-button"
-          mode="contained"
-          compact
-          buttonColor={colors.primaryDark}
-          onPress={onNavigateToEvents}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          ← Events
-        </Button>
-      </Appbar.Header>
+      />
 
       {/* Filter bar — kept as custom for density */}
+      <PageContainer maxWidth={1200}>
       <View testID="all-runners-filter-bar" style={styles.filterBar}>
         <View style={styles.filterStepper}>
           <Text style={styles.filterStepperLabel}>SP</Text>
@@ -500,6 +503,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
           })}
         </ScrollView>
       )}
+      </PageContainer>
 
       {!isLoading && displayPnl.staked > 0 && (
         <View testID="all-runners-pnl-bar" style={styles.pnlBar}>
@@ -543,6 +547,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
 
         {!isLoading && !error && (
           <ScrollView testID="all-runners-list" style={styles.list}>
+          <PageContainer maxWidth={1200}>
             {displayRaces.length === 0 && (
               <Text style={styles.emptyText}>No runners found.</Text>
             )}
@@ -635,6 +640,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
                 Load more ({totalRaces - races.length} remaining)
               </Button>
             )}
+          </PageContainer>
           </ScrollView>
         )}
       </View>
@@ -687,19 +693,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  appbar: {
-    backgroundColor: colors.primary,
-    elevation: 4,
-  },
-  appbarTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  appbarSubtitle: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 11,
-  },
   headerButton: {
     marginHorizontal: 3,
     borderRadius: radii.md,
@@ -715,7 +708,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
@@ -744,7 +737,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   stepBtnDisabled: {
-    backgroundColor: "#C7D2FE",
+    backgroundColor: colors.primaryMuted,
     opacity: 0.6,
   },
   boundsHint: {
@@ -871,10 +864,10 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   pnlPos: {
-    color: "#4ADE80",
+    color: colors.pnlPositive,
   },
   pnlNeg: {
-    color: "#F87171",
+    color: colors.pnlNegative,
   },
   body: {
     flex: 1,
@@ -905,14 +898,14 @@ const styles = StyleSheet.create({
   eventHeader: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md - 2,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   eventName: {
     fontSize: 15,
     fontWeight: "700",
-    color: colors.primaryDark,
+    color: colors.accent,
   },
   raceHeader: {
     flexDirection: "row",
@@ -990,8 +983,8 @@ const styles = StyleSheet.create({
   bspBadge: {
     fontSize: 11,
     fontWeight: "700",
-    color: colors.primaryDark,
-    backgroundColor: "#EEF2FF",
+    color: colors.accent,
+    backgroundColor: colors.primaryLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,

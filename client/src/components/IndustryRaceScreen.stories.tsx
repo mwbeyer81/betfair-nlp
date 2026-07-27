@@ -18,7 +18,7 @@ const MOCK_RACE = {
   raceType: "Chase",
   ran: 3,
   runners: [
-    { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true },
+    { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true, trainer: "W P Mullins", trainerFormRuns: 14, trainerFormWins: 3, trainerFormWinRate: 21.43 },
     { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "PLACED", sortPriority: 2, isp: 5.5, ispFraction: "9/2", isFavourite: false },
     { id: 21003, name: "Fastorslow", num: 3, draw: null, status: "LOSER", sortPriority: 3, isp: 9.0, ispFraction: "8/1", isFavourite: false },
   ],
@@ -38,9 +38,14 @@ const meta: Meta<typeof IndustryRaceScreen> = {
     msw: { handlers: defaultHandlers },
   },
   args: {
+    navigate: fn(),
+    isAuthenticated: true,
+    onLogout: fn(),
     raceId: RACE_ID,
     onNavigateToMeeting: fn(),
     onNavigateToIsp: fn(),
+    onNavigateToRunner: fn(),
+    onNavigateToTrainer: fn(),
   },
 };
 
@@ -66,11 +71,22 @@ export const ItemsRendered: Story = {
   },
 };
 
+export const TrainerFormBadgeDisplayed: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-race-list");
+
+    await expect(canvas.getByTestId("industry-race-item-trainer-21001")).toHaveTextContent("W P Mullins");
+    await expect(canvas.getByTestId("industry-race-item-trainer-form-21001")).toHaveTextContent("3/14");
+    await expect(canvas.getByTestId("industry-race-item-trainer-form-21001")).toHaveTextContent("21%");
+  },
+};
+
 export const BackButtonNavigatesToMeeting: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-race-list");
-    await userEvent.click(canvas.getByTestId("industry-race-back"));
+    await userEvent.click(canvas.getByTestId("industry-race-back-button"));
     await expect(args.onNavigateToMeeting).toHaveBeenCalledWith(MOCK_RACE.meetingId);
   },
 };
@@ -138,5 +154,23 @@ export const EmptyState: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.findByText("No runners found.")).resolves.toBeInTheDocument();
+  },
+};
+
+export const RendersAtIphone12: Story = {
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-race-list");
+    await expect(canvas.getByTestId("industry-race-screen")).toBeInTheDocument();
+  },
+};
+
+export const RendersAtLaptop: Story = {
+  parameters: { viewport: { defaultViewport: "laptop" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-race-list");
+    await expect(canvas.getByTestId("industry-race-screen")).toBeInTheDocument();
   },
 };

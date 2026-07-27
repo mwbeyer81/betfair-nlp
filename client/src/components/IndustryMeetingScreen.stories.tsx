@@ -54,9 +54,14 @@ const meta: Meta<typeof IndustryMeetingScreen> = {
     msw: { handlers: defaultHandlers },
   },
   args: {
+    navigate: fn(),
+    isAuthenticated: true,
+    onLogout: fn(),
     meetingId: MEETING_ID,
     onBack: fn(),
     onNavigateToRace: fn(),
+    onNavigateToRunner: fn(),
+    onNavigateToTrainer: fn(),
   },
 };
 
@@ -88,7 +93,7 @@ export const BackButton: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-meeting-list");
-    await userEvent.click(canvas.getByTestId("industry-meeting-back"));
+    await userEvent.click(canvas.getByTestId("industry-meeting-back-button"));
     await expect(args.onBack).toHaveBeenCalledTimes(1);
   },
 };
@@ -165,5 +170,23 @@ export const EmptyState: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.findByText("No races found.")).resolves.toBeInTheDocument();
+  },
+};
+
+export const RendersAtIphone12: Story = {
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-meeting-list");
+    await expect(canvas.getByTestId("industry-meeting-screen")).toBeInTheDocument();
+  },
+};
+
+export const RendersAtLaptop: Story = {
+  parameters: { viewport: { defaultViewport: "laptop" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-meeting-list");
+    await expect(canvas.getByTestId("industry-meeting-screen")).toBeInTheDocument();
   },
 };

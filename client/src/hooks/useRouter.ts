@@ -1,12 +1,52 @@
 import { useState, useEffect } from "react";
 
-export type Route = "/events" | "/chat" | "/runners" | "/isp" | "/isp/meeting" | "/isp/race";
+export type Route =
+  | "/events"
+  | "/chat"
+  | "/runners"
+  | "/isp"
+  | "/isp/races"
+  | "/isp/meeting"
+  | "/isp/race"
+  | "/isp/runner"
+  | "/isp/runner/history"
+  | "/isp/trainer"
+  | "/results"
+  | "/results/detail"
+  | "/daily-races"
+  | "/daily-races/event"
+  | "/daily-races/race"
+  | "/daily-races/runner";
 
-const STATIC_ROUTES = ["/events", "/chat", "/runners", "/isp", "/isp/meeting", "/isp/race"];
+const STATIC_ROUTES = [
+  "/events",
+  "/chat",
+  "/runners",
+  "/isp",
+  "/isp/races",
+  "/isp/meeting",
+  "/isp/race",
+  "/isp/runner",
+  "/isp/runner/history",
+  "/isp/trainer",
+  "/results",
+  "/results/detail",
+  "/daily-races",
+  "/daily-races/event",
+  "/daily-races/race",
+  "/daily-races/runner",
+];
 
 function pathToRoute(path: string): Route {
   if (STATIC_ROUTES.includes(path)) return path as Route;
   return "/isp";
+}
+
+// Type guard so a `returnRoute` value read back out of a query string (a
+// plain string, not compile-time trusted) can be safely passed to
+// navigate() — see client/src/utils/returnNav.ts.
+export function isRoute(path: string): path is Route {
+  return STATIC_ROUTES.includes(path);
 }
 
 function currentQueryParams(): URLSearchParams {

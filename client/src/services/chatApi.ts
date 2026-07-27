@@ -70,6 +70,27 @@ export interface IspRunner {
   isp: number | null;
   ispFraction: string | null;
   isFavourite: boolean;
+  jockey?: string;
+  trainer?: string;
+  // Trainer's trailing-14-day form (same race-type category — Flat vs
+  // Jumps — as this race), computed as-of this race's own date. Undefined
+  // when the runner has no trainer; trainerFormWinRate is null (not 0)
+  // when trainerFormRuns is 0 — that's the "no sample yet" signal.
+  trainerFormRuns?: number;
+  trainerFormWins?: number;
+  trainerFormWinRate?: number | null;
+  trainerFormStaked?: number;
+  trainerFormReturns?: number;
+  // XGBoost win-probability estimate (0-100, normalized so a race's
+  // runners sum to 100) — precomputed in ml/train_and_predict.py,
+  // deliberately trained without isp/ispFraction/isFavourite as inputs.
+  modelWinProbability?: number | null;
+  // Which training run produced modelWinProbability — set alongside it in
+  // ml/train_and_predict.py. Only ever reflects the MOST RECENT run that
+  // scored this runner (each run overwrites both fields together);
+  // historical runs can't be reconstructed for runners scored before this
+  // field existed.
+  modelVersionId?: string | null;
 }
 
 export interface IspRace {
@@ -81,6 +102,8 @@ export interface IspRace {
   raceTime: string;
   raceName: string;
   raceType: string;
+  raceClass: string | null;
+  going: string | null;
   ran: number;
   runners: IspRunner[];
 }
@@ -89,6 +112,117 @@ export interface IspFilterBounds {
   maxRunnersPerRace: number;
   maxIsp: number;
   minIsp: number;
+}
+
+// RacingAPI-backed "Daily Races" feature — a different domain from the ISP
+// types above, now also carrying a model win-probability view. See
+// src/lib/dao/daily-race-dao.ts for the backend document shape this
+// mirrors field-for-field.
+export interface DailyRaceRunner {
+  runnerId: string;
+  horse: string;
+  age: string | null;
+  sex: string | null;
+  sexCode: string | null;
+  colour: string | null;
+  region: string | null;
+  dam: string | null;
+  damId: string | null;
+  sire: string | null;
+  sireId: string | null;
+  damsire: string | null;
+  damsireId: string | null;
+  trainer: string | null;
+  trainerId: string | null;
+  owner: string | null;
+  ownerId: string | null;
+  number: string | null;
+  draw: string | null;
+  headgear: string | null;
+  lbs: string | null;
+  officialRating: string | null;
+  jockey: string | null;
+  jockeyId: string | null;
+  lastRun: string | null;
+  form: string | null;
+  // Basic-plan-only fields (null on Free-tier ingests). Display-only — see
+  // daily-race-dao.ts's DailyRaceRunnerDoc comment: rpr/ts here are the
+  // horse's CURRENT published rating, not a trailing average, so they're
+  // never what modelWinProbability below is computed from.
+  rpr: string | null;
+  ts: string | null;
+  spotlight: string | null;
+  comment: string | null;
+  trainer14Days: { runs: string; wins: string; percent: string } | null;
+  trainerRtf: string | null;
+  // Computed trailing form (daily-race-feature-service.ts), read-only
+  // against real historical data — same field names/semantics as the ISP
+  // domain's equivalents.
+  trainerFormRuns: number | null;
+  trainerFormWins: number | null;
+  trainerFormWinRate: number | null;
+  trainerFormStaked: number | null;
+  trainerFormReturns: number | null;
+  jockeyFormRuns: number | null;
+  jockeyFormWins: number | null;
+  jockeyFormWinRate: number | null;
+  jockeyFormStaked: number | null;
+  jockeyFormReturns: number | null;
+  daysSinceLastRun: number | null;
+  horseCareerRuns: number | null;
+  horseCareerWinRate: number | null;
+  horseAvgRPR: number | null;
+  horseAvgTS: number | null;
+  horseAvgBeatenDistance: number | null;
+  horseAvgExcuseScore: number | null;
+  horseTroubleInRunningRate: number | null;
+  horseTravelledWellRate: number | null;
+  featuresComputedAt: string | null;
+  // Written by ml/predict_daily_races.py.
+  modelWinProbability: number | null;
+  modelVersionId: string | null;
+}
+
+export interface DailyRace {
+  raceId: string;
+  eventId: string;
+  course: string;
+  date: string;
+  offTime: string;
+  offDt: string;
+  raceName: string;
+  distanceF: string | null;
+  region: string | null;
+  raceClass: string | null;
+  type: string | null;
+  ageBand: string | null;
+  prize: string | null;
+  fieldSize: string | null;
+  going: string | null;
+  surface: string | null;
+  runners: DailyRaceRunner[];
+}
+
+export type TrainerFormCategory = "Flat" | "Jumps";
+
+export interface TrainerFormRunDoc {
+  raceId: number;
+  runnerId: number;
+  horseName: string;
+  raceDate: string;
+  course: string;
+  status: "WINNER" | "PLACED" | "LOSER" | "NON_FINISHER";
+  pos: string;
+  isp: number | null;
+}
+
+export interface TrainerFormDoc {
+  trainer: string;
+  formCategory: TrainerFormCategory;
+  runs: TrainerFormRunDoc[];
+  totalRuns: number;
+  totalWins: number;
+  lastUpdated: string;
 }
 
 export interface IspPage {
@@ -101,6 +235,163 @@ export interface IspPage {
   totalPages: number;
   totalRunners: number;
   pnlStats: PnlStats;
+}
+
+export interface ModelTrainingParams {
+  nEstimators: number;
+  learningRate: number;
+  maxDepth: number;
+  subsample: number;
+  colsampleBytree: number;
+  minChildWeight: number;
+  randomState: number;
+  earlyStoppingRounds: number;
+}
+
+export interface ModelRunMeta {
+  featureCols: string[];
+  trainRows: number;
+  testRows: number;
+  trainDateMax: string;
+  testDateMin: string;
+  bestIteration: number;
+}
+
+export interface CalibrationBucket {
+  meanPredicted: number;
+  actualWinRate: number;
+  n: number;
+}
+
+export interface ModelPerformanceMetrics {
+  aucRoc: number;
+  logLoss: number;
+  brierScore: number;
+  calibrationTable: CalibrationBucket[];
+}
+
+export interface ModelVersion {
+  id: string;
+  runLabel: string;
+  runAt: string;
+  trainingParams: ModelTrainingParams;
+  runMeta: ModelRunMeta;
+  performanceMetrics: ModelPerformanceMetrics;
+}
+
+export interface ModelVersionsResponse {
+  success: boolean;
+  data: ModelVersion[];
+  count: number;
+}
+
+export interface SavedFilterSetPnlStats {
+  staked: number;
+  returns: number;
+  pnl: number;
+  count: number;
+}
+
+export interface SavedFilterSetGraphPoint {
+  raceRowNumber: number;
+  cumulativeStaked: number;
+  cumulativeReturns: number;
+  cumulativePnl: number;
+  roiPercent: number;
+}
+
+// One split's resolved snapshot, computed at save time via the same
+// getSplitStats/getRaceConvergenceSeries the live Filters screen's own
+// Split A/B cards use — fromRow/toRow are the true resolved race range
+// (explicit if the user had edited the split boxes, the default half/half
+// divide otherwise), never re-derived on the client.
+export interface SavedFilterSetSplit {
+  fromRow: number;
+  toRow: number | null;
+  total: number;
+  totalRunners: number;
+  pnlStats: SavedFilterSetPnlStats;
+  graphPoints: SavedFilterSetGraphPoint[];
+}
+
+// filters is the raw ISP_FILTER_PARAM_NAMES string map — the exact query
+// params IndustrySpScreen's own syncUrl() writes (see
+// client/src/utils/ispUrlParams.ts) — so restoring is just navigating to
+// /isp with these as the query string, no parsing needed.
+//
+// splitA/splitB are optional (not just "always present since this app
+// version") — a real, reported bug: any saved_filter_sets document
+// created before the Split A/B schema change has neither field at all
+// (the old shape stored a single flat pnlStats/graphPoints instead), and
+// nothing migrates old documents on deploy. Reading result.splitA.pnlStats
+// on such a doc threw mid-render with no error boundary anywhere in the
+// app to catch it, blanking the whole screen — see
+// SavedResultsListScreen's isLegacyResult()/SavedResultDetailScreen's
+// equivalent guard, both of which exist specifically because this can and
+// does happen for real.
+export interface SavedFilterSet {
+  id: string;
+  name: string;
+  filters: Record<string, string>;
+  splitA?: SavedFilterSetSplit;
+  splitB?: SavedFilterSetSplit;
+  createdAt: string;
+  createdBy: "user" | "agent";
+  modelVersionId?: string;
+}
+
+export interface SavedFilterSetResponse {
+  success: boolean;
+  data: SavedFilterSet;
+}
+
+export interface SavedFilterSetsResponse {
+  success: boolean;
+  data: SavedFilterSet[];
+  count: number;
+}
+
+export interface AuthResult {
+  token: string;
+  // Deliberately not derived from the JWT itself — verification status can
+  // change after the token was issued, so it rides along in the login/
+  // signup response body instead (and is re-fetched via getMe() on
+  // session restore, since a stored token alone doesn't carry it).
+  emailVerified: boolean;
+}
+
+export interface IspSplitResult {
+  fromRow: number;
+  toRow: number | null;
+  total: number;
+  totalRunners: number;
+  pnlStats: PnlStats;
+}
+
+export interface RaceConvergencePoint {
+  raceRowNumber: number;
+  cumulativeStaked: number;
+  cumulativeReturns: number;
+  cumulativePnl: number;
+  roiPercent: number;
+}
+
+export interface IspSplitsResponse {
+  success: boolean;
+  totalRaces: number;
+  totalRunners: number;
+  // 100 for an anonymous caller, 1000 for a logged-in one — see
+  // IndustrySpService.getSplitStats. Lets the frontend show "capped" UI
+  // without hardcoding the two tier numbers itself.
+  raceCap: number;
+  filterBounds: IspFilterBounds;
+  countries: string[];
+  courses: string[];
+  goings: string[];
+  raceClasses: string[];
+  raceTypes: string[];
+  splitA: IspSplitResult;
+  splitB: IspSplitResult;
 }
 
 export interface MarketDefinitionDoc {
@@ -124,6 +415,11 @@ interface ChatResponse {
   error?: string;
 }
 
+export interface ChatHistoryTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
 class ChatApi {
   private baseUrl = config.baseUrl;
   private token: string | null = null;
@@ -136,19 +432,102 @@ class ChatApi {
     return this.token;
   }
 
-  private authHeader(): { Authorization: string } {
-    return { Authorization: `Bearer ${this.token}` };
+  // Returns {} (no header at all) when there's no token, rather than a
+  // literal "Bearer null"/"Bearer undefined" string — the industry-sp
+  // endpoints are public and treat a missing header as anonymous, but an
+  // actually-malformed header is the wrong way to signal that.
+  private authHeader(): Record<string, string> {
+    return this.token ? { Authorization: `Bearer ${this.token}` } : {};
   }
 
-  async login(username: string, password: string): Promise<string> {
+  async login(email: string, password: string): Promise<AuthResult> {
     const response = await fetch(`${this.baseUrl}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ email, password }),
     });
-    if (!response.ok) throw new Error("Invalid credentials");
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Invalid credentials");
+    }
     const result = await response.json();
-    return result.token as string;
+    return { token: result.token as string, emailVerified: result.emailVerified === true };
+  }
+
+  async signup(email: string, password: string): Promise<AuthResult> {
+    const response = await fetch(`${this.baseUrl}/api/auth/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Sign up failed");
+    }
+    const result = await response.json();
+    return { token: result.token as string, emailVerified: result.emailVerified === true };
+  }
+
+  async getMe(): Promise<{ email: string | null; phone: string | null; emailVerified: boolean } | null> {
+    const response = await fetch(`${this.baseUrl}/api/auth/me`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) return null;
+    const result = await response.json();
+    return { email: result.email ?? null, phone: result.phone ?? null, emailVerified: result.emailVerified === true };
+  }
+
+  async signInWithGoogle(idToken: string): Promise<AuthResult> {
+    const response = await fetch(`${this.baseUrl}/api/auth/google`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Google sign-in failed");
+    }
+    const result = await response.json();
+    return { token: result.token as string, emailVerified: result.emailVerified === true };
+  }
+
+  async sendSmsCode(phone: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/auth/sms/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Failed to send verification code");
+    }
+  }
+
+  async verifySmsCode(phone: string, code: string): Promise<AuthResult> {
+    const response = await fetch(`${this.baseUrl}/api/auth/sms/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone, code }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Invalid or expired verification code");
+    }
+    const result = await response.json();
+    return { token: result.token as string, emailVerified: result.emailVerified === true };
+  }
+
+  async resendVerification(): Promise<{ alreadyVerified: boolean }> {
+    const response = await fetch(`${this.baseUrl}/api/auth/resend-verification`, {
+      method: "POST",
+      headers: this.authHeader(),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Failed to resend verification email");
+    }
+    const result = await response.json();
+    return { alreadyVerified: result.alreadyVerified === true };
   }
 
   async getEventDefinitions(eventId: string): Promise<MarketDefinitionDoc[]> {
@@ -239,7 +618,43 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number): Promise<IspPage> {
+  async getIspCourses(): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/courses`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch ISP courses");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIspGoings(): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/goings`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch ISP goings");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIspRaceClasses(): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/race-classes`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch ISP race classes");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIspRaceTypes(): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/race-types`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch ISP race types");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -254,11 +669,211 @@ class ChatApi {
     });
     if (countries.length > 0) params.set("countries", countries.join(","));
     if (toRow != null) params.set("toRow", String(toRow));
+    if (minDate) params.set("minDate", minDate);
+    if (maxDate) params.set("maxDate", maxDate);
+    if (courses.length > 0) params.set("courses", courses.join(","));
+    if (goings.length > 0) params.set("goings", goings.join(","));
+    if (raceClasses.length > 0) params.set("raceClasses", raceClasses.join(","));
+    if (raceTypes.length > 0) params.set("raceTypes", raceTypes.join(","));
+    if (trainer) params.set("trainer", trainer);
+    if (jockey) params.set("jockey", jockey);
+    if (trainerFormMinWinRate != null) params.set("trainerFormMinWinRate", String(trainerFormMinWinRate));
+    if (minTrainerFormRunners != null) params.set("minTrainerFormRunners", String(minTrainerFormRunners));
+    if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
+    if (runnerName) params.set("runnerName", runnerName);
+    if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
+    if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    if (modelVersionId) params.set("modelVersionId", modelVersionId);
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp?${params}`,
       { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch industry SP");
+    return response.json();
+  }
+
+  // Every model version (training params + performance metrics), newest
+  // first — backs the Model Performance Dashboard's version table.
+  async getModelVersions(): Promise<ModelVersionsResponse> {
+    const response = await fetch(
+      `${this.baseUrl}/api/model-versions`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch model versions");
+    return response.json();
+  }
+
+  // Persists the current Industry SP filter set as a named "Result" — a
+  // static PnL + graph snapshot computed once on the backend at save time,
+  // never recomputed on view. `filters` should be exactly
+  // window.location.search's params (Object.fromEntries(new
+  // URLSearchParams(...))) right after Apply, so the saved snapshot always
+  // matches what the Filters screen actually showed.
+  async saveFilterSet(filters: Record<string, string>, name?: string): Promise<SavedFilterSetResponse> {
+    const response = await fetch(`${this.baseUrl}/api/saved-filter-sets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...this.authHeader() },
+      body: JSON.stringify({ name, filters }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Failed to save result");
+    }
+    return response.json();
+  }
+
+  async getSavedFilterSets(): Promise<SavedFilterSetsResponse> {
+    const response = await fetch(`${this.baseUrl}/api/saved-filter-sets`, { headers: this.authHeader() });
+    if (!response.ok) throw new Error("Failed to fetch saved results");
+    return response.json();
+  }
+
+  async getSavedFilterSet(id: string): Promise<SavedFilterSetResponse> {
+    const response = await fetch(`${this.baseUrl}/api/saved-filter-sets/${id}`, { headers: this.authHeader() });
+    if (!response.ok) throw new Error("Failed to fetch saved result");
+    return response.json();
+  }
+
+  async deleteSavedFilterSet(id: string): Promise<{ success: boolean }> {
+    const response = await fetch(`${this.baseUrl}/api/saved-filter-sets/${id}`, {
+      method: "DELETE",
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to delete saved result");
+    return response.json();
+  }
+
+  // Combines every request the /isp home page needs on first load — grand
+  // total, Race A + Race B splits, filter bounds, country list — into one
+  // round trip. See getSplitStats on the backend for why: up to 5 separate
+  // concurrent requests each risked their own Lambda cold start, and worse,
+  // all hammered Atlas M0's limited concurrent-connection throughput at
+  // once (confirmed via CloudWatch: individual invocations spiking to
+  // 20-30s, some hitting the hard 30s timeout, specifically under
+  // concurrent load). Collapsing to one invocation also means the browser
+  // no longer waits a full round trip to learn the grand total before it
+  // even knows what split boundaries to ask for.
+  //
+  // fromRowA/toRowA/fromRowB/toRowB are all optional — omit all four to
+  // let the backend compute an even first-half/second-half default split
+  // from the grand total.
+  async getIndustrySpSplits(
+    minRunners = 1,
+    maxRunners = 30,
+    countries: string[] = [],
+    minIsp = 1,
+    maxIsp = 1000,
+    minInIspRange = 1,
+    maxInIspRange = 10000,
+    fromRowA?: number,
+    toRowA?: number,
+    fromRowB?: number,
+    toRowB?: number,
+    minDate?: string,
+    maxDate?: string,
+    courses: string[] = [],
+    goings: string[] = [],
+    raceClasses: string[] = [],
+    raceTypes: string[] = [],
+    trainer?: string,
+    jockey?: string,
+    trainerFormMinWinRate?: number,
+    minTrainerFormRunners?: number,
+    maxTrainerFormRunners?: number,
+    minModelWinProbability?: number,
+    onlyModelBeatsSp?: boolean
+  ): Promise<IspSplitsResponse> {
+    const params = new URLSearchParams({
+      minRunners: String(minRunners),
+      maxRunners: String(maxRunners),
+      minIsp: String(minIsp),
+      maxIsp: String(maxIsp),
+      minInIspRange: String(minInIspRange),
+      maxInIspRange: String(maxInIspRange),
+    });
+    if (countries.length > 0) params.set("countries", countries.join(","));
+    if (fromRowA != null) params.set("fromRowA", String(fromRowA));
+    if (toRowA != null) params.set("toRowA", String(toRowA));
+    if (fromRowB != null) params.set("fromRowB", String(fromRowB));
+    if (toRowB != null) params.set("toRowB", String(toRowB));
+    if (minDate) params.set("minDate", minDate);
+    if (maxDate) params.set("maxDate", maxDate);
+    if (courses.length > 0) params.set("courses", courses.join(","));
+    if (goings.length > 0) params.set("goings", goings.join(","));
+    if (raceClasses.length > 0) params.set("raceClasses", raceClasses.join(","));
+    if (raceTypes.length > 0) params.set("raceTypes", raceTypes.join(","));
+    if (trainer) params.set("trainer", trainer);
+    if (jockey) params.set("jockey", jockey);
+    if (trainerFormMinWinRate != null) params.set("trainerFormMinWinRate", String(trainerFormMinWinRate));
+    if (minTrainerFormRunners != null) params.set("minTrainerFormRunners", String(minTrainerFormRunners));
+    if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
+    if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
+    if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    const response = await fetch(
+      `${this.baseUrl}/api/industry-sp/splits?${params}`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch industry SP splits");
+    return response.json();
+  }
+
+  // Cumulative ROI% convergence series for the "P&L graph" — one point per
+  // race from row 1 up to toRow (the upper limit of Split B), showing how
+  // the running profit % is volatile over a small sample and settles down
+  // as more races are included.
+  async getIndustrySpRaceConvergence(
+    toRow: number,
+    fromRow = 1,
+    minRunners = 1,
+    maxRunners = 30,
+    countries: string[] = [],
+    minIsp = 1,
+    maxIsp = 1000,
+    minInIspRange = 1,
+    maxInIspRange = 10000,
+    minDate?: string,
+    maxDate?: string,
+    courses: string[] = [],
+    goings: string[] = [],
+    raceClasses: string[] = [],
+    raceTypes: string[] = [],
+    trainer?: string,
+    jockey?: string,
+    trainerFormMinWinRate?: number,
+    minTrainerFormRunners?: number,
+    maxTrainerFormRunners?: number,
+    minModelWinProbability?: number,
+    onlyModelBeatsSp?: boolean
+  ): Promise<{ success: boolean; data: RaceConvergencePoint[]; count: number }> {
+    const params = new URLSearchParams({
+      toRow: String(toRow),
+      fromRow: String(fromRow),
+      minRunners: String(minRunners),
+      maxRunners: String(maxRunners),
+      minIsp: String(minIsp),
+      maxIsp: String(maxIsp),
+      minInIspRange: String(minInIspRange),
+      maxInIspRange: String(maxInIspRange),
+    });
+    if (countries.length > 0) params.set("countries", countries.join(","));
+    if (minDate) params.set("minDate", minDate);
+    if (maxDate) params.set("maxDate", maxDate);
+    if (courses.length > 0) params.set("courses", courses.join(","));
+    if (goings.length > 0) params.set("goings", goings.join(","));
+    if (raceClasses.length > 0) params.set("raceClasses", raceClasses.join(","));
+    if (raceTypes.length > 0) params.set("raceTypes", raceTypes.join(","));
+    if (trainer) params.set("trainer", trainer);
+    if (jockey) params.set("jockey", jockey);
+    if (trainerFormMinWinRate != null) params.set("trainerFormMinWinRate", String(trainerFormMinWinRate));
+    if (minTrainerFormRunners != null) params.set("minTrainerFormRunners", String(minTrainerFormRunners));
+    if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
+    if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
+    if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    const response = await fetch(
+      `${this.baseUrl}/api/industry-sp/race-convergence?${params}`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch race convergence series");
     return response.json();
   }
 
@@ -290,6 +905,45 @@ class ChatApi {
     return result.data;
   }
 
+  async getDailyRaces(date?: string): Promise<DailyRace[]> {
+    const params = date ? `?date=${encodeURIComponent(date)}` : "";
+    const response = await fetch(`${this.baseUrl}/api/daily-races${params}`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch daily races");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getDailyRacesByEvent(eventId: string): Promise<DailyRace[]> {
+    const response = await fetch(`${this.baseUrl}/api/daily-races/event/${encodeURIComponent(eventId)}`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch daily races event");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getDailyRace(raceId: string): Promise<DailyRace> {
+    const response = await fetch(`${this.baseUrl}/api/daily-races/race/${encodeURIComponent(raceId)}`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch daily race");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getTrainerForm(trainer: string, formCategory: TrainerFormCategory): Promise<TrainerFormDoc | null> {
+    const params = new URLSearchParams({ trainer, formCategory });
+    const response = await fetch(`${this.baseUrl}/api/trainer-form?${params}`, {
+      headers: this.authHeader(),
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error("Failed to fetch trainer form");
+    const result = await response.json();
+    return result.data;
+  }
+
   async getStats(): Promise<Stats> {
     const response = await fetch(`${this.baseUrl}/api/stats`, {
       headers: this.authHeader(),
@@ -313,7 +967,7 @@ class ChatApi {
     return { data: result.data, total: result.total, totalPages: result.totalPages };
   }
 
-  async sendMessage(message: string): Promise<ChatResponse> {
+  async sendMessage(message: string, history: ChatHistoryTurn[] = []): Promise<ChatResponse> {
     try {
       const response = await fetch(`${this.baseUrl}/api/query`, {
         method: "POST",
@@ -321,12 +975,12 @@ class ChatApi {
           "Content-Type": "application/json",
           ...this.authHeader(),
         },
-        body: JSON.stringify({ query: message }),
+        body: JSON.stringify({ query: message, history }),
       });
 
       const result = await response.json();
 
-      if (!response.ok) {
+      if (!response.ok || !result.success) {
         return {
           reply: `Error: ${result.error || "Failed to process query"}`,
           success: false,
@@ -334,45 +988,10 @@ class ChatApi {
         };
       }
 
-      if (result.success && result.data) {
-        // Format the MongoDB results into a readable response
-        const data = result.data;
-        let reply = `Query: "${data.query}"\n\n`;
-
-        // Add natural language interpretation if available
-        if (data.naturalLanguageInterpretation) {
-          reply += `**How I interpreted your query:**\n${data.naturalLanguageInterpretation}\n\n`;
-        }
-
-        // Use AI-formatted results if available, otherwise fall back to raw results
-        if (data.formattedResults) {
-          reply += data.formattedResults;
-        } else if (data.mongoResults && data.mongoResults.length > 0) {
-          // Filter out null values from mongoResults
-          const validResults = data.mongoResults.filter((result: unknown) => result !== null);
-          
-          if (validResults.length > 0) {
-            reply += `Found ${validResults.length} result(s):\n\n`;
-            reply += JSON.stringify(validResults, null, 2);
-          }
-        } else if (data.noResultsMessage) {
-          // Use the backend's custom message instead of hardcoded text
-          reply += data.noResultsMessage;
-        } else {
-          reply += "No results found for your query.";
-        }
-
-        return {
-          reply,
-          success: true,
-          data: result.data,
-        };
-      } else {
-        return {
-          reply: "Received an unexpected response from the server.",
-          success: false,
-        };
-      }
+      return {
+        reply: result.reply,
+        success: true,
+      };
     } catch (error) {
       console.error("Error calling chat API:", error);
       console.error("Error details:", {

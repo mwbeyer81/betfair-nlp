@@ -58,11 +58,9 @@ test.describe("GET /api/runners (live server @ localhost:3000)", () => {
 });
 
 test.describe("All Runners screen (Expo web @ localhost:80)", () => {
-  test("clicking runners stat navigates to /runners full-screen view", async ({ page }) => {
+  test("clicking Runners in the burger menu navigates to /runners full-screen view", async ({ page }) => {
     await goToEvents(page);
-    await expect(page.getByTestId("events-stats-bar")).toBeVisible({ timeout: 10000 });
-
-    await page.getByTestId("events-total-runners").click();
+    await page.getByTestId("events-menu-runners-link").click();
 
     await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("events-screen")).not.toBeVisible();
@@ -124,7 +122,7 @@ test.describe("All Runners screen (Expo web @ localhost:80)", () => {
     await page.goto(`${APP_URL}runners`);
     await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("all-runners-screen-events-button").click();
+    await page.getByTestId("all-runners-menu-events-link").click();
 
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("all-runners-screen")).not.toBeVisible();

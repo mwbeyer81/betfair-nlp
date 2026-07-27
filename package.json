@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "build:snapshot": "bash scripts/build-codebase-snapshot.sh",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "server": "ts-node src/server/index.ts",
@@ -30,6 +31,7 @@
     "test:coverage": "jest --coverage",
     "test:service": "jest src/lib/service",
     "test:server": "jest src/server",
+    "test:racing-api-live": "jest --config jest.live.config.js",
     "lint": "eslint src/**/*.ts",
     "clean": "rm -rf dist",
     "format": "prettier --write \"src/**/*.{ts,js,json}\"",
@@ -42,12 +44,22 @@
     "process:basic:docker": "docker-compose -f docker-compose.local.yml exec api-server yarn process:basic:local",
     "uncompress:bz2": "ts-node src/commands/uncompress-bz2.ts",
     "import:industry-sp": "ts-node src/commands/import-industry-sp.ts",
+    "fetch:daily-races": "ts-node src/commands/fetch-daily-races.ts",
+    "compute:daily-race-features": "ts-node src/commands/compute-daily-race-features.ts",
+    "seed:industry-sp-overlap-fixture": "ts-node src/commands/seed-industry-sp-overlap-fixture.ts",
+    "seed:model-evaluation-fixture": "ts-node src/commands/seed-model-evaluation-fixture.ts",
+    "live:verify-daily-races": "ts-node scripts/live-verify-daily-races-basic.ts && ts-node scripts/live-verify-daily-race-features.ts && ts-node scripts/live-verify-daily-races-prediction.ts",
+    "seed:daily-races-fixture": "ts-node src/commands/seed-daily-races-fixture.ts",
+    "precompute:trainer-form": "ts-node src/commands/precompute-trainer-form.ts",
+    "precompute:jockey-form": "ts-node src/commands/precompute-jockey-form.ts",
+    "precompute:horse-form": "ts-node src/commands/precompute-horse-form.ts",
     "mongo:drop-all": "docker-compose -f docker-compose.local.yml exec mongodb mongosh betfair_nlp_dev --eval \"$(cat scripts/drop-all-collections.js)\"",
     "mongo:exec": "node scripts/mongo-exec.js",
     "mongo:check": "node scripts/mongo-exec.js --check",
     "mongo:start": "node scripts/mongo-exec.js --start",
     "mongo:test": "ts-node scripts/test-mongo-exec.ts",
-    "config:show": "node scripts/show-config.js"
+    "config:show": "node scripts/show-config.js",
+    "test:e2e:local-ci": "bash scripts/local-ci-e2e.sh"
   },
   "keywords": [
     "betfair",
@@ -58,17 +70,21 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "config": "^4.1.1",
     "cors": "^2.8.5",
     "csv-parse": "^7.0.1",
     "express": "^5.1.0",
+    "google-auth-library": "^10.9.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^6.3.0",
     "morgan": "^1.10.1",
-    "openai": "^5.16.0"
+    "openai": "^5.16.0",
+    "twilio": "^6.0.2"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/config": "^3.3.3",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",

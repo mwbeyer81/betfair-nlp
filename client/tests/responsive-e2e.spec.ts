@@ -17,6 +17,10 @@ test.describe("Responsive /runners — mobile 375px (real app)", () => {
   });
 
   test("sort toggle is visible and within viewport", async ({ page }) => {
+    // At phone widths, header actions live behind the burger menu.
+    await page.getByTestId("all-runners-menu-button").click();
+    await expect(page.getByTestId("all-runners-nav-menu")).toBeVisible();
+
     const btn = page.getByTestId("all-runners-sort-toggle");
     await expect(btn).toBeVisible();
     const box = await btn.boundingBox();
@@ -24,7 +28,10 @@ test.describe("Responsive /runners — mobile 375px (real app)", () => {
   });
 
   test("← Events button is within viewport", async ({ page }) => {
-    const btn = page.getByTestId("all-runners-screen-events-button");
+    await page.getByTestId("all-runners-menu-button").click();
+    await expect(page.getByTestId("all-runners-nav-menu")).toBeVisible();
+
+    const btn = page.getByTestId("all-runners-menu-events-link");
     await expect(btn).toBeVisible();
     const box = await btn.boundingBox();
     expect(box!.x + box!.width).toBeLessThanOrEqual(MOBILE.width + 1);
@@ -47,6 +54,8 @@ test.describe("Responsive /runners — mobile 375px (real app)", () => {
   });
 
   test("export modal fits 375px when opened", async ({ page }) => {
+    await page.getByTestId("all-runners-menu-button").click();
+    await expect(page.getByTestId("all-runners-nav-menu")).toBeVisible();
     await page.getByTestId("all-runners-export-btn").click();
     const modal = page.getByTestId("all-runners-export-modal");
     await expect(modal).toBeVisible();
@@ -87,7 +96,7 @@ test.describe("Responsive /runners — tablet 768px (real app)", () => {
 
   test("all header buttons visible at 768px without overflow", async ({ page }) => {
     const sortBtn = page.getByTestId("all-runners-sort-toggle");
-    const eventsBtn = page.getByTestId("all-runners-screen-events-button");
+    const eventsBtn = page.getByTestId("all-runners-menu-events-link");
     await expect(sortBtn).toBeVisible();
     await expect(eventsBtn).toBeVisible();
 
@@ -114,7 +123,7 @@ test.describe("Responsive /runners — desktop 1280px (real app)", () => {
 
   test("all controls visible at 1280px", async ({ page }) => {
     await expect(page.getByTestId("all-runners-sort-toggle")).toBeVisible();
-    await expect(page.getByTestId("all-runners-screen-events-button")).toBeVisible();
+    await expect(page.getByTestId("all-runners-menu-events-link")).toBeVisible();
     await expect(page.getByTestId("all-runners-filter-apply")).toBeVisible();
     await expect(page.getByTestId("all-runners-list")).toBeVisible();
   });
@@ -130,9 +139,13 @@ test.describe("Responsive /events — mobile 375px (real app)", () => {
   });
 
   test("sort toggle, Chat and Logout buttons all within 375px", async ({ page }) => {
+    // At phone widths, header actions live behind the burger menu.
+    await page.getByTestId("events-menu-button").click();
+    await expect(page.getByTestId("events-nav-menu")).toBeVisible();
+
     const sortBtn = page.getByTestId("events-sort-toggle");
-    const chatBtn = page.getByTestId("events-screen-chat-button");
-    const logoutBtn = page.getByTestId("events-screen-logout-button");
+    const chatBtn = page.getByTestId("events-menu-chat-link");
+    const logoutBtn = page.getByTestId("events-logout-button");
 
     await expect(sortBtn).toBeVisible();
     await expect(chatBtn).toBeVisible();
@@ -155,6 +168,10 @@ test.describe("Responsive /events — mobile 375px (real app)", () => {
   });
 
   test("sort toggle works on mobile — toggles label", async ({ page }) => {
+    // At phone widths, header actions live behind the burger menu.
+    await page.getByTestId("events-menu-button").click();
+    await expect(page.getByTestId("events-nav-menu")).toBeVisible();
+
     const sortBtn = page.getByTestId("events-sort-toggle");
     await expect(sortBtn).toHaveText(/Oldest first|Newest first/);
 

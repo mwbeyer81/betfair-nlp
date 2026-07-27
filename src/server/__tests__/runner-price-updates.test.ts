@@ -8,10 +8,9 @@
 import request from "supertest";
 import app from "../app";
 
-jest.mock("../../lib/service/openai-client", () => ({
-  OpenAIClient: jest.fn().mockImplementation(() => ({
-    createResponse: jest.fn().mockResolvedValue("Mocked AI analysis"),
-    createHorseQueryResponse: jest.fn().mockResolvedValue("```javascript\ndb.price_updates.find({})\n```"),
+jest.mock("../../lib/service/codebase-search-service", () => ({
+  CodebaseSearchService: jest.fn().mockImplementation(() => ({
+    chat: jest.fn().mockResolvedValue("Mocked chat reply"),
   })),
 }));
 

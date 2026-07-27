@@ -155,4 +155,372 @@ describe("IndustrySpDAO (integration)", () => {
     expect(bounds.minIsp).toBeGreaterThan(1);
     expect(bounds.maxIsp).toBeGreaterThan(bounds.minIsp);
   });
+
+  it("an inverted range (toRow < fromRow) returns an empty result instead of throwing", async () => {
+    // Regression test: reported live as "Failed to load industry SP".
+    // rowLimit = toRow - fromRow + 1 goes negative for an inverted range,
+    // and MongoDB's $limit stage throws outright on a negative argument
+    // (MongoServerError code 5107201) rather than just returning nothing.
+    // Reachable from a stale/hand-edited URL — fromRow/toRow (and
+    // fromRowA/toRowA via getSplitStats) come straight from query params.
+    const result = await dao.getAllRacesByRace(1, 20, 1, 100, [], 1, 100000, "asc", 1, 10000, 100, 5);
+    expect(result.total).toBe(0);
+    expect(result.totalRunners).toBe(0);
+    expect(result.data).toEqual([]);
+    expect(result.pnlStats).toEqual({ staked: 0, returns: 0, pnl: 0, count: 0 });
+  });
+
+  it("fromRow=0 or negative is clamped to 1 instead of producing a negative $skip", async () => {
+    const zeroFromRow = await dao.getAllRacesByRace(1, 5, 1, 100, [], 1, 100000, "asc", 1, 10000, 0);
+    const explicitFromRowOne = await dao.getAllRacesByRace(1, 5, 1, 100, [], 1, 100000, "asc", 1, 10000, 1);
+    expect(zeroFromRow.total).toBe(explicitFromRowOne.total);
+    expect(zeroFromRow.data.map(r => r.raceId)).toEqual(explicitFromRowOne.data.map(r => r.raceId));
+
+    const negativeFromRow = await dao.getAllRacesByRace(1, 5, 1, 100, [], 1, 100000, "asc", 1, 10000, -50);
+    expect(negativeFromRow.total).toBe(explicitFromRowOne.total);
+  });
+
+  it("getDistinctCourses/Goings/RaceClasses/RaceTypes return non-empty sorted lists", async () => {
+    const [courses, goings, raceClasses, raceTypes] = await Promise.all([
+      dao.getDistinctCourses(),
+      dao.getDistinctGoings(),
+      dao.getDistinctRaceClasses(),
+      dao.getDistinctRaceTypes(),
+    ]);
+    for (const values of [courses, goings, raceClasses, raceTypes]) {
+      expect(values.length).toBeGreaterThan(0);
+      expect(values).toEqual([...values].sort());
+      expect(values.every(v => typeof v === "string" && v.length > 0)).toBe(true);
+    }
+  });
+
+  it("filters by course", async () => {
+    const courses = await dao.getDistinctCourses();
+    const course = courses[0];
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [course]
+    );
+    for (const race of data) {
+      expect(race.course).toBe(course);
+    }
+  });
+
+  it("filters by going", async () => {
+    const goings = await dao.getDistinctGoings();
+    const going = goings[0];
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [going]
+    );
+    for (const race of data) {
+      expect(race.going).toBe(going);
+    }
+  });
+
+  it("filters by raceClass", async () => {
+    const raceClasses = await dao.getDistinctRaceClasses();
+    const raceClass = raceClasses[0];
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [], [raceClass]
+    );
+    for (const race of data) {
+      expect(race.raceClass).toBe(raceClass);
+    }
+  });
+
+  it("filters by raceType", async () => {
+    const raceTypes = await dao.getDistinctRaceTypes();
+    const raceType = raceTypes[0];
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [], [], [raceType]
+    );
+    for (const race of data) {
+      expect(race.raceType).toBe(raceType);
+    }
+  });
+
+  it("filters by trainer prefix (case-insensitive)", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const trainerName = sample[0]?.runners.find(r => r.trainer)?.trainer;
+    if (!trainerName) return; // no trainer data seeded in this environment
+    const prefix = trainerName.slice(0, 3);
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [], [], [], prefix.toUpperCase()
+    );
+    for (const race of data) {
+      expect(race.runners.some(r => r.trainer?.toLowerCase().startsWith(prefix.toLowerCase()))).toBe(true);
+    }
+  });
+
+  it("filters by jockey prefix (case-insensitive)", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const jockeyName = sample[0]?.runners.find(r => r.jockey)?.jockey;
+    if (!jockeyName) return; // no jockey data seeded in this environment
+    const prefix = jockeyName.slice(0, 3);
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [], [], [], null, prefix.toUpperCase()
+    );
+    for (const race of data) {
+      expect(race.runners.some(r => r.jockey?.toLowerCase().startsWith(prefix.toLowerCase()))).toBe(true);
+    }
+  });
+
+  it("returns empty results for an unknown course", async () => {
+    const { data, total } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, ["Nonexistent Course XYZ"]
+    );
+    expect(data).toHaveLength(0);
+    expect(total).toBe(0);
+  });
+
+  it("minTrainerFormRunners/maxTrainerFormRunners default (0/100) is a no-op vs. omitting the filter entirely", async () => {
+    const unfiltered = await dao.getAllRacesByRace(1, 20);
+    const withDefaults = await dao.getAllRacesByRace(
+      1, 20, 1, 30, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [], [], [], null, null, 0, 0, 100
+    );
+    expect(withDefaults.total).toBe(unfiltered.total);
+  });
+
+  it("minModelWinProbability default (0) is a no-op vs. omitting the filter entirely", async () => {
+    const unfiltered = await dao.getAllRacesByRace(1, 20);
+    const withDefault = await dao.getAllRacesByRace(
+      1, 20, 1, 30, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [], [], [], null, null, 0, 0, 100, null, 0
+    );
+    expect(withDefault.total).toBe(unfiltered.total);
+  });
+
+  it("onlyModelBeatsSp default (false) is a no-op vs. omitting the filter entirely", async () => {
+    const unfiltered = await dao.getAllRacesByRace(1, 20);
+    const withDefault = await dao.getAllRacesByRace(
+      1, 20, 1, 30, [], 1, 1000, "asc", 1, 1000, 1, null, null, null, [], [], [], [], null, null, 0, 0, 100, null, 0, false
+    );
+    expect(withDefault.total).toBe(unfiltered.total);
+  });
+
+  it("minTrainerFormRunners narrows (or matches) the result vs. no threshold, when trainer-form data is seeded", async () => {
+    // Guarded like the trainer/jockey prefix tests above — trainerFormRuns/
+    // trainerFormWinRate only exist once src/commands/precompute-trainer-form.ts
+    // has been run against this environment's data; skip rather than fail if
+    // it hasn't.
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const hasTrainerFormData = sample[0]?.runners.some(
+      r => (r as unknown as { trainerFormRuns?: number }).trainerFormRuns != null
+    );
+    if (!hasTrainerFormData) return;
+
+    const unfiltered = await dao.getAllRacesByRace(1, 20, 1, 100);
+    const narrowed = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, null, null, null, [], [], [], [], null, null, 50, 1, 30
+    );
+    expect(narrowed.total).toBeLessThanOrEqual(unfiltered.total);
+    for (const race of narrowed.data) {
+      const qualifying = race.runners.filter(
+        r => (r as unknown as { trainerFormWinRate?: number | null }).trainerFormWinRate != null &&
+          (r as unknown as { trainerFormWinRate: number }).trainerFormWinRate >= 50
+      );
+      expect(qualifying.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("minModelWinProbability narrows (or matches) the result vs. no threshold, when model predictions are seeded", async () => {
+    // Guarded like the trainer-form test above — modelWinProbability only
+    // exists once ml/train_and_predict.py has been run against this
+    // environment's data; skip rather than fail if it hasn't.
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const hasModelData = sample[0]?.runners.some(
+      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+    );
+    if (!hasModelData) return;
+
+    const unfiltered = await dao.getAllRacesByRace(1, 20, 1, 100);
+    const narrowed = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, null, 30
+    );
+    expect(narrowed.total).toBeLessThanOrEqual(unfiltered.total);
+    for (const race of narrowed.data) {
+      const qualifying = race.runners.filter(
+        r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null &&
+          (r as unknown as { modelWinProbability: number }).modelWinProbability >= 30
+      );
+      expect(qualifying.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("onlyModelBeatsSp narrows (or matches) the result vs. no filter, when model predictions are seeded", async () => {
+    // Same guard as the minModelWinProbability test above — skip rather
+    // than fail if the model precompute hasn't been run in this environment.
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const hasModelData = sample[0]?.runners.some(
+      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+    );
+    if (!hasModelData) return;
+
+    const unfiltered = await dao.getAllRacesByRace(1, 20, 1, 100);
+    const narrowed = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, null, 0, true
+    );
+    expect(narrowed.total).toBeLessThanOrEqual(unfiltered.total);
+    for (const race of narrowed.data) {
+      const qualifying = race.runners.filter(r => {
+        const runner = r as unknown as { modelWinProbability?: number | null; isp?: number | null };
+        return runner.modelWinProbability != null && runner.isp != null && runner.isp > 0 &&
+          runner.modelWinProbability > 100 / runner.isp;
+      });
+      expect(qualifying.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("totalRunners (qualifyingRunnersCount-based) still matches the isp-range-only count when no optional filter is active", async () => {
+    // Fast-path equivalence: buildQualifyingRaceStages' qualifyingRunnersCount
+    // reuses inRangeRunnersCount directly whenever none of trainer-form/
+    // model/model-beats-SP are active — and with no optional filters, the
+    // pnlStats fast path also applies (see below), so the two are the same
+    // computation and must be exactly equal.
+    const result = await dao.getAllRacesByRace(1, 20, 1, 100);
+    expect(result.totalRunners).toBeGreaterThan(0);
+    expect(result.totalRunners).toBe(result.pnlStats.count);
+  });
+
+  it("pnlStats.count matches totalRunners exactly even when trainer-form/model/model-beats-SP narrows the runner set", async () => {
+    // Regression: reported live via screenshot — with "Model beats SP"
+    // checked, a split card's P&L% didn't match the same split's own P&L
+    // convergence graph (e.g. card said -13.2%, graph said -19.0%).
+    // pnlStats.count came out roughly double totalRunners (2992 vs 1589),
+    // because pnlStats' fast-path condition only ever checked the isp
+    // range — with model-beats-SP active but the isp range left wide open,
+    // it silently took the fast path anyway, whose precomputed
+    // raceStaked/raceReturns fields don't know about model-beats-SP at all
+    // and summed every isp-in-range runner instead of just the qualifying
+    // ones. Both the fast-path condition and the $unwind fallback's runner
+    // selection now also account for trainer-form/model/model-beats-SP, so
+    // pnlStats always reconciles with totalRunners regardless of which
+    // filters are active.
+    const result = await dao.getAllRacesByRace(
+      1, 20, 1, 20, [], 1, 501, "asc", 1, 30, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, null, 0, true
+    );
+    expect(result.totalRunners).toBeGreaterThan(0);
+    expect(result.pnlStats.count).toBe(result.totalRunners);
+  });
+
+  it("qualifyingRunnersCount-based totalRunners strictly narrows (or matches) as trainer-form/model filters stack, when seeded", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const hasModelData = sample[0]?.runners.some(
+      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+    );
+    if (!hasModelData) return;
+
+    const none = await dao.getAllRacesByRace(1, 20, 1, 100);
+    const modelOnly = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, null, 30
+    );
+    const modelAndBeatsSp = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, null, 30, true
+    );
+    // Layering on more joint conditions can only keep or shrink the
+    // qualifying-runner total, never grow it.
+    expect(modelOnly.totalRunners).toBeLessThanOrEqual(none.totalRunners);
+    expect(modelAndBeatsSp.totalRunners).toBeLessThanOrEqual(modelOnly.totalRunners);
+  });
+
+  it("getRaceConvergenceSeries covers exactly [fromRow, toRow], in raceTime order, with no filters active", async () => {
+    const grand = await dao.getAllRacesByRace(1, 1, 1, 100);
+    if (grand.total < 10) return;
+    const fromRow = 3;
+    const toRow = Math.min(10, grand.total);
+    const points = await dao.getRaceConvergenceSeries(
+      1, 100, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, fromRow, toRow
+    );
+    expect(points.length).toBe(toRow - fromRow + 1);
+    expect(points.map(p => p.raceRowNumber)).toEqual(
+      Array.from({ length: toRow - fromRow + 1 }, (_, i) => fromRow + i)
+    );
+  });
+
+  it("getRaceConvergenceSeries' cumulative sums are monotonically non-decreasing and its last point matches getAllRacesByRace's own pnlStats for the same range", async () => {
+    const grand = await dao.getAllRacesByRace(1, 1, 1, 100);
+    if (grand.total < 10) return;
+    const fromRow = 1;
+    const toRow = Math.min(10, grand.total);
+    const points = await dao.getRaceConvergenceSeries(
+      1, 100, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, fromRow, toRow
+    );
+    for (let i = 1; i < points.length; i++) {
+      expect(points[i].cumulativeStaked).toBeGreaterThanOrEqual(points[i - 1].cumulativeStaked);
+      expect(points[i].cumulativeReturns).toBeGreaterThanOrEqual(points[i - 1].cumulativeReturns);
+    }
+
+    const rangeStats = await dao.getAllRacesByRace(1, 1, 1, 100, [], 1, 1000, "asc", 1, 10000, fromRow, toRow);
+    const last = points[points.length - 1];
+    expect(last.cumulativeStaked).toBeCloseTo(rangeStats.pnlStats.staked, 5);
+    expect(last.cumulativeReturns).toBeCloseTo(rangeStats.pnlStats.returns, 5);
+  });
+
+  it("getRaceConvergenceSeries' slow path (a model filter active) still reconciles with getAllRacesByRace's own pnlStats for the same range, when seeded", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const hasModelData = sample[0]?.runners.some(
+      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+    );
+    if (!hasModelData) return;
+
+    const grand = await dao.getAllRacesByRace(
+      1, 1, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, null, 30
+    );
+    if (grand.total < 5) return;
+    const fromRow = 1;
+    const toRow = Math.min(5, grand.total);
+    const points = await dao.getRaceConvergenceSeries(
+      1, 100, [], 1, 100000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 30, false, fromRow, toRow
+    );
+    expect(points.length).toBe(toRow - fromRow + 1);
+
+    const rangeStats = await dao.getAllRacesByRace(
+      1, 1, 1, 100, [], 1, 100000, "asc", 1, 10000, fromRow, toRow, null, null,
+      [], [], [], [], null, null, 0, 0, 100, null, 30
+    );
+    const last = points[points.length - 1];
+    expect(last.cumulativeStaked).toBeCloseTo(rangeStats.pnlStats.staked, 5);
+    expect(last.cumulativeReturns).toBeCloseTo(rangeStats.pnlStats.returns, 5);
+  });
+
+  it("getRaceConvergenceSeries returns an empty array when toRow < fromRow", async () => {
+    const points = await dao.getRaceConvergenceSeries(
+      1, 100, [], 1, 1000, 1, 10000, null, null, [], [], [], [], null, null, 0, 0, 100, 0, false, 10, 5
+    );
+    expect(points).toEqual([]);
+  });
+
+  it("filters by exact runner (horse) name, case-insensitive", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const runnerName = sample[0]?.runners[0]?.name;
+    if (!runnerName) return; // no data seeded in this environment
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, runnerName.toUpperCase()
+    );
+    expect(data.length).toBeGreaterThan(0);
+    for (const race of data) {
+      expect(race.runners.some(r => r.name.toLowerCase() === runnerName.toLowerCase())).toBe(true);
+    }
+  });
+
+  it("runner name matching is anchored both ends, not a prefix match (unlike trainer/jockey search)", async () => {
+    const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
+    const runnerName = sample[0]?.runners[0]?.name;
+    if (!runnerName || runnerName.length < 2) return;
+    // A strict prefix of a real horse's name should match nothing — the
+    // full name must match exactly, unlike trainerSearch/jockeySearch.
+    const prefix = runnerName.slice(0, runnerName.length - 1);
+    const { data } = await dao.getAllRacesByRace(
+      1, 20, 1, 100, [], 1, 1000, "asc", 1, 1000, 1, null, null, null,
+      [], [], [], [], null, null, 0, 0, 100, prefix
+    );
+    for (const race of data) {
+      expect(race.runners.some(r => r.name.toLowerCase() === prefix.toLowerCase())).toBe(true);
+    }
+  });
 });

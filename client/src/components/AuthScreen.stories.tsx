@@ -1,434 +1,287 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { within, expect } from "@storybook/test";
+import { within, userEvent, expect, fn, waitFor } from "@storybook/test";
+import { http, HttpResponse } from "msw";
 import { AuthScreen } from "./AuthScreen";
-import { useState } from "react";
+
+const BASE = "http://localhost:3000";
+
+const loginHandlers = [
+  http.post(`${BASE}/api/auth/login`, async ({ request }) => {
+    const body = (await request.json()) as { email: string; password: string };
+    if (body.email === "matthew@backbet.co.uk" && body.password === "beyer") {
+      return HttpResponse.json({ token: "fake.jwt.token", emailVerified: true });
+    }
+    return HttpResponse.json({ error: "Invalid email or password" }, { status: 401 });
+  }),
+];
+
+const signupHandlers = [
+  http.post(`${BASE}/api/auth/signup`, async ({ request }) => {
+    const body = (await request.json()) as { email: string; password: string };
+    if (body.email === "taken@backbet.co.uk") {
+      return HttpResponse.json({ error: "An account with that email already exists" }, { status: 409 });
+    }
+    return HttpResponse.json({ token: "fake.jwt.token", emailVerified: false }, { status: 201 });
+  }),
+];
+
+const smsHandlers = [
+  http.post(`${BASE}/api/auth/sms/send`, async ({ request }) => {
+    const body = (await request.json()) as { phone: string };
+    if (body.phone === "+10000000000") {
+      return HttpResponse.json({ error: "Failed to send verification code" }, { status: 502 });
+    }
+    return HttpResponse.json({ success: true });
+  }),
+  http.post(`${BASE}/api/auth/sms/verify`, async ({ request }) => {
+    const body = (await request.json()) as { phone: string; code: string };
+    if (body.code === "000000") {
+      return HttpResponse.json({ token: "fake.jwt.token", emailVerified: false });
+    }
+    return HttpResponse.json({ error: "Invalid or expired verification code" }, { status: 401 });
+  }),
+];
 
 const meta: Meta<typeof AuthScreen> = {
   title: "Components/AuthScreen",
   component: AuthScreen,
   parameters: {
     layout: "centered",
+    msw: { handlers: [...loginHandlers, ...signupHandlers, ...smsHandlers] },
   },
   tags: ["autodocs"],
-  argTypes: {
-    onAuthenticated: { action: "authenticated" },
+  args: {
+    onAuthenticated: fn(),
   },
 };
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// Basic story
-export const Default: Story = {
-  args: {},
-};
+export const Default: Story = {};
 
 export const RendersAtIphone12: Story = {
-  args: {},
   parameters: { viewport: { defaultViewport: "iphone12" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByTestId("auth-username-input")).toBeInTheDocument();
+    await expect(canvas.getByTestId("auth-email-input")).toBeInTheDocument();
     await expect(canvas.getByTestId("auth-password-input")).toBeInTheDocument();
     await expect(canvas.getByTestId("auth-login-button")).toBeInTheDocument();
   },
 };
 
-// Story with URL parameters simulation
-export const WithUrlParameters: Story = {
-  render: args => {
-    // Simulate URL parameters for testing
-    const simulateUrlParams = () => {
-      // Mock the URL parameters
-      const mockUrl = "http://localhost:8081?auth=matthew:beyer";
-      console.log("🔐 Simulating URL:", mockUrl);
-
-      // In a real scenario, this would be handled by expo-linking
-      // For Storybook, we'll just show what would happen
-      alert(
-        "In a real app, this would auto-fill with:\nUsername: matthew\nPassword: beyer\n\nAnd attempt auto-login."
-      );
-    };
-
-    const simulateBase64UrlParams = () => {
-      const mockUrl = "http://localhost:8081?auth=bWF0dGhldzpiZXllcg==";
-      console.log("🔐 Simulating Base64 URL:", mockUrl);
-
-      alert(
-        "In a real app, this would decode to:\nUsername: matthew\nPassword: beyer\n\nAnd attempt auto-login."
-      );
-    };
-
-    return (
-      <div style={{ width: "400px", padding: "20px" }}>
-        <div
-          style={{
-            marginBottom: "20px",
-            padding: "10px",
-            backgroundColor: "#f0f8ff",
-            borderRadius: "8px",
-          }}
-        >
-          <h4>🔐 URL Parameter Testing</h4>
-          <p style={{ fontSize: "14px", margin: "10px 0" }}>
-            Test how the AuthScreen handles URL parameters:
-          </p>
-          <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-            <button
-              onClick={simulateUrlParams}
-              style={{
-                padding: "8px 16px",
-                backgroundColor: "#007AFF",
-                color: "white",
-                border: "none",
-                borderRadius: "4px",
-                fontSize: "12px",
-              }}
-            >
-              Test Plain Text URL
-            </button>
-            <button
-              onClick={simulateBase64UrlParams}
-              style={{
-                padding: "8px 16px",
-                backgroundColor: "#28a745",
-                color: "white",
-                border: "none",
-                borderRadius: "4px",
-                fontSize: "12px",
-              }}
-            >
-              Test Base64 URL
-            </button>
-          </div>
-        </div>
-
-        <AuthScreen {...args} />
-
-        <div style={{ marginTop: "20px", fontSize: "12px", color: "#666" }}>
-          <p>
-            <strong>Test URLs:</strong>
-          </p>
-          <p>
-            • Plain text: <code>?auth=matthew:beyer</code>
-          </p>
-          <p>
-            • Base64: <code>?auth=bWF0dGhldzpiZXllcg==</code>
-          </p>
-          <p>
-            <strong>Note:</strong> URL parsing only works in the actual app, not
-            Storybook
-          </p>
-        </div>
-      </div>
-    );
+export const RendersAtLaptop: Story = {
+  parameters: { viewport: { defaultViewport: "laptop" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("auth-email-input")).toBeInTheDocument();
+    await expect(canvas.getByTestId("auth-password-input")).toBeInTheDocument();
+    await expect(canvas.getByTestId("auth-login-button")).toBeInTheDocument();
   },
-  args: {},
 };
 
-// Story showing the component with pre-filled credentials
-export const PreFilledCredentials: Story = {
-  render: args => {
-    const [username, setUsername] = useState("matthew");
-    const [password, setPassword] = useState("beyer");
-
-    const handleAuthenticated = () => {
-      console.log("✅ Authentication successful!");
-      alert("Authentication successful! (This is just a demo)");
-    };
-
-    return (
-      <div style={{ width: "400px", padding: "20px" }}>
-        <div
-          style={{
-            marginBottom: "20px",
-            padding: "10px",
-            backgroundColor: "#e8f5e8",
-            borderRadius: "8px",
-          }}
-        >
-          <h4>👤 Pre-filled Credentials Demo</h4>
-          <p style={{ fontSize: "14px", margin: "10px 0" }}>
-            This simulates what the component looks like when credentials are
-            loaded from URL parameters.
-          </p>
-          <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-            <button
-              onClick={() => setUsername("")}
-              style={{
-                padding: "6px 12px",
-                backgroundColor: "#ffc107",
-                color: "black",
-                border: "none",
-                borderRadius: "4px",
-                fontSize: "12px",
-              }}
-            >
-              Clear Username
-            </button>
-            <button
-              onClick={() => setPassword("")}
-              style={{
-                padding: "6px 12px",
-                backgroundColor: "#ffc107",
-                color: "black",
-                border: "none",
-                borderRadius: "4px",
-                fontSize: "12px",
-              }}
-            >
-              Clear Password
-            </button>
-          </div>
-        </div>
-
-        <AuthScreen onAuthenticated={handleAuthenticated} />
-      </div>
-    );
+export const LoginFormByDefault: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("auth-email-input")).toBeInTheDocument();
+    await expect(canvas.getByTestId("auth-password-input")).toBeInTheDocument();
+    await expect(canvas.getByTestId("auth-login-button")).toBeInTheDocument();
+    await expect(canvas.getByText("Log in to continue")).toBeInTheDocument();
   },
-  args: {},
 };
 
-// Story to test the fix for credentials message
-export const CredentialsMessageTest: Story = {
-  render: args => {
-    const [testState, setTestState] = useState("empty");
-    const [testUsername, setTestUsername] = useState("");
-    const [testPassword, setTestPassword] = useState("");
+export const ToggleToSignupMode: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByTestId("auth-mode-toggle"));
 
-    const simulateUrlCredentials = () => {
-      setTestState("from-url");
-      setTestUsername("matthew");
-      setTestPassword("beyer");
-      console.log("🔐 Simulating credentials loaded from URL");
-    };
+    await expect(canvas.getByTestId("auth-signup-button")).toBeInTheDocument();
+    await expect(canvas.getByText("Create your account")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("auth-login-button")).not.toBeInTheDocument();
 
-    const simulateManualTyping = () => {
-      setTestState("manual");
-      setTestUsername("user");
-      setTestPassword("pass");
-      console.log("✍️ Simulating manual typing of credentials");
-    };
-
-    const resetState = () => {
-      setTestState("empty");
-      setTestUsername("");
-      setTestPassword("");
-      console.log("🔄 Resetting to empty state");
-    };
-
-    return (
-      <div style={{ width: "500px", padding: "20px" }}>
-        <div
-          style={{
-            marginBottom: "20px",
-            padding: "10px",
-            backgroundColor: "#f0f8ff",
-            borderRadius: "8px",
-          }}
-        >
-          <h4>🧪 Credentials Message Test</h4>
-          <p style={{ fontSize: "14px", margin: "10px 0" }}>
-            Test the fix for the "Credentials loaded from URL parameters"
-            message. This message should ONLY appear when credentials come from
-            URL, not when typing manually.
-          </p>
-          <div
-            style={{
-              display: "flex",
-              gap: "10px",
-              marginTop: "10px",
-              flexWrap: "wrap",
-            }}
-          >
-            <button
-              onClick={simulateUrlCredentials}
-              style={{
-                padding: "8px 16px",
-                backgroundColor: "#28a745",
-                color: "white",
-                border: "none",
-                borderRadius: "4px",
-                fontSize: "12px",
-              }}
-            >
-              Simulate URL Credentials
-            </button>
-            <button
-              onClick={simulateManualTyping}
-              style={{
-                padding: "8px 16px",
-                backgroundColor: "#007AFF",
-                color: "white",
-                border: "none",
-                borderRadius: "4px",
-                fontSize: "12px",
-              }}
-            >
-              Simulate Manual Typing
-            </button>
-            <button
-              onClick={resetState}
-              style={{
-                padding: "8px 16px",
-                backgroundColor: "#6c757d",
-                color: "white",
-                border: "none",
-                borderRadius: "4px",
-                fontSize: "12px",
-              }}
-            >
-              Reset State
-            </button>
-          </div>
-
-          <div
-            style={{
-              marginTop: "15px",
-              padding: "10px",
-              backgroundColor: "#fff3cd",
-              borderRadius: "4px",
-            }}
-          >
-            <p style={{ fontSize: "12px", margin: "0", fontWeight: "bold" }}>
-              Current Test State:{" "}
-              <span style={{ color: "#856404" }}>{testState}</span>
-            </p>
-            <p
-              style={{
-                fontSize: "11px",
-                margin: "5px 0 0 0",
-                color: "#856404",
-              }}
-            >
-              • "from-url": Should show green credentials message • "manual":
-              Should NOT show credentials message (even with filled fields) •
-              "empty": No credentials, no message
-            </p>
-          </div>
-        </div>
-
-        <div
-          style={{
-            border: "1px solid #ddd",
-            borderRadius: "8px",
-            padding: "20px",
-          }}
-        >
-          <h5 style={{ margin: "0 0 15px 0", color: "#333" }}>
-            AuthScreen Component
-          </h5>
-          <div style={{ marginBottom: "15px" }}>
-            <label
-              style={{
-                display: "block",
-                marginBottom: "5px",
-                fontWeight: "600",
-              }}
-            >
-              Username:
-            </label>
-            <input
-              type="text"
-              value={testUsername}
-              onChange={e => setTestUsername(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "8px",
-                border: "1px solid #ddd",
-                borderRadius: "4px",
-              }}
-              placeholder="Enter username"
-            />
-          </div>
-          <div style={{ marginBottom: "15px" }}>
-            <label
-              style={{
-                display: "block",
-                marginBottom: "5px",
-                fontWeight: "600",
-              }}
-            >
-              Password:
-            </label>
-            <input
-              type="password"
-              value={testPassword}
-              onChange={e => setTestPassword(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "8px",
-                border: "1px solid #ddd",
-                borderRadius: "4px",
-              }}
-              placeholder="Enter password"
-            />
-          </div>
-
-          {/* Show the credentials message conditionally */}
-          {testState === "from-url" && (
-            <div
-              style={{
-                backgroundColor: "#e8f5e8",
-                border: "1px solid #4caf50",
-                borderRadius: "8px",
-                padding: "16px",
-                marginBottom: "16px",
-                textAlign: "center",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "16px",
-                  fontWeight: "600",
-                  color: "#2e7d32",
-                  marginBottom: "4px",
-                }}
-              >
-                💡 Credentials loaded from URL parameters
-              </div>
-              <div style={{ fontSize: "14px", color: "#4caf50" }}>
-                Press Enter or tap Login to continue
-              </div>
-            </div>
-          )}
-
-          <button
-            style={{
-              width: "100%",
-              padding: "12px",
-              backgroundColor: "#007AFF",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              fontSize: "16px",
-              fontWeight: "600",
-            }}
-            onClick={() =>
-              console.log("✅ Login clicked with:", testUsername, testPassword)
-            }
-          >
-            Login
-          </button>
-        </div>
-
-        <div style={{ marginTop: "20px", fontSize: "12px", color: "#666" }}>
-          <p>
-            <strong>Test Instructions:</strong>
-          </p>
-          <p>1. Click "Simulate URL Credentials" - should show green message</p>
-          <p>
-            2. Click "Simulate Manual Typing" - should NOT show green message
-          </p>
-          <p>3. Type in the form manually - should NOT show green message</p>
-          <p>4. Click "Reset State" to clear everything</p>
-          <p>
-            <strong>Expected:</strong> Green message only appears for URL-loaded
-            credentials
-          </p>
-        </div>
-      </div>
-    );
+    // Toggling back returns to the login form
+    await userEvent.click(canvas.getByTestId("auth-mode-toggle"));
+    await expect(canvas.getByTestId("auth-login-button")).toBeInTheDocument();
   },
-  args: {},
+};
+
+// Each story below asserts on onAuthenticated call counts. meta.args's fn()
+// is a single shared instance whose calls accumulate across every story in
+// this file (the test runner doesn't reload between stories), so each of
+// these gets its own fresh mock via a story-level args override.
+export const LoginSucceeds: Story = {
+  args: { onAuthenticated: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(canvas.getByTestId("auth-email-input"), "matthew@backbet.co.uk");
+    await userEvent.type(canvas.getByTestId("auth-password-input"), "beyer");
+    await userEvent.click(canvas.getByTestId("auth-login-button"));
+
+    await waitFor(() => expect(args.onAuthenticated).toHaveBeenCalledTimes(1));
+  },
+};
+
+export const LoginFailsShowsError: Story = {
+  args: { onAuthenticated: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(canvas.getByTestId("auth-email-input"), "matthew@backbet.co.uk");
+    await userEvent.type(canvas.getByTestId("auth-password-input"), "wrong-password");
+    await userEvent.click(canvas.getByTestId("auth-login-button"));
+
+    await expect(canvas.findByTestId("auth-error")).resolves.toHaveTextContent("Invalid email or password");
+    await expect(args.onAuthenticated).not.toHaveBeenCalled();
+  },
+};
+
+export const SignupSucceeds: Story = {
+  args: { onAuthenticated: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByTestId("auth-mode-toggle"));
+    await userEvent.type(canvas.getByTestId("auth-email-input"), "new.user@backbet.co.uk");
+    await userEvent.type(canvas.getByTestId("auth-password-input"), "correct-horse-battery");
+    await userEvent.type(canvas.getByTestId("auth-confirm-password-input"), "correct-horse-battery");
+    await userEvent.click(canvas.getByTestId("auth-signup-button"));
+
+    await waitFor(() => expect(args.onAuthenticated).toHaveBeenCalledTimes(1));
+  },
+};
+
+export const SignupFailsForTakenEmail: Story = {
+  args: { onAuthenticated: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByTestId("auth-mode-toggle"));
+    await userEvent.type(canvas.getByTestId("auth-email-input"), "taken@backbet.co.uk");
+    await userEvent.type(canvas.getByTestId("auth-password-input"), "correct-horse-battery");
+    await userEvent.type(canvas.getByTestId("auth-confirm-password-input"), "correct-horse-battery");
+    await userEvent.click(canvas.getByTestId("auth-signup-button"));
+
+    await expect(canvas.findByTestId("auth-error")).resolves.toHaveTextContent("already exists");
+    await expect(args.onAuthenticated).not.toHaveBeenCalled();
+  },
+};
+
+export const ConfirmPasswordFieldOnlyInSignupMode: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByTestId("auth-confirm-password-input")).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId("auth-mode-toggle"));
+    await expect(canvas.getByTestId("auth-confirm-password-input")).toBeInTheDocument();
+  },
+};
+
+export const MismatchedConfirmPasswordShowsErrorAndDisablesSubmit: Story = {
+  args: { onAuthenticated: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByTestId("auth-mode-toggle"));
+    await userEvent.type(canvas.getByTestId("auth-email-input"), "new.user@backbet.co.uk");
+    await userEvent.type(canvas.getByTestId("auth-password-input"), "correct-horse-battery");
+    await userEvent.type(canvas.getByTestId("auth-confirm-password-input"), "not-the-same");
+
+    await expect(canvas.getByTestId("auth-confirm-password-error")).toHaveTextContent("don't match");
+    // Disabled (not just visually) — a real click can't reach it, which is
+    // exactly the guarantee this test cares about, so don't attempt one.
+    await expect(canvas.getByTestId("auth-signup-button")).toBeDisabled();
+    await expect(args.onAuthenticated).not.toHaveBeenCalled();
+  },
+};
+
+export const MatchingConfirmPasswordClearsErrorAndEnablesSubmit: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByTestId("auth-mode-toggle"));
+    await userEvent.type(canvas.getByTestId("auth-email-input"), "new.user@backbet.co.uk");
+    await userEvent.type(canvas.getByTestId("auth-password-input"), "correct-horse-battery");
+    await userEvent.type(canvas.getByTestId("auth-confirm-password-input"), "correct-horse-battery");
+
+    await expect(canvas.queryByTestId("auth-confirm-password-error")).not.toBeInTheDocument();
+    await expect(canvas.getByTestId("auth-signup-button")).toBeEnabled();
+  },
+};
+
+export const GoogleButtonHiddenWhenNotConfigured: Story = {
+  // config.googleClientId is blank in every test/build environment here
+  // (no Google Cloud project created yet) — confirms the button simply
+  // doesn't render rather than rendering broken/empty.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByTestId("auth-google-button-container")).not.toBeInTheDocument();
+  },
+};
+
+export const SignInWithPhoneLink: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByTestId("auth-use-phone")).toBeInTheDocument();
+    await userEvent.click(canvas.getByTestId("auth-use-phone"));
+
+    await expect(canvas.getByTestId("auth-phone-input")).toBeInTheDocument();
+    await expect(canvas.getByTestId("auth-phone-send-code")).toBeDisabled();
+  },
+};
+
+export const PhoneSendCodeRequiresE164Format: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByTestId("auth-use-phone"));
+
+    await userEvent.type(canvas.getByTestId("auth-phone-input"), "07911123456");
+    await expect(canvas.getByTestId("auth-phone-send-code")).toBeDisabled();
+
+    await userEvent.clear(canvas.getByTestId("auth-phone-input"));
+    await userEvent.type(canvas.getByTestId("auth-phone-input"), "+447911123456");
+    await expect(canvas.getByTestId("auth-phone-send-code")).toBeEnabled();
+  },
+};
+
+export const PhoneSignInFullFlowSucceeds: Story = {
+  args: { onAuthenticated: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByTestId("auth-use-phone"));
+    await userEvent.type(canvas.getByTestId("auth-phone-input"), "+447911123456");
+    await userEvent.click(canvas.getByTestId("auth-phone-send-code"));
+
+    await expect(canvas.findByTestId("auth-sms-code-input")).resolves.toBeInTheDocument();
+    await expect(canvas.getByTestId("auth-phone-verify-code")).toBeDisabled();
+
+    await userEvent.type(canvas.getByTestId("auth-sms-code-input"), "000000");
+    await userEvent.click(canvas.getByTestId("auth-phone-verify-code"));
+
+    await waitFor(() => expect(args.onAuthenticated).toHaveBeenCalledTimes(1));
+  },
+};
+
+export const PhoneSignInWrongCodeShowsError: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByTestId("auth-use-phone"));
+    await userEvent.type(canvas.getByTestId("auth-phone-input"), "+447911123456");
+    await userEvent.click(canvas.getByTestId("auth-phone-send-code"));
+
+    await canvas.findByTestId("auth-sms-code-input");
+    await userEvent.type(canvas.getByTestId("auth-sms-code-input"), "123456");
+    await userEvent.click(canvas.getByTestId("auth-phone-verify-code"));
+
+    await expect(canvas.findByTestId("auth-error")).resolves.toHaveTextContent("Invalid or expired");
+  },
+};
+
+export const PhoneBackToLoginResetsState: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByTestId("auth-use-phone"));
+    await userEvent.type(canvas.getByTestId("auth-phone-input"), "+447911123456");
+
+    await userEvent.click(canvas.getByTestId("auth-back-to-login"));
+    await expect(canvas.getByTestId("auth-email-input")).toBeInTheDocument();
+
+    // Going back to phone mode should start fresh, not resume the old number.
+    await userEvent.click(canvas.getByTestId("auth-use-phone"));
+    await expect((canvas.getByTestId("auth-phone-input") as HTMLInputElement).value).toBe("");
+  },
 };

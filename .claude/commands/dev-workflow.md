@@ -22,6 +22,12 @@ Returns `200` when healthy. If it fails, restart: `npm run server`
 
 ## Test suites and their prerequisites
 
+### Unit tests (no running servers needed)
+```bash
+npx jest src/lib/service/<file>.test.ts --no-coverage
+```
+See `/unit-tests` for the plain-Jest pattern (pure functions and mocked-collaborator classes).
+
 ### Supertest API tests (no running servers needed)
 ```bash
 npx jest src/server/__tests__/app.test.ts --no-coverage
@@ -31,6 +37,8 @@ npx jest src/server/__tests__/app.test.ts --no-coverage
 ```bash
 npx jest --testPathPattern="integration" --no-coverage --runInBand
 ```
+This is a plain local `mongod` process (not Docker) — see `/mongo-integration-tests` for
+how to start/seed it if `localhost:27019` isn't already up.
 
 ### Storybook interaction tests (Storybook at localhost:6007 needed)
 ```bash
@@ -47,6 +55,7 @@ cd client && npx playwright test tests/<feature>-e2e.spec.ts
 cd client && yarn build:web   # rebuild after any frontend changes
 cd client && yarn test:msw
 ```
+See `/msw-playwright-tests` for the routing/fixture pattern.
 
 ## TypeScript build check
 
@@ -54,3 +63,24 @@ Run after every frontend change before committing:
 ```bash
 cd client && yarn build
 ```
+
+## Git worktree hygiene
+
+This repo runs multiple concurrent agents in sibling git worktrees — see
+`AGENTS.md`'s "Working in a worktree" section for how to create one. The
+other half of that convention matters just as much: **once your branch is
+merged (and, for anything user-facing, deployed), remove the worktree**
+rather than leaving it on disk.
+
+```bash
+git worktree remove ~/betfair-nlp-<slug>   # after confirming git status is clean
+git branch -d <slug>                       # -d (not -D) refuses if unmerged, as a safety check
+```
+
+A stale merged worktree isn't just clutter — it's a live, editable checkout
+of old code that the next agent might stumble into and mistake for active
+work, and it silently drifts as `develop` moves on without it. Check
+`AGENTS.md`'s "Active worktrees" table before assuming a worktree is safe to
+remove: if it shows uncommitted changes (`git status --short` inside it),
+that's very likely someone's real in-progress work, not cruft — leave it
+and flag it instead of removing it.

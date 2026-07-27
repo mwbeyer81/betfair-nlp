@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { View, ScrollView, StyleSheet, SafeAreaView } from "react-native";
-import { Text, Appbar, Button, ActivityIndicator } from "react-native-paper";
+import { View, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
+import { Text, Button, ActivityIndicator } from "react-native-paper";
 import { chatApi, IspRace, IspRunner } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
+import { PageContainer } from "./PageContainer";
+import { AppHeader } from "./AppHeader";
+import type { Route } from "../hooks/useRouter";
 import {
   stakeToWin1,
   formatGbp,
@@ -13,19 +16,34 @@ import {
   runnerPnl,
   formatRaceTime,
   formatRaceDate,
+  toFormCategory,
   OddsMode,
+  modelBeatsSp,
+  impliedProbabilityPct,
 } from "../utils/ispFormat";
 
 interface IndustryRaceScreenProps {
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
+  onLogout?: () => void;
+  onRequestAuth?: () => void;
   raceId: number;
   onNavigateToMeeting: (meetingId: string) => void;
   onNavigateToIsp: () => void;
+  onNavigateToRunner: (raceId: number, runnerId: number) => void;
+  onNavigateToTrainer: (trainer: string, formCategory: "Flat" | "Jumps") => void;
 }
 
 export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
+  navigate,
+  isAuthenticated,
+  onLogout,
+  onRequestAuth,
   raceId,
   onNavigateToMeeting,
   onNavigateToIsp,
+  onNavigateToRunner,
+  onNavigateToTrainer,
 }) => {
   const [race, setRace] = useState<IspRace | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,25 +69,19 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
 
   return (
     <SafeAreaView testID="industry-race-screen" style={styles.screen}>
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content
-          title={race ? `${race.course} ${formatRaceTime(race.raceTime)}` : "Race"}
-          subtitle={race ? `${formatRaceDate(race.raceTime)} · ${race.raceType}` : undefined}
-          titleStyle={styles.appbarTitle}
-          subtitleStyle={styles.appbarSubtitle}
-        />
-        <Button
-          testID="industry-race-back"
-          mode="contained"
-          compact
-          buttonColor={colors.primaryDark}
-          onPress={() => (race ? onNavigateToMeeting(race.meetingId) : onNavigateToIsp())}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          ← Meeting
-        </Button>
-      </Appbar.Header>
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        onRequestAuth={onRequestAuth}
+        onBack={() => (race ? onNavigateToMeeting(race.meetingId) : onNavigateToIsp())}
+        subtitle={
+          race
+            ? `${race.course} ${formatRaceTime(race.raceTime)} · ${formatRaceDate(race.raceTime)} · ${race.raceType}`
+            : "Race"
+        }
+        testIdPrefix="industry-race"
+      />
 
       <View testID="industry-race-toolbar" style={styles.toolbar}>
         <Button
@@ -132,17 +144,19 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
 
         {!isLoading && !error && race && (
           <ScrollView testID="industry-race-list" style={styles.list}>
+          <PageContainer>
             {race.runners.length === 0 && (
               <Text style={styles.emptyText}>No runners found.</Text>
             )}
             {race.runners.map((runner: IspRunner) => (
-              <View
+              <TouchableOpacity
                 key={runner.id}
                 testID={`industry-race-item-${runner.id}`}
                 style={styles.runnerRow}
+                onPress={() => onNavigateToRunner(race.raceId, runner.id)}
               >
                 <Text style={styles.priority}>{runner.sortPriority}.</Text>
-                <Text style={styles.runnerName} numberOfLines={1}>
+                <Text testID={`industry-race-item-name-${runner.id}`} style={styles.runnerName} numberOfLines={1}>
                   {runner.name}
                 </Text>
                 {runner.isp != null && (
@@ -162,6 +176,35 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
                     {formatPnl(runnerPnl(runner)!)}
                   </Text>
                 )}
+                {runner.trainer && (
+                  <TouchableOpacity
+                    onPress={(e) => { e.stopPropagation(); onNavigateToTrainer(runner.trainer!, toFormCategory(race.raceType)); }}
+                  >
+                    <Text testID={`industry-race-item-trainer-${runner.id}`} style={styles.trainerBadge} numberOfLines={1}>
+                      {runner.trainer}
+                      {runner.trainerFormRuns != null && runner.trainerFormRuns > 0 && runner.trainerFormWinRate != null && (
+                        <Text testID={`industry-race-item-trainer-form-${runner.id}`} style={styles.trainerFormBadge}>
+                          {` · ${runner.trainerFormWins}/${runner.trainerFormRuns} · ${runner.trainerFormWinRate.toFixed(0)}%`}
+                        </Text>
+                      )}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {runner.modelWinProbability != null && (
+                  <Text testID={`industry-race-item-model-${runner.id}`} style={styles.modelBadge}>
+                    Model {runner.modelWinProbability.toFixed(0)}%
+                    {runner.isp != null && runner.isp > 0 && (
+                      <Text testID={`industry-race-item-implied-sp-${runner.id}`} style={styles.impliedSpBadge}>
+                        {` · SP ${impliedProbabilityPct(runner.isp).toFixed(0)}%`}
+                      </Text>
+                    )}
+                  </Text>
+                )}
+                {modelBeatsSp(runner) && (
+                  <Text testID={`industry-race-item-value-${runner.id}`} style={styles.valueBadge}>
+                    Value
+                  </Text>
+                )}
                 <View
                   style={[
                     styles.statusBadge,
@@ -172,8 +215,9 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
                     {runner.status}
                   </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))}
+          </PageContainer>
           </ScrollView>
         )}
       </View>
@@ -185,27 +229,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  appbar: {
-    backgroundColor: colors.primary,
-    elevation: 4,
-  },
-  appbarTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  appbarSubtitle: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 11,
-  },
-  headerButton: {
-    marginHorizontal: 3,
-    borderRadius: radii.md,
-  },
-  headerButtonLabel: {
-    fontSize: 11,
-    fontWeight: "600",
   },
   toolbar: {
     flexDirection: "row",
@@ -230,14 +253,14 @@ const styles = StyleSheet.create({
   raceInfoBar: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md - 2,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   raceInfoName: {
     fontSize: 15,
     fontWeight: "700",
-    color: colors.primaryDark,
+    color: colors.accent,
   },
   raceInfoMeta: {
     fontSize: 12,
@@ -283,10 +306,10 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   pnlPos: {
-    color: "#4ADE80",
+    color: colors.pnlPositive,
   },
   pnlNeg: {
-    color: "#F87171",
+    color: colors.pnlNegative,
   },
   body: {
     flex: 1,
@@ -331,12 +354,15 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     width: 22,
   },
+  // Deliberately not flex:1 — in a flexWrap row, a flex-grow item gets
+  // squeezed toward minWidth (effectively invisible) as more badges are
+  // added to the same row, rather than wrapping itself; a fixed maxWidth
+  // (matching trainerBadge's own cap) makes it wrap as a whole instead.
   runnerName: {
     fontSize: 13,
     fontWeight: "500",
     color: colors.text,
-    flex: 1,
-    minWidth: 0,
+    maxWidth: 160,
     marginRight: spacing.sm,
   },
   statusBadge: {
@@ -351,8 +377,8 @@ const styles = StyleSheet.create({
   bspBadge: {
     fontSize: 11,
     fontWeight: "700",
-    color: colors.primaryDark,
-    backgroundColor: "#EEF2FF",
+    color: colors.accent,
+    backgroundColor: colors.primaryLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,
@@ -370,6 +396,43 @@ const styles = StyleSheet.create({
   runnerPnl: {
     fontSize: 12,
     fontWeight: "700",
+    marginRight: spacing.sm,
+  },
+  trainerBadge: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginRight: spacing.sm,
+    maxWidth: 160,
+  },
+  trainerFormBadge: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textTertiary,
+  },
+  modelBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.accent,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+    marginRight: spacing.sm,
+  },
+  impliedSpBadge: {
+    fontWeight: "500",
+    color: colors.textTertiary,
+  },
+  valueBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.success,
+    backgroundColor: colors.successLight,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
     marginRight: spacing.sm,
   },
 });

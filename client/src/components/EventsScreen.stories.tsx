@@ -1,6 +1,6 @@
 import React from "react";
 import type { Meta, StoryObj } from "@storybook/react";
-import { within, userEvent, expect, fn, waitFor } from "@storybook/test";
+import { within, userEvent, expect, fn } from "@storybook/test";
 import { http, HttpResponse } from "msw";
 import { EventsScreen } from "./EventsScreen";
 
@@ -40,9 +40,8 @@ const meta: Meta<typeof EventsScreen> = {
     msw: { handlers: defaultHandlers },
   },
   args: {
-    onNavigateToChat: fn(),
-    onNavigateToAllRunners: fn(),
-    onNavigateToIsp: fn(),
+    navigate: fn(),
+    isAuthenticated: true,
     onLogout: fn(),
   },
 };
@@ -100,11 +99,6 @@ export const EventsLoaded: Story = {
 
     await expect(canvas.getByTestId("events-screen")).toBeInTheDocument();
 
-    // Stats bar appears — element exists immediately but content updates async
-    await expect(canvas.findByTestId("events-stats-bar")).resolves.toBeInTheDocument();
-    await waitFor(() => expect(canvas.getByTestId("events-total-runners")).toHaveTextContent("109 runners"), { timeout: 5000 });
-    await expect(canvas.getByTestId("events-total-races")).toHaveTextContent("8 races");
-
     // Event list renders
     await expect(canvas.findByTestId("event-group-item-33858191")).resolves.toBeInTheDocument();
     await expect(canvas.findByText("Cheltenham 1st Jan")).resolves.toBeInTheDocument();
@@ -116,11 +110,21 @@ export const ChatButtonNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
 
-    const chatBtn = canvas.getByTestId("events-screen-chat-button");
+    const chatBtn = canvas.getByTestId("events-menu-chat-link");
     await expect(chatBtn).toBeInTheDocument();
 
     await userEvent.click(chatBtn);
-    await expect(args.onNavigateToChat).toHaveBeenCalledTimes(1);
+    await expect(args.navigate).toHaveBeenCalledWith("/chat");
+  },
+};
+
+export const ResultsButtonNavigates: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    const resultsBtn = canvas.getByTestId("events-menu-results-link");
+    await expect(resultsBtn).toBeInTheDocument();
+    await userEvent.click(resultsBtn);
+    await expect(args.navigate).toHaveBeenCalledWith("/results");
   },
 };
 
@@ -128,12 +132,11 @@ export const IspNavLinkNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
 
-    const ispLink = await canvas.findByTestId("events-nav-isp");
+    const ispLink = canvas.getByTestId("events-menu-isp-link");
     await expect(ispLink).toBeInTheDocument();
-    await expect(ispLink).toHaveTextContent("Industry SP →");
 
     await userEvent.click(ispLink);
-    await expect(args.onNavigateToIsp).toHaveBeenCalledTimes(1);
+    await expect(args.navigate).toHaveBeenCalledWith("/isp");
   },
 };
 
@@ -157,9 +160,13 @@ export const MobileHeaderButtonsVisible: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("event-group-item-33858191");
 
+    // Storybook's viewport addon only resizes the iframe's CSS viewport, not
+    // the real browser window useResponsive() reads from — isTablet stays
+    // true here, so header actions render inline rather than behind the
+    // burger (matches every other viewport story in this file).
     const sortBtn = canvas.getByTestId("events-sort-toggle");
-    const chatBtn = canvas.getByTestId("events-screen-chat-button");
-    const logoutBtn = canvas.getByTestId("events-screen-logout-button");
+    const chatBtn = canvas.getByTestId("events-menu-chat-link");
+    const logoutBtn = canvas.getByTestId("events-logout-button");
 
     await expect(sortBtn).toBeInTheDocument();
     await expect(chatBtn).toBeInTheDocument();
@@ -195,7 +202,21 @@ export const RendersAtIphone12: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.findByTestId("event-group-item-33858191")).resolves.toBeInTheDocument();
     await expect(canvas.getByTestId("events-screen")).toBeInTheDocument();
+
     await expect(canvas.getByTestId("events-sort-toggle")).toBeInTheDocument();
-    await expect(canvas.getByTestId("events-screen-chat-button")).toBeInTheDocument();
+    await expect(canvas.getByTestId("events-menu-chat-link")).toBeInTheDocument();
+  },
+};
+
+export const RendersAtLaptop: Story = {
+  parameters: {
+    viewport: { defaultViewport: "laptop" },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("event-group-item-33858191")).resolves.toBeInTheDocument();
+    await expect(canvas.getByTestId("events-screen")).toBeInTheDocument();
+    await expect(canvas.getByTestId("events-sort-toggle")).toBeInTheDocument();
+    await expect(canvas.getByTestId("events-menu-chat-link")).toBeInTheDocument();
   },
 };

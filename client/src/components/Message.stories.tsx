@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { within, screen, userEvent, expect, waitFor } from "@storybook/test";
+import { within, expect } from "@storybook/test";
 import { Message } from "./Message";
 
 const meta: Meta<typeof Message> = {
@@ -36,15 +36,6 @@ export const BotMessage: Story = {
   },
 };
 
-export const WithMongoScript: Story = {
-  args: {
-    text: "Query executed successfully.",
-    isUser: false,
-    mongoScript: 'db.runners.find({ eventId: "33858191" })',
-    aiAnalysis: { naturalLanguageInterpretation: "Find all runners for the Cheltenham event." },
-  },
-};
-
 export const PanelVisible: Story = {
   args: {
     text: "Show me all runners from Cheltenham",
@@ -54,66 +45,6 @@ export const PanelVisible: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByTestId("message-bubble")).toBeInTheDocument();
     await expect(canvas.getByText("Show me all runners from Cheltenham")).toBeInTheDocument();
-  },
-};
-
-export const ItemsRendered: Story = {
-  args: {
-    text: "Query executed successfully.",
-    isUser: false,
-    mongoScript: 'db.runners.find({ eventId: "33858191" })',
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByTestId("message-bubble")).toBeInTheDocument();
-    await expect(canvas.getByTestId("message-mongo-script-button")).toBeInTheDocument();
-  },
-};
-
-export const MongoScriptDialogOpens: Story = {
-  args: {
-    text: "Query executed successfully.",
-    isUser: false,
-    mongoScript: 'db.runners.find({ eventId: "33858191" })',
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const openBtn = canvas.getByTestId("message-mongo-script-button");
-    await userEvent.click(openBtn);
-
-    // Dialog renders via RN Portal outside canvasElement — query the full document
-    await expect(await screen.findByTestId("message-mongo-dialog")).toBeInTheDocument();
-    await expect(screen.getByText('db.runners.find({ eventId: "33858191" })')).toBeInTheDocument();
-  },
-};
-
-export const CloseButton: Story = {
-  args: {
-    text: "Query executed successfully.",
-    isUser: false,
-    mongoScript: 'db.runners.find({ eventId: "33858191" })',
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByTestId("message-mongo-script-button"));
-    await screen.findByTestId("message-mongo-dialog");
-
-    await userEvent.click(screen.getByTestId("message-mongo-dialog-close"));
-    await waitFor(
-      () => expect(screen.queryByTestId("message-mongo-dialog")).not.toBeInTheDocument(),
-      { timeout: 2000 }
-    );
-  },
-};
-
-export const NoScriptButtonWithoutScript: Story = {
-  args: {
-    text: "Just a plain reply, no script.",
-    isUser: false,
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.queryByTestId("message-mongo-script-button")).not.toBeInTheDocument();
   },
 };
 

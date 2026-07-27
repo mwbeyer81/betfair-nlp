@@ -5,23 +5,39 @@ const API_URL = "http://localhost:3000";
 
 async function getBearerToken(request: import("@playwright/test").APIRequestContext): Promise<string> {
   const res = await request.post(`${API_URL}/api/auth/login`, {
-    data: { username: "matthew", password: "beyer" },
+    data: { email: "matthew@backbet.co.uk", password: "beyer" },
   });
   const body = await res.json();
   return body.token as string;
 }
 
 async function goToEvents(page: import("@playwright/test").Page) {
-  // ?u=&p= triggers a real login (POST /api/auth/login) and stores the Bearer
-  // JWT the app actually needs — plain navigation lands on the login screen.
+  // ?email=&password= triggers a real login (POST /api/auth/login) and stores
+  // the Bearer JWT the app actually needs — plain navigation lands on the login screen.
   // /isp is the home page ("/"), so Events must be requested explicitly.
-  await page.goto(`${APP_URL}events?u=matthew&p=beyer`);
+  await page.goto(`${APP_URL}events?email=matthew%40backbet.co.uk&password=beyer`);
   await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
   await expect(page.getByTestId("event-group-loading")).not.toBeVisible({ timeout: 90000 });
 }
 
+// /isp is the filters + PnL screen — it renders no race list of its own.
+// A bare load (the email/password login params get stripped from the URL
+// before this screen ever mounts — see App.tsx) shows nothing until Apply
+// is pressed, so this presses it once to reach the "loaded" state most
+// callers actually want. Tests specifically covering the bare/idle
+// behavior itself navigate directly instead of using this helper.
 async function gotoIsp(page: import("@playwright/test").Page) {
-  await page.goto(`${APP_URL}isp?u=matthew&p=beyer`);
+  await page.goto(`${APP_URL}isp?email=matthew%40backbet.co.uk&password=beyer`);
+  await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+  await page.getByTestId("industry-sp-filter-apply").click();
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+}
+
+// /isp/races is the dedicated races-list screen (meetings/races/runners,
+// sort, odds mode) — it reads whatever filters are in the URL query string.
+async function gotoIspRaces(page: import("@playwright/test").Page, query = "") {
+  await page.goto(`${APP_URL}isp/races?email=matthew%40backbet.co.uk&password=beyer${query ? `&${query}` : ""}`);
+  await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 }
 
 test.describe("GET /api/industry-sp (live server @ localhost:3000)", () => {
@@ -69,32 +85,402 @@ test.describe("GET /api/industry-sp (live server @ localhost:3000)", () => {
       expect(typeof runner.isp).toBe("number");
     }
   });
+
+  test("each race includes raceClass and going", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    const race = body.data[0];
+    expect(race).toHaveProperty("raceClass");
+    expect(race).toHaveProperty("going");
+  });
+
+  test("accepts courses/goings/raceClasses/raceTypes/trainer/jockey params without erroring", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(
+      `${API_URL}/api/industry-sp?courses=Ascot&goings=Good&raceClasses=Class%201&raceTypes=Flat&trainer=Smi&jockey=Jon`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(Array.isArray(body.data)).toBe(true);
+  });
 });
 
-test.describe("Industry SP screen (Expo web @ localhost:80)", () => {
+test.describe("GET /api/industry-sp/courses, /goings, /race-classes, /race-types (live server @ localhost:3000)", () => {
+  for (const path of ["courses", "goings", "race-classes", "race-types"]) {
+    test(`GET /api/industry-sp/${path} returns a non-empty array`, async ({ request }) => {
+      const token = await getBearerToken(request);
+      const res = await request.get(`${API_URL}/api/industry-sp/${path}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(200);
+      const body = await res.json();
+      expect(body.success).toBe(true);
+      expect(Array.isArray(body.data)).toBe(true);
+      expect(body.data.length).toBeGreaterThan(0);
+    });
+
+    test(`GET /api/industry-sp/${path} returns 401 without auth`, async ({ request }) => {
+      const res = await request.get(`${API_URL}/api/industry-sp/${path}`);
+      expect(res.status()).toBe(401);
+    });
+  }
+});
+
+test.describe("GET /api/industry-sp/splits (live server @ localhost:3000)", () => {
+  test("returns totalRaces/totalRunners and both splits with correct shape", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp/splits`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(typeof body.totalRaces).toBe("number");
+    expect(typeof body.totalRunners).toBe("number");
+    for (const split of ["splitA", "splitB"]) {
+      expect(typeof body[split].fromRow).toBe("number");
+      expect(typeof body[split].total).toBe("number");
+      expect(typeof body[split].totalRunners).toBe("number");
+      expect(typeof body[split].pnlStats.staked).toBe("number");
+      expect(typeof body[split].pnlStats.returns).toBe("number");
+      expect(typeof body[split].pnlStats.pnl).toBe("number");
+    }
+  });
+
+  test("defaults to a split of the real dataset bisected by race count, with race ranges that never exceed the total", async ({ request }) => {
+    // Split A/B's default boundary is a plain race-count bisection, and
+    // raceCap clamping means neither split's toRow is ever literally null
+    // anymore — both get concretized to a real race index. See the
+    // dedicated overshoot regression test below for the specific bug this
+    // also covers (a clamped toRow exceeding the true totalRaces).
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp/splits`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(body.splitA.fromRow).toBe(1);
+    expect(body.splitB.fromRow).toBe(body.splitA.toRow + 1);
+    expect(body.splitA.toRow).toBeLessThanOrEqual(body.totalRaces);
+    expect(body.splitB.toRow).toBeLessThanOrEqual(body.totalRaces);
+    // splitA + splitB together cover every matching race — and every
+    // qualifying runner — exactly once.
+    expect(body.splitA.total + body.splitB.total).toBe(body.totalRaces);
+    expect(body.splitA.totalRunners + body.splitB.totalRunners).toBe(body.totalRunners);
+  });
+
+  test("splitB's toRow never exceeds totalRaces when the matched set is smaller than the race cap", async ({ request }) => {
+    // Regression test: reported live via a screenshot — a narrow filter
+    // (here, a single week, chosen because it reliably yields a fixed,
+    // small matched set well under both the anonymous (100) and
+    // authenticated (10000) race caps) naturally yields far fewer matching
+    // races than the cap, and raceCap clamping used to compute toRow as
+    // fromRow + raceCap - 1 unconditionally — producing a race range that
+    // implied far more races than actually existed (reported live:
+    // totalRaces=675 alongside a displayed toRowB of 1334). The underlying
+    // total/totalRunners counts were still correct even with the bug
+    // (MongoDB's own $skip/$limit silently returns fewer rows than
+    // requested); only the displayed boundary number was wrong.
+    const token = await getBearerToken(request);
+    const res = await request.get(
+      `${API_URL}/api/industry-sp/splits?minDate=2024-01-01&maxDate=2024-01-07`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.totalRaces).toBeGreaterThan(0);
+    expect(body.splitA.toRow).toBeLessThanOrEqual(body.totalRaces);
+    expect(body.splitB.toRow).toBeLessThanOrEqual(body.totalRaces);
+    expect(body.splitA.total + body.splitB.total).toBe(body.totalRaces);
+  });
+
+  test("respects explicit fromRowA/toRowA/fromRowB/toRowB", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp/splits?fromRowA=1&toRowA=100&fromRowB=101&toRowB=200`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(body.splitA.fromRow).toBe(1);
+    expect(body.splitA.toRow).toBe(100);
+    expect(body.splitA.total).toBe(100);
+    expect(body.splitB.fromRow).toBe(101);
+    expect(body.splitB.toRow).toBe(200);
+    expect(body.splitB.total).toBe(100);
+  });
+
+  test("returns 401 without auth", async ({ request }) => {
+    const res = await request.get(`${API_URL}/api/industry-sp/splits`);
+    expect(res.status()).toBe(401);
+  });
+
+  test("an inverted range (fromRow > toRow) returns an empty split instead of a 500", async ({ request }) => {
+    // Regression test: reported live as "Failed to load industry SP" on
+    // the home page. Root cause: rowLimit = toRow - fromRow + 1 goes
+    // negative for an inverted range, and MongoDB's $limit stage rejects
+    // negative arguments outright (MongoServerError code 5107201) — this
+    // reached prod via a URL with fromRowA=100&toRowA=5, but the same
+    // shape is reachable any time a stale/hand-edited/bookmarked URL
+    // carries a fromRow bigger than its toRow. An inverted range has no
+    // matching rows by definition, so the correct behavior is an empty
+    // result, not a crash.
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp/splits?fromRowA=100&toRowA=5&fromRowB=1`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.splitA.total).toBe(0);
+  });
+
+  test("an inverted range on the legacy /api/industry-sp endpoint doesn't 500 either", async ({ request }) => {
+    // This route already had its own (different) protection against the
+    // same crash: the router clamps toRow up to fromRow before it ever
+    // reaches getAllRacesByRace (see router.ts), so it returns a single
+    // row at `fromRow` rather than an empty result — unlike
+    // /api/industry-sp/splits, whose fromRowA/toRowA aren't clamped
+    // relative to each other, which is what let the inverted range reach
+    // the DAO unmodified and hit the negative-$limit crash in the first
+    // place. Documenting the actual (correct, pre-existing) behavior here
+    // rather than assuming both endpoints handle this identically.
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/industry-sp?fromRow=100&toRow=5&limit=1`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.total).toBe(1);
+  });
+});
+
+test.describe("Industry SP filters screen (Expo web @ localhost:80)", () => {
   test("nav link on Events screen navigates to /isp full-screen view", async ({ page }) => {
     await goToEvents(page);
-    await expect(page.getByTestId("events-stats-bar")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-nav-isp").click();
+    await page.getByTestId("events-menu-isp-link").click();
 
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("events-screen")).not.toBeVisible();
   });
 
-  test("/isp URL shows Industry SP screen directly", async ({ page }) => {
+  test("/isp URL shows Industry SP filters screen directly", async ({ page }) => {
     await gotoIsp(page);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
   });
 
-  test("/ (home page) shows Industry SP screen directly", async ({ page }) => {
-    await page.goto(`${APP_URL}?u=matthew&p=beyer`);
+  test("a bare /isp load fetches nothing and shows the idle placeholder, not results", async ({ page }) => {
+    // Regression coverage for: this used to auto-run the default query on
+    // every mount, so the first thing a user saw — before touching any
+    // filter — was a fully computed Split A/B result. Navigates directly
+    // (not via gotoIsp, which presses Apply for callers that want the
+    // loaded state) so the email/password login params get stripped
+    // (see App.tsx) and the screen mounts with a genuinely empty query
+    // string, same as a real bookmark-free visit.
+    const splitsRequests: string[] = [];
+    page.on("request", req => {
+      if (req.url().includes("/api/industry-sp/splits")) splitsRequests.push(req.url());
+    });
+
+    await page.goto(`${APP_URL}isp?email=matthew%40backbet.co.uk&password=beyer`);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-split-idle-a")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-split-idle-b")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-pnl-a")).not.toBeVisible();
+
+    await page.waitForTimeout(1500);
+    expect(splitsRequests.length).toBe(0);
+
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    expect(splitsRequests.length).toBe(1);
+    await expect(page.getByTestId("industry-sp-split-idle-a")).not.toBeVisible();
+  });
+
+  test("/ (home page) shows Industry SP filters screen directly", async ({ page }) => {
+    await page.goto(`${APP_URL}?email=matthew%40backbet.co.uk&password=beyer`);
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("events-screen")).not.toBeVisible();
   });
 
-  test("Industry SP screen loads data and shows runner rows", async ({ page }) => {
+  test("filters screen loads aggregate totals and shows the View Races button", async ({ page }) => {
     await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+    const btn = page.getByTestId("industry-sp-view-races-button-a");
+    await expect(btn).toBeVisible();
+    await expect(btn).toContainText(/View \d+ Races/);
+  });
+
+  test("Details button opens a full-screen breakdown with horse count, staked, and return", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+
+    await page.getByTestId("industry-sp-split-details-button-a").click();
+    const panel = page.getByTestId("split-detail-panel-a");
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId("split-detail-row-horses-a")).toBeVisible();
+    await expect(page.getByTestId("split-detail-row-staked-a")).toContainText("£");
+    await expect(page.getByTestId("split-detail-row-return-a")).toContainText("£");
+    await expect(page.getByTestId("split-detail-pnl-a")).toContainText("£");
+
+    const filtersBtn = page.getByTestId("split-detail-panel-filters-a");
+    await expect(filtersBtn).toContainText("Filters");
+    await filtersBtn.click();
+    await expect(panel).not.toBeVisible();
+  });
+
+  test("each split card's Graph button opens a P&L convergence chart scoped to that split's own race range", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+
+    await page.getByTestId("industry-sp-split-graph-button-a").click();
+    const panel = page.getByTestId("pnl-convergence-panel");
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-loading")).not.toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId("pnl-convergence-chart")).toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-final-roi")).toContainText("races");
+    const rangeA = await page.getByTestId("pnl-convergence-range-subtitle").textContent();
+    const matchA = rangeA?.match(/Races (\d+)–(\d+)/);
+    expect(matchA).toBeTruthy();
+    // Split A's own graph always starts at race 1.
+    expect(matchA![1]).toBe("1");
+
+    await page.getByTestId("pnl-convergence-panel-close").click();
+    await expect(panel).not.toBeVisible();
+
+    // Split B's own Graph button opens a chart scoped to its own range —
+    // starting right after Split A's own range ends, not restarting at 1
+    // and not repeating Split A's combined range.
+    await page.getByTestId("industry-sp-split-graph-button-b").click();
+    await expect(page.getByTestId("pnl-convergence-panel")).toBeVisible();
+    await expect(page.getByTestId("pnl-convergence-chart")).toBeVisible({ timeout: 30000 });
+    const rangeB = await page.getByTestId("pnl-convergence-range-subtitle").textContent();
+    const matchB = rangeB?.match(/Races (\d+)–(\d+)/);
+    expect(matchB).toBeTruthy();
+    expect(matchB![1]).toBe(String(Number(matchA![2]) + 1));
+  });
+
+  test("race-convergence succeeds for a wide row range spanning the authenticated race cap (regression: 500 on Split B's Graph after the cap was raised)", async ({ request }) => {
+    // Regression: reported live via screenshot — after the authenticated
+    // race cap was raised from 1000 to 10000 (so Split B could span its
+    // whole ~9,839-race qualifying set), clicking Split B's Graph button
+    // 500'd with "Failed to fetch race convergence series". Root cause:
+    // getRaceConvergenceSeries sorted full race documents (each carrying an
+    // embedded runners array) directly, and Atlas M0 silently ignores
+    // allowDiskUse — confirmed live to succeed up to ~3000 rows and fail
+    // from ~5000 up. Fixed by projecting down to {_id, raceTime} before the
+    // sort/skip/limit and only reattaching each race's full document (via
+    // $lookup) for the already-narrowed result. This exercises the same
+    // filter combination and date range reported live, at the full width a
+    // Split B graph request can now legitimately ask for.
+    const token = await getBearerToken(request);
+    const res = await request.get(
+      `${API_URL}/api/industry-sp/race-convergence?minRunners=1&maxRunners=20&minInIspRange=1&maxInIspRange=30` +
+        `&onlyModelBeatsSp=true&minDate=2024-01-01&maxDate=2025-01-01&fromRow=1&toRow=9839`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(Array.isArray(body.data)).toBe(true);
+  });
+
+  test("both Race A and Race B splits render their own card and View Races button, defaulting to the first/second half of the matching races", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+    await expect(page.getByTestId("industry-sp-split-card-b")).toBeVisible({ timeout: 60000 });
+    await expect(page.getByTestId("industry-sp-view-races-button-a")).toContainText(/View \d+ Races/);
+    await expect(page.getByTestId("industry-sp-view-races-button-b")).toContainText(/View \d+ Races/);
+
+    const fromA = await page.getByTestId("industry-sp-from-row-a").inputValue();
+    const toA = await page.getByTestId("industry-sp-to-row-a").inputValue();
+    const fromB = await page.getByTestId("industry-sp-from-row-b").inputValue();
+    // Split B picks up immediately where split A's default range left off.
+    expect(parseInt(fromB, 10)).toBe(parseInt(toA, 10) + 1);
+    expect(parseInt(fromA, 10)).toBe(1);
+  });
+
+  test("the Split B 'to' input never shows a race number beyond the '/totalRaces' hint next to it", async ({ page }) => {
+    // Regression test: reported live via screenshot — the Split B "to"
+    // input box showed a race number (1334) that exceeded the "/675"
+    // total-races hint rendered right next to it on this same filter
+    // panel, and the result card below made the same claim ("(races
+    // 335–1334)" for a totalRaces of 675). A narrow one-week date filter
+    // reliably yields a matched set well under both the anonymous and
+    // authenticated race caps, reproducing the overshoot deterministically
+    // against this fixed historical dataset. minDate/maxDate in the URL
+    // count as "already applied" (see hadUrlParamsOnMount), so this loads
+    // pre-fetched — no separate Apply click needed.
+    await page.goto(`${APP_URL}isp?email=matthew%40backbet.co.uk&password=beyer&minDate=2024-01-01&maxDate=2024-01-07`);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+
+    const hintText = (await page.getByTestId("industry-sp-race-bound-a").textContent()) ?? "";
+    const totalRaces = parseInt(hintText.replace("/", ""), 10);
+    expect(totalRaces).toBeGreaterThan(0);
+
+    const toB = parseInt(await page.getByTestId("industry-sp-to-row-b").inputValue(), 10);
+    expect(toB).toBeLessThanOrEqual(totalRaces);
+
+    // The Split B result card must agree with the same total — its
+    // displayed race range can't claim a race beyond what exists either.
+    await expect(page.getByTestId("industry-sp-split-card-b")).not.toContainText(`–${totalRaces + 1}`);
+  });
+
+  test("logged-in home page shows Log Out, not a link to /events", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("industry-sp-logout-button")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-screen-events-button")).not.toBeVisible();
+  });
+
+  test("Account button shows the signed-in email", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-account-button").click();
+    const panel = page.getByTestId("industry-sp-account-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("matthew@backbet.co.uk");
+  });
+
+  test("the grand total and both splits load from a single combined request, not three separate ones", async ({ page }) => {
+    // Regression guard for the perf fix: this used to be 3 separate
+    // concurrent /api/industry-sp requests (grand total, split A, split B),
+    // each risking its own Lambda cold start / Atlas M0 connection
+    // contention — smoke-tested live at up to ~4.5s just for the slowest
+    // of the three. Collapsing them into one /api/industry-sp/splits
+    // request cut real page-load time roughly in half; this test exists so
+    // a future change can't silently reintroduce the 3-request pattern.
+    const splitsRequests: string[] = [];
+    const legacyRequests: string[] = [];
+    page.on("request", req => {
+      const url = req.url();
+      if (url.includes("/api/industry-sp/splits")) splitsRequests.push(url);
+      else if (/\/api\/industry-sp\?/.test(url)) legacyRequests.push(url);
+    });
+
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+
+    expect(splitsRequests.length).toBe(1);
+    expect(legacyRequests.length).toBe(0);
+  });
+
+  test("View Races button navigates to /isp/races and shows runner rows", async ({ page }) => {
+    await gotoIsp(page);
+    await page.getByTestId("industry-sp-view-races-button-a").click();
+
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/isp/races");
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
     await expect(page.getByTestId("industry-sp-list")).toBeVisible({ timeout: 60000 });
 
@@ -103,33 +489,64 @@ test.describe("Industry SP screen (Expo web @ localhost:80)", () => {
     expect(await items.count()).toBeGreaterThan(0);
   });
 
-  test("Industry SP screen shows meeting section headers", async ({ page }) => {
+  test("applying a filter on /isp carries over to /isp/races when View Races is clicked", async ({ page }) => {
     await gotoIsp(page);
+    await page.getByTestId("industry-sp-max-rir-value").fill("5");
+    await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    expect(page.url()).toContain("maxInIspRange=5");
+
+    await page.getByTestId("industry-sp-view-races-button-a").click();
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    // Regression: the router's queryParams state can go stale after
+    // history.replaceState calls, silently dropping just-applied filters.
+    expect(page.url()).toContain("maxInIspRange=5");
+  });
+
+  test("the races screen's back button returns to /isp with filters preserved", async ({ page }) => {
+    await gotoIsp(page);
+    await page.getByTestId("industry-sp-max-rir-value").fill("5");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await page.getByTestId("industry-sp-view-races-button-a").click();
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-races-back-button").click();
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("maxInIspRange=5");
+    await expect(page.getByTestId("industry-sp-max-rir-value")).toHaveValue("5");
+  });
+});
+
+test.describe("Industry SP races screen (Expo web @ localhost:80)", () => {
+  test("Industry SP races screen loads data and shows runner rows", async ({ page }) => {
+    await gotoIspRaces(page);
+    await expect(page.getByTestId("industry-sp-list")).toBeVisible({ timeout: 60000 });
+
+    const items = page.locator('[data-testid^="industry-sp-item-"]');
+    await expect(items.first()).toBeVisible({ timeout: 30000 });
+    expect(await items.count()).toBeGreaterThan(0);
+  });
+
+  test("Industry SP races screen shows meeting section headers", async ({ page }) => {
+    await gotoIspRaces(page);
 
     const meetingHeaders = page.locator('[data-testid^="industry-sp-meeting-"]');
     await expect(meetingHeaders.first()).toBeVisible({ timeout: 30000 });
     expect(await meetingHeaders.count()).toBeGreaterThan(0);
   });
 
-  test("Industry SP screen shows race time headers within each meeting", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+  test("Industry SP races screen shows race time headers within each meeting", async ({ page }) => {
+    await gotoIspRaces(page);
 
     const raceHeaders = page.locator('[data-testid^="industry-sp-race-"]');
     await expect(raceHeaders.first()).toBeVisible({ timeout: 30000 });
     expect(await raceHeaders.count()).toBeGreaterThan(1);
   });
 
-  test("PnL bar shows horse count (react-native-paper Appbar subtitle does not render on web)", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    await expect(page.getByTestId("industry-sp-pnl-count")).toContainText("Horses", { timeout: 60000 });
-  });
-
   test("ISP price is displayed for runners", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
 
     const ispBadges = page.locator('[data-testid^="industry-sp-isp-"]');
     await expect(ispBadges.first()).toBeVisible({ timeout: 30000 });
@@ -141,61 +558,19 @@ test.describe("Industry SP screen (Expo web @ localhost:80)", () => {
     expect(firstIspText).toMatch(/^ISP (\d+\/\d+|Evens)$/);
   });
 
-  test("← Events button navigates back to /events", async ({ page }) => {
-    await gotoIsp(page);
+  test("← Filters button navigates back to /isp", async ({ page }) => {
+    await gotoIspRaces(page);
+
+    await page.getByTestId("industry-sp-races-back-button").click();
+
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-
-    await page.getByTestId("industry-sp-screen-events-button").click();
-
-    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
-  });
-});
-
-test.describe("# in ISP range filter (real app at localhost:80)", () => {
-  test("# in ISP filter controls are visible on /isp", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    await expect(page.getByTestId("industry-sp-min-rir-value")).toBeVisible();
-    await expect(page.getByTestId("industry-sp-max-rir-value")).toBeVisible();
-  });
-
-  test("setting maxRunnersInRange=1 hides multi-runner races", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    const raceRows = page.locator(`[data-testid^="industry-sp-race-"]`);
-    await expect(raceRows.first()).toBeVisible({ timeout: 60000 });
-    const before = await raceRows.count();
-    await page.getByTestId("industry-sp-max-rir-value").fill("1");
-    await page.getByTestId("industry-sp-filter-apply").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    const after = await raceRows.count();
-    expect(after).toBeLessThan(before);
-  });
-
-  test("resetting filter restores original race count", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    const raceRows = page.locator(`[data-testid^="industry-sp-race-"]`);
-    await expect(raceRows.first()).toBeVisible({ timeout: 30000 });
-    const original = await raceRows.count();
-    await page.getByTestId("industry-sp-max-rir-value").fill("1");
-    await page.getByTestId("industry-sp-filter-apply").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    await page.getByTestId("industry-sp-min-rir-value").fill("1");
-    await page.getByTestId("industry-sp-max-rir-value").fill("30");
-    await page.getByTestId("industry-sp-filter-apply").click();
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
-    await expect(raceRows.first()).toBeVisible({ timeout: 30000 });
-    const restored = await raceRows.count();
-    expect(restored).toBe(original);
+    await expect(page.getByTestId("industry-sp-races-screen")).not.toBeVisible();
   });
 });
 
 test.describe("Filter query param persistence + Reset button (real app at localhost:80)", () => {
   test("applying a filter updates the URL query string", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     await page.getByTestId("industry-sp-max-rir-value").fill("5");
     await page.getByTestId("industry-sp-filter-apply").click();
@@ -206,7 +581,6 @@ test.describe("Filter query param persistence + Reset button (real app at localh
 
   test("reloading a URL with filter params restores those filter values", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     await page.getByTestId("industry-sp-max-rir-value").fill("5");
     await page.getByTestId("industry-sp-filter-apply").click();
@@ -221,7 +595,6 @@ test.describe("Filter query param persistence + Reset button (real app at localh
 
   test("Reset button restores default filter values and clears the URL query string", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     await page.getByTestId("industry-sp-max-rir-value").fill("5");
     await page.getByTestId("industry-sp-filter-apply").click();
@@ -236,22 +609,58 @@ test.describe("Filter query param persistence + Reset button (real app at localh
   });
 });
 
-test.describe("Sort order toggle (real app at localhost:80)", () => {
-  test("sort toggle button is visible on /isp", async ({ page }) => {
+test.describe("# in ISP range filter (real app at localhost:80)", () => {
+  test("# in ISP filter controls are visible on /isp", async ({ page }) => {
     await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-min-rir-value")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-max-rir-value")).toBeVisible();
+  });
+
+  test("setting maxRunnersInRange=1 reduces the total races matching the filter", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+    const before = await page.getByTestId("industry-sp-split-card-a").textContent();
+
+    await page.getByTestId("industry-sp-max-rir-value").fill("1");
+    await page.getByTestId("industry-sp-filter-apply").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    const after = await page.getByTestId("industry-sp-split-card-a").textContent();
+    expect(after).not.toBe(before);
+  });
+
+  test("resetting filter restores original race count", async ({ page }) => {
+    await gotoIsp(page);
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 60000 });
+    const original = await page.getByTestId("industry-sp-split-card-a").textContent();
+
+    await page.getByTestId("industry-sp-max-rir-value").fill("1");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    await page.getByTestId("industry-sp-min-rir-value").fill("1");
+    await page.getByTestId("industry-sp-max-rir-value").fill("30");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+
+    const restored = await page.getByTestId("industry-sp-split-card-a").textContent();
+    expect(restored).toBe(original);
+  });
+});
+
+test.describe("Sort order toggle (real app at localhost:80, on the races screen)", () => {
+  test("sort toggle button is visible on /isp/races", async ({ page }) => {
+    await gotoIspRaces(page);
     await expect(page.getByTestId("industry-sp-sort-toggle")).toBeVisible();
   });
 
   test("sort toggle starts showing 'First → Last'", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await expect(page.getByTestId("industry-sp-sort-toggle")).toHaveText("First → Last");
   });
 
   test("clicking toggle switches to 'Last → First' and reloads data", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
 
     await page.getByTestId("industry-sp-sort-toggle").click();
     await expect(page.getByTestId("industry-sp-sort-toggle")).toHaveText("Last → First");
@@ -267,8 +676,7 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
       route.continue();
     });
 
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.getByTestId("industry-sp-sort-toggle").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
@@ -322,8 +730,7 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
     // rather than a UI-only check, so this can't pass by coincidence.
     const { earliest } = await fetchGroundTruthExtremes(request);
 
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     const firstMeeting = page.locator('[data-testid^="industry-sp-meeting-"]').first();
     await expect(firstMeeting).toBeVisible({ timeout: 30000 });
     await expect(firstMeeting).toContainText(earliest.course);
@@ -332,8 +739,7 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
   test("'Last → First' shows the true latest race in the full dataset", async ({ page, request }) => {
     const { latest } = await fetchGroundTruthExtremes(request);
 
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.getByTestId("industry-sp-sort-toggle").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
@@ -345,8 +751,7 @@ test.describe("Sort order toggle (real app at localhost:80)", () => {
   test("toggling back to 'First → Last' still shows the true earliest race", async ({ page, request }) => {
     const { earliest } = await fetchGroundTruthExtremes(request);
 
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.getByTestId("industry-sp-sort-toggle").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
     await page.getByTestId("industry-sp-sort-toggle").click();
@@ -492,15 +897,14 @@ test.describe("GET /api/industry-sp/meeting/:meetingId and /race/:raceId (live s
 
 test.describe("Meeting and race drill-down navigation (real app at localhost:80)", () => {
   test("tapping a meeting header opens a full-screen view of just that meeting", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
 
     const meetingLink = page.locator('[data-testid^="industry-sp-meeting-link-"]').first();
     const meetingText = (await meetingLink.textContent()) ?? "";
     await meetingLink.click();
 
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-races-screen")).not.toBeVisible();
     await expect(page.getByTestId("industry-meeting-loading")).not.toBeVisible({ timeout: 30000 });
     expect(page.url()).toContain("/isp/meeting?id=");
 
@@ -513,28 +917,26 @@ test.describe("Meeting and race drill-down navigation (real app at localhost:80)
     await expect(page.getByText(courseName, { exact: false }).first()).toBeVisible();
   });
 
-  test("meeting screen's back button returns to /isp", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+  test("meeting screen's back button returns to /isp/races", async ({ page }) => {
+    await gotoIspRaces(page);
     await page.locator('[data-testid^="industry-sp-meeting-link-"]').first().click();
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-meeting-back").click();
+    await page.getByTestId("industry-meeting-back-button").click();
 
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-meeting-screen")).not.toBeVisible();
-    expect(page.url()).toMatch(/\/isp(\?|$)/);
+    expect(page.url()).toMatch(/\/isp\/races(\?|$)/);
   });
 
-  test("tapping a race (from the main list) opens a full-screen view of just that race", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+  test("tapping a race (from the races list) opens a full-screen view of just that race", async ({ page }) => {
+    await gotoIspRaces(page);
 
     const raceRow = page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').first();
     await raceRow.click();
 
     await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-screen")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-races-screen")).not.toBeVisible();
     await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 30000 });
     expect(page.url()).toContain("/isp/race?id=");
 
@@ -544,8 +946,7 @@ test.describe("Meeting and race drill-down navigation (real app at localhost:80)
   });
 
   test("tapping a race from within the meeting view opens that race, and back returns to the meeting", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.locator('[data-testid^="industry-sp-meeting-link-"]').first().click();
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-meeting-loading")).not.toBeVisible({ timeout: 30000 });
@@ -556,15 +957,14 @@ test.describe("Meeting and race drill-down navigation (real app at localhost:80)
     await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 30000 });
 
-    await page.getByTestId("industry-race-back").click();
+    await page.getByTestId("industry-race-back-button").click();
 
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toBe(meetingUrl);
   });
 
   test("the race header shows a runner count that matches the number of runner rows shown", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').first().click();
     await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 30000 });
@@ -579,10 +979,9 @@ test.describe("Meeting and race drill-down navigation (real app at localhost:80)
   });
 });
 
-test.describe("Odds display mode + filters visibility toggle (real app at localhost:80)", () => {
+test.describe("Odds display mode (real app at localhost:80, on the races screen)", () => {
   test("ISP defaults to fraction display", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await expect(page.getByTestId("industry-sp-odds-mode-toggle")).toHaveText("Odds: Fraction");
 
     const firstBadge = await page.locator('[data-testid^="industry-sp-isp-"]').first().textContent();
@@ -591,8 +990,7 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
   });
 
   test("toggling to decimal shows a clean, rounded value — never a raw floating-point artifact", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
 
     await page.getByTestId("industry-sp-odds-mode-toggle").click();
     await expect(page.getByTestId("industry-sp-odds-mode-toggle")).toHaveText("Odds: Decimal");
@@ -612,8 +1010,7 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
   });
 
   test("toggling back to fraction restores fraction display", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
 
     await page.getByTestId("industry-sp-odds-mode-toggle").click();
     await expect(page.getByTestId("industry-sp-odds-mode-toggle")).toHaveText("Odds: Decimal");
@@ -625,8 +1022,7 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
   });
 
   test("the meeting screen also has a fraction/decimal toggle", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.locator('[data-testid^="industry-sp-meeting-link-"]').first().click();
     await expect(page.getByTestId("industry-meeting-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-meeting-loading")).not.toBeVisible({ timeout: 30000 });
@@ -641,8 +1037,7 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
   });
 
   test("the race screen also has a fraction/decimal toggle", async ({ page }) => {
-    await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await gotoIspRaces(page);
     await page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').first().click();
     await expect(page.getByTestId("industry-race-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-race-loading")).not.toBeVisible({ timeout: 30000 });
@@ -655,10 +1050,11 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
     const after = await page.locator('[data-testid^="industry-race-isp-"]').first().textContent();
     expect(after).toMatch(/^ISP \d+\.\d{2}$/);
   });
+});
 
+test.describe("Filters visibility toggle (real app at localhost:80)", () => {
   test("filters are visible by default and the toggle button hides/shows them", async ({ page }) => {
     await gotoIsp(page);
-    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
 
     await expect(page.getByTestId("industry-sp-filter-bar")).toBeVisible();
     await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Hide filters ▾");
@@ -667,13 +1063,83 @@ test.describe("Odds display mode + filters visibility toggle (real app at localh
     await expect(page.getByTestId("industry-sp-filter-bar")).not.toBeVisible();
     await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Show filters ▸");
 
-    // Hiding filters must not affect the underlying data/list.
-    await expect(page.getByTestId("industry-sp-list")).toBeVisible({ timeout: 30000 });
-    const raceCount = await page.locator('[data-testid^="industry-sp-race-"]:not([data-testid="industry-sp-race-bound"])').count();
-    expect(raceCount).toBeGreaterThan(0);
+    // Hiding filters must not affect the aggregate totals shown below.
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible({ timeout: 30000 });
 
     await page.getByTestId("industry-sp-filters-toggle").click();
     await expect(page.getByTestId("industry-sp-filter-bar")).toBeVisible();
     await expect(page.getByTestId("industry-sp-filters-toggle")).toHaveText("Hide filters ▾");
+  });
+});
+
+test.describe("Anonymous access (real app at localhost:80, no login)", () => {
+  test("/isp loads and Apply works with no login at all", async ({ page }) => {
+    await page.goto(`${APP_URL}isp`);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    // No auth params on this URL, so this is a genuinely anonymous session.
+    await expect(page.getByTestId("auth-email-input")).not.toBeVisible();
+
+    await expect(page.getByTestId("industry-sp-signup-button")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-login-button")).toBeVisible();
+
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 90000 });
+    await expect(page.getByTestId("industry-sp-split-card-a")).toBeVisible();
+  });
+
+  test("Sign Up button opens a dismissible auth overlay without losing the page", async ({ page }) => {
+    await page.goto(`${APP_URL}isp`);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("industry-sp-signup-button").click();
+    await expect(page.getByTestId("auth-email-input")).toBeVisible();
+
+    await page.getByTestId("auth-cancel-button").click();
+    await expect(page.getByTestId("auth-email-input")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible();
+  });
+
+  test("/events, /chat, /runners still require login when anonymous", async ({ page }) => {
+    for (const path of ["events", "chat", "runners"]) {
+      await page.goto(`${APP_URL}${path}`);
+      await expect(page.getByTestId("auth-email-input")).toBeVisible({ timeout: 10000 });
+    }
+  });
+
+  test("GET /api/industry-sp/splits succeeds with no Authorization header and reports a 100-race cap", async ({ request }) => {
+    const res = await request.get(`${API_URL}/api/industry-sp/splits`);
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.raceCap).toBe(100);
+  });
+
+  test("benefits banner is visible on the anonymous home page", async ({ page }) => {
+    await page.goto(`${APP_URL}isp`);
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    const banner = page.getByTestId("industry-sp-benefits-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText("10000");
+  });
+
+  // Doesn't call POST /api/auth/signup here (unlike the MSW/Storybook
+  // suites) — this hits the real production API, and repeatedly creating
+  // throwaway accounts in the live users collection on every test run
+  // isn't worth it just to exercise the verify endpoint's happy path. The
+  // public/error-response behavior is still checked below without
+  // creating any data.
+  test("GET /api/auth/verify rejects an invalid token without requiring auth", async ({ request }) => {
+    const res = await request.get(`${API_URL}/api/auth/verify?token=not-a-real-token`);
+    expect(res.status()).toBe(400);
+    expect(res.headers()["content-type"]).toContain("html");
+  });
+
+  test("GET /api/auth/me reports the seeded legacy account as already verified", async ({ request }) => {
+    const token = await getBearerToken(request);
+    const res = await request.get(`${API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.emailVerified).toBe(true);
   });
 });

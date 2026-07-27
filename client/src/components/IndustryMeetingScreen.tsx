@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
-import { Text, Appbar, Button, ActivityIndicator } from "react-native-paper";
+import { Text, Button, ActivityIndicator } from "react-native-paper";
 import { chatApi, IspRace, IspRunner } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
+import { PageContainer } from "./PageContainer";
+import { AppHeader } from "./AppHeader";
+import type { Route } from "../hooks/useRouter";
 import {
   stakeToWin1,
   formatGbp,
@@ -13,19 +16,34 @@ import {
   runnerPnl,
   formatRaceTime,
   formatRaceDate,
+  toFormCategory,
   OddsMode,
+  modelBeatsSp,
+  impliedProbabilityPct,
 } from "../utils/ispFormat";
 
 interface IndustryMeetingScreenProps {
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
+  onLogout?: () => void;
+  onRequestAuth?: () => void;
   meetingId: string;
   onBack: () => void;
   onNavigateToRace: (raceId: number) => void;
+  onNavigateToRunner: (raceId: number, runnerId: number) => void;
+  onNavigateToTrainer: (trainer: string, formCategory: "Flat" | "Jumps") => void;
 }
 
 export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
+  navigate,
+  isAuthenticated,
+  onLogout,
+  onRequestAuth,
   meetingId,
   onBack,
   onNavigateToRace,
+  onNavigateToRunner,
+  onNavigateToTrainer,
 }) => {
   const [races, setRaces] = useState<IspRace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -53,25 +71,19 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
 
   return (
     <SafeAreaView testID="industry-meeting-screen" style={styles.screen}>
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content
-          title={meetingName || "Meeting"}
-          subtitle={!isLoading ? `${races.length} races · ${totalRunners} runners` : undefined}
-          titleStyle={styles.appbarTitle}
-          subtitleStyle={styles.appbarSubtitle}
-        />
-        <Button
-          testID="industry-meeting-back"
-          mode="contained"
-          compact
-          buttonColor={colors.primaryDark}
-          onPress={onBack}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          ← Industry SP
-        </Button>
-      </Appbar.Header>
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        onRequestAuth={onRequestAuth}
+        onBack={onBack}
+        subtitle={
+          !isLoading
+            ? `${meetingName || "Meeting"} · ${races.length} races · ${totalRunners} runners`
+            : meetingName || "Meeting"
+        }
+        testIdPrefix="industry-meeting"
+      />
 
       <View testID="industry-meeting-toolbar" style={styles.toolbar}>
         <Button
@@ -127,6 +139,7 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
 
         {!isLoading && !error && (
           <ScrollView testID="industry-meeting-list" style={styles.list}>
+          <PageContainer>
             {races.length === 0 && (
               <Text style={styles.emptyText}>No races found.</Text>
             )}
@@ -152,13 +165,14 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
                   })()}
                 </TouchableOpacity>
                 {race.runners.map((runner: IspRunner) => (
-                  <View
+                  <TouchableOpacity
                     key={runner.id}
                     testID={`industry-meeting-item-${runner.id}`}
                     style={styles.runnerRow}
+                    onPress={() => onNavigateToRunner(race.raceId, runner.id)}
                   >
                     <Text style={styles.priority}>{runner.sortPriority}.</Text>
-                    <Text style={styles.runnerName} numberOfLines={1}>
+                    <Text testID={`industry-meeting-item-name-${runner.id}`} style={styles.runnerName} numberOfLines={1}>
                       {runner.name}
                     </Text>
                     {runner.isp != null && (
@@ -178,6 +192,35 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
                         {formatPnl(runnerPnl(runner)!)}
                       </Text>
                     )}
+                    {runner.trainer && (
+                      <TouchableOpacity
+                        onPress={(e) => { e.stopPropagation(); onNavigateToTrainer(runner.trainer!, toFormCategory(race.raceType)); }}
+                      >
+                        <Text testID={`industry-meeting-item-trainer-${runner.id}`} style={styles.trainerBadge} numberOfLines={1}>
+                          {runner.trainer}
+                          {runner.trainerFormRuns != null && runner.trainerFormRuns > 0 && runner.trainerFormWinRate != null && (
+                            <Text testID={`industry-meeting-item-trainer-form-${runner.id}`} style={styles.trainerFormBadge}>
+                              {` · ${runner.trainerFormWins}/${runner.trainerFormRuns} · ${runner.trainerFormWinRate.toFixed(0)}%`}
+                            </Text>
+                          )}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    {runner.modelWinProbability != null && (
+                      <Text testID={`industry-meeting-item-model-${runner.id}`} style={styles.modelBadge}>
+                        Model {runner.modelWinProbability.toFixed(0)}%
+                        {runner.isp != null && runner.isp > 0 && (
+                          <Text testID={`industry-meeting-item-implied-sp-${runner.id}`} style={styles.impliedSpBadge}>
+                            {` · SP ${impliedProbabilityPct(runner.isp).toFixed(0)}%`}
+                          </Text>
+                        )}
+                      </Text>
+                    )}
+                    {modelBeatsSp(runner) && (
+                      <Text testID={`industry-meeting-item-value-${runner.id}`} style={styles.valueBadge}>
+                        Value
+                      </Text>
+                    )}
                     <View
                       style={[
                         styles.statusBadge,
@@ -188,10 +231,11 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
                         {runner.status}
                       </Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
             ))}
+          </PageContainer>
           </ScrollView>
         )}
       </View>
@@ -203,27 +247,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  appbar: {
-    backgroundColor: colors.primary,
-    elevation: 4,
-  },
-  appbarTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  appbarSubtitle: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 11,
-  },
-  headerButton: {
-    marginHorizontal: 3,
-    borderRadius: radii.md,
-  },
-  headerButtonLabel: {
-    fontSize: 11,
-    fontWeight: "600",
   },
   toolbar: {
     flexDirection: "row",
@@ -284,10 +307,10 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   pnlPos: {
-    color: "#4ADE80",
+    color: colors.pnlPositive,
   },
   pnlNeg: {
-    color: "#F87171",
+    color: colors.pnlNegative,
   },
   body: {
     flex: 1,
@@ -371,12 +394,15 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     width: 22,
   },
+  // Deliberately not flex:1 — in a flexWrap row, a flex-grow item gets
+  // squeezed toward minWidth (effectively invisible) as more badges are
+  // added to the same row, rather than wrapping itself; a fixed maxWidth
+  // (matching trainerBadge's own cap) makes it wrap as a whole instead.
   runnerName: {
     fontSize: 13,
     fontWeight: "500",
     color: colors.text,
-    flex: 1,
-    minWidth: 0,
+    maxWidth: 160,
     marginRight: spacing.sm,
   },
   statusBadge: {
@@ -391,8 +417,8 @@ const styles = StyleSheet.create({
   bspBadge: {
     fontSize: 11,
     fontWeight: "700",
-    color: colors.primaryDark,
-    backgroundColor: "#EEF2FF",
+    color: colors.accent,
+    backgroundColor: colors.primaryLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,
@@ -410,6 +436,43 @@ const styles = StyleSheet.create({
   runnerPnl: {
     fontSize: 12,
     fontWeight: "700",
+    marginRight: spacing.sm,
+  },
+  trainerBadge: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginRight: spacing.sm,
+    maxWidth: 160,
+  },
+  trainerFormBadge: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textTertiary,
+  },
+  modelBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.accent,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+    marginRight: spacing.sm,
+  },
+  impliedSpBadge: {
+    fontWeight: "500",
+    color: colors.textTertiary,
+  },
+  valueBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.success,
+    backgroundColor: colors.successLight,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
     marginRight: spacing.sm,
   },
 });

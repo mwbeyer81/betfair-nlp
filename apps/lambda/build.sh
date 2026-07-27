@@ -20,9 +20,14 @@ echo "Copying prompt files..."
 mkdir -p dist/prompts
 cp "$REPO_ROOT/src/lib/service/prompts/"* dist/prompts/
 
+echo "Building and copying codebase snapshot..."
+bash "$REPO_ROOT/scripts/build-codebase-snapshot.sh"
+mkdir -p dist/codebase-snapshot
+cp -r "$REPO_ROOT/src/lib/service/codebase-snapshot/"* dist/codebase-snapshot/
+
 echo "Zipping..."
 cd dist
-zip -qr ../function.zip handler.js config/ prompts/
+zip -qr ../function.zip handler.js config/ prompts/ codebase-snapshot/
 cd ..
 
 echo "Deploying code..."
@@ -32,6 +37,12 @@ aws lambda update-function-code \
   --region eu-north-1 \
   --output text --query FunctionName
 
+# update-function-code leaves the function in an async "in progress" state
+# briefly — update-function-configuration right after it can hit
+# ResourceConflictException if it lands before that settles. Wait it out
+# rather than let the next call race it.
+aws lambda wait function-updated --function-name hello-api --region eu-north-1
+
 echo "Configuring Lambda runtime..."
 aws lambda update-function-configuration \
   --function-name hello-api \
@@ -40,6 +51,8 @@ aws lambda update-function-configuration \
   --handler handler.handler \
   --region eu-north-1 \
   --output text --query FunctionName
+
+aws lambda wait function-updated --function-name hello-api --region eu-north-1
 
 echo "Configuring API Gateway throttling..."
 aws apigatewayv2 update-stage \
@@ -57,11 +70,32 @@ if [ -f "$LOCAL_CONFIG" ]; then
   MONGODB_DB_NAME=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.mongodb.dbName)")
   OPENAI_API_KEY=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.openai.apiKey)")
   JWT_SECRET=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.jwt.secret)")
-  AUTH_USERNAME=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.auth.username)")
-  AUTH_PASSWORD=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.auth.password)")
+  # email.* is optional — signup still succeeds with verification emails
+  # skipped (see EmailService) if these are blank, so default to "" rather
+  # than erroring when config/local.json predates this section.
+  RESEND_API_KEY=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.email && c.email.apiKey) || '')")
+  EMAIL_FROM_ADDRESS=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.email && c.email.fromAddress) || '')")
+  API_URL=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.app && c.app.apiUrl) || 'https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com')")
+  # google.*/twilio.* are optional too — Google/SMS sign-in return a clear
+  # 503 ("not configured") rather than crashing if these are blank, same
+  # non-fatal-by-default pattern as email.*. Same footgun as email.* also
+  # applies here: since update-function-configuration replaces the whole
+  # Variables map, if config/local.json exists but omits a google/twilio
+  # section, these silently reset to blank (disabling Google/SMS sign-in)
+  # on the next full deploy that goes through this branch.
+  GOOGLE_CLIENT_ID=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.google && c.google.clientId) || '')")
+  TWILIO_ACCOUNT_SID=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.twilio && c.twilio.accountSid) || '')")
+  TWILIO_AUTH_TOKEN=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.twilio && c.twilio.authToken) || '')")
+  TWILIO_VERIFY_SERVICE_SID=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.twilio && c.twilio.verifyServiceSid) || '')")
+  # racingApi.* — used by the scheduled daily-races ingest (EventBridge ->
+  # this Lambda, see .claude/commands/daily-races-cron.md), not by any HTTP
+  # route directly. Same optional/blank-default pattern as email/google/twilio.
+  RACINGAPI_USERNAME=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.racingApi && c.racingApi.username) || '')")
+  RACINGAPI_PASSWORD=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.racingApi && c.racingApi.password) || '')")
+  RACINGAPI_BASE_URL=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.racingApi && c.racingApi.baseUrl) || 'https://api.theracingapi.com/v1')")
   aws lambda update-function-configuration \
     --function-name hello-api \
-    --environment "Variables={MONGODB_URI=$MONGODB_URI,MONGODB_DB_NAME=$MONGODB_DB_NAME,OPENAI_API_KEY=$OPENAI_API_KEY,JWT_SECRET=$JWT_SECRET,AUTH_USERNAME=$AUTH_USERNAME,AUTH_PASSWORD=$AUTH_PASSWORD}" \
+    --environment "Variables={MONGODB_URI=$MONGODB_URI,MONGODB_DB_NAME=$MONGODB_DB_NAME,OPENAI_API_KEY=$OPENAI_API_KEY,JWT_SECRET=$JWT_SECRET,RESEND_API_KEY=$RESEND_API_KEY,EMAIL_FROM_ADDRESS=$EMAIL_FROM_ADDRESS,API_URL=$API_URL,GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID,TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID,TWILIO_AUTH_TOKEN=$TWILIO_AUTH_TOKEN,TWILIO_VERIFY_SERVICE_SID=$TWILIO_VERIFY_SERVICE_SID,RACINGAPI_USERNAME=$RACINGAPI_USERNAME,RACINGAPI_PASSWORD=$RACINGAPI_PASSWORD,RACINGAPI_BASE_URL=$RACINGAPI_BASE_URL}" \
     --region eu-north-1 \
     --output text --query FunctionName
 else

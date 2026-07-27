@@ -7,40 +7,38 @@ import {
 } from "react-native";
 import {
   Text,
-  Appbar,
   Button,
   Chip,
   ActivityIndicator,
 } from "react-native-paper";
 import { EventDocsPanel } from "./EventDocsPanel";
 import { RunnersPanel } from "./RunnersPanel";
+import { PageContainer } from "./PageContainer";
+import { AppHeader } from "./AppHeader";
 import {
   chatApi,
   EventGroup,
   MarketDefinitionDoc,
   Race,
-  Stats,
 } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
+import type { Route } from "../hooks/useRouter";
 
 interface EventsScreenProps {
-  onNavigateToChat: () => void;
-  onNavigateToAllRunners: () => void;
-  onNavigateToIsp: () => void;
+  navigate: (to: Route, query?: string) => void;
+  isAuthenticated: boolean;
   onLogout?: () => void;
 }
 
 export const EventsScreen: React.FC<EventsScreenProps> = ({
-  onNavigateToChat,
-  onNavigateToAllRunners,
-  onNavigateToIsp,
+  navigate,
+  isAuthenticated,
   onLogout,
 }) => {
   const [groups, setGroups] = useState<EventGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<Stats | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [sort, setSort] = useState<"asc" | "desc">("asc");
@@ -66,14 +64,10 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
       setError(null);
       setGroups([]);
       try {
-        const [result, statsData] = await Promise.all([
-          chatApi.getEventGroups(1, PAGE_SIZE, sort),
-          chatApi.getStats(),
-        ]);
+        const result = await chatApi.getEventGroups(1, PAGE_SIZE, sort);
         setGroups(result.data);
         setPage(1);
         setTotalPages(result.totalPages);
-        setStats(statsData);
       } catch {
         setError("Failed to load events");
       } finally {
@@ -130,65 +124,25 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
 
   return (
     <SafeAreaView testID="events-screen" style={styles.screen}>
-      <View testID="events-stats-bar" style={styles.statsBar}>
-        <Text
-          testID="events-total-runners"
-          style={[styles.statText, styles.statLinkText]}
-          onPress={onNavigateToAllRunners}
-        >
-          {stats != null ? stats.totalRunners : "—"} runners
-        </Text>
-        <Text style={styles.statDot}>·</Text>
-        <Text testID="events-total-races" style={styles.statText}>
-          {stats != null ? stats.totalRaces : "—"} races
-        </Text>
-        <Text style={styles.statDot}>·</Text>
-        <Text
-          testID="events-nav-isp"
-          style={[styles.statText, styles.statLinkText]}
-          onPress={onNavigateToIsp}
-        >
-          Industry SP →
-        </Text>
-      </View>
-
-      <Appbar.Header style={styles.appbar}>
-        <Appbar.Content title="Events" titleStyle={styles.appbarTitle} />
-        <Button
-          testID="events-sort-toggle"
-          mode="contained-tonal"
-          compact
-          onPress={() => setSort(s => (s === "asc" ? "desc" : "asc"))}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          {sort === "asc" ? "Oldest first" : "Newest first"}
-        </Button>
-        <Button
-          testID="events-screen-chat-button"
-          mode="contained"
-          compact
-          buttonColor={colors.primaryDark}
-          onPress={onNavigateToChat}
-          style={styles.headerButton}
-          labelStyle={styles.headerButtonLabel}
-        >
-          Chat →
-        </Button>
-        {onLogout && (
+      <AppHeader
+        navigate={navigate}
+        isAuthenticated={isAuthenticated}
+        onLogout={onLogout}
+        subtitle="Events"
+        testIdPrefix="events"
+        extraActions={wrap => (
           <Button
-            testID="events-screen-logout-button"
-            mode="contained"
+            testID="events-sort-toggle"
+            mode="outlined"
             compact
-            buttonColor={colors.danger}
-            onPress={onLogout}
+            onPress={wrap(() => setSort(s => (s === "asc" ? "desc" : "asc")))}
             style={styles.headerButton}
             labelStyle={styles.headerButtonLabel}
           >
-            Logout
+            {sort === "asc" ? "Oldest first" : "Newest first"}
           </Button>
         )}
-      </Appbar.Header>
+      />
 
       <View style={styles.body}>
         {isLoading && (
@@ -208,6 +162,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
 
         {!isLoading && !error && (
           <ScrollView testID="event-group-list" style={styles.list}>
+          <PageContainer>
             {groups.length === 0 && (
               <Text style={styles.emptyText}>No events found.</Text>
             )}
@@ -271,6 +226,7 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({
                 Load more
               </Button>
             )}
+          </PageContainer>
           </ScrollView>
         )}
       </View>
@@ -304,38 +260,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  statsBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 5,
-    backgroundColor: "#EEF2FF",
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  statText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    fontWeight: "600",
-  },
-  statLinkText: {
-    color: colors.primary,
-    textDecorationLine: "underline",
-  },
-  statDot: {
-    fontSize: 12,
-    color: colors.textTertiary,
-  },
-  appbar: {
-    backgroundColor: colors.primary,
-    elevation: 4,
-  },
-  appbarTitle: {
-    color: "white",
-    fontSize: 20,
-    fontWeight: "700",
   },
   headerButton: {
     marginHorizontal: 3,
@@ -394,11 +318,11 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   docsChip: {
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
     borderRadius: radii.pill,
   },
   runnersChip: {
-    backgroundColor: "#CFFAFE",
+    backgroundColor: colors.infoLight,
     borderRadius: radii.pill,
   },
   docsChipText: {

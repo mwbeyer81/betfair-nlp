@@ -1,6 +1,15 @@
 node_modules
 dist
 BASIC
+src/lib/service/codebase-snapshot
+# The bare `node_modules` pattern above matches that name anywhere in the
+# tree, including this deliberate test fixture for codebase-file-access.ts's
+# denied-segment rejection — without this negation the fixture file silently
+# never gets committed (caught the hard way: it worked in the worktree that
+# created it, on-disk, then vanished in every worktree that actually cloned
+# the branch).
+!src/lib/service/__tests__/fixtures/codebase-file-access/root/src/lib/service/node_modules/
+!src/lib/service/__tests__/fixtures/codebase-file-access/root/src/lib/service/node_modules/**
 
 # macOS system files
 .DS_Store
@@ -53,3 +62,13 @@ packages/shared/dist/
 
 # Playwright test-results inside packages
 **/test-results/
+
+# Python ML pipeline
+ml/venv/
+ml/__pycache__/
+ml/models/
+**/__pycache__/
+*.pyc
+
+# Throwaway mongod/backend/frontend scratch dir for scripts/local-ci-e2e.sh
+.local-ci/
