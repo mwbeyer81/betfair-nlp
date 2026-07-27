@@ -132,14 +132,13 @@ tiebreaker.
 | `~/betfair-nlp-isp-form-fields` | `feature/isp-form-fields` | ISP filter form fields | in progress, not merged — **large divergence on `IndustrySpScreen.tsx`** (~1500 lines vs. current `develop`) as of 2026-07-25; **`develop` just moved significantly (`fd3f394`) — Split A/B's runner-index machinery (`splitByRunners`, `fromRunnerA/toRunnerA/...`) was entirely removed and `IndustrySpScreen.tsx` heavily rewritten, see the dated entry below** — expect this branch's divergence to be much worse now, plan for a careful manual reconciliation, not a plain rebase |
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | in progress, not merged |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
-| `~/betfair-nlp-convergence-filters` | `feat/convergence-filters-summary` | Convergence panel filter summary | committed (`8f882ce`), merging to `develop` and deploying now — see dated entry below |
 | `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **done** — merged to `develop`, deployed (Lambda + web), live-verified on prod; worktree can be removed |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
-`local-ci-e2e-tests`, and `model-perf-filters` were merged, clean, and have
-been removed (`git worktree remove` + `git branch -d`, local and remote
-where applicable) as of 2026-07-25/26 —
+`local-ci-e2e-tests`, `model-perf-filters`, and `convergence-filters-summary`
+were merged, clean, and have been removed (`git worktree remove` +
+`git branch -d`, local and remote where applicable) as of 2026-07-25/26 —
 this is what "clean up after merge" in the section above looks like in
 practice. `codebase-search-chat` was merged, pushed, and deployed (both
 Lambda and web). `local-ci-e2e-tests` was docs/test-infra only (no
@@ -2916,4 +2915,8 @@ running the identical test against a throwaway worktree on a clean
 failure (`box2.y` received `76`, expected `>=355`) — a `feat/saved-results`
 responsive-layout bug, not touched by anything in this task.
 
-**Done — committed (`8f882ce`), merging to `develop` and deploying next.**
+**Done — committed (`8f882ce`, `fd7cd22`), merged to `develop` (pushed
+directly as `48dbf84`), deployed via `apps/web/deploy.sh` — confirmed live
+at `build-commit=48dbf84` on app.backbet.co.uk. No backend/Lambda change
+(frontend-only). Worktree removed (`git worktree remove` + `git branch
+-d`) — nothing left in progress.**
