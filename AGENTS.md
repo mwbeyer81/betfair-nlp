@@ -3254,8 +3254,15 @@ both fully pass (2 new legacy-doc stories); full suite otherwise 311/316 —
 same 5 pre-existing failures documented throughout this file. `yarn
 test:msw`: 190/190, including 3 new regression tests in
 `saved-results.spec.ts` (degraded card + delete, mixed legacy/normal
-results, direct-navigation to a legacy detail URL). Re-ran the
-`prod-repro` script's local MSW-equivalent version against the fixed code
-— passes.
+results, direct-navigation to a legacy detail URL).
 
-**Done — committed, merging to `develop` and deploying next.**
+**Done — committed (`c7e91c6`), pushed directly to `develop`, deployed via
+`apps/web/deploy.sh` (frontend-only, no Lambda change) — confirmed live at
+`build-commit=c7e91c6` on app.backbet.co.uk. Re-ran
+`client/scripts/prod-repro/results-white-screen-2026-07-27.spec.ts`
+against the now-live site (`playwright.prod-repro.config.ts`, real
+`app.backbet.co.uk`, same interception as before) — passes, closing the
+loop the skill describes: the same script that proved the bug was live
+now proves the fix is live too. Worktree removed, branch deleted (local +
+remote via the `push origin ...:develop` above) — nothing left in
+progress.**
