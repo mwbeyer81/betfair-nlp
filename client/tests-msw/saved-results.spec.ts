@@ -118,3 +118,114 @@ test.describe("Saved Results — empty state", () => {
     await expect(page.getByTestId("saved-results-empty")).toBeVisible();
   });
 });
+
+test.describe("Saved Results — legacy pre-split documents", () => {
+  // Regression coverage for a real production bug (reported live via
+  // screenshot: clicking Results showed a blank white screen). Root cause:
+  // any saved_filter_sets document created before the Split A/B schema
+  // change has neither field at all — combinedPnlStats() read
+  // result.splitA.pnlStats directly with no guard, throwing mid-render.
+  // There is no error boundary anywhere in this app, so React unmounted
+  // the ENTIRE screen instead of just the one bad card. See
+  // client/scripts/prod-repro/results-white-screen-2026-07-27.spec.ts for
+  // the same reproduction run against the real deployed app.
+  const legacyResult = {
+    id: "legacy-result-1",
+    name: "Pre-fix save",
+    filters: { courses: "Ascot" },
+    pnlStats: { staked: 20, returns: 15, pnl: -5, count: 4 },
+    graphPoints: [{ raceRowNumber: 1, cumulativeStaked: 20, cumulativeReturns: 15, cumulativePnl: -5, roiPercent: -25 }],
+    createdAt: "2026-01-15T09:00:00.000Z",
+  };
+
+  test("a legacy doc renders a degraded, delete-only card instead of crashing the whole list", async ({ page }) => {
+    await page.route((url) => url.pathname === "/api/saved-filter-sets", (route) => {
+      if (route.request().method() === "GET") {
+        route.fulfill({ json: { success: true, count: 1, data: [legacyResult] } });
+      } else {
+        route.continue();
+      }
+    });
+    await page.route((url) => url.pathname === "/api/saved-filter-sets/legacy-result-1", (route) => {
+      if (route.request().method() === "DELETE") {
+        route.fulfill({ json: { success: true } });
+      } else {
+        route.continue();
+      }
+    });
+    await page.goto("/results");
+    await expect(page.getByTestId("saved-results-screen")).toBeVisible({ timeout: 10000 });
+    // The loading spinner shows first, before the fetch resolves — the bug
+    // only manifests once data arrives and the list tries to render it, so
+    // checking visibility right after goto() would trivially pass on the
+    // spinner and miss a regression entirely. Waiting for loading to clear
+    // THEN re-checking the screen is still there is what actually catches it.
+    await expect(page.getByTestId("saved-results-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("saved-results-screen")).toBeVisible();
+    await expect(page.getByTestId("saved-results-item-legacy-result-1")).toBeVisible();
+    await expect(page.getByTestId("saved-results-item-legacy-result-1-legacy-notice")).toContainText("Split A/B update");
+    // No PnL/sparkline for a legacy card — there's no split data to show.
+    await expect(page.getByTestId("saved-results-item-legacy-result-1")).not.toContainText("£");
+    // Delete still works — the one useful action available for it.
+    await page.getByTestId("saved-results-item-legacy-result-1-delete").click();
+    await page.getByTestId("saved-results-item-legacy-result-1-confirm-delete").click();
+    await expect(page.getByTestId("saved-results-item-legacy-result-1")).not.toBeVisible();
+  });
+
+  test("a legacy doc mixed in with normal results doesn't affect the normal ones", async ({ page }) => {
+    await page.route((url) => url.pathname === "/api/saved-filter-sets", (route) => {
+      if (route.request().method() === "GET") {
+        route.fulfill({
+          json: {
+            success: true,
+            count: 2,
+            data: [
+              legacyResult,
+              {
+                id: "mock-result-1",
+                name: "Ascot favourites",
+                filters: { courses: "Ascot", minDate: "2026-01-01", maxDate: "2026-01-01" },
+                splitA: {
+                  fromRow: 1, toRow: 2, total: 2, totalRunners: 6,
+                  pnlStats: { staked: 10, returns: 11, pnl: 1, count: 2 },
+                  graphPoints: [
+                    { raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 6, cumulativePnl: 1, roiPercent: 20 },
+                    { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 11, cumulativePnl: 1, roiPercent: 10 },
+                  ],
+                },
+                splitB: {
+                  fromRow: 3, toRow: 4, total: 2, totalRunners: 6,
+                  pnlStats: { staked: 10, returns: 6, pnl: -4, count: 2 },
+                  graphPoints: [
+                    { raceRowNumber: 3, cumulativeStaked: 5, cumulativeReturns: 5, cumulativePnl: 0, roiPercent: 0 },
+                    { raceRowNumber: 4, cumulativeStaked: 10, cumulativeReturns: 6, cumulativePnl: -4, roiPercent: -40 },
+                  ],
+                },
+                createdAt: "2026-01-20T09:00:00.000Z",
+              },
+            ],
+          },
+        });
+      } else {
+        route.continue();
+      }
+    });
+    await page.goto("/results");
+    await expect(page.getByTestId("saved-results-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("saved-results-item-legacy-result-1-legacy-notice")).toBeVisible();
+    // The normal result still opens its detail view and shows real PnL.
+    await page.getByTestId("saved-results-item-mock-result-1").click();
+    await expect(page.getByTestId("saved-result-detail-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("saved-result-split-card-a")).toBeVisible();
+  });
+
+  test("navigating directly to a legacy doc's detail view shows the notice instead of crashing", async ({ page }) => {
+    await page.route((url) => url.pathname === "/api/saved-filter-sets/legacy-result-1", (route) =>
+      route.fulfill({ json: { success: true, data: legacyResult } })
+    );
+    await page.goto("/results/detail?id=legacy-result-1");
+    await expect(page.getByTestId("saved-result-detail-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("saved-result-detail-legacy-notice")).toContainText("Split A/B update");
+    await expect(page.getByTestId("saved-result-detail-delete")).toBeVisible();
+  });
+});

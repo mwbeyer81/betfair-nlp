@@ -133,6 +133,7 @@ tiebreaker.
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | **stale, do not merge as-is** — checked 2026-07-27: this branch diverges from `origin/develop` by ~29k deleted lines (missing saved-results, model-performance dashboard, social-auth, and more — branched from a very old point, not intentional deletions). Its only real uncommitted work is small (`LogoMark.tsx` + 2 SVG assets under `client/assets/logo/`, a FontAwesome-based logo mark, plus an `App.tsx` diff wiring it in) — worth salvaging by hand into a fresh worktree if the FontAwesome-icon logo direction is still wanted, but do not merge/rebase this branch wholesale. Superseded for the "consistent header" goal by `feat/unified-header` below (plain-text "BackBet" + sync-icon wordmark, not a FontAweome logo image) — pick this up only if the user wants the logo image, not the burger-menu-consistency problem, which is now solved. |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **done** — merged to `develop`, deployed (Lambda + web), live-verified on prod; worktree can be removed |
+| `~/betfair-nlp-results-white-screen` | `fix/results-white-screen` | Prod bug: clicking Results showed a blank white screen for a legacy (pre-Split-A/B) saved result — see dated entry below | done, verified, committing/deploying now |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
@@ -3186,3 +3187,74 @@ enough.
 
 Worktree removed, branch deleted (local + remote via the
 `push origin ...:develop` above) — nothing left in progress.
+
+---
+
+## 2026-07-27 (later) — Agent in `~/betfair-nlp-results-white-screen` (branch `fix/results-white-screen`)
+
+**Task:** User reported clicking "Results" on prod showed a blank white
+screen — the exact production-data risk flagged (but left to the user to
+resolve manually) at the end of the `saved-results-splits` entry above.
+
+**Root cause, confirmed twice — locally via MSW, then against the real
+deployed bundle:** `SavedResultsListScreen.combinedPnlStats()` read
+`result.splitA.pnlStats`/`result.splitB.pnlStats` with no guard. Any
+`saved_filter_sets` document created before the Split A/B schema change has
+neither field at all (the old shape stored one flat `pnlStats`/
+`graphPoints` instead) — nothing migrates old documents on deploy, and the
+user's own 2 pre-existing saved results were exactly this shape. Reading
+`.pnlStats` off `undefined` threw mid-render; **this app has no error
+boundary anywhere** (confirmed via grep), so React unmounted the entire
+tree instead of just the one bad card — a blank white screen, not a caught
+error, exactly as reported.
+
+**New skill added: `.claude/commands/prod-repro-scripts.md`** — a new
+category of test script, distinct from every existing one (`tests-msw`/
+Storybook = repeatable CI-style regression, `tests-live` = repeatable
+live-environment regression, `tests-local-ci` = repeatable throwaway-stack
+regression). A prod-repro script is **run once**, points at the real
+deployed `app.backbet.co.uk` (never localhost, never a fresh local build),
+and exists purely to prove a specific reported bug is present in the
+bundle that's live *right now* — kept afterward as a historical record,
+not maintained or re-run routinely. New
+`client/playwright.prod-repro.config.ts` (baseURL = prod, no `webServer`
+block — nothing to start, the target is already live) and
+`client/scripts/prod-repro/results-white-screen-2026-07-27.spec.ts`, which
+reproduced this exact bug against production via `page.route()`
+interception (no real credentials or data touched — a locally-set fake
+JWT plus a mocked `/api/saved-filter-sets` response was enough to prove
+the *deployed* code crashes on a legacy-shaped doc). Ran before any fix
+landed and failed exactly as expected
+(`getByTestId('saved-results-screen')` → `<element(s) not found>` after
+loading resolved) — that failure is the confirmation this bug is real in
+prod, not just in theory.
+
+**Fix:** `chatApi.ts`'s `SavedFilterSet.splitA`/`splitB` are now optional
+(honestly reflecting that a real API response can lack them, not a
+"just in case" guard). `SavedResultsListScreen.tsx` gained
+`isLegacyResult()` — a legacy doc now renders a degraded, delete-only card
+("Saved before this app's Split A/B update — delete and re-save to see it
+here") instead of crashing, and normal results next to it are unaffected.
+`SavedResultDetailScreen.tsx` got the equivalent guard for direct
+navigation to a legacy result's URL. No backend touched at all — this was
+purely a frontend robustness gap.
+
+**Test-writing gotcha:** the first version of the permanent MSW regression
+test asserted `saved-results-screen` visible immediately after `page.goto()`
+— trivially passed on the loading spinner, before the fetch resolves and
+the crash (or, post-fix, the degraded card) would actually render. Had to
+wait for `saved-results-loading` to clear first, **then** re-check the
+screen was still there — same lesson as the temp repro script, worth
+remembering for any test asserting "the page didn't crash."
+
+**Verified:** `yarn build` clean. Storybook:
+`SavedResultsListScreen.stories.tsx`/`SavedResultDetailScreen.stories.tsx`
+both fully pass (2 new legacy-doc stories); full suite otherwise 311/316 —
+same 5 pre-existing failures documented throughout this file. `yarn
+test:msw`: 190/190, including 3 new regression tests in
+`saved-results.spec.ts` (degraded card + delete, mixed legacy/normal
+results, direct-navigation to a legacy detail URL). Re-ran the
+`prod-repro` script's local MSW-equivalent version against the fixed code
+— passes.
+
+**Done — committed, merging to `develop` and deploying next.**
