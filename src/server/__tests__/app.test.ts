@@ -264,6 +264,52 @@ jest.mock("../../config/database", () => ({
               }),
             };
           }
+          if (name === "daily_racecards") {
+            const mockDailyRace = {
+              _id: "rac_test_0001",
+              raceId: "rac_test_0001",
+              eventId: "newton-abbot-2026-06-03",
+              course: "Newton Abbot",
+              date: "2026-06-03",
+              offTime: "1:50",
+              offDt: "2026-06-03T13:50:00+01:00",
+              raceName: "Novices' Hurdle",
+              distanceF: "16.0",
+              region: "GB",
+              raceClass: "Class 4",
+              type: "Hurdle",
+              ageBand: "4yo+",
+              prize: "£3,769",
+              fieldSize: "1",
+              going: "Good",
+              surface: "Turf",
+              runners: [
+                {
+                  runnerId: "hrs_1", horse: "Fixture Star", age: "6", sex: "gelding", sexCode: "G", colour: "b",
+                  region: "GB", dam: "Star Dam", damId: "dam_1", sire: "Star Sire", sireId: "sir_1",
+                  damsire: "Star Damsire", damsireId: "dsi_1", trainer: "A Trainer", trainerId: "trn_1",
+                  owner: "Owner", ownerId: "own_1", number: "1", draw: "0", headgear: "", lbs: "154",
+                  officialRating: "98", jockey: "B Jockey", jockeyId: "jky_1", lastRun: "21", form: "1-21",
+                },
+              ],
+              ingestedAt: "2026-06-03T00:00:00.000Z",
+            };
+            return {
+              createIndex: jest.fn().mockResolvedValue(undefined),
+              find: jest.fn().mockImplementation((query: { date?: string; eventId?: string }) => ({
+                sort: jest.fn().mockReturnThis(),
+                toArray: jest.fn().mockResolvedValue(
+                  (query?.date && query.date === mockDailyRace.date) ||
+                  (query?.eventId && query.eventId === mockDailyRace.eventId)
+                    ? [mockDailyRace]
+                    : []
+                ),
+              })),
+              findOne: jest.fn().mockImplementation(async (query: { _id?: string }) => {
+                return query?._id === mockDailyRace._id ? mockDailyRace : null;
+              }),
+            };
+          }
           return {
             distinct: jest.fn().mockResolvedValue(["GB", "IE"]),
           find: jest.fn().mockReturnValue({
@@ -1498,6 +1544,99 @@ describe("API Endpoints", () => {
         .delete(`/api/saved-filter-sets/${savedId}`)
         .set("Authorization", `Bearer ${authToken}`)
         .expect(404);
+    });
+  });
+
+  describe("GET /api/daily-races", () => {
+    it("returns success with an array of racecards", async () => {
+      const response = await request(app)
+        .get("/api/daily-races?date=2026-06-03")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(typeof response.body.count).toBe("number");
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    it("each racecard has the required fields", async () => {
+      const response = await request(app)
+        .get("/api/daily-races?date=2026-06-03")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const doc = response.body.data[0];
+      expect(doc).toHaveProperty("raceId");
+      expect(doc).toHaveProperty("eventId");
+      expect(doc).toHaveProperty("course");
+      expect(doc).toHaveProperty("date");
+      expect(Array.isArray(doc.runners)).toBe(true);
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/daily-races?date=2026-06-03").expect(401);
+    });
+
+    it("returns an empty array for a date with no racecards", async () => {
+      const response = await request(app)
+        .get("/api/daily-races?date=1999-01-01")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.data).toEqual([]);
+    });
+  });
+
+  describe("GET /api/daily-races/event/:eventId", () => {
+    it("returns the races for a known event", async () => {
+      const response = await request(app)
+        .get("/api/daily-races/event/newton-abbot-2026-06-03")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data.length).toBeGreaterThan(0);
+      expect(response.body.data[0]).toHaveProperty("eventId", "newton-abbot-2026-06-03");
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/daily-races/event/newton-abbot-2026-06-03").expect(401);
+    });
+
+    it("returns an empty array for an unknown eventId", async () => {
+      const response = await request(app)
+        .get("/api/daily-races/event/unknown-event")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.data).toEqual([]);
+    });
+  });
+
+  describe("GET /api/daily-races/race/:raceId", () => {
+    it("returns a single race by id", async () => {
+      const response = await request(app)
+        .get("/api/daily-races/race/rac_test_0001")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data).toHaveProperty("raceId", "rac_test_0001");
+      expect(Array.isArray(response.body.data.runners)).toBe(true);
+    });
+
+    it("returns 404 for an unknown raceId", async () => {
+      const response = await request(app)
+        .get("/api/daily-races/race/rac_does_not_exist")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(404);
+
+      expect(response.body).toHaveProperty("success", false);
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/daily-races/race/rac_test_0001").expect(401);
     });
   });
 

@@ -159,6 +159,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         >
           Runners
         </Button>
+        <Button
+          testID={`${testIdPrefix}-menu-daily-races-link`}
+          mode="outlined"
+          compact
+          onPress={wrap(() => navigate("/daily-races"))}
+          style={styles.toggleButton}
+          labelStyle={styles.toggleButtonLabel}
+        >
+          Daily Races
+        </Button>
         <View style={styles.divider} />
         {isAuthenticated ? (
           <>
