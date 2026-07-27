@@ -133,12 +133,11 @@ tiebreaker.
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | **stale, do not merge as-is** — checked 2026-07-27: this branch diverges from `origin/develop` by ~29k deleted lines (missing saved-results, model-performance dashboard, social-auth, and more — branched from a very old point, not intentional deletions). Its only real uncommitted work is small (`LogoMark.tsx` + 2 SVG assets under `client/assets/logo/`, a FontAwesome-based logo mark, plus an `App.tsx` diff wiring it in) — worth salvaging by hand into a fresh worktree if the FontAwesome-icon logo direction is still wanted, but do not merge/rebase this branch wholesale. Superseded for the "consistent header" goal by `feat/unified-header` below (plain-text "BackBet" + sync-icon wordmark, not a FontAweome logo image) — pick this up only if the user wants the logo image, not the burger-menu-consistency problem, which is now solved. |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **done** — merged to `develop`, deployed (Lambda + web), live-verified on prod; worktree can be removed |
-| `~/betfair-nlp-saved-results-splits` | `fix/saved-results-splits` | Saved Results only ever computed/stored/showed one combined snapshot, even though the live Filters screen always splits into Split A/Split B — see dated entry below | done, verified (Supertest, DAO integration, Storybook, MSW, and the real-backend `local-ci-e2e` suite), committing/deploying now |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
-`local-ci-e2e-tests`, `model-perf-filters`, and `convergence-filters-summary`
-were merged, clean, and have been removed (`git worktree remove` +
+`local-ci-e2e-tests`, `model-perf-filters`, `convergence-filters-summary`,
+and `saved-results-splits` were merged, clean, and have been removed (`git worktree remove` +
 `git branch -d`, local and remote where applicable) as of 2026-07-25/26 —
 this is what "clean up after merge" in the section above looks like in
 practice. `codebase-search-chat` was merged, pushed, and deployed (both
@@ -3161,5 +3160,29 @@ Storybook: `SavedResultDetailScreen.stories.tsx` and
 backend + real throwaway Mongo, no mocking): 18/18 on the second run,
 after fixing the two real bugs the first run caught.
 
-**Not yet committed/pushed** — leaving that to the user's explicit
-confirmation per this repo's commit convention.
+**Done — committed (`ff8d867`), pushed directly to `develop`, deployed both
+web (`apps/web/deploy.sh`, confirmed live at `build-commit=ff8d867` on
+app.backbet.co.uk) and Lambda (`apps/lambda/build.sh` from
+`~/betfair-nlp-deploy-develop`, confirmed responding post-deploy via the
+public `/api/industry-sp/filter-bounds` endpoint) — no gap where frontend
+and backend disagreed on the API shape.**
+
+**Data-migration note, flagged to the user rather than acted on
+unilaterally:** this is a breaking schema change for any `saved_filter_sets`
+document saved *before* this fix (old shape: flat `pnlStats`/`graphPoints`;
+new shape: `splitA`/`splitB`) — the user's own screenshots showed 2
+pre-existing saved results ("All races", "Foo") that would now fail to
+render (`result.splitA` undefined) until migrated or replaced. Attempted to
+check the real production `saved_filter_sets` collection directly (via
+`aws lambda get-function-configuration` to read `MONGODB_URI`, read-only,
+to connect) — **blocked by this session's auto-mode permission
+classifier**, which explicitly instructs stopping and asking rather than
+finding a workaround. Asked the user directly rather than routing around
+it or deploying a silent migration; **user chose to just delete both old
+results from the Results list and re-save fresh ones** (they looked like
+throwaway test saves) rather than a migration script. No migration code
+was written — nothing to pick up here unless the user reports it wasn't
+enough.
+
+Worktree removed, branch deleted (local + remote via the
+`push origin ...:develop` above) — nothing left in progress.
