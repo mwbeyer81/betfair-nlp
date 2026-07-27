@@ -12,12 +12,15 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 REPO_ROOT="$(pwd)"
 
-MONGO_PORT=27020
+# Overridable via LOCAL_CI_MONGO_PORT/LOCAL_CI_BACKEND_PORT/LOCAL_CI_FRONTEND_PORT
+# (see .claude/commands/worktree-ports.md) so concurrent worktrees running this
+# suite at the same time don't collide on these fixed defaults.
+MONGO_PORT="${LOCAL_CI_MONGO_PORT:-27020}"
 MONGO_DBPATH="$REPO_ROOT/.local-ci/mongo-data"
 MONGO_DB_NAME="betfair_nlp_ci_test"
 MONGO_URI="mongodb://localhost:${MONGO_PORT}"
-BACKEND_PORT=3050
-FRONTEND_PORT=8090
+BACKEND_PORT="${LOCAL_CI_BACKEND_PORT:-3050}"
+FRONTEND_PORT="${LOCAL_CI_FRONTEND_PORT:-8090}"
 JWT_SECRET="local-ci-test-secret-do-not-use-in-prod"
 SCRATCH_DIR="$REPO_ROOT/.local-ci"
 CSV_SOURCE="data/kaggle-horse-racing-uk-ireland/extracted/mini-update.csv"
@@ -138,6 +141,14 @@ if [ "$BUILT_COUNT" -eq 0 ]; then
   exit 1
 fi
 log "Seeded $BUILT_COUNT races."
+
+# --- Step 3b: seed Daily Races fixture ---------------------------------------
+# A committed /v1/racecards/free-shaped fixture, never the real live
+# RacingAPI — see src/lib/dao/__fixtures__/daily-racecards-free-response.json
+# and src/commands/seed-daily-races-fixture.ts.
+log "Seeding Daily Races fixture into $MONGO_DB_NAME..."
+MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" \
+  npx ts-node src/commands/seed-daily-races-fixture.ts 2>&1 | tee "$SCRATCH_DIR/logs/seed-daily-races.log"
 
 # --- Step 4: seed hardcoded test user ---------------------------------------
 log "Seeding hardcoded test user..."

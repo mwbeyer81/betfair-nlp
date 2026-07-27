@@ -114,6 +114,59 @@ export interface IspFilterBounds {
   minIsp: number;
 }
 
+// RacingAPI-backed "Daily Races" feature — a different domain from the ISP
+// types above (no P&L/model fields; RacingAPI's free-plan racecard fields
+// only). See src/lib/dao/daily-race-dao.ts for the backend document shape
+// this mirrors field-for-field.
+export interface DailyRaceRunner {
+  runnerId: string;
+  horse: string;
+  age: string | null;
+  sex: string | null;
+  sexCode: string | null;
+  colour: string | null;
+  region: string | null;
+  dam: string | null;
+  damId: string | null;
+  sire: string | null;
+  sireId: string | null;
+  damsire: string | null;
+  damsireId: string | null;
+  trainer: string | null;
+  trainerId: string | null;
+  owner: string | null;
+  ownerId: string | null;
+  number: string | null;
+  draw: string | null;
+  headgear: string | null;
+  lbs: string | null;
+  officialRating: string | null;
+  jockey: string | null;
+  jockeyId: string | null;
+  lastRun: string | null;
+  form: string | null;
+}
+
+export interface DailyRace {
+  raceId: string;
+  eventId: string;
+  course: string;
+  date: string;
+  offTime: string;
+  offDt: string;
+  raceName: string;
+  distanceF: string | null;
+  region: string | null;
+  raceClass: string | null;
+  type: string | null;
+  ageBand: string | null;
+  prize: string | null;
+  fieldSize: string | null;
+  going: string | null;
+  surface: string | null;
+  runners: DailyRaceRunner[];
+}
+
 export type TrainerFormCategory = "Flat" | "Jumps";
 
 export interface TrainerFormRunDoc {
@@ -799,6 +852,34 @@ class ChatApi {
       headers: this.authHeader(),
     });
     if (!response.ok) throw new Error("Failed to fetch race");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getDailyRaces(date?: string): Promise<DailyRace[]> {
+    const params = date ? `?date=${encodeURIComponent(date)}` : "";
+    const response = await fetch(`${this.baseUrl}/api/daily-races${params}`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch daily races");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getDailyRacesByEvent(eventId: string): Promise<DailyRace[]> {
+    const response = await fetch(`${this.baseUrl}/api/daily-races/event/${encodeURIComponent(eventId)}`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch daily races event");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getDailyRace(raceId: string): Promise<DailyRace> {
+    const response = await fetch(`${this.baseUrl}/api/daily-races/race/${encodeURIComponent(raceId)}`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch daily race");
     const result = await response.json();
     return result.data;
   }

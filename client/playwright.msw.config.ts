@@ -1,6 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 3737;
+// Overridable per worktree via MSW_PORT (see .claude/commands/worktree-ports.md)
+// so concurrent agents' MSW Playwright runs don't collide on the same fixed
+// port — falls back to the original literal default when unset.
+const PORT = Number(process.env.MSW_PORT) || 3737;
 const BASE_URL = `http://localhost:${PORT}`;
 
 /**

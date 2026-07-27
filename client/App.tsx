@@ -18,6 +18,10 @@ import { RunnerHistoryScreen } from "./src/components/RunnerHistoryScreen";
 import { TrainerDetailScreen } from "./src/components/TrainerDetailScreen";
 import { SavedResultsListScreen } from "./src/components/SavedResultsListScreen";
 import { SavedResultDetailScreen } from "./src/components/SavedResultDetailScreen";
+import { DailyRacesScreen } from "./src/components/DailyRacesScreen";
+import { DailyRaceEventScreen } from "./src/components/DailyRaceEventScreen";
+import { DailyRaceScreen } from "./src/components/DailyRaceScreen";
+import { DailyRunnerDetailScreen } from "./src/components/DailyRunnerDetailScreen";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
 import { buildReturnParams, resolveReturn } from "./src/utils/returnNav";
@@ -246,6 +250,60 @@ export default function App() {
           onNavigateToRunner={(raceId, runnerId) =>
             navigate("/isp/runner", `raceId=${raceId}&runnerId=${runnerId}&${buildReturnParams(route)}`)
           }
+        />
+      );
+    }
+    if (route === "/daily-races") {
+      return (
+        <DailyRacesScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          date={queryParams.get("date") ?? undefined}
+          onNavigateToEvent={(eventId) => navigate("/daily-races/event", `id=${encodeURIComponent(eventId)}`)}
+        />
+      );
+    }
+    if (route === "/daily-races/event") {
+      const eventId = queryParams.get("id") ?? "";
+      return (
+        <DailyRaceEventScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          eventId={eventId}
+          onBack={() => navigate("/daily-races")}
+          onNavigateToRace={(raceId) => navigate("/daily-races/race", `id=${encodeURIComponent(raceId)}`)}
+        />
+      );
+    }
+    if (route === "/daily-races/race") {
+      const raceId = queryParams.get("id") ?? "";
+      return (
+        <DailyRaceScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          raceId={raceId}
+          onNavigateToEvent={(eventId) => navigate("/daily-races/event", `id=${encodeURIComponent(eventId)}`)}
+          onNavigateToRunner={(raceId, runnerId) =>
+            navigate("/daily-races/runner", `raceId=${encodeURIComponent(raceId)}&runnerId=${encodeURIComponent(runnerId)}&${buildReturnParams(route)}`)
+          }
+        />
+      );
+    }
+    if (route === "/daily-races/runner") {
+      const raceId = queryParams.get("raceId") ?? "";
+      const runnerId = queryParams.get("runnerId") ?? "";
+      const back = resolveReturn(queryParams, "/daily-races");
+      return (
+        <DailyRunnerDetailScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          raceId={raceId}
+          runnerId={runnerId}
+          onBack={() => navigate(back.route, back.query)}
         />
       );
     }
