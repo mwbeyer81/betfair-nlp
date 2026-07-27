@@ -167,4 +167,14 @@ export class DailyRaceDAO {
   public async getRaceById(raceId: string): Promise<DailyRaceDoc | null> {
     return this.collection.findOne({ _id: raceId });
   }
+
+  /** Upserts a batch of racecards by _id — shared by the CLI ingestion
+   * command and the scheduled Lambda ingest so both paths write identically. */
+  public async bulkUpsertRaces(docs: DailyRaceDoc[]): Promise<void> {
+    if (docs.length === 0) return;
+    const ops = docs.map(doc => ({
+      replaceOne: { filter: { _id: doc._id }, replacement: doc, upsert: true },
+    }));
+    await this.collection.bulkWrite(ops, { ordered: false });
+  }
 }
