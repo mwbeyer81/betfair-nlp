@@ -43,5 +43,10 @@
   },
   "trainingPipeline": {
     "agentApiKey": ""
+  },
+  "predictionApi": {
+    "apiKey": "",
+    "functionName": "ml-prediction-api",
+    "region": "eu-north-1"
   }
 }
