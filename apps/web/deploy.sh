@@ -24,6 +24,9 @@ cd "$WORKTREE_DIR/client"
 yarn install --frozen-lockfile
 EXPO_PUBLIC_API_URL="$LAMBDA_URL" EXPO_PUBLIC_GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" yarn build:web:production
 
+echo "Removing mockServiceWorker.js (test-only, Expo copies client/public/ verbatim so it always ends up in dist/ — it must never be live in production: once a browser registers a service worker against this origin, it keeps intercepting fetches and serving stale/cached responses indefinitely, surviving normal reloads and even tab closes)..."
+rm -f dist/mockServiceWorker.js
+
 echo "Stamping build metadata into index.html..."
 sed -i "s#<meta charset=\"utf-8\" />#<meta charset=\"utf-8\" /><meta name=\"build-branch\" content=\"$BRANCH\" /><meta name=\"build-commit\" content=\"$COMMIT_SHA\" />#" dist/index.html
 
