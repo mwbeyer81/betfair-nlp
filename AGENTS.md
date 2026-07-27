@@ -133,19 +133,25 @@ tiebreaker.
 | `.claude/worktrees/backbet-header-logo` | `worktree-backbet-header-logo` | Backbet header logo | **stale, do not merge as-is** — checked 2026-07-27: this branch diverges from `origin/develop` by ~29k deleted lines (missing saved-results, model-performance dashboard, social-auth, and more — branched from a very old point, not intentional deletions). Its only real uncommitted work is small (`LogoMark.tsx` + 2 SVG assets under `client/assets/logo/`, a FontAwesome-based logo mark, plus an `App.tsx` diff wiring it in) — worth salvaging by hand into a fresh worktree if the FontAwesome-icon logo direction is still wanted, but do not merge/rebase this branch wholesale. Superseded for the "consistent header" goal by `feat/unified-header` below (plain-text "BackBet" + sync-icon wordmark, not a FontAweome logo image) — pick this up only if the user wants the logo image, not the burger-menu-consistency problem, which is now solved. |
 | `~/betfair-nlp-rename-labels` | `fix/rename-race-split-labels` | Rename race split labels (Race A/B → Split A/B) | **in progress — uncommitted changes, do not remove**; branch's earlier commits are already merged, this is new follow-up work on the same worktree; **also affected by the `fd3f394` rewrite of `IndustrySpScreen.tsx` above** — check for conflicts before merging |
 | `~/betfair-nlp-saved-results` | `feat/saved-results` | New feature: save the current Industry SP filter set (name + filters + a static PnL/graph snapshot computed once via `IndustrySpService.getRaceConvergenceSeries`) as a persisted "Result", reachable via a new "Results" burger-menu item on every screen; list/sort/detail/restore-into-Filters/delete. First user-owned MongoDB resource in this codebase (new `saved_filter_sets` collection, scoped by JWT `sub`). New backend files (`saved-filter-set-dao.ts`/`-service.ts`, 4 routes in `router.ts`) plus new frontend screens (`SavedResultsListScreen.tsx`, `SavedResultDetailScreen.tsx`, `SaveResultDialog.tsx`) that reuse `SplitDetailPanel`/`PnlConvergencePanel` unmodified. **Touching `IndustrySpScreen.tsx`** (new Save button + nav-menu entry) — watch for conflicts with `isp-form-fields`/`rename-labels`/`convergence-filters` above (`model-perf-filters`, also listed here previously, has since merged+deployed and is no longer live). Full plan: `/home/ubuntu/.claude/plans/plan-an-advanced-feature-immutable-quilt.md`. | **done** — merged to `develop`, deployed (Lambda + web), live-verified on prod; worktree can be removed |
-| `~/betfair-nlp-daily-races` | `daily-races` | New "Daily Races" feature: RacingAPI-backed (Free plan, `/v1/racecards/free`) races-list → event → race → runner-detail drill-down, login-gated, new burger-menu item. New collection `daily_racecards` + `DailyRaceDAO`/`-Service` + 3 routes in `router.ts` (below `jwtAuth`). New ingestion command `fetch-daily-races.ts` (manual/on-demand, no cron infra exists) + a committed test fixture (`seed-daily-races-fixture.ts`) so tests never hit the real live API. 4 new screens (`DailyRacesScreen`/`DailyRaceEventScreen`/`DailyRaceScreen`/`DailyRunnerDetailScreen`) copying the `IndustryMeetingScreen`/`IndustryRaceScreen`/`RunnerDetailScreen` layout patterns, **not** sharing their code (those are tightly coupled to ISP-only fields). Also introduces general-purpose worktree port-allocation infra (`scripts/claim-worktree-ports.sh` + `/worktree-ports` skill + a shared `~/.betfair-nlp-worktree-ports.json` registry) — additive env-var overrides only, every existing script's default port is unchanged. Full plan: `/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`. All 4 test tiers pass (Storybook 26/26 new + no regressions in 340 total; MSW 190/190; Supertest 149+10 new; local-ci e2e 25/25 real end-to-end incl. full drill-down+back-navigation). | **merged to `develop`** (`033007b`) — not yet deployed; worktree kept until deploy, then remove |
 | `~/betfair-nlp-results-white-screen` | `fix/results-white-screen` | Prod bug: clicking Results showed a blank white screen for a legacy (pre-Split-A/B) saved result — see dated entry below | done, verified, committing/deploying now |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
 `local-ci-e2e-tests`, `model-perf-filters`, `convergence-filters-summary`,
-and `saved-results-splits` were merged, clean, and have been removed (`git worktree remove` +
-`git branch -d`, local and remote where applicable) as of 2026-07-25/26 —
-this is what "clean up after merge" in the section above looks like in
-practice. `codebase-search-chat` was merged, pushed, and deployed (both
-Lambda and web). `local-ci-e2e-tests` was docs/test-infra only (no
-`src/`/`client/src/` changes), so no deploy was needed — merged to
-`develop` and pushed straight through.
+`saved-results-splits`, and `daily-races` were merged, clean, and have been
+removed (`git worktree remove` + `git branch -d`, local and remote where
+applicable) as of 2026-07-25/27 — this is what "clean up after merge" in
+the section above looks like in practice. `codebase-search-chat` was
+merged, pushed, and deployed (both Lambda and web). `local-ci-e2e-tests`
+was docs/test-infra only (no `src/`/`client/src/` changes), so no deploy
+was needed — merged to `develop` and pushed straight through. `daily-races`
+(new RacingAPI-backed Daily Races feature + general-purpose worktree
+port-allocation skill, full plan:
+`/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`) was
+merged, deployed (Lambda `b215c78`-era code + web `develop@ca87d75`), and
+live-verified against production (`client/tests-live/daily-races-live.spec.ts`
+passes against the real deployed app — burger menu → Daily Races screen
+loads with no error state).
 
 Older entries (2026-07-17 through the `auth-hardening` session) have been
 moved to `AGENTS-archive-2026-07.md` to keep this file readable — see there
