@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { ObjectId } from "mongodb";
 import app from "../app";
 import { CodebaseSearchService } from "../../lib/service/codebase-search-service";
+import { PredictionApiClient } from "../../lib/service/prediction-api-client";
 
 let authToken: string;
 
@@ -86,6 +87,15 @@ const MOCKED_CHAT_REPLY = "Mocked chat reply";
 // auto-mocked `chat` method to configure/assert on.
 const mockChat = (CodebaseSearchService as jest.MockedClass<typeof CodebaseSearchService>).mock
   .instances[0].chat as jest.MockedFunction<CodebaseSearchService["chat"]>;
+
+// Unlike CodebaseSearchService (a startup singleton), PredictionApiClient is
+// constructed fresh per predictDailyRaces() call (see daily-race-service.ts's
+// default parameter) — patching the mocked class's prototype, not a single
+// captured instance, makes every `new PredictionApiClient()` share this
+// implementation regardless of when/how many times it's constructed.
+jest.mock("../../lib/service/prediction-api-client");
+const mockPredict = jest.fn();
+(PredictionApiClient as jest.MockedClass<typeof PredictionApiClient>).prototype.predict = mockPredict;
 
 // Mock Google's ID token verification — config/test.json sets a non-empty
 // google.clientId so GoogleAuthService actually constructs an OAuth2Client
@@ -316,6 +326,7 @@ jest.mock("../../config/database", () => ({
               findOne: jest.fn().mockImplementation(async (query: { _id?: string }) => {
                 return query?._id === mockDailyRace._id ? mockDailyRace : null;
               }),
+              bulkWrite: jest.fn().mockResolvedValue({}),
             };
           }
           return {
@@ -1713,6 +1724,62 @@ describe("API Endpoints", () => {
 
     it("returns 401 without auth", async () => {
       await request(app).get("/api/daily-races/race/rac_test_0001").expect(401);
+    });
+  });
+
+  describe("POST /api/daily-races/predict", () => {
+    beforeEach(() => {
+      mockPredict.mockReset();
+    });
+
+    it("scores runners via PredictionApiClient and writes modelWinProbability/modelVersionId back", async () => {
+      mockPredict.mockResolvedValue({
+        status: 200,
+        ok: true,
+        body: { modelVersionId: "xgb-test-version", predictions: [{ runnerId: "hrs_1", modelWinProbability: 42.5 }] },
+      });
+
+      const response = await request(app)
+        .post("/api/daily-races/predict")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ date: "2026-06-03" })
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data).toEqual({ racesUpdated: 1, runnersUpdated: 1, errors: [] });
+      expect(mockPredict).toHaveBeenCalledTimes(1);
+      const [runners] = mockPredict.mock.calls[0];
+      expect(runners[0]).toMatchObject({ raceId: "rac_test_0001", runnerId: "hrs_1", trainer: "A Trainer" });
+    });
+
+    it("collects a per-race error instead of failing the whole request", async () => {
+      mockPredict.mockResolvedValue({ status: 502, ok: false, body: { error: "model not ready" } });
+
+      const response = await request(app)
+        .post("/api/daily-races/predict")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ date: "2026-06-03" })
+        .expect(200);
+
+      expect(response.body.data).toEqual({
+        racesUpdated: 0,
+        runnersUpdated: 0,
+        errors: [{ raceId: "rac_test_0001", error: "model not ready" }],
+      });
+    });
+
+    it("defaults date to today when omitted", async () => {
+      mockPredict.mockResolvedValue({ status: 200, ok: true, body: { modelVersionId: "v1", predictions: [] } });
+      const response = await request(app)
+        .post("/api/daily-races/predict")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({})
+        .expect(200);
+      expect(response.body.data).toEqual({ racesUpdated: 0, runnersUpdated: 0, errors: [] });
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).post("/api/daily-races/predict").send({ date: "2026-06-03" }).expect(401);
     });
   });
 

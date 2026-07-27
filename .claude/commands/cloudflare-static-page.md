@@ -14,7 +14,7 @@ Deploy a static page to Cloudflare Pages using wrangler.
 2. **Set up the token**
 
 ```bash
-export CLOUDFLARE_API_TOKEN=<your-cloudflare-api-token>
+export CLOUDFLARE_API_TOKEN=<your Cloudflare API token>
 ```
 
 3. **Create the page files**

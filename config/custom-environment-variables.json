@@ -36,5 +36,10 @@
   },
   "trainingPipeline": {
     "agentApiKey": "TRAINING_PIPELINE_API_KEY"
+  },
+  "predictionApi": {
+    "apiKey": "PREDICTION_API_KEY",
+    "functionName": "PREDICTION_API_FUNCTION_NAME",
+    "region": "PREDICTION_API_REGION"
   }
 }

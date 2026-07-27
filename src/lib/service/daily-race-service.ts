@@ -1,7 +1,53 @@
 import config from "config";
-import { DailyRaceDAO, DailyRaceDoc, mapRacecardToDoc } from "../dao/daily-race-dao";
+import { DailyRaceDAO, DailyRaceDoc, DailyRaceRunnerDoc, mapRacecardToDoc } from "../dao/daily-race-dao";
 import { DatabaseConnection } from "../../config/database";
 import { RacingApiClient } from "./racing-api-client";
+import { PredictionApiClient, PredictionRunnerInput } from "./prediction-api-client";
+
+function toNum(value: string | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function toPredictionInput(race: DailyRaceDoc, runner: DailyRaceRunnerDoc): PredictionRunnerInput {
+  return {
+    raceId: race.raceId,
+    runnerId: runner.runnerId,
+    course: race.course,
+    going: race.going,
+    raceType: race.type,
+    raceClass: race.raceClass,
+    trainer: runner.trainer,
+    jockey: runner.jockey,
+    sex: runner.sex,
+    hg: runner.headgear,
+    distanceFurlongs: toNum(race.distanceF),
+    ran: toNum(race.fieldSize),
+    num: toNum(runner.number),
+    draw: toNum(runner.draw),
+    trainerFormRuns: runner.trainerFormRuns,
+    trainerFormWinRate: runner.trainerFormWinRate,
+    trainerFormStaked: runner.trainerFormStaked,
+    trainerFormReturns: runner.trainerFormReturns,
+    jockeyFormRuns: runner.jockeyFormRuns,
+    jockeyFormWinRate: runner.jockeyFormWinRate,
+    jockeyFormStaked: runner.jockeyFormStaked,
+    jockeyFormReturns: runner.jockeyFormReturns,
+    officialRating: toNum(runner.officialRating),
+    wgt: toNum(runner.lbs),
+    age: toNum(runner.age),
+    daysSinceLastRun: runner.daysSinceLastRun,
+    horseCareerRuns: runner.horseCareerRuns,
+    horseCareerWinRate: runner.horseCareerWinRate,
+    horseAvgRPR: runner.horseAvgRPR,
+    horseAvgTS: runner.horseAvgTS,
+    horseAvgBeatenDistance: runner.horseAvgBeatenDistance,
+    horseAvgExcuseScore: runner.horseAvgExcuseScore,
+    horseTroubleInRunningRate: runner.horseTroubleInRunningRate,
+    horseTravelledWellRate: runner.horseTravelledWellRate,
+  };
+}
 
 function readConfigString(key: string): string {
   try {
@@ -64,5 +110,56 @@ export class DailyRaceService {
     const docs = (res.body.racecards || []).map(mapRacecardToDoc);
     await this.dailyRaceDAO.bulkUpsertRaces(docs);
     return docs.length;
+  }
+
+  /** Scores a date's already-ingested, already-feature-computed races via
+   * the internal ml-prediction-api Lambda (apps/ml-api) — an on-demand
+   * alternative to running ml/predict_daily_races.py by hand. Requires
+   * daily-race-feature-service.ts's compute step to have already run for
+   * this date (trailing-form fields non-null) — this method doesn't
+   * compute or fetch historical form itself, only sends whatever's
+   * already on each runner. One InvokeCommand per race, matching how
+   * ml/predict_daily_races.py normalizes probabilities within a single
+   * race — each race must be scored as a complete group. Throws on a
+   * client-level failure (missing credentials/permissions, bad payload);
+   * per-race prediction failures are collected and returned rather than
+   * aborting the whole date. */
+  public async predictDailyRaces(
+    date: string,
+    client: PredictionApiClient = new PredictionApiClient()
+  ): Promise<{ racesUpdated: number; runnersUpdated: number; errors: { raceId: string; error: string }[] }> {
+    const races = await this.dailyRaceDAO.getRacesByDate(date);
+    let racesUpdated = 0;
+    let runnersUpdated = 0;
+    const errors: { raceId: string; error: string }[] = [];
+    const updatedRaces: DailyRaceDoc[] = [];
+
+    for (const race of races) {
+      const runnerInputs = race.runners.map(runner => toPredictionInput(race, runner));
+      const res = await client.predict(runnerInputs);
+      if ("error" in res.body) {
+        errors.push({ raceId: race.raceId, error: res.body.error });
+        continue;
+      }
+      if (!res.ok) {
+        errors.push({ raceId: race.raceId, error: `status ${res.status}` });
+        continue;
+      }
+      const body = res.body;
+      const byRunnerId = new Map(body.predictions.map(p => [p.runnerId, p.modelWinProbability]));
+      const runners = race.runners.map(runner => ({
+        ...runner,
+        modelWinProbability: byRunnerId.get(runner.runnerId) ?? runner.modelWinProbability,
+        modelVersionId: body.modelVersionId,
+      }));
+      updatedRaces.push({ ...race, runners });
+      racesUpdated++;
+      runnersUpdated += runners.length;
+    }
+
+    if (updatedRaces.length > 0) {
+      await this.dailyRaceDAO.bulkUpsertRaces(updatedRaces);
+    }
+    return { racesUpdated, runnersUpdated, errors };
   }
 }

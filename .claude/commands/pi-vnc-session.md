@@ -47,7 +47,7 @@ Stop: `vncserver -kill :1`
 ## Notes
 
 - Pi SSH key: `~/.ssh/my-new-key`
-- Pi credentials: `mwbeyer` / `Mothership99`
-- VNC password file on Pi: `~/.vnc/vm.passwd` (binary DES, password: `Mothership99`)
+- Pi credentials: `mwbeyer` / (see password manager)
+- VNC password file on Pi: `~/.vnc/vm.passwd` (binary DES; password in password manager)
 - Tailscale IPs are stable — Pi: `100.88.244.94`, VM: `100.95.137.45`
 - If VNC viewer shows auth error, check VM VNC server is on `:1` (port 5901)

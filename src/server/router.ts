@@ -715,6 +715,23 @@ router.get("/api/daily-races/race/:raceId", async (req, res) => {
   }
 });
 
+// On-demand alternative to running ml/predict_daily_races.py by hand —
+// scores a date's already-ingested, already-feature-computed races via the
+// internal ml-prediction-api Lambda (apps/ml-api, see prediction-api-client.ts).
+// v1 is manually/API-triggered only, not wired into the scheduled
+// EventBridge ingest in apps/lambda/src/handler.ts.
+router.post("/api/daily-races/predict", async (req, res) => {
+  try {
+    if (!dailyRaceService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : new Date().toISOString().slice(0, 10);
+    const result = await dailyRaceService.predictDailyRaces(date);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error("predictDailyRaces error:", error);
+    res.status(500).json({ success: false, error: "Failed to predict daily races" });
+  }
+});
+
 // Saved filter-set "Results" — the first user-owned MongoDB resource in
 // this codebase, so all 4 routes live here (after router.use(jwtAuth)
 // above), not alongside the public /api/model-versions route. filters is

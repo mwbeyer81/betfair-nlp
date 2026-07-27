@@ -64,6 +64,7 @@ CATEGORIES_PATH = MODEL_DIR / "win_probability_model_categories.json"
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:3000")
 TRAINING_PIPELINE_API_KEY = os.environ.get("TRAINING_PIPELINE_API_KEY", "")
 RUN_LABEL = os.environ.get("RUN_LABEL", "unlabeled")
+MODEL_S3_BUCKET = os.environ.get("MODEL_S3_BUCKET", "")
 
 CAT_COLS = ["course", "going", "raceType", "raceClass", "trainer", "jockey", "sex", "hg"]
 NUM_COLS = [
@@ -227,6 +228,32 @@ def build_agent_result_name(label: str, model_version_id: str) -> str:
     return f"AI Training · {label} · {model_version_id}"
 
 
+def upload_model_to_s3(model_version_id: str):
+    """Uploads the just-saved model + categories sidecar to S3 under
+    models/win-probability/<model_version_id>/ — the durable source of
+    truth apps/ml-api/build.sh pulls from to bake a model into the
+    prediction Lambda's container image (see that script). ml/models/ is
+    gitignored and only ever exists on whichever machine last trained, so
+    without this step a trained model is unrecoverable once that machine's
+    disk is gone. Best-effort/optional, same guard style as
+    run_filter_battery() above — a bare local training run without
+    MODEL_S3_BUCKET set (or without AWS creds) still succeeds locally."""
+    if not MODEL_S3_BUCKET:
+        print("MODEL_S3_BUCKET not set — skipping S3 model upload.", file=sys.stderr)
+        return
+    import subprocess
+
+    prefix = f"models/win-probability/{model_version_id}"
+    for path in (MODEL_PATH, CATEGORIES_PATH):
+        dest = f"s3://{MODEL_S3_BUCKET}/{prefix}/{path.name}"
+        try:
+            subprocess.run(["aws", "s3", "cp", str(path), dest], check=True)
+        except Exception as e:
+            print(f"  S3 upload of {path.name} failed: {e}", file=sys.stderr)
+            return
+    print(f"Uploaded model to s3://{MODEL_S3_BUCKET}/{prefix}/")
+
+
 def run_filter_battery(model_version_id: str):
     """POSTs one saved-filter-set result per FILTER_BATTERY entry to the
     Node API (POST /api/saved-filter-sets/agent), tagged createdBy="agent"
@@ -371,6 +398,8 @@ def run():
     with open(CATEGORIES_PATH, "w") as f:
         json.dump(categories, f)
     print(f"Saved category lists to {CATEGORIES_PATH}")
+
+    upload_model_to_s3(model_version_id)
 
     print("\nGenerating final predictions and normalizing within each race...")
     raw = final_model.predict_proba(df[FEATURE_COLS])[:, 1]
