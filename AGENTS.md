@@ -4183,3 +4183,68 @@ Deployed: `develop@41b38d1` → app.backbet.co.uk, verified live via the
 `build-commit` meta tag and the prod-repro script re-run above (109+
 unresolved requests -> 8 requests / 11.5s, same live bundle, same
 synthetic scenario, before vs. after).
+
+## 2026-07-28 (later still) — `~/betfair-nlp-header-wide-single-line` (branch `fix/header-wide-single-line`), merged into `develop`
+
+**Task:** user reported (screenshot of `app.backbet.co.uk/isp` in a wide
+desktop browser window) that the header renders as two visual lines —
+"BackBet" brand on top, nav/action buttons (Industry SP/Chat/Events/
+Runners/Daily Races/Log In/Sign Up, plus `/isp`'s own Hide filters/Model
+Performance) on a separate line below. This is `AppHeader.tsx`'s
+always-two-rows design, chosen deliberately in the `header-overlap-fix`
+entry above ("always wrap, regardless of viewport... can't regress at
+*any* width, not just below some breakpoint") — correct for narrow
+phones, but at wide desktop widths there's obviously enough room for one
+line, and staying stacked there just reads as broken.
+
+**Fix:** `useHeaderMenu.ts` now also exposes `isWide` (>=1440px — the
+`BREAKPOINTS.wide` constant already existed in `responsive.ts` but
+nothing actually consumed it before this). `AppHeader.tsx` extracted its
+action buttons into one `actionItems` JSX fragment shared by both
+layouts: at `isWide` it renders inline inside `Appbar.Header` itself
+(same row as the brand, to the right of `Appbar.Content`); below that it
+renders through the existing `HeaderActionsContainer` exactly as before
+(inline row at tablet, dropdown at phone). Same testIDs
+(`${testIdPrefix}-header-actions`) either way, so it doesn't matter to
+consumers which container is actually rendering it.
+
+**Verification approach, worth noting:** Storybook's `viewport`
+parameter doesn't actually resize anything in this repo (documented
+repeatedly above), so it couldn't have caught this bug and can't verify
+the fix either — used a real built bundle instead. Built `dist` via
+`yarn build:web`, served it locally, and drove a real headless browser
+at 1000/1439/1440/1728px, reading `boundingBox()` on
+`industry-sp-title`/`industry-sp-header-actions` directly: below 1440px
+actions.y (64) sits well below title.y (14.5) — stacked, unchanged; at
+1440px+ actions.y (11) is within 1px-scale of title.y (14.5) and
+actions.x starts right after the title ends — same line. Also
+re-screenshotted the *live, pre-fix* production site at 1999/2200/2560/
+3440px to confirm the two-line layout was never actually an overflow/
+wrap bug at any width tested — it's simply that nothing before this task
+ever tried to merge the two rows.
+
+**Storybook interaction tests are currently broken repo-wide, unrelated
+to this change:** `npx test-storybook` fails every single story
+(`ReferenceError: Cannot access 'StorybookTestRunnerError' before
+initialization`, e.g. even `Message.stories.tsx`, untouched by this
+task) — reproduced identically against a freshly-built Storybook on the
+unmodified primary checkout's `develop`, and `--clearCache`/`--no-cache`
+didn't help. Environment/tooling issue (likely a `@storybook/test-runner`
+version mismatch), not something introduced here — flagging for whoever
+picks it up next, since it silently blocks the "Storybook interaction
+tests" step of `CLAUDE.md`'s build-check for every task right now, not
+just this one.
+
+**Verified:** `cd client && yarn build` clean. Full MSW suite
+(`yarn test:msw`, `--workers=1`): 174/177, including the 3 new
+`Header layout — /isp (MSW mocked, wide desktop widths)` tests (1440px,
+1728px, and the just-below-wide 1439px regression guard) — confirmed
+the same 3 failures (`Reset restores the date range...`, `each split
+card's Graph button opens its own P&L convergence panel...`,
+`meeting-level PnL bar totals the meeting's races...`) reproduce
+identically on the unmodified primary checkout's `develop`, unrelated to
+this change.
+
+Deployed: pending — see this row for status when picked up next; update
+after `apps/web/deploy.sh` and a live wide-viewport screenshot against
+`app.backbet.co.uk`.

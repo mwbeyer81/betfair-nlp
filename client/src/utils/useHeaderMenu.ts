@@ -7,13 +7,17 @@ import { useResponsive } from "./responsive";
 // icon, opening a dropdown. Screens with only one "← Back" button don't use
 // this — one button never needs collapsing.
 //
+// `isWide` (>=1440px) is exposed too, so `AppHeader` can fold the inline
+// actions row up onto the same line as the brand title at desktop widths,
+// instead of the row sitting on its own line below.
+//
 // Pair with <HeaderActionsContainer> for the actual row/dropdown JSX, and
 // render an `Appbar.Action` (guarded by `!isTablet`) inside the screen's own
 // `Appbar.Header` for the burger button itself — the two can't come from one
 // shared component instance since they render in different parents (inside
 // vs. below the Appbar.Header).
 export function useHeaderMenu() {
-  const { isTablet } = useResponsive();
+  const { isTablet, isWide } = useResponsive();
   const [open, setOpen] = useState(false);
 
   // Closes the menu (a no-op at tablet+, where it's never open) before
@@ -24,5 +28,5 @@ export function useHeaderMenu() {
     onPress();
   };
 
-  return { isTablet, open, setOpen, wrap };
+  return { isTablet, isWide, open, setOpen, wrap };
 }

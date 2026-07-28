@@ -17,7 +17,8 @@ const TABLET_VIEWPORT = { width: 768, height: 1024 }; // narrow laptop / iPad
 const DESKTOP_VIEWPORT = { width: 1280, height: 800 };
 const IPAD_LANDSCAPE_VIEWPORT = { width: 1024, height: 768 }; // also the isDesktop breakpoint (see useResponsive)
 const JUST_BELOW_DESKTOP_VIEWPORT = { width: 1023, height: 768 };
-const LAPTOP_VIEWPORT = { width: 1440, height: 900 };
+const LAPTOP_VIEWPORT = { width: 1440, height: 900 }; // also the isWide breakpoint (see useResponsive)
+const JUST_BELOW_WIDE_VIEWPORT = { width: 1439, height: 900 };
 const MACBOOK_LANDSCAPE_VIEWPORT = { width: 1728, height: 1117 };
 // A real phone's *visible* viewport once Safari's address bar and bottom tab
 // bar chrome are accounted for — shorter than the device's full screen height.
@@ -721,6 +722,69 @@ test.describe("Responsive layout — /isp filters screen (MSW mocked, laptop 144
     // to the right of A — stacked would instead show B well below A.
     expect(Math.abs(boxA!.y - boxB!.y)).toBeLessThan(5);
     expect(boxB!.x).toBeGreaterThan(boxA!.x + boxA!.width - 5);
+  });
+});
+
+// Regression test for a real production screenshot (app.backbet.co.uk/isp,
+// a wide desktop browser window): the shared AppHeader (see AppHeader.tsx)
+// always rendered its "BackBet" brand and its nav/action buttons as two
+// separate lines — a deliberate choice from the header-overlap-fix/
+// unified-header work (always-wrap regardless of viewport, so it can never
+// overflow at any width) — but at wide desktop widths there's clearly
+// enough room for both on one line, and stacking them there just reads as
+// broken. Fixed via `isWide` (>=1440px, the pre-existing but previously
+// unused BREAKPOINTS.wide) folding the actions row up into the same line
+// as the brand; narrower tablet/laptop widths keep the original
+// stacked-two-lines layout unchanged.
+test.describe("Header layout — /isp (MSW mocked, wide desktop widths)", () => {
+  test("title and header actions share one line at the 1440px wide breakpoint", async ({ page }) => {
+    await page.setViewportSize(LAPTOP_VIEWPORT);
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    const title = page.getByTestId("industry-sp-title");
+    const actions = page.getByTestId("industry-sp-header-actions");
+    await expect(title).toBeVisible();
+    await expect(actions).toBeVisible();
+
+    const titleBox = (await title.boundingBox())!;
+    const actionsBox = (await actions.boundingBox())!;
+
+    // Same line means near-equal y (small tolerance for differing button/
+    // text heights) and the actions row sitting to the right of the title,
+    // not below it.
+    expect(Math.abs(titleBox.y - actionsBox.y)).toBeLessThan(20);
+    expect(actionsBox.x).toBeGreaterThanOrEqual(titleBox.x + titleBox.width);
+    expect(actionsBox.x + actionsBox.width).toBeLessThanOrEqual(LAPTOP_VIEWPORT.width + 1);
+  });
+
+  test("title and header actions share one line at MacBook landscape (1728px)", async ({ page }) => {
+    await page.setViewportSize(MACBOOK_LANDSCAPE_VIEWPORT);
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    const title = page.getByTestId("industry-sp-title");
+    const actions = page.getByTestId("industry-sp-header-actions");
+    const titleBox = (await title.boundingBox())!;
+    const actionsBox = (await actions.boundingBox())!;
+
+    expect(Math.abs(titleBox.y - actionsBox.y)).toBeLessThan(20);
+    expect(actionsBox.x).toBeGreaterThanOrEqual(titleBox.x + titleBox.width);
+  });
+
+  test("header actions still stack below the title just under the wide breakpoint (1439px)", async ({ page }) => {
+    // Locks in the pre-existing stacked layout for the tablet/laptop range
+    // below 1440px — the fix must not accidentally widen its own threshold.
+    await page.setViewportSize(JUST_BELOW_WIDE_VIEWPORT);
+    await page.goto("/isp");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+
+    const title = page.getByTestId("industry-sp-title");
+    const actions = page.getByTestId("industry-sp-header-actions");
+    const titleBox = (await title.boundingBox())!;
+    const actionsBox = (await actions.boundingBox())!;
+
+    expect(actionsBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height - 1);
   });
 });
 

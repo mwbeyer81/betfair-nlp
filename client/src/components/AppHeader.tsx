@@ -45,7 +45,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   testIdPrefix,
   extraActions,
 }) => {
-  const { isTablet, open: menuOpen, setOpen: setMenuOpen, wrap } = useHeaderMenu();
+  const { isTablet, isWide, open: menuOpen, setOpen: setMenuOpen, wrap } = useHeaderMenu();
   const [showAccountPanel, setShowAccountPanel] = useState(false);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const [accountPhone, setAccountPhone] = useState<string | null>(null);
@@ -73,6 +73,129 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     });
     return () => { cancelled = true; };
   }, [isAuthenticated]);
+
+  // Shared between the wide-viewport inline-in-Appbar layout and the
+  // narrower tablet/phone layout (row below the brand, or burger dropdown)
+  // — same buttons, same testIDs, just a different container around them.
+  const actionItems = (
+    <>
+      {extraActions?.(wrap)}
+      {extraActions != null && <View style={styles.divider} />}
+      <Button
+        testID={`${testIdPrefix}-menu-isp-link`}
+        mode="outlined"
+        compact
+        onPress={wrap(() => navigate("/isp"))}
+        style={styles.toggleButton}
+        labelStyle={styles.toggleButtonLabel}
+      >
+        Industry SP
+      </Button>
+      <Button
+        testID={`${testIdPrefix}-menu-chat-link`}
+        mode="outlined"
+        compact
+        onPress={wrap(() => navigate("/chat"))}
+        style={styles.toggleButton}
+        labelStyle={styles.toggleButtonLabel}
+      >
+        Chat
+      </Button>
+      <Button
+        testID={`${testIdPrefix}-menu-events-link`}
+        mode="outlined"
+        compact
+        onPress={wrap(() => navigate("/events"))}
+        style={styles.toggleButton}
+        labelStyle={styles.toggleButtonLabel}
+      >
+        Events
+      </Button>
+      <Button
+        testID={`${testIdPrefix}-menu-runners-link`}
+        mode="outlined"
+        compact
+        onPress={wrap(() => navigate("/runners"))}
+        style={styles.toggleButton}
+        labelStyle={styles.toggleButtonLabel}
+      >
+        Runners
+      </Button>
+      <Button
+        testID={`${testIdPrefix}-menu-daily-races-link`}
+        mode="outlined"
+        compact
+        onPress={wrap(() => navigate("/daily-races"))}
+        style={styles.toggleButton}
+        labelStyle={styles.toggleButtonLabel}
+      >
+        Daily Races
+      </Button>
+      <View style={styles.divider} />
+      {isAuthenticated ? (
+        <>
+          <Button
+            testID={`${testIdPrefix}-account-button`}
+            mode="outlined"
+            compact
+            onPress={wrap(() => setShowAccountPanel(v => !v))}
+            style={styles.toggleButton}
+            labelStyle={styles.toggleButtonLabel}
+          >
+            Account
+          </Button>
+          <Button
+            testID={`${testIdPrefix}-menu-results-link`}
+            mode="contained"
+            compact
+            buttonColor={colors.accent}
+            onPress={wrap(() => navigate("/results"))}
+            style={styles.headerButton}
+            labelStyle={styles.headerButtonLabel}
+          >
+            Results →
+          </Button>
+          {onLogout && (
+            <Button
+              testID={`${testIdPrefix}-logout-button`}
+              mode="contained"
+              compact
+              buttonColor={colors.accent}
+              onPress={wrap(onLogout)}
+              style={styles.headerButton}
+              labelStyle={styles.headerButtonLabel}
+            >
+              Log Out
+            </Button>
+          )}
+        </>
+      ) : onRequestAuth ? (
+        <>
+          <Button
+            testID={`${testIdPrefix}-login-button`}
+            mode="outlined"
+            compact
+            onPress={wrap(onRequestAuth)}
+            style={styles.toggleButton}
+            labelStyle={styles.toggleButtonLabel}
+          >
+            Log In
+          </Button>
+          <Button
+            testID={`${testIdPrefix}-signup-button`}
+            mode="contained"
+            compact
+            buttonColor={colors.accent}
+            onPress={wrap(onRequestAuth)}
+            style={styles.headerButton}
+            labelStyle={styles.headerButtonLabel}
+          >
+            Sign Up
+          </Button>
+        </>
+      ) : null}
+    </>
+  );
 
   return (
     <View style={styles.headerWrapper}>
@@ -102,6 +225,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </View>
           }
         />
+        {isWide && (
+          // Desktop-width shortcut: fold the actions row up onto the same
+          // line as the brand instead of it sitting on its own line below
+          // (see HeaderActionsContainer's inlineRow, used for the
+          // narrower tablet range instead) — there's plenty of horizontal
+          // room at this width for both.
+          <View testID={`${testIdPrefix}-header-actions`} style={styles.inlineActionsWide}>
+            {actionItems}
+          </View>
+        )}
         {!isTablet && (
           <Appbar.Action
             testID={`${testIdPrefix}-menu-button`}
@@ -111,128 +244,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           />
         )}
       </Appbar.Header>
-      <HeaderActionsContainer
-        isTablet={isTablet}
-        open={menuOpen}
-        inlineTestId={`${testIdPrefix}-header-actions`}
-        menuTestId={`${testIdPrefix}-nav-menu`}
-      >
-        {extraActions?.(wrap)}
-        {extraActions != null && <View style={styles.divider} />}
-        <Button
-          testID={`${testIdPrefix}-menu-isp-link`}
-          mode="outlined"
-          compact
-          onPress={wrap(() => navigate("/isp"))}
-          style={styles.toggleButton}
-          labelStyle={styles.toggleButtonLabel}
+      {!isWide && (
+        <HeaderActionsContainer
+          isTablet={isTablet}
+          open={menuOpen}
+          inlineTestId={`${testIdPrefix}-header-actions`}
+          menuTestId={`${testIdPrefix}-nav-menu`}
         >
-          Industry SP
-        </Button>
-        <Button
-          testID={`${testIdPrefix}-menu-chat-link`}
-          mode="outlined"
-          compact
-          onPress={wrap(() => navigate("/chat"))}
-          style={styles.toggleButton}
-          labelStyle={styles.toggleButtonLabel}
-        >
-          Chat
-        </Button>
-        <Button
-          testID={`${testIdPrefix}-menu-events-link`}
-          mode="outlined"
-          compact
-          onPress={wrap(() => navigate("/events"))}
-          style={styles.toggleButton}
-          labelStyle={styles.toggleButtonLabel}
-        >
-          Events
-        </Button>
-        <Button
-          testID={`${testIdPrefix}-menu-runners-link`}
-          mode="outlined"
-          compact
-          onPress={wrap(() => navigate("/runners"))}
-          style={styles.toggleButton}
-          labelStyle={styles.toggleButtonLabel}
-        >
-          Runners
-        </Button>
-        <Button
-          testID={`${testIdPrefix}-menu-daily-races-link`}
-          mode="outlined"
-          compact
-          onPress={wrap(() => navigate("/daily-races"))}
-          style={styles.toggleButton}
-          labelStyle={styles.toggleButtonLabel}
-        >
-          Daily Races
-        </Button>
-        <View style={styles.divider} />
-        {isAuthenticated ? (
-          <>
-            <Button
-              testID={`${testIdPrefix}-account-button`}
-              mode="outlined"
-              compact
-              onPress={wrap(() => setShowAccountPanel(v => !v))}
-              style={styles.toggleButton}
-              labelStyle={styles.toggleButtonLabel}
-            >
-              Account
-            </Button>
-            <Button
-              testID={`${testIdPrefix}-menu-results-link`}
-              mode="contained"
-              compact
-              buttonColor={colors.accent}
-              onPress={wrap(() => navigate("/results"))}
-              style={styles.headerButton}
-              labelStyle={styles.headerButtonLabel}
-            >
-              Results →
-            </Button>
-            {onLogout && (
-              <Button
-                testID={`${testIdPrefix}-logout-button`}
-                mode="contained"
-                compact
-                buttonColor={colors.accent}
-                onPress={wrap(onLogout)}
-                style={styles.headerButton}
-                labelStyle={styles.headerButtonLabel}
-              >
-                Log Out
-              </Button>
-            )}
-          </>
-        ) : onRequestAuth ? (
-          <>
-            <Button
-              testID={`${testIdPrefix}-login-button`}
-              mode="outlined"
-              compact
-              onPress={wrap(onRequestAuth)}
-              style={styles.toggleButton}
-              labelStyle={styles.toggleButtonLabel}
-            >
-              Log In
-            </Button>
-            <Button
-              testID={`${testIdPrefix}-signup-button`}
-              mode="contained"
-              compact
-              buttonColor={colors.accent}
-              onPress={wrap(onRequestAuth)}
-              style={styles.headerButton}
-              labelStyle={styles.headerButtonLabel}
-            >
-              Sign Up
-            </Button>
-          </>
-        ) : null}
-      </HeaderActionsContainer>
+          {actionItems}
+        </HeaderActionsContainer>
+      )}
       {isAuthenticated && showAccountPanel && (
         <View testID={`${testIdPrefix}-account-panel`} style={styles.accountPanel}>
           <Text style={styles.accountPanelText}>
@@ -292,6 +313,13 @@ const styles = StyleSheet.create({
   subtitle: {
     color: "rgba(255,255,255,0.8)",
     fontSize: 11,
+  },
+  inlineActionsWide: {
+    flexDirection: "row",
+    flexWrap: "nowrap",
+    alignItems: "center",
+    gap: 6,
+    marginRight: spacing.sm,
   },
   divider: {
     alignSelf: "stretch",
