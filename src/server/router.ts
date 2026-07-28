@@ -528,7 +528,19 @@ router.get("/api/industry-sp", async (req, res) => {
   try {
     if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(10000, Math.max(1, parseInt(req.query.limit as string) || 20));
+    // getAllRacesByRace's $facet packs the "data" page, "total",
+    // "totalRunners", and "pnlStats" branches into a single BSON document —
+    // that's a MongoDB $facet property, not something an index or
+    // allowDiskUse changes — so the whole result must fit under Mongo's
+    // 16MB single-document limit regardless of collection size. Confirmed
+    // live against production data: a single request's "data" page of
+    // ~2560 full races (with their runners arrays reattached) produced a
+    // ~20.5MB result and failed with `BSONObjectTooLarge`; 2400 succeeded.
+    // Clamped well under that measured threshold (with real-world margin
+    // for races with larger-than-average runners arrays) rather than at
+    // the previous 10000, which could trip this on nothing more than an
+    // innocent "load everything at once" request.
+    const limit = Math.min(2000, Math.max(1, parseInt(req.query.limit as string) || 20));
     const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
     const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
     const countries = req.query.countries ? (req.query.countries as string).split(",").map(c => c.trim()).filter(Boolean) : [];
