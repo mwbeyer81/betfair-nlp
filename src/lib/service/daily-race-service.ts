@@ -126,24 +126,24 @@ export class DailyRaceService {
    * aborting the whole date. */
   public async predictDailyRaces(
     date: string,
-    client: PredictionApiClient = new PredictionApiClient()
+    client: PredictionApiClient = new PredictionApiClient(),
+    concurrency = 8
   ): Promise<{ racesUpdated: number; runnersUpdated: number; errors: { raceId: string; error: string }[] }> {
     const races = await this.dailyRaceDAO.getRacesByDate(date);
     let racesUpdated = 0;
     let runnersUpdated = 0;
     const errors: { raceId: string; error: string }[] = [];
-    const updatedRaces: DailyRaceDoc[] = [];
 
-    for (const race of races) {
+    const predictOne = async (race: DailyRaceDoc): Promise<DailyRaceDoc | null> => {
       const runnerInputs = race.runners.map(runner => toPredictionInput(race, runner));
       const res = await client.predict(runnerInputs);
       if ("error" in res.body) {
         errors.push({ raceId: race.raceId, error: res.body.error });
-        continue;
+        return null;
       }
       if (!res.ok) {
         errors.push({ raceId: race.raceId, error: `status ${res.status}` });
-        continue;
+        return null;
       }
       const body = res.body;
       const byRunnerId = new Map(body.predictions.map(p => [p.runnerId, p.modelWinProbability]));
@@ -152,14 +152,28 @@ export class DailyRaceService {
         modelWinProbability: byRunnerId.get(runner.runnerId) ?? runner.modelWinProbability,
         modelVersionId: body.modelVersionId,
       }));
-      updatedRaces.push({ ...race, runners });
-      racesUpdated++;
-      runnersUpdated += runners.length;
+      return { ...race, runners };
+    };
+
+    // Chunked concurrency (not one giant Promise.all — ml-prediction-api
+    // is a single Lambda whose own concurrency/cold-start behavior we
+    // don't want to hammer all at once) + a write after every chunk
+    // (not one bulkUpsertRaces at the very end) — races are large
+    // (~40-50/day) and each prediction is a real network round-trip, so a
+    // timeout partway through used to mean zero races got scored at all,
+    // even ones already completed. Now completed chunks persist regardless
+    // of what happens to later ones.
+    for (let i = 0; i < races.length; i += concurrency) {
+      const chunk = races.slice(i, i + concurrency);
+      const results = await Promise.all(chunk.map(predictOne));
+      const updated = results.filter((r): r is DailyRaceDoc => r !== null);
+      if (updated.length > 0) {
+        await this.dailyRaceDAO.bulkUpsertRaces(updated);
+        racesUpdated += updated.length;
+        runnersUpdated += updated.reduce((sum, r) => sum + r.runners.length, 0);
+      }
     }
 
-    if (updatedRaces.length > 0) {
-      await this.dailyRaceDAO.bulkUpsertRaces(updatedRaces);
-    }
     return { racesUpdated, runnersUpdated, errors };
   }
 }
