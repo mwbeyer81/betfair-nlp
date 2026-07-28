@@ -4,6 +4,7 @@ import rateLimit from "express-rate-limit";
 import { router, initializeServices } from "../../../src/server/router";
 import { corsMiddleware, helmetMiddleware } from "../../../src/server/middleware";
 import { DailyRaceService } from "../../../src/lib/service/daily-race-service";
+import { IndustrySpResultsCaptureService } from "../../../src/lib/service/industry-sp-results-capture-service";
 import type { APIGatewayProxyEventV2, Context } from "aws-lambda";
 
 // API-only Express app — no static file serving, no SPA fallback
@@ -33,11 +34,17 @@ const proxy = serverlessExpress({ app });
 const initPromise = initializeServices();
 
 // EventBridge Scheduled Rule events carry `source: "aws.events"` — a shape
-// API Gateway HTTP API v2 events never have. Used to route the daily-races
-// cron (see .claude/commands/daily-races-cron.md) through this same
-// function without touching the Express/API Gateway path at all.
+// API Gateway HTTP API v2 events never have. Used to route both the
+// daily-races racecards cron (see .claude/commands/daily-races-cron.md) and
+// the industry-sp results-capture cron (see
+// .claude/commands/industry-sp-results-cron.md) through this same function
+// without touching the Express/API Gateway path at all. `action` picks
+// which one: the original daily-races rule's input has no `action` field at
+// all, so it keeps hitting the default (racecards) branch unchanged —
+// `action: "capture-results"` is purely additive.
 interface ScheduledEvent {
   source: string;
+  action?: string;
 }
 
 function isScheduledEvent(event: unknown): event is ScheduledEvent {
@@ -47,6 +54,19 @@ function isScheduledEvent(event: unknown): event is ScheduledEvent {
 export const handler = async (event: APIGatewayProxyEventV2 | ScheduledEvent, context: Context) => {
   await initPromise;
   if (isScheduledEvent(event)) {
+    if (event.action === "capture-results") {
+      try {
+        const result = await new IndustrySpResultsCaptureService().captureTodayResults();
+        console.log(
+          `Scheduled industry-sp results capture: upserted ${result.racesUpserted} races ` +
+            `(${result.runnersUpserted} runners), skipped ${result.nonGbSkipped} non-GB races.`
+        );
+        return { statusCode: 200 };
+      } catch (error) {
+        console.error("Scheduled industry-sp results capture failed:", error);
+        throw error;
+      }
+    }
     try {
       const count = await new DailyRaceService().ingestFromRacingApi();
       console.log(`Scheduled daily-races ingest: upserted ${count} races.`);

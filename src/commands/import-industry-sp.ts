@@ -7,10 +7,20 @@
 
 import { createReadStream } from "fs";
 import { parse } from "csv-parse";
-import { createHash } from "crypto";
 import { DatabaseConnection } from "../config/database";
 import { parseIsp } from "../lib/dao/parse-isp";
 import { deriveCountryCode } from "../lib/dao/course-country";
+import {
+  RaceDoc,
+  RunnerDoc,
+  deriveStatus,
+  synthRunnerId,
+  toNullableInt,
+  toNullableFloat,
+  toNullableRating,
+  parseWeightPounds,
+  formatMeetingName,
+} from "../lib/dao/industry-sp-row-mapping";
 
 const SOURCE_CSV =
   process.env.SOURCE_CSV ||
@@ -23,124 +33,6 @@ const BATCH_SIZE = 1000;
 
 interface RawRow {
   [key: string]: string;
-}
-
-type RunnerStatus = "WINNER" | "PLACED" | "LOSER" | "NON_FINISHER";
-
-interface RunnerDoc {
-  id: number;
-  name: string;
-  num: number | null;
-  draw: number | null;
-  pos: string;
-  status: RunnerStatus;
-  sortPriority: number;
-  isp: number | null;
-  ispFraction: string | null;
-  isFavourite: boolean;
-  jockey?: string;
-  trainer?: string;
-  // Pre-race-known fields (safe as direct model inputs — they describe the
-  // entry, not the outcome). age/sex/hg/officialRating/pattern come straight
-  // from the CSV; wgt is stone-lb ("11-12") converted to total pounds.
-  age: number | null;
-  sex?: string;
-  wgt: number | null;
-  hg?: string;
-  officialRating: number | null;
-  pattern?: string;
-  // Post-race result fields — NEVER feed the current race's own rpr/ts/
-  // beatenDistance/comment into the model as a feature (that's the outcome
-  // leaking into the input). Only safe to use as raw material for a horse's
-  // *trailing* average/rate from its prior runs (see precompute-horse-form.ts,
-  // which also turns `comment`'s free text into structured trailing signals
-  // via src/lib/dao/comment-lexicon.ts).
-  rpr: number | null;
-  ts: number | null;
-  beatenDistance: number | null;
-  comment: string | null;
-}
-
-interface RaceDoc {
-  _id: number;
-  raceId: number;
-  course: string;
-  countryCode: string;
-  raceDate: string;
-  raceTime: string;
-  raceName: string;
-  raceType: string;
-  raceClass: string | null;
-  going: string | null;
-  distance: string | null;
-  ran: number;
-  meetingId: string;
-  meetingName: string;
-  runners: RunnerDoc[];
-  // Precomputed count of runners with a valid, parseable ISP (isp > 1) —
-  // this definition never depends on request-time filter params, so it's
-  // stored once here instead of recomputed via $filter/$size on every
-  // /api/industry-sp query. See industry-sp-dao.ts getAllRacesByRace.
-  runnersWithIspCount: number;
-  // Precomputed per-race staked/returns (same $1-stake-per-runner P&L model
-  // as getPnlStats), over the same static isp>1 runner set as
-  // runnersWithIspCount above. Lets the home page's pnlStats facet sum two
-  // plain fields instead of re-fetching every matched race's full runners
-  // array via $lookup + $unwind on every request — that $lookup was the
-  // single largest cost in the whole /api/industry-sp query.
-  raceStaked: number;
-  raceReturns: number;
-}
-
-function deriveStatus(pos: string): RunnerStatus {
-  const trimmed = (pos || "").trim();
-  if (trimmed === "1") return "WINNER";
-  if (trimmed === "2" || trimmed === "3") return "PLACED";
-  if (/^\d+$/.test(trimmed)) return "LOSER";
-  return "NON_FINISHER";
-}
-
-function synthRunnerId(raceId: string, horse: string): number {
-  const hash = createHash("sha1").update(`${raceId}:${horse}`).digest();
-  return hash.readUIntBE(0, 6);
-}
-
-function toNullableInt(raw: string | undefined): number | null {
-  const trimmed = (raw || "").trim();
-  if (!trimmed) return null;
-  const n = parseInt(trimmed, 10);
-  return Number.isNaN(n) ? null : n;
-}
-
-function toNullableFloat(raw: string | undefined): number | null {
-  const trimmed = (raw || "").trim();
-  if (!trimmed) return null;
-  const n = parseFloat(trimmed);
-  return Number.isNaN(n) ? null : n;
-}
-
-// "or"/"rpr"/"ts" use "–" (en dash) rather than an empty string for "not
-// applicable" (e.g. no official rating yet) — toNullableInt already returns
-// null for it via the failed parseInt, but this makes that intent explicit.
-function toNullableRating(raw: string | undefined): number | null {
-  const trimmed = (raw || "").trim();
-  if (!trimmed || trimmed === "–" || trimmed === "-") return null;
-  return toNullableInt(trimmed);
-}
-
-// "11-12" (11 stone 12 lb) -> 166 total pounds. Returns null on any other shape.
-function parseWeightPounds(raw: string | undefined): number | null {
-  const m = (raw || "").trim().match(/^(\d+)-(\d+)$/);
-  if (!m) return null;
-  return parseInt(m[1], 10) * 14 + parseInt(m[2], 10);
-}
-
-function formatMeetingName(course: string, raceDate: string): string {
-  const d = new Date(`${raceDate}T00:00:00Z`);
-  const day = d.getUTCDate();
-  const month = d.toLocaleString("en-GB", { month: "long", timeZone: "UTC" });
-  const year = d.getUTCFullYear();
-  return `${course} — ${day} ${month} ${year}`;
 }
 
 async function run() {

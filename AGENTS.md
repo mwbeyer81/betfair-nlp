@@ -138,6 +138,7 @@ tiebreaker.
 | `~/betfair-nlp-results-filter-sort` | `feat/results-filter-sort` | Results screen (`SavedResultsListScreen.tsx`): add an icon to the existing "AI Training" badge, add a User/Agent source filter (All / Mine / AI Training), confirm date+PnL sort already works via the existing sort toggle. **Touches `SavedResultsListScreen.tsx`/`.stories.tsx`, `tests-msw/saved-results.spec.ts`, `tests-local-ci/saved-results-ui.spec.ts`** — watch for conflicts with any other worktree still touching that screen. | in progress |
 | `.claude/worktrees/ml-prediction-api` | `worktree-ml-prediction-api` | Serve the win-probability model over an internal API instead of requiring a manual retrain/script run for predictions — new container-image Python Lambda (`apps/ml-api/`, no web framework, reuses `CAT_COLS`/`NUM_COLS`/`normalize_within_race` from `ml/train_and_predict.py` + the row-shaping logic from `ml/predict_daily_races.py`'s `load_daily_dataframe`), invoked via IAM `lambda:InvokeFunction` from the existing `hello-api` Node Lambda (no public Function URL), model artifact durable in a new S3 bucket + baked into the image at build time. New `src/lib/service/prediction-api-client.ts` (mirrors `racing-api-client.ts`), new `POST /api/daily-races/predict` route. **v1 is on-demand/manually-triggered only — not wired into the existing EventBridge daily cron** (user's explicit choice). Full plan: `/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`. See dated entry below for what was verified. | **done — merged (`d84ce7f`), pushed, deployed, live-verified**; worktree removed |
 | `~/betfair-nlp-daily-races-model` | `daily-races-model` | Score today's Daily Races runners with the existing XGBoost win-probability model — new read-only feature-computation step (`daily-race-feature-service.ts`, queries `industry_starting_prices` but never writes to it) + new predict-only `ml/predict_daily_races.py` + a `Model {x}%` badge/detail row in the UI. Full plan: `/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md` (file has since been overwritten with the follow-up `ml-prediction-api` plan below — see git history if you need the original). See dated entry below for what was verified. | **done — merged, deployed (Lambda `apps/lambda/build.sh` + web `apps/web/deploy.sh`, `develop@25a6aff` live on `app.backbet.co.uk`), live-verified**: retrained the model for real on the full 109,775-race prod dataset (AUC 0.707, `modelVersionId=xgb-20260727-171521` — the historical `industry_starting_prices` data itself is stale, stops 2026-05-27, so trailing trainer/jockey/horse form is near-empty for current dates; user explicitly chose to ship anyway, caveated), ran `compute-daily-race-features.ts` + `predict_daily_races.py` against real prod Mongo, confirmed all 52 of today's (2026-07-27) races have `modelWinProbability` summing to ~100% per race. Worktree removed. |
+| `~/betfair-nlp-industry-sp-results-capture` | `feat/industry-sp-results-capture` | Closes the recency gap noted in the `daily-races-model` row above: `industry_starting_prices` stops at 2026-05-27, so today's runners have near-empty trailing form. Live-tested RacingAPI's Basic plan (now upgraded and confirmed live) — `/results/today` works with a fully verified real schema, but historical/dated `/results` queries 401 "Standard Plan required" (Basic can't backfill the past). User chose: capture forward daily instead of paying for another tier upgrade — new `IndustrySpResultsCaptureService.captureTodayResults()` (`src/lib/service/industry-sp-results-capture-service.ts`) pulls `/results/today` and upserts real, finished GB races into `industry_starting_prices` (never an unresolved race — same read-only invariant, now correctly complemented rather than violated). Shared row-mapping helpers extracted from `import-industry-sp.ts` into new `src/lib/dao/industry-sp-row-mapping.ts` so the CSV and RacingAPI paths can't drift. New second EventBridge rule (`scripts/setup-industry-sp-results-schedule.sh`, `.claude/commands/industry-sp-results-cron.md`) at **21:30 UTC** — not 23:00, see the dated entry below for why. 14-day trainer/jockey trailing window fully catches up ~2 weeks after this first runs; horse form improves incrementally from day one. Full plan: `/home/ubuntu/.claude/plans/cuddly-nibbling-quasar.md`. | **done — merged to `develop`, pushed; NOT deployed.** Implemented + unit-tested + one real live run against dev Mongo (returned 0 races, expected: ran at 23:09 UTC, past RacingAPI's UK-time day rollover — see dated entry, schedule corrected to 21:30 UTC before merge). Worth a second live run at the corrected time (or the next real day) to confirm non-zero real GB races land correctly before deploying; also still needs `apps/lambda/build.sh` + `scripts/setup-industry-sp-results-schedule.sh` run for real. Worktree removed. |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
@@ -3584,3 +3585,101 @@ available in this session) — everything below the JWT-auth layer (IAM
 permission, the Lambda itself, the Node client, the service
 orchestration) is verified for real; the untested slice is exactly the
 pre-existing, unchanged `jwtAuth` middleware itself.
+
+---
+
+## 2026-07-27 — Agent in `~/betfair-nlp-industry-sp-results-capture` (branch `feat/industry-sp-results-capture`)
+
+**Task:** The `daily-races-model` row above already flagged this: today's
+runners have near-empty trailing form because `industry_starting_prices`
+stops at 2026-05-27. User's initial idea was a one-shot historical backfill
+via RacingAPI. Full plan (final version, after redesign below):
+`/home/ubuntu/.claude/plans/cuddly-nibbling-quasar.md`.
+
+**Live testing changed the plan mid-session — record this so nobody
+re-guesses the same wrong path.** First pass: RacingAPI's account showed
+Basic-plan-required 401s (a previously-reported upgrade hadn't taken
+effect). User then upgraded for real; a live re-check confirmed Basic is
+active — `/results/today` returns full, real results with exact field
+names (`horse_id`, `horse`, `sp`/`sp_dec`, `position`, `draw`, `ovr_btn`,
+`age`, `sex`, `weight_lbs`, `headgear`, `or`, `rpr`, **`tsr`** (not `ts` —
+the CSV import's column name), `comment`, `jockey`, `trainer`, race-level
+`region` as a direct GB filter). But historical/dated queries — `/results`
+with `date`/`start_date` params, `/results/{date}` — all 401 "Standard Plan
+required": **Basic can only fetch literally "today," never the past.** This
+kills a one-shot backfill outright regardless of guessed field names.
+Presented this to the user with three options (upgrade again to Standard
+and backfill immediately / capture forward with no more spend / both); user
+picked **capture forward, no more spend** — the 14-day trainer/jockey
+window self-heals in ~2 weeks this way, horse form improves incrementally,
+zero further RacingAPI cost, and (bonus) the schema is now fully verified
+instead of guessed.
+
+**Built:**
+- `src/lib/dao/industry-sp-row-mapping.ts` — extracted `deriveStatus`,
+  `toNullableInt/Float/Rating`, `parseWeightPounds`, `formatMeetingName`,
+  and a generalized `synthNumericId`/`synthRunnerId`/`synthRaceId` out of
+  `import-industry-sp.ts` (previously private/inline, zero test coverage)
+  so the CSV importer and the new RacingAPI path share one implementation
+  instead of two that can drift — `import-industry-sp.ts` now imports from
+  here, no behavior change. 21 new unit tests.
+- `src/lib/service/industry-sp-results-capture-service.ts` —
+  `IndustrySpResultsCaptureService.captureTodayResults()`, same
+  throws-on-missing-creds/non-ok shape as `DailyRaceService.
+  ingestFromRacingApi`. Filters to `region === "GB"` (simpler/more reliable
+  than the CSV path's course-name lookup, now that RacingAPI gives region
+  directly). Writes real, finished races only — a "results" feed never
+  returns an unresolved race, so this **never** risks the read-only-for-
+  today's-races invariant `daily-race-feature-service.ts` depends on; it's
+  the correct complement to it, not an exception. 6 new unit tests
+  (mocked `RacingApiClient`, real captured sample data as fixtures)
+  covering the credential/non-ok guards, GB filtering, the `tsr`→`ts` and
+  `weight_lbs`→`wgt` mappings, and upsert idempotency.
+- `src/commands/capture-industry-sp-results.ts` — manual CLI entry,
+  mirrors `fetch-daily-races.ts`.
+- `apps/lambda/src/handler.ts` — added an `action?: string` field to the
+  scheduled-event shape; `action === "capture-results"` runs the new
+  service, anything else (including the existing daily-races rule's
+  current input, which has no `action` field) keeps its exact prior
+  behavior — purely additive, not a breaking change to the existing cron.
+- `scripts/setup-industry-sp-results-schedule.sh` +
+  `.claude/commands/industry-sp-results-cron.md` — a **second** EventBridge
+  rule on the same `hello-api` Lambda (racecards fetch and results capture
+  can't share one rule/time — results for "today" don't exist until racing
+  finishes).
+- `config/default.json` / `custom-environment-variables.json` —
+  `racingApi.resultsPath` / `RACINGAPI_RESULTS_PATH`, mirrors the existing
+  `racecardsPath` pair.
+
+**A second live-testing catch, this time in verification, not design:** the
+schedule was originally planned for 23:00 UTC. A real end-to-end run
+(`npm run capture:industry-sp-results` against real dev Mongo) at 23:09 UTC
+on this July day returned **zero races** — re-checked directly against
+RacingAPI and confirmed it wasn't a bug in this code: `/results/today`
+itself was already returning an empty `results` array. 23:09 UTC is 00:09
+BST (UTC+1 in July) — RacingAPI's "today" tracks UK local time, so 23:00
+UTC is already past UK midnight during summer and lands on the wrong day.
+Moved the default to **21:30 UTC** (22:30 BST / 21:30 GMT year-round,
+safely before the UK-midnight boundary in both seasons) in both the setup
+script and the skill doc, with the reasoning left in both as a comment so
+it isn't silently re-broken later.
+
+**Verified:** `npx tsc --noEmit -p .` clean. Full `npx jest` — both new
+suites pass (27 tests total across the two files above); the 5-6 pre-
+existing failures (missing `codebase-snapshot`, a Mongo-dependent
+integration test, one pre-existing `getUniqueRunnersByEventId` type error)
+are confirmed present in the unmodified primary checkout too, not
+introduced here. One real live run end-to-end against real dev Mongo with
+real RacingAPI credentials (see above — correctly captured zero races
+without erroring, since "today" had already rolled over; this is the
+exact "treats empty results as zero, not an error" behavior a unit test
+already covers, now also confirmed for real). **Not yet merged, not
+deployed** — worth a second live run at the corrected 21:30 UTC time (or
+tomorrow) to confirm non-zero real GB races land correctly end-to-end
+before merging.
+
+**Explicitly out of scope, left for a future session if the user wants
+it:** backfilling 2026-05-28 through whenever this cron first ran
+successfully — would need the Standard-tier historical `/results`
+endpoint, which the account doesn't have. The row-mapping/schema work here
+would mostly carry over if that's ever picked up.
