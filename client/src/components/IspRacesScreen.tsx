@@ -197,13 +197,24 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortOrder]);
 
+  // A walk (ensureYearLoaded) that stops mid-way can leave `races.length`
+  // not perfectly aligned to a PAGE_SIZE boundary, since its own batches
+  // double in size rather than staying fixed at 20 — deduping by raceId
+  // on every append (here and in ensureYearLoaded) means a subsequent
+  // fetch that re-covers a few already-loaded rows at that boundary just
+  // no-ops on the overlap instead of rendering the same race twice.
+  function appendRaces(prev: IspRace[], fetched: IspRace[]): IspRace[] {
+    const seen = new Set(prev.map(r => r.raceId));
+    return [...prev, ...fetched.filter(r => !seen.has(r.raceId))];
+  }
+
   async function loadMore() {
-    if (isLoadingMore || isJumpingToYear || page >= totalPages) return;
+    if (isLoadingMore || isJumpingToYear || races.length >= totalRaces) return;
     setIsLoadingMore(true);
     try {
       const next = page + 1;
       const result = await chatApi.getIndustrySp(next, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
-      setRaces(prev => [...prev, ...result.data]);
+      setRaces(prev => appendRaces(prev, result.data));
       setPage(next);
       setTotalPages(result.totalPages);
     } catch {
@@ -226,21 +237,39 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   async function ensureYearLoaded(year: string) {
     if (isLoadingMore || isJumpingToYear) return;
     if (races.some(r => raceYearKey(r.raceTime) === year)) return;
-    if (page >= totalPages) return;
+    if (races.length === 0 || races.length >= totalRaces) return;
     setIsJumpingToYear(year);
     try {
-      let currentPage = page;
-      let currentTotalPages = totalPages;
+      let loaded = races.length;
       let found = false;
-      while (currentPage < currentTotalPages && !found) {
-        currentPage += 1;
-        const result = await chatApi.getIndustrySp(currentPage, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
-        setRaces(prev => [...prev, ...result.data]);
-        setPage(currentPage);
-        currentTotalPages = result.totalPages;
-        setTotalPages(currentTotalPages);
+      while (loaded < totalRaces && !found) {
+        // getIndustrySp(page, limit, ...) skips (page-1)*limit rows —
+        // requesting page=2 at limit=`loaded` therefore skips exactly the
+        // rows already loaded and takes that many more, doubling the
+        // loaded set each round trip (there's no dedicated "fetch from
+        // offset N" endpoint, so this repurposes the existing page/limit
+        // pair rather than adding one). Turns an O(totalRaces / 20) walk
+        // — one request per 20 races, confirmed to need ~250 requests
+        // and still not finish within 90s on a ~4900-race gap in the
+        // isp-lazy-year-slow-walk prod-repro script — into an
+        // O(log2(totalRaces / 20)) one, ~8-12 requests for the same gap.
+        // (Doesn't scale past the backend's own 10000-row limit cap —
+        // fine for any realistically filtered range; a range whose
+        // *loaded* count alone exceeds 10000 would need a different
+        // approach, not attempted here.)
+        const result = await chatApi.getIndustrySp(2, loaded, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
+        if (result.data.length === 0) break;
+        setRaces(prev => appendRaces(prev, result.data));
+        loaded += result.data.length;
         found = result.data.some(r => raceYearKey(r.raceTime) === year);
       }
+      // result.totalPages (above) is relative to whatever `limit` that
+      // specific request used, which changes every iteration here — not
+      // the fixed PAGE_SIZE the flat "Load more" cursor assumes. Compute
+      // page/totalPages directly from real counts instead, so a manual
+      // "Load more" click after a walk continues cleanly from here.
+      setPage(Math.max(1, Math.floor(loaded / PAGE_SIZE)));
+      setTotalPages(Math.max(1, Math.ceil(totalRaces / PAGE_SIZE)));
     } catch {
       setError("Failed to load races");
     } finally {
@@ -326,7 +355,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   function yearCountLabel(year: YearNode<IspRace>): string {
     if (year.items.length > 0) return `${year.items.length} races`;
     if (isJumpingToYear === year.key) return "Loading…";
-    if (page >= totalPages) return "0 races";
+    if (races.length >= totalRaces) return "0 races";
     return "Tap to load";
   }
 
@@ -612,7 +641,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                 </View>
               );
             })}
-            {page < totalPages && (
+            {races.length < totalRaces && (
               <Button
                 testID="industry-sp-load-more"
                 mode="contained-tonal"
