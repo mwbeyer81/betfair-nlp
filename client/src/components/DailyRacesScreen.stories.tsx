@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { within, userEvent, expect, fn, waitFor } from "@storybook/test";
 import { http, HttpResponse } from "msw";
 import { DailyRacesScreen } from "./DailyRacesScreen";
+import { formatDailyRacesDateLabel, shiftDateString, todayUtcDateString } from "../utils/dailyRaceFormat";
 
 const BASE = "http://localhost:3000";
 
@@ -294,6 +295,59 @@ export const PickNavigatesToRace: Story = {
 
     await userEvent.click(canvas.getByTestId("daily-races-pick-hrs_1"));
     await expect(args.onNavigateToRace).toHaveBeenCalledWith("rac_1");
+  },
+};
+
+export const DateNavShowsCurrentDate: Story = {
+  // No `date` prop passed — the component falls back to "today" (UTC).
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await expect(canvas.getByTestId("daily-races-current-date")).toHaveTextContent(
+      formatDailyRacesDateLabel(todayUtcDateString())
+    );
+  },
+};
+
+export const PrevDayButtonNavigatesToPreviousDate: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await userEvent.click(canvas.getByTestId("daily-races-prev-day"));
+
+    const expectedDate = shiftDateString(todayUtcDateString(), -1);
+    await expect(args.navigate).toHaveBeenCalledWith("/daily-races", expect.stringContaining(`date=${expectedDate}`));
+  },
+};
+
+export const NextDayButtonNavigatesToNextDate: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await userEvent.click(canvas.getByTestId("daily-races-next-day"));
+
+    const expectedDate = shiftDateString(todayUtcDateString(), 1);
+    await expect(args.navigate).toHaveBeenCalledWith("/daily-races", expect.stringContaining(`date=${expectedDate}`));
+  },
+};
+
+export const DayNavigationPreservesAppliedFilters: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+
+    const minModelInput = canvas.getByTestId("daily-races-min-model-win-probability");
+    await userEvent.clear(minModelInput);
+    await userEvent.type(minModelInput, "20");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    await userEvent.click(canvas.getByTestId("daily-races-next-day"));
+
+    const expectedDate = shiftDateString(todayUtcDateString(), 1);
+    const [, query] = (args.navigate as unknown as { mock: { calls: [string, string][] } }).mock.calls.slice(-1)[0];
+    const params = new URLSearchParams(query);
+    await expect(params.get("date")).toBe(expectedDate);
+    await expect(params.get("minModelWinProbability")).toBe("20");
   },
 };
 

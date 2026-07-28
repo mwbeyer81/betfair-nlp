@@ -150,4 +150,35 @@ test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
     // that the checkbox + filter-apply flow works end-to-end.
     await expect(page.getByTestId("daily-races-pick-hrs_1")).toBeVisible();
   });
+
+  test("Prev/Next Day buttons update the current-date label and the URL's date param", async ({ page }) => {
+    await page.goto("/daily-races?date=2026-06-03");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("daily-races-current-date")).toContainText("3 Jun 2026");
+
+    await page.getByTestId("daily-races-next-day").click();
+    await expect(page).toHaveURL(/date=2026-06-04/);
+    await expect(page.getByTestId("daily-races-current-date")).toContainText("4 Jun 2026");
+
+    await page.getByTestId("daily-races-prev-day").click();
+    await page.getByTestId("daily-races-prev-day").click();
+    await expect(page).toHaveURL(/date=2026-06-02/);
+    await expect(page.getByTestId("daily-races-current-date")).toContainText("2 Jun 2026");
+  });
+
+  test("Next Day preserves an already-applied filter in the URL", async ({ page }) => {
+    await page.goto("/daily-races?date=2026-06-03");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("daily-races-min-model-win-probability").fill("20");
+    await page.getByTestId("daily-races-filter-apply").click();
+    await expect(page).toHaveURL(/minModelWinProbability=20/);
+
+    await page.getByTestId("daily-races-next-day").click();
+    await expect(page).toHaveURL(/date=2026-06-04/);
+    await expect(page).toHaveURL(/minModelWinProbability=20/);
+  });
 });

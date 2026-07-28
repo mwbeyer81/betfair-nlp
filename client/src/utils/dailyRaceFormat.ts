@@ -1,6 +1,35 @@
 import { DailyRace, DailyRaceResult, DailyRaceRunner, PnlStats } from "../services/chatApi";
 import { impliedProbabilityPct } from "./ispFormat";
 
+// Plain "YYYY-MM-DD" date-string helpers for Prev/Next Day navigation —
+// deliberately UTC throughout (matches the backend's own default-date
+// convention, GET /api/daily-races's `new Date().toISOString().slice(0,10)`)
+// so a UK user just either side of midnight never sees the picker's
+// "today" disagree with what the server actually queried for.
+export function todayUtcDateString(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function shiftDateString(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+export function formatDailyRacesDateLabel(iso: string): string {
+  try {
+    return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export interface DailyRacesFilters {
   minModelWinProbability: number;
   trainerFormMinWinRate: number;

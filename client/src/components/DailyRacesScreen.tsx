@@ -21,6 +21,9 @@ import {
   dailyRacePickPnl,
   dailyRacePickResultLabel,
   DailyRacesFilters,
+  formatDailyRacesDateLabel,
+  shiftDateString,
+  todayUtcDateString,
 } from "../utils/dailyRaceFormat";
 import { fairDecimalOdds, toFractionalOdds } from "../utils/oddsFormat";
 import { formatPct, formatPnl } from "../utils/ispFormat";
@@ -87,6 +90,22 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
   onNavigateToRace,
   date,
 }) => {
+  // The date actually being viewed — falls back to "today" (UTC, matching
+  // the backend's own default) when no ?date= is in the URL at all.
+  const currentDate = date ?? todayUtcDateString();
+
+  // Prev/Next Day navigation — rebuilds the current URL's query string with
+  // only `date` changed, so any already-applied filters survive the jump
+  // (navigate() itself replaces the whole query string wholesale, not a
+  // merge, so the existing params have to be read and carried forward
+  // explicitly here rather than just passing `date=...` on its own).
+  function goToDate(newDate: string) {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("date", newDate);
+    navigate("/daily-races", params.toString());
+  }
+
   const [races, setRaces] = useState<DailyRace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -444,6 +463,28 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
       />
 
       <View style={styles.body}>
+        <View testID="daily-races-date-nav" style={styles.dateNavRow}>
+          <TouchableOpacity
+            testID="daily-races-prev-day"
+            accessibilityRole="button"
+            style={styles.dateNavButton}
+            onPress={() => goToDate(shiftDateString(currentDate, -1))}
+          >
+            <Text style={styles.dateNavButtonText}>‹ Prev Day</Text>
+          </TouchableOpacity>
+          <Text testID="daily-races-current-date" style={styles.dateNavLabel}>
+            {formatDailyRacesDateLabel(currentDate)}
+          </Text>
+          <TouchableOpacity
+            testID="daily-races-next-day"
+            accessibilityRole="button"
+            style={styles.dateNavButton}
+            onPress={() => goToDate(shiftDateString(currentDate, 1))}
+          >
+            <Text style={styles.dateNavButtonText}>Next Day ›</Text>
+          </TouchableOpacity>
+        </View>
+
         {isLoading && (
           <View testID="daily-races-loading" style={styles.centered}>
             <ActivityIndicator size="large" animating color={colors.primary} />
@@ -733,6 +774,30 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   body: { flex: 1 },
+  dateNavRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  dateNavButton: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  dateNavButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.accent,
+  },
+  dateNavLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.text,
+  },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl, gap: spacing.md },
   loadingText: { color: colors.textSecondary },
   errorText: { color: colors.danger, fontSize: 16 },
