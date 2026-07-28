@@ -62,8 +62,8 @@ function buildRaceHierarchy(races: IspRace[]) {
 // Inserts an empty placeholder YearNode for every year the applied date
 // filter could contain but no race data has loaded for yet — lets the
 // screen render a full "2024 / 2025 / 2026" set of collapsed year headers
-// immediately (see loadYearPage), rather than only years the user has
-// actually tapped open so far.
+// immediately (see expandYearDefaultMonth), rather than only years the
+// user has actually tapped open so far.
 function mergeYearPlaceholders(hierarchy: YearNode<IspRace>[], yearKeys: string[]): YearNode<IspRace>[] {
   const byKey = new Map(hierarchy.map(y => [y.key, y]));
   return yearKeys.map(key => byKey.get(key) ?? { key, items: [], months: [] });
@@ -82,13 +82,17 @@ function mergeMonthPlaceholders(year: YearNode<IspRace>, effectiveMinDate: strin
   return monthKeys.map(key => byKey.get(key) ?? { key, label: raceMonthLabel(`${key}-01T00:00:00`), items: [], days: [] });
 }
 
-// Loading state for one calendar year's own races — each expanded year
-// paginates completely independently of every other year (see
-// loadYearPage), the same way the whole screen used to paginate as one
-// flat sequence. `total` is null until the first page for this year has
-// actually been fetched (see yearCountLabel — that's what distinguishes
-// "haven't checked yet" from "checked, and there are genuinely none").
-interface YearLoadState {
+// Loading state for one calendar month's own races — each expanded month
+// paginates completely independently of every other month (see
+// loadMonthPage). Years are pure rollup/grouping now, not an independent
+// fetch unit — see the isp-month-direct-load history (a year-level "page
+// 1" fetch could land in whichever month happened to have the earliest
+// matching race, e.g. July for a Jan-Dec filter, instead of the filter's
+// own literal first month). `total` is null until the first page for
+// this month has actually been fetched (see monthCountLabel — that's
+// what distinguishes "haven't checked yet" from "checked, and there are
+// genuinely none").
+interface RangeLoadState {
   races: IspRace[];
   page: number;
   total: number | null;
@@ -98,7 +102,7 @@ interface YearLoadState {
 
 // Clips `year`'s own Jan1->Dec31 span to the filter's actual effective
 // range — e.g. a filter of 2024-06-01 -> 2025-03-01 shouldn't let 2024's
-// "own" query reach back to 2024-01-01, or 2025's reach past 2025-03-01.
+// "own" span reach back to 2024-01-01, or 2025's reach past 2025-03-01.
 // Plain string min/max is safe here since every value involved is a bare
 // "YYYY-MM-DD" (the API appends the end-of-day time suffix server-side —
 // see parseDateRangeParams — so this never needs to reason about times).
@@ -108,6 +112,24 @@ function yearBounds(year: string, effectiveMinDate: string, effectiveMaxDate: st
   return {
     from: yearStart > effectiveMinDate ? yearStart : effectiveMinDate,
     to: yearEnd < effectiveMaxDate ? yearEnd : effectiveMaxDate,
+  };
+}
+
+// Same idea, one level down — clips `monthKey`'s ("YYYY-MM") own 1st-to-
+// last-day span to the filter's actual effective range.
+function monthBounds(monthKey: string, effectiveMinDate: string, effectiveMaxDate: string): { from: string; to: string } {
+  const [yearStr, monthStr] = monthKey.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr); // 1-12
+  const monthStart = `${monthKey}-01`;
+  // Date's own month arg is 0-indexed, so passing the 1-indexed `month`
+  // straight through with day 0 lands on the day before that month's own
+  // 1st in Date's indexing — i.e. `monthKey`'s real last day.
+  const lastDay = new Date(year, month, 0).getDate();
+  const monthEnd = `${monthKey}-${String(lastDay).padStart(2, "0")}`;
+  return {
+    from: monthStart > effectiveMinDate ? monthStart : effectiveMinDate,
+    to: monthEnd < effectiveMaxDate ? monthEnd : effectiveMaxDate,
   };
 }
 
@@ -137,12 +159,13 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   onNavigateToRunner,
   onNavigateToTrainer,
 }) => {
-  // Every expanded year owns its own races/page/total, loaded via its own
-  // small paginated request (see loadYearPage) — there is no single flat
-  // "all loaded races" list or cursor anymore; the rendered race list
-  // (visibleRaces below) is just the union of whatever years currently
-  // have state.
-  const [yearStates, setYearStates] = useState<Record<string, YearLoadState>>({});
+  // Every expanded month owns its own races/page/total, loaded via its own
+  // small paginated request (see loadMonthPage) — there is no single flat
+  // "all loaded races" list or cursor anymore, and years have no fetch
+  // state of their own (they're pure rollup/grouping — see yearCountLabel).
+  // The rendered race list (visibleRaces below) is just the union of
+  // whatever months currently have state.
+  const [monthStates, setMonthStates] = useState<Record<string, RangeLoadState>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [totalRaces, setTotalRaces] = useState(0);
@@ -155,9 +178,17 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // effect below — NOT statically computed from yearKeys[0] here, since
   // with an unbounded filter yearKeys starts at ABSOLUTE_MIN_DATE's year,
   // which for real data is typically nowhere near where the real results
-  // actually are). Every other year starts collapsed until the user taps
-  // it (or "Expand All"), which triggers loadYearPage for it.
+  // actually are). Within an expanded year, only its own literal first
+  // month (per the filter's effective range, not wherever real data
+  // happens to start) is expanded+loaded by default — see
+  // expandYearDefaultMonth. Every other year/month starts collapsed until
+  // the user taps it (or "Expand All"), which triggers loadMonthPage.
   const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+  // Years whose default-first-month expansion has already run — makes
+  // expandYearDefaultMonth idempotent, so re-collapsing/re-expanding a
+  // year the user has already interacted with doesn't reset which
+  // month(s) they'd already opened or refire that first fetch.
+  const [initializedYears, setInitializedYears] = useState<Set<string>>(new Set());
 
   const minRunners = urlIntParam("minRunners", 1);
   const maxRunners = urlIntParam("maxRunners", 20);
@@ -206,7 +237,8 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     (async () => {
       setIsLoading(true);
       setError(null);
-      setYearStates({});
+      setMonthStates({});
+      setInitializedYears(new Set());
       try {
         // A small, unscoped probe — page 1 of the row-ranged sequence with
         // no sub-date range — purely to learn the grand total (for the
@@ -216,12 +248,17 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         // genuinely span two) — every year actually present gets expanded,
         // not just the first race's year, or a real race that did load
         // would end up invisible under a collapsed year header. Not used
-        // to seed any year's own races directly: yearKeys[0] can't be
+        // to seed any month's own races directly: yearKeys[0] can't be
         // trusted for this (see above), and this probe's own `total` is
         // the *grand* total across the whole row range, not any single
-        // year's — every year present still needs its own scoped fetch
-        // below to learn its own total, the same one every other year
-        // uses when tapped.
+        // month's — the year(s) present still get their own default first
+        // month loaded below, the same way every other year does when
+        // tapped (see expandYearDefaultMonth) — deliberately NOT whichever
+        // month this probe's data happens to fall in, since that's driven
+        // by wherever the earliest *matching* race is, not the filter's
+        // own literal start (e.g. a Jan-Dec 2024 filter whose earliest
+        // qualifying race happens to be in July doesn't mean January isn't
+        // still the natural place a user expects to land).
         const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
         if (cancelled) return;
         setTotalRaces(probe.total);
@@ -233,7 +270,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         const startYears = new Set(probe.data.map(r => raceYearKey(r.raceTime)));
         setCollapsedKeys(new Set(yearKeys.filter(y => !startYears.has(y)).map(y => `year:${y}`)));
         setIsLoading(false);
-        await Promise.all([...startYears].map(y => loadYearPage(y)));
+        for (const y of startYears) expandYearDefaultMonth(y);
       } catch {
         if (!cancelled) {
           setError("Failed to load races");
@@ -250,38 +287,64 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortOrder]);
 
-  // Fetches the next page of exactly one calendar year's own races —
+  // Fetches the next page of exactly one calendar month's own races —
   // scoped via subMinDate/subMaxDate (see chatApi.getIndustrySp/the DAO)
-  // to (the filter's row range) ∩ (this year), so it pages independently
-  // of every other year rather than needing to walk through them first.
-  // Called for a year's very first page when it's tapped open (see
-  // toggleNode) and again for each subsequent page via that year's own
+  // to (the filter's row range) ∩ (this month), so it pages independently
+  // of every other month rather than needing to walk through them first.
+  // Called for a month's very first page when it's tapped open (see
+  // toggleNode) and again for each subsequent page via that month's own
   // "Load more" button — the exact same function either way, the same way
-  // the mount effect uses it for whichever year starts expanded.
-  async function loadYearPage(year: string) {
-    const state = yearStates[year];
+  // expandYearDefaultMonth uses it for whichever month starts expanded.
+  async function loadMonthPage(monthKey: string) {
+    const state = monthStates[monthKey];
     if (state?.isLoading) return;
     if (state && state.total != null && state.races.length >= state.total) return;
     const nextPage = (state?.page ?? 0) + 1;
-    setYearStates(prev => ({
+    setMonthStates(prev => ({
       ...prev,
-      [year]: { races: prev[year]?.races ?? [], page: prev[year]?.page ?? 0, total: prev[year]?.total ?? null, isLoading: true, error: false },
+      [monthKey]: { races: prev[monthKey]?.races ?? [], page: prev[monthKey]?.page ?? 0, total: prev[monthKey]?.total ?? null, isLoading: true, error: false },
     }));
     try {
-      const { from, to } = yearBounds(year, effectiveMinDate, effectiveMaxDate);
+      const { from, to } = monthBounds(monthKey, effectiveMinDate, effectiveMaxDate);
       const result = await chatApi.getIndustrySp(nextPage, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to);
-      setYearStates(prev => {
-        const prevRaces = prev[year]?.races ?? [];
+      setMonthStates(prev => {
+        const prevRaces = prev[monthKey]?.races ?? [];
         const seen = new Set(prevRaces.map(r => r.raceId));
         const newRaces = result.data.filter(r => !seen.has(r.raceId));
-        return { ...prev, [year]: { races: [...prevRaces, ...newRaces], page: nextPage, total: result.total, isLoading: false, error: false } };
+        return { ...prev, [monthKey]: { races: [...prevRaces, ...newRaces], page: nextPage, total: result.total, isLoading: false, error: false } };
       });
     } catch {
-      setYearStates(prev => ({
+      setMonthStates(prev => ({
         ...prev,
-        [year]: { races: prev[year]?.races ?? [], page: prev[year]?.page ?? 0, total: prev[year]?.total ?? null, isLoading: false, error: true },
+        [monthKey]: { races: prev[monthKey]?.races ?? [], page: prev[monthKey]?.page ?? 0, total: prev[monthKey]?.total ?? null, isLoading: false, error: true },
       }));
     }
+  }
+
+  // Expands+loads a year's own literal first month within its (filter-
+  // clipped) effective range, and collapses every other month in that
+  // year — "default to the first month in the filter", not wherever the
+  // year's earliest *matching* race happens to be. Used both by the mount
+  // effect (for whichever year the initial probe lands in) and by
+  // toggleNode (the first time a user expands any other year). Idempotent
+  // via initializedYears — re-collapsing/re-expanding a year already
+  // interacted with doesn't reset its months or refire this fetch.
+  function expandYearDefaultMonth(year: string) {
+    if (initializedYears.has(year)) return;
+    setInitializedYears(prev => new Set(prev).add(year));
+    const { from, to } = yearBounds(year, effectiveMinDate, effectiveMaxDate);
+    const months = monthsInRange(from, to, sortOrder);
+    if (months.length === 0) return;
+    const firstMonth = months[0];
+    setCollapsedKeys(prev => {
+      const next = new Set(prev);
+      for (const m of months) {
+        if (m === firstMonth) next.delete(`month:${m}`);
+        else next.add(`month:${m}`);
+      }
+      return next;
+    });
+    loadMonthPage(firstMonth);
   }
 
   // With "Has trainer form" (or the model win-probability threshold) active,
@@ -311,18 +374,18 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     });
   }
 
-  // The union of every year's own independently-loaded races — there's no
-  // single flat list/cursor anymore (see yearStates/loadYearPage above).
-  // Deduped by raceId globally (not just within a single year's own
-  // fetch — loadYearPage's own dedup only ever sees that one year's prior
-  // races), a defensive check against the backend ever returning a race
-  // under more than one year's sub-date range (e.g. a boundary case, or
-  // multiple years' fetches racing on mount when a single page-1 spans
-  // more than one calendar year — see the mount effect above).
+  // The union of every month's own independently-loaded races — there's no
+  // single flat list/cursor anymore (see monthStates/loadMonthPage above).
+  // Deduped by raceId globally (not just within a single month's own
+  // fetch — loadMonthPage's own dedup only ever sees that one month's
+  // prior races), a defensive check against the backend ever returning a
+  // race under more than one month's sub-date range (e.g. a boundary
+  // case, or multiple months' fetches racing when a single page-1 spans
+  // more than one calendar month).
   const races = (() => {
     const seen = new Set<number>();
     const result: IspRace[] = [];
-    for (const state of Object.values(yearStates)) {
+    for (const state of Object.values(monthStates)) {
       for (const race of state.races) {
         if (!seen.has(race.raceId)) {
           seen.add(race.raceId);
@@ -355,12 +418,19 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       return next;
     });
     if (key.startsWith("year:")) {
-      const year = key.slice("year:".length);
+      // Expanding a year for the first time loads (and expands) just its
+      // own first month — see expandYearDefaultMonth. A no-op on repeat
+      // taps of an already-interacted-with year (idempotent via
+      // initializedYears), so it never resets whichever months the user
+      // has already opened individually.
+      if (wasCollapsed) expandYearDefaultMonth(key.slice("year:".length));
+    } else if (key.startsWith("month:")) {
+      const monthKey = key.slice("month:".length);
       // Retry on a re-tap too, not just the first expand — otherwise a
       // failed fetch needs two taps (collapse, then re-expand) before
-      // loadYearPage's own guard lets a retry through again.
-      if (wasCollapsed || yearStates[year]?.error) {
-        loadYearPage(year);
+      // loadMonthPage's own guard lets a retry through again.
+      if (wasCollapsed || monthStates[monthKey]?.error) {
+        loadMonthPage(monthKey);
       }
     }
   }
@@ -368,11 +438,12 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   function toggleCollapseAll() {
     if (isAllCollapsed) {
       setCollapsedKeys(new Set());
-      // Every not-yet-loaded year now needs its own page-1 fetch — no more
-      // "walking through them as a side effect of chasing the last one".
-      // Each is independent and small, so fire them together.
+      // Every not-yet-interacted-with year gets its own default first
+      // month loaded — same as tapping each individually, just fired
+      // together (a no-op for years already initialized, so months the
+      // user already opened by hand are left exactly as they were).
       for (const year of yearKeys) {
-        if (!yearStates[year]) loadYearPage(year);
+        expandYearDefaultMonth(year);
       }
     } else {
       setCollapsedKeys(new Set(allNodeKeys));
@@ -411,35 +482,33 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     return { staked, returns, pnl: returns - staked, count };
   }
 
-  // A year header with zero visible races is ambiguous on its own — it
-  // could mean "never fetched yet" or "fetched, genuinely nothing to show"
-  // (including "loaded, but every runner got filtered out by a trainer-
-  // form/model filter"). yearStates distinguishes them directly, since
-  // each year now tracks its own real fetch state instead of inferring it
-  // from a single flat cursor's position.
+  // Years no longer have their own fetch state — a year's count is purely
+  // a rollup of its own months' state. "Tap to load" only once every
+  // month in range has genuinely never been touched; if any month is
+  // still loading, say so; once every month's been checked (loaded or
+  // confirmed empty) with nothing to show, it's a real "0 races".
   function yearCountLabel(year: YearNode<IspRace>): string {
     if (year.items.length > 0) return `${year.items.length} races`;
-    const state = yearStates[year.key];
-    if (state?.isLoading) return "Loading…";
-    // A failed fetch leaves state.total unset (see loadYearPage's catch) —
-    // check error before the generic "state exists" fallback below, or a
-    // failure reads as "confirmed zero races" instead of "tap to retry".
-    if (state?.error) return "Failed to load — tap to retry";
-    if (state) return "0 races";
-    return "Tap to load";
+    const states = year.months.map(m => monthStates[m.key]);
+    if (states.some(s => s?.isLoading)) return "Loading…";
+    if (states.every(s => s === undefined)) return "Tap to load";
+    return "0 races";
   }
 
   // A placeholder month (no races loaded for it yet) is ambiguous the same
-  // way a placeholder year is — it could mean "this year's own fetch just
-  // hasn't reached this month yet" (its own year's "Load more" is what
-  // would reach it, not anything on the month itself) or "this year is
-  // fully loaded and there's genuinely nothing here". Distinguishing them
-  // needs the *year's* own load state, since months don't have one of
-  // their own.
-  function monthCountLabel(yearKey: string, month: MonthNode<IspRace>): string {
+  // way a placeholder year used to be — it could mean "never tapped" or
+  // "checked, and there's genuinely nothing here". Each month now tracks
+  // its own real fetch state directly (see monthStates/loadMonthPage),
+  // the same way years used to before they became pure rollups.
+  function monthCountLabel(month: MonthNode<IspRace>): string {
     if (month.items.length > 0) return `${month.items.length} races`;
-    const yearState = yearStates[yearKey];
-    if (yearState && yearState.total != null && yearState.races.length >= yearState.total) return "0 races";
+    const state = monthStates[month.key];
+    if (state?.isLoading) return "Loading…";
+    // A failed fetch leaves state.total unset (see loadMonthPage's catch)
+    // — check error before the generic "state exists" fallback below, or
+    // a failure reads as "confirmed zero races" instead of "tap to retry".
+    if (state?.error) return "Failed to load — tap to retry";
+    if (state) return "0 races";
     return "Not loaded yet";
   }
 
@@ -557,7 +626,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                           <Text style={[styles.groupChevron, styles.groupChevronLight]}>{monthCollapsed ? "▸" : "▾"}</Text>
                           <Text style={styles.monthLabel}>{month.label}</Text>
                           <Text testID={`industry-sp-month-count-${month.key}`} style={[styles.groupCount, styles.groupCountLight]}>
-                            {monthCountLabel(year.key, month)}
+                            {monthCountLabel(month)}
                           </Text>
                           {monthPnl.staked > 0 && (
                             <Text testID={`industry-sp-month-pnl-${month.key}`} style={[styles.groupPnl, monthPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
@@ -566,7 +635,9 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                           )}
                         </TouchableOpacity>
 
-                        {!monthCollapsed && month.days.map(day => {
+                        {!monthCollapsed && (
+                        <>
+                        {month.days.map(day => {
                           const dayKey = `day:${day.key}`;
                           const dayCollapsed = collapsedKeys.has(dayKey);
                           const dayPnl = groupPnl(day.items);
@@ -723,29 +794,32 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                             </View>
                           );
                         })}
+                        {(() => {
+                          // This month's own "Load more" — the same
+                          // mechanism that loaded its first page
+                          // (loadMonthPage), just requesting the next one.
+                          // Independent of every other expanded month's
+                          // own state.
+                          const state = monthStates[month.key];
+                          if (!state || state.total == null || state.races.length >= state.total) return null;
+                          return (
+                            <Button
+                              testID={`industry-sp-month-load-more-${month.key}`}
+                              mode="contained-tonal"
+                              onPress={() => loadMonthPage(month.key)}
+                              disabled={state.isLoading}
+                              loading={state.isLoading}
+                              style={styles.loadMoreButton}
+                            >
+                              Load more {month.label} ({state.total - state.races.length} remaining)
+                            </Button>
+                          );
+                        })()}
+                        </>
+                        )}
                       </View>
                     );
                   })}
-                  {(() => {
-                    // This year's own "Load more" — the same mechanism
-                    // that loaded its first page (loadYearPage), just
-                    // requesting the next one. Independent of every other
-                    // expanded year's own state.
-                    const state = yearStates[year.key];
-                    if (!state || state.total == null || state.races.length >= state.total) return null;
-                    return (
-                      <Button
-                        testID={`industry-sp-year-load-more-${year.key}`}
-                        mode="contained-tonal"
-                        onPress={() => loadYearPage(year.key)}
-                        disabled={state.isLoading}
-                        loading={state.isLoading}
-                        style={styles.loadMoreButton}
-                      >
-                        Load more {year.key} ({state.total - state.races.length} remaining)
-                      </Button>
-                    );
-                  })()}
                   </>
                   )}
                 </View>
