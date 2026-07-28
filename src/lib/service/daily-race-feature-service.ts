@@ -186,9 +186,19 @@ async function fetchTrainerOrJockeyHistory(
   name: string,
   today: string
 ): Promise<TrainerJockeyHistoricalRun[]> {
+  // computeTrailingFormStats only ever looks at the last FORM_WINDOW_DAYS —
+  // pushing that same bound into the query (not just filtering client-side
+  // afterward) matters a lot for popular trainers/jockeys with thousands of
+  // career starts (e.g. one real production trainer had 4,220 historical
+  // race docs) — fetching + transferring all of that just to use ~0-5 rows
+  // was the dominant cost in the scheduled-cron path timing out.
+  const windowStart = addDays(today, -FORM_WINDOW_DAYS);
   const races = await db
     .collection<HistoricalRaceRow>(INDUSTRY_SP_COLLECTION)
-    .find({ [`runners.${field}`]: name, raceDate: { $lt: today } }, { projection: { raceDate: 1, raceType: 1, runners: 1 } })
+    .find(
+      { [`runners.${field}`]: name, raceDate: { $gte: windowStart, $lt: today } },
+      { projection: { raceDate: 1, raceType: 1, runners: 1 } }
+    )
     .toArray();
   const runs: TrainerJockeyHistoricalRun[] = [];
   for (const race of races) {
@@ -245,33 +255,48 @@ export async function computeDailyRaceFeatures(
   const jockeyCache = new Map<string, TrailingFormStats>();
   const horseCache = new Map<string, HorseFormStats>();
   let horsesMatched = 0;
-  const horseNames = new Set<string>();
 
+  // Collect unique (trainer|category), (jockey|category), horse lookups
+  // needed across ALL of today's races first, then fetch them concurrently
+  // (bounded — this hits the same industry_starting_prices collection
+  // fetchHorseHistory/fetchTrainerOrJockeyHistory queries, don't want to
+  // open dozens of simultaneous connections against it) instead of one
+  // await per name in a single sequential loop — with ~40-50 races/day and
+  // each historical query being a real network round-trip to Atlas, doing
+  // this serially was the dominant cost behind the scheduled-cron path
+  // timing out.
+  const trainerLookups = new Map<string, { field: "trainer"; name: string }>();
+  const jockeyLookups = new Map<string, { field: "jockey"; name: string }>();
+  const horseLookups = new Set<string>();
   for (const race of races) {
     const category = toFormCategory(race.type);
     for (const runner of race.runners) {
-      if (runner.trainer) {
-        const key = `${runner.trainer}|${category}`;
-        if (!trainerCache.has(key)) {
-          const history = await fetchTrainerOrJockeyHistory(db, "trainer", runner.trainer, date);
-          trainerCache.set(key, computeTrailingFormStats(history, date));
-        }
-      }
-      if (runner.jockey) {
-        const key = `${runner.jockey}|${category}`;
-        if (!jockeyCache.has(key)) {
-          const history = await fetchTrainerOrJockeyHistory(db, "jockey", runner.jockey, date);
-          jockeyCache.set(key, computeTrailingFormStats(history, date));
-        }
-      }
-      if (runner.horse && !horseCache.has(runner.horse)) {
-        horseNames.add(runner.horse);
-        const history = await fetchHorseHistory(db, runner.horse, date);
-        if (history.length > 0) horsesMatched++;
-        horseCache.set(runner.horse, computeHorseFormStats(history, date));
-      }
+      if (runner.trainer) trainerLookups.set(`${runner.trainer}|${category}`, { field: "trainer", name: runner.trainer });
+      if (runner.jockey) jockeyLookups.set(`${runner.jockey}|${category}`, { field: "jockey", name: runner.jockey });
+      if (runner.horse) horseLookups.add(runner.horse);
     }
   }
+
+  const CONCURRENCY = 8;
+  async function runConcurrently<T>(items: T[], fn: (item: T) => Promise<void>): Promise<void> {
+    for (let i = 0; i < items.length; i += CONCURRENCY) {
+      await Promise.all(items.slice(i, i + CONCURRENCY).map(fn));
+    }
+  }
+
+  await runConcurrently([...trainerLookups.entries()], async ([key, { name }]) => {
+    const history = await fetchTrainerOrJockeyHistory(db, "trainer", name, date);
+    trainerCache.set(key, computeTrailingFormStats(history, date));
+  });
+  await runConcurrently([...jockeyLookups.entries()], async ([key, { name }]) => {
+    const history = await fetchTrainerOrJockeyHistory(db, "jockey", name, date);
+    jockeyCache.set(key, computeTrailingFormStats(history, date));
+  });
+  await runConcurrently([...horseLookups], async name => {
+    const history = await fetchHorseHistory(db, name, date);
+    if (history.length > 0) horsesMatched++;
+    horseCache.set(name, computeHorseFormStats(history, date));
+  });
 
   let runnersUpdated = 0;
   const now = new Date().toISOString();
@@ -311,5 +336,5 @@ export async function computeDailyRaceFeatures(
 
   await dailyRaceDAO.bulkUpsertRaces(updatedRaces);
 
-  return { racesUpdated: updatedRaces.length, runnersUpdated, horsesMatched, horsesTotal: horseNames.size };
+  return { racesUpdated: updatedRaces.length, runnersUpdated, horsesMatched, horsesTotal: horseLookups.size };
 }
