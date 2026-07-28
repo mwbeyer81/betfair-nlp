@@ -128,7 +128,7 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                     <Text style={styles.drawBadge}>Draw {runner.draw}</Text>
                   )}
                   {runner.form && (
-                    <>
+                    <View style={styles.pillGroup}>
                       <TouchableOpacity
                         testID={`daily-race-item-form-${runner.runnerId}`}
                         onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(`${runner.runnerId}:form`); }}
@@ -136,10 +136,10 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                         <Text style={styles.formBadge}>{runner.form}</Text>
                       </TouchableOpacity>
                       {renderTooltipToggle(`${runner.runnerId}:form`, `daily-race-item-form-tooltip-toggle-${runner.runnerId}`)}
-                    </>
+                    </View>
                   )}
                   {runner.modelWinProbability != null && (
-                    <>
+                    <View style={styles.pillGroup}>
                       <TouchableOpacity
                         onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(`${runner.runnerId}:model`); }}
                       >
@@ -148,10 +148,10 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                         </Text>
                       </TouchableOpacity>
                       {renderTooltipToggle(`${runner.runnerId}:model`, `daily-race-item-model-tooltip-toggle-${runner.runnerId}`)}
-                    </>
+                    </View>
                   )}
                   {runner.modelWinProbability != null && fairDecimalOdds(runner.modelWinProbability) != null && (
-                    <>
+                    <View style={styles.pillGroup}>
                       <TouchableOpacity
                         onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(`${runner.runnerId}:fairOdds`); }}
                       >
@@ -160,7 +160,7 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                         </Text>
                       </TouchableOpacity>
                       {renderTooltipToggle(`${runner.runnerId}:fairOdds`, `daily-race-item-fair-odds-tooltip-toggle-${runner.runnerId}`)}
-                    </>
+                    </View>
                   )}
                   {openTooltip === `${runner.runnerId}:form` && (
                     <Text testID={`daily-race-item-form-tooltip-${runner.runnerId}`} style={styles.tooltipText}>
@@ -219,6 +219,11 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     gap: spacing.sm,
   },
+  // Groups a pill with its "?" tooltip-toggle icon into one flex item, so
+  // flexWrap on runnerRow breaks the line between groups, never between a
+  // pill and its own icon (that used to happen — the icon would wrap onto
+  // its own line, orphaned from the pill it belonged to).
+  pillGroup: { flexDirection: "row", alignItems: "center", gap: 4 },
   number: { fontSize: 12, color: colors.textTertiary, width: 22 },
   horseName: { fontSize: 13, fontWeight: "600", color: colors.text, maxWidth: 160 },
   badge: { fontSize: 11, color: colors.textSecondary, maxWidth: 140 },

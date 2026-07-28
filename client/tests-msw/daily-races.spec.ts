@@ -61,13 +61,13 @@ test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
   test("Model % tooltip shows plain-language top factors", async ({ page }) => {
     await page.goto("/daily-races/race?id=rac_test_0001");
     await expect(page.getByTestId("daily-race-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("daily-race-item-hrs_1")).toBeVisible();
+    await expect(page.getByTestId("daily-race-item-hrs_2")).toBeVisible();
 
-    await page.getByTestId("daily-race-item-model-hrs_1").click();
-    await expect(page.getByTestId("daily-race-item-model-tooltip-hrs_1")).toBeVisible();
-    await expect(page.getByTestId("daily-race-item-model-factor-hrs_1-0")).toHaveText("▲ Strong recent form");
-    await expect(page.getByTestId("daily-race-item-model-factor-hrs_1-1")).toHaveText("▲ In-form trainer");
-    await expect(page.getByTestId("daily-race-item-model-factor-hrs_1-2")).toHaveText("▼ Lower official rating");
+    await page.getByTestId("daily-race-item-model-hrs_2").click();
+    await expect(page.getByTestId("daily-race-item-model-tooltip-hrs_2")).toBeVisible();
+    await expect(page.getByTestId("daily-race-item-model-factor-hrs_2-0")).toHaveText("▲ Strong recent form");
+    await expect(page.getByTestId("daily-race-item-model-factor-hrs_2-1")).toHaveText("▲ In-form trainer");
+    await expect(page.getByTestId("daily-race-item-model-factor-hrs_2-2")).toHaveText("▼ Lower official rating");
   });
 
   test("a race not found in the mocked data shows the error state", async ({ page }) => {

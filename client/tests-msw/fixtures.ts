@@ -214,7 +214,16 @@ async function setupApiMocks(page: Page) {
       distanceF: "16.0", region: "GB", raceClass: "Class 4", type: "Hurdle", ageBand: "4yo+",
       prize: "£3,769", fieldSize: "2", going: "Good", surface: "Turf",
       runners: [
+        // Deliberately kept free of modelWinProbability/modelTopFactors —
+        // this runner's row is clicked whole (by its outer testID) in the
+        // shared drill-down navigation test below, and a real browser click
+        // lands at the row's bounding-box center; adding the extra Model/
+        // Fair-odds pills here shifted that center onto a nested pill
+        // (whose own onPress calls stopPropagation), silently breaking
+        // navigation. hrs_2 carries the model fixture data instead.
+        dailyRunner(),
         dailyRunner({
+          runnerId: "hrs_2", horse: "Second Fixture", trainer: "C Trainer", jockey: "D Jockey", number: "2",
           modelWinProbability: 62.5,
           modelVersionId: "xgb-test-version",
           modelTopFactors: [
@@ -223,7 +232,6 @@ async function setupApiMocks(page: Page) {
             { label: "Lower official rating", direction: "negative" },
           ],
         }),
-        dailyRunner({ runnerId: "hrs_2", horse: "Second Fixture", trainer: "C Trainer", jockey: "D Jockey", number: "2" }),
       ],
     },
     {
