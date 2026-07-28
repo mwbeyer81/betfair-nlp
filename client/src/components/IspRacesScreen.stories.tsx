@@ -690,26 +690,39 @@ export const CollapseAllTogglesEverything: Story = {
   },
 };
 
-// One race per calendar year, each on its own "page" (see lazyYearHandlers
-// below) — 2016 and 2017 are unreachable by the normal paginated cursor
-// until something explicitly walks forward to them (see ensureYearLoaded).
-const LAZY_YEAR_RACES = [
-  {
-    raceId: 800001,
-    meetingId: "Ascot|2015-06-01",
-    meetingName: "Ascot — 1 June 2015",
+// 90 filler 2015 races (so page 1's 20-race fetch on mount doesn't reach
+// anywhere near the tail), then one 2016 race and one 2017 race right at
+// the end — the ensureYearLoaded walk toward 2017 needs several doubling
+// rounds (20 -> 40 -> 80 -> 92) to cross this gap, not just one, so these
+// stories actually exercise the exponential-growth behavior rather than
+// resolving in a single lucky request.
+function fillerRace(index: number) {
+  return {
+    raceId: 800000 + index,
+    meetingId: `Ascot|2015-06-${String((index % 27) + 1).padStart(2, "0")}`,
+    meetingName: `Ascot — ${(index % 27) + 1} June 2015`,
     course: "Ascot",
     countryCode: "GB",
-    raceTime: "2015-06-01T13:00:00",
+    raceTime: `2015-06-${String((index % 27) + 1).padStart(2, "0")}T13:00:00`,
     raceName: "Ascot 13:00",
     raceType: "Flat",
     ran: 1,
     runners: [
-      { id: 80101, name: "Twenty Fifteen", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false },
+      { id: 80100 + index, name: `Filler ${index}`, num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false },
     ],
-  },
+  };
+}
+
+const LAZY_YEAR_RACES = [
+  // Deliberately far outside fillerRace's 800000+index range — a raceId
+  // collision here (this bit the first version of this fixture: the 2016/
+  // 2017 races used 800002/800003, which collided with fillerRace(2)/(3))
+  // makes appendRaces' by-raceId dedup silently discard the *real* 2016/
+  // 2017 race as "already seen", which reads exactly like the walk itself
+  // failing to find them — a confusing false negative for a fixture bug.
+  ...Array.from({ length: 90 }, (_, i) => fillerRace(i)),
   {
-    raceId: 800002,
+    raceId: 900002,
     meetingId: "Ascot|2016-06-01",
     meetingName: "Ascot — 1 June 2016",
     course: "Ascot",
@@ -723,7 +736,7 @@ const LAZY_YEAR_RACES = [
     ],
   },
   {
-    raceId: 800003,
+    raceId: 900003,
     meetingId: "Ascot|2017-06-01",
     meetingName: "Ascot — 1 June 2017",
     course: "Ascot",
@@ -738,19 +751,32 @@ const LAZY_YEAR_RACES = [
   },
 ];
 
+// Counts real requests hitting the mock during a walk — the actual proof
+// that ensureYearLoaded's doubling batches (20 -> 40 -> 80 -> ...) resolve
+// in a handful of round trips rather than one per 20 races. Reset to 0 at
+// the start of any story that asserts on it.
+let lazyYearRequestCount = 0;
+
+// Implements real skip=(page-1)*limit / limit slicing (unlike a flat
+// "page N == item N" stub) — the doubling walk in ensureYearLoaded relies
+// on that exact semantics (see the comment there), so a mock that doesn't
+// honor it wouldn't actually exercise the algorithm being tested.
 const lazyYearHandlers = [
   http.get(`${BASE}/api/industry-sp`, ({ request }) => {
+    lazyYearRequestCount++;
     const url = new URL(request.url);
     const page = parseInt(url.searchParams.get("page") || "1", 10);
-    const race = LAZY_YEAR_RACES[page - 1];
+    const limit = parseInt(url.searchParams.get("limit") || "20", 10);
+    const skip = (page - 1) * limit;
+    const data = LAZY_YEAR_RACES.slice(skip, skip + limit);
     return HttpResponse.json({
       success: true,
-      data: race ? [race] : [],
-      count: race ? 1 : 0,
+      data,
+      count: data.length,
       total: LAZY_YEAR_RACES.length,
       page,
-      limit: 20,
-      totalPages: LAZY_YEAR_RACES.length,
+      limit,
+      totalPages: Math.ceil(LAZY_YEAR_RACES.length / limit),
       totalRunners: LAZY_YEAR_RACES.length,
       pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
     });
@@ -771,8 +797,9 @@ export const LazyYearPlaceholdersRenderFromDateRangeImmediately: Story = {
       await expect(canvas.getByTestId("industry-sp-year-2016")).toBeInTheDocument();
       await expect(canvas.getByTestId("industry-sp-year-2017")).toBeInTheDocument();
 
-      // 2015 is the default (first, ascending) selection — already loaded.
-      await expect(canvas.getByTestId("industry-sp-year-count-2015")).toHaveTextContent("1 races");
+      // 2015 is the default (first, ascending) selection — already loaded
+      // (just page 1's first 20 of its 90 races so far).
+      await expect(canvas.getByTestId("industry-sp-year-count-2015")).toHaveTextContent("20 races");
       await expect(canvas.getByTestId("industry-sp-day-2015-06-01")).toBeInTheDocument();
 
       // 2016/2017 haven't been reached by the cursor yet — not "0 races"
@@ -795,9 +822,10 @@ export const TappingACollapsedYearWalksForwardAndLoadsIt: Story = {
       await canvas.findByTestId("industry-sp-list");
       await expect(canvas.getByTestId("industry-sp-year-count-2017")).toHaveTextContent("Tap to load");
 
-      // 2017 is two pages past what's loaded — tapping it walks the same
-      // paginated cursor loadMore() would, automatically, through 2016
-      // (loading it as a side effect) to reach 2017.
+      // 2017 is 72 races past what's loaded (20 of 92 total) — tapping it
+      // walks the same paginated cursor loadMore() would, automatically,
+      // through 2016 (loading it as a side effect) to reach 2017.
+      lazyYearRequestCount = 0;
       await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2017"));
 
       await waitFor(() => {
@@ -805,8 +833,19 @@ export const TappingACollapsedYearWalksForwardAndLoadsIt: Story = {
       }, { timeout: 5000 });
       await expect(canvas.getByTestId("industry-sp-day-2017-06-01")).toBeInTheDocument();
 
-      // 2016 was loaded along the way even though nobody tapped it directly.
+      // 2016 (and the rest of 2015) loaded as a side effect of walking
+      // through them to reach 2017.
       await expect(canvas.getByTestId("industry-sp-year-count-2016")).toHaveTextContent("1 races");
+      await expect(canvas.getByTestId("industry-sp-year-count-2015")).toHaveTextContent("90 races");
+
+      // The actual regression proof: doubling batches (20 -> 40 -> 80 ->
+      // 92) cross a 72-race gap in 3 requests, not the ~4 individual
+      // 20-race pages the old one-page-at-a-time walk would have needed
+      // for this small a gap (and the ~250 confirmed on live prod for the
+      // real ~4900-race one — see the isp-lazy-year-slow-walk prod-repro
+      // script). Generously bounded well below what "one request per 20
+      // races" would produce, without pinning the exact number.
+      expect(lazyYearRequestCount).toBeLessThanOrEqual(4);
     } finally {
       window.history.pushState({}, "", window.location.pathname);
     }
@@ -824,14 +863,17 @@ export const ExpandAllChasesTheLastYear: Story = {
 
       await userEvent.click(btn); // -> Collapse All
       await expect(btn).toHaveTextContent("Expand All");
+      lazyYearRequestCount = 0;
       await userEvent.click(btn); // -> Expand All: chase the last year (2017)
 
       await waitFor(() => {
         expect(canvas.getByTestId("industry-sp-year-count-2017")).toHaveTextContent("1 races");
       }, { timeout: 5000 });
-      // 2016 loaded as a side effect of walking through it to reach 2017.
+      // 2016 (and the rest of 2015) loaded as a side effect of walking
+      // through them to reach 2017.
       await expect(canvas.getByTestId("industry-sp-year-count-2016")).toHaveTextContent("1 races");
       await expect(canvas.getByTestId("industry-sp-day-2017-06-01")).toBeInTheDocument();
+      expect(lazyYearRequestCount).toBeLessThanOrEqual(4);
     } finally {
       window.history.pushState({}, "", window.location.pathname);
     }
