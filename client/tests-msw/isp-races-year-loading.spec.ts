@@ -80,6 +80,33 @@ test.describe("Industry SP races screen — per-year direct loading (MSW mocked)
     await expect(page.getByTestId("industry-sp-day-2025-06-01")).not.toBeVisible();
   });
 
+  test("an expanded year renders a placeholder header for every month it could contain, not just months with loaded data", async ({ page }) => {
+    await page.goto("/isp/races?minDate=2024-01-01&maxDate=2025-12-31");
+    await expect(page.getByTestId("industry-sp-year-count-2024")).toHaveText("20 races", { timeout: 10000 });
+
+    // Only June 2024 has any loaded races (page 1 of the fixture's 45),
+    // but 2024's own year-header count (45 total, per Load more's own
+    // "remaining" math) means the year isn't fully loaded — every other
+    // month in 2024 should still get its own collapsed header, labeled to
+    // distinguish "not loaded yet" from "confirmed nothing here".
+    await expect(page.getByTestId("industry-sp-month-2024-06")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-month-count-2024-06")).toHaveText("20 races");
+    await expect(page.getByTestId("industry-sp-month-2024-01")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-month-count-2024-01")).toHaveText("Not loaded yet");
+    await expect(page.getByTestId("industry-sp-month-2024-12")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-month-count-2024-12")).toHaveText("Not loaded yet");
+
+    // Loading the rest of 2024 (all 45, entirely in June per the fixture)
+    // resolves that ambiguity to a real "0 races" for the empty months —
+    // it's now known there really is nothing in January, not just
+    // unfetched.
+    await page.getByTestId("industry-sp-year-load-more-2024").click();
+    await expect(page.getByTestId("industry-sp-year-count-2024")).toHaveText("40 races", { timeout: 10000 });
+    await page.getByTestId("industry-sp-year-load-more-2024").click();
+    await expect(page.getByTestId("industry-sp-year-count-2024")).toHaveText("45 races", { timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-month-count-2024-01")).toHaveText("0 races");
+  });
+
   test("tapping a collapsed year fetches only that year, without touching the already-loaded year", async ({ page }) => {
     await page.goto("/isp/races?minDate=2024-01-01&maxDate=2025-12-31");
     await expect(page.getByTestId("industry-sp-year-count-2024")).toHaveText("20 races", { timeout: 10000 });

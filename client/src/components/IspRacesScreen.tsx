@@ -16,7 +16,9 @@ import {
   runnerPnl,
   formatRaceTime,
   raceYearKey,
+  raceMonthLabel,
   yearsInRange,
+  monthsInRange,
   toFormCategory,
   OddsMode,
   modelBeatsSp,
@@ -32,7 +34,7 @@ import {
   urlSortParam,
   updateUrlParams,
 } from "../utils/ispUrlParams";
-import { buildHierarchy, collectHierarchyNodeKeys, YearNode } from "../utils/raceHierarchy";
+import { buildHierarchy, collectHierarchyNodeKeys, YearNode, MonthNode } from "../utils/raceHierarchy";
 
 const PAGE_SIZE = 20;
 
@@ -65,6 +67,19 @@ function buildRaceHierarchy(races: IspRace[]) {
 function mergeYearPlaceholders(hierarchy: YearNode<IspRace>[], yearKeys: string[]): YearNode<IspRace>[] {
   const byKey = new Map(hierarchy.map(y => [y.key, y]));
   return yearKeys.map(key => byKey.get(key) ?? { key, items: [], months: [] });
+}
+
+// Same idea, one level down: a year whose own data hasn't all loaded yet
+// (its "Load more" hasn't reached every month within it) still gets a
+// header for every month it *could* contain, not just the ones its
+// currently-loaded races happen to fall in — e.g. July 2024's races
+// loading in first shouldn't mean August/September/... 2024 simply don't
+// exist on screen until "Load more" happens to reach them.
+function mergeMonthPlaceholders(year: YearNode<IspRace>, effectiveMinDate: string, effectiveMaxDate: string, order: "asc" | "desc"): MonthNode<IspRace>[] {
+  const { from, to } = yearBounds(year.key, effectiveMinDate, effectiveMaxDate);
+  const monthKeys = monthsInRange(from, to, order);
+  const byKey = new Map(year.months.map(m => [m.key, m]));
+  return monthKeys.map(key => byKey.get(key) ?? { key, label: raceMonthLabel(`${key}-01T00:00:00`), items: [], days: [] });
 }
 
 // Loading state for one calendar year's own races — each expanded year
@@ -325,7 +340,10 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // races loaded so far still gets a header, just an empty/placeholder one
   // (see mergeYearPlaceholders), so the user can see and tap it instead of
   // it silently not existing until the pagination cursor happens to reach it.
-  const hierarchy = mergeYearPlaceholders(buildRaceHierarchy(visibleRaces), yearKeys);
+  const hierarchy = mergeYearPlaceholders(buildRaceHierarchy(visibleRaces), yearKeys).map(year => ({
+    ...year,
+    months: mergeMonthPlaceholders(year, effectiveMinDate, effectiveMaxDate, sortOrder),
+  }));
   const allNodeKeys = collectHierarchyNodeKeys(hierarchy);
   const isAllCollapsed = allNodeKeys.length > 0 && allNodeKeys.every(k => collapsedKeys.has(k));
 
@@ -409,6 +427,20 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     if (state?.error) return "Failed to load — tap to retry";
     if (state) return "0 races";
     return "Tap to load";
+  }
+
+  // A placeholder month (no races loaded for it yet) is ambiguous the same
+  // way a placeholder year is — it could mean "this year's own fetch just
+  // hasn't reached this month yet" (its own year's "Load more" is what
+  // would reach it, not anything on the month itself) or "this year is
+  // fully loaded and there's genuinely nothing here". Distinguishing them
+  // needs the *year's* own load state, since months don't have one of
+  // their own.
+  function monthCountLabel(yearKey: string, month: MonthNode<IspRace>): string {
+    if (month.items.length > 0) return `${month.items.length} races`;
+    const yearState = yearStates[yearKey];
+    if (yearState && yearState.total != null && yearState.races.length >= yearState.total) return "0 races";
+    return "Not loaded yet";
   }
 
   return (
@@ -524,7 +556,9 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                         >
                           <Text style={[styles.groupChevron, styles.groupChevronLight]}>{monthCollapsed ? "▸" : "▾"}</Text>
                           <Text style={styles.monthLabel}>{month.label}</Text>
-                          <Text style={[styles.groupCount, styles.groupCountLight]}>{month.items.length} races</Text>
+                          <Text testID={`industry-sp-month-count-${month.key}`} style={[styles.groupCount, styles.groupCountLight]}>
+                            {monthCountLabel(year.key, month)}
+                          </Text>
                           {monthPnl.staked > 0 && (
                             <Text testID={`industry-sp-month-pnl-${month.key}`} style={[styles.groupPnl, monthPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
                               {formatPnl(monthPnl.pnl)} ({formatPct(monthPnl.pnl, monthPnl.staked)})

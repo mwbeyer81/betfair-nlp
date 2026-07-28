@@ -217,6 +217,30 @@ export function yearsInRange(minDate: string, maxDate: string, order: "asc" | "d
   return order === "desc" ? years.reverse() : years;
 }
 
+// Same idea as yearsInRange, one level down — every "YYYY-MM" a
+// minDate/maxDate range touches, in sort order. Used to render a month
+// header for every month a given year's own (already-clipped) date span
+// could contain, even before any race data for that month has loaded —
+// same rationale as yearsInRange, one level down the hierarchy.
+export function monthsInRange(minDate: string, maxDate: string, order: "asc" | "desc" = "asc"): string[] {
+  const minYear = parseInt(minDate.slice(0, 4), 10);
+  const minMonth = parseInt(minDate.slice(5, 7), 10);
+  const maxYear = parseInt(maxDate.slice(0, 4), 10);
+  const maxMonth = parseInt(maxDate.slice(5, 7), 10);
+  if (![minYear, minMonth, maxYear, maxMonth].every(Number.isFinite)) return [];
+  const months: string[] = [];
+  let y = minYear, m = minMonth;
+  while (y < maxYear || (y === maxYear && m <= maxMonth)) {
+    months.push(`${y}-${String(m).padStart(2, "0")}`);
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+  return order === "desc" ? months.reverse() : months;
+}
+
 // Builds the same human-readable filter-summary chips PnlConvergencePanel
 // shows (see IndustrySpScreen.buildConvergenceFilterSummary) from a raw
 // URL-param string map instead of live component state — used by
