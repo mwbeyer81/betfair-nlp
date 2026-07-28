@@ -138,7 +138,7 @@ tiebreaker.
 | `~/betfair-nlp-results-white-screen` | `fix/results-white-screen` | Prod bug: clicking Results showed a blank white screen for a legacy (pre-Split-A/B) saved result — see dated entry below | done, verified, committing/deploying now |
 | `~/betfair-nlp-results-filter-sort` | `feat/results-filter-sort` | Results screen (`SavedResultsListScreen.tsx`): add an icon to the existing "AI Training" badge, add a User/Agent source filter (All / Mine / AI Training), confirm date+PnL sort already works via the existing sort toggle. **Touches `SavedResultsListScreen.tsx`/`.stories.tsx`, `tests-msw/saved-results.spec.ts`, `tests-local-ci/saved-results-ui.spec.ts`** — watch for conflicts with any other worktree still touching that screen. | in progress |
 | `~/betfair-nlp-live-perf-styling` | `fix/live-perf-styling` | UI polish follow-up to `feat/live-filter-performance-drilldown`/`fix/live-perf-return-nav` (see rows above): user asked for the Live Performance section's meeting-link tappable affordance to be less "horrible underlined" and more obvious another way, plus more row/grid divider lines so PnL numbers are easier to scan left-to-right — matching existing conventions elsewhere in the app rather than inventing new styling. Pure visual/styling change, `SavedResultDetailScreen.tsx` only. | **done — merged (`d55adfa`), deployed (web only), live-verified**: meeting label now bold `colors.accent`, no underline (same as `IspRacesScreen.tsx`'s `eventName` link style); `borderBottomWidth: 1, borderBottomColor: colors.border` added to every row level (year/month/day/meeting/race), same divider convention as `IspRacesScreen`/`IndustryMeetingScreen`/`IndustryRaceScreen`. Verified visually via a Storybook screenshot (`LivePerformancePopulated` story) before shipping — per the "skip full e2e for UI-only changes" convention, verification was build + screenshot + Storybook interaction tests only (20/20 pass), no full MSW/local-ci run needed for a pure style change. Worktree removed. |
-| `~/betfair-nlp-result-detail-wide-cap` | `fix/result-detail-wide-cap` | User reported (screenshot at a wide desktop viewport) an issue on `SavedResultDetailScreen.tsx` (`/results/detail`); investigation found the reported "tooltip" is just the browser's own native back-button hover text (`Click to go back, hold to see history` — verified this string exists nowhere in the codebase or its history), not an app bug. The **real** wide-viewport bug: this screen never wraps its content in `PageContainer` (unlike every other screen — `/isp`, `/events`, `/runners`, etc.), so the Split A/B cards, Live Performance section, and the bottom Restore/Delete action bar all stretch edge-to-edge at wide widths instead of capping/centering (confirmed via a local MSW repro: `saved-result-split-card-a` measured 1975px wide at a 1999px viewport). Fix: wrap the `ScrollView` content and the `actionsRow` bottom bar each in their own `PageContainer`. **Also touched `SavedResultDetailScreen.tsx`** concurrently with `~/betfair-nlp-live-perf-styling` (row above) — merged cleanly (auto-merge, no conflict on this file; only this table's own row landed as a conflict, both entries kept), since that change only touched `liveMeetingLabel`/divider styles and this one only the outer wrapper/container level. | in progress |
+| `~/betfair-nlp-result-detail-wide-cap` | `fix/result-detail-wide-cap` | User reported (screenshot at a wide desktop viewport) an issue on `SavedResultDetailScreen.tsx` (`/results/detail`); investigation found the reported "tooltip" is just the browser's own native back-button hover text (`Click to go back, hold to see history` — verified this string exists nowhere in the codebase or its history), not an app bug. The **real** wide-viewport bug: this screen never wraps its content in `PageContainer` (unlike every other screen — `/isp`, `/events`, `/runners`, etc.), so the Split A/B cards, Live Performance section, and the bottom Restore/Delete action bar all stretch edge-to-edge at wide widths instead of capping/centering (confirmed via a local MSW repro: `saved-result-split-card-a` measured 1975px wide at a 1999px viewport). Fix: wrap the `ScrollView` content and the `actionsRow` bottom bar each in their own `PageContainer`. **Also touched `SavedResultDetailScreen.tsx`** concurrently with `~/betfair-nlp-live-perf-styling` (row above) — merged cleanly (auto-merge, no conflict on this file; only this table's own row landed as a conflict, both entries kept), since that change only touched `liveMeetingLabel`/divider styles and this one only the outer wrapper/container level. **Also caught a pre-existing bug of my own while merging**: the legacy-result (pre-Split-A/B) branch's action bar still referenced the old full-bleed `styles.actionsRow` directly (position:absolute/background/border, which the fix moved onto a new `actionsBar` wrapper) — would have rendered inline with no background/border/fixed position for that one path. Fixed to use the same `actionsBar`+`PageContainer` wrapping as the main path. | **done — merged (`0ce536f`), deployed (web only). Not live-verified against the real, authenticated `/results/detail` page** — this route sits behind the login wall and this agent has no real account credentials; verified instead via the full local MSW suite (`saved-results.spec.ts`, 14/14 incl. 2 new wide-viewport tests) against the same built bundle that shipped, plus a real-browser screenshot of that bundle at 1999px showing Split A/B cards and the action bar both capped/centered exactly as intended. Worktree removed. |
 | `~/betfair-nlp-live-perf-return-nav` | `fix/live-perf-return-nav` | Real prod bug, reported with screenshots: from `SavedResultDetailScreen.tsx`'s Live Performance section (see `feat/live-filter-performance-drilldown` above), tapping a meeting navigates to `IndustryMeetingScreen` (`/isp/meeting`), but pressing back there does not return to the Result page — went to a hardcoded fallback instead. Root cause: `onNavigateToMeeting`/`onNavigateToRace` never attached `buildReturnParams(route)` (unlike `onNavigateToRunner`, which already did), and `/isp/meeting`/`/isp/race`'s own `onBack` never consulted `resolveReturn`. **Second, subtler layer found while testing the fix**: `IndustryRaceScreen`'s own back button always jumps "up" to its meeting (unrelated, pre-existing, deliberate behavior — not something to change) — that hop must *forward* the race's own already-resolved return pointer rather than create a fresh one pointing back at the race itself, or one "back" tap from a race turns into a Race⇄Meeting loop that never reaches the Result page; caught by the second local-ci/MSW test case, not the first. | **done — merged (`af77c17`), deployed (web only, no backend changes), live-verified** — the prod-repro script (`live-perf-meeting-return-nav-2026-07-28.spec.ts`) failed against real prod before the fix (confirmed root cause: back landed on the Races list, "20/100 races" header, not the Result page) and passes against it after. New `tests-local-ci/live-performance-return-nav.spec.ts` (2 cases, real backend/DB — needed a new `src/commands/seed-live-filter-result-fixture.ts` since Live Performance rows are normally cron-written and local-ci doesn't run the cron) and `tests-msw/live-performance-return-nav.spec.ts` (2 cases) both pass, 28-29/29 `test:e2e:local-ci`, MSW suite unaffected in the areas this touches (full-suite runs show a few unrelated flakes under heavy concurrent-agent CPU contention this session — same documented pattern as the entry above and elsewhere in this file, confirmed by re-running the specific navigation/drill-down specs cleanly on their own). Worktree removed. |
 | `~/betfair-nlp-header-wide-single-line` | `fix/header-wide-single-line` | User reported (screenshot of `app.backbet.co.uk/isp` at a wide browser window) that the header renders as two visual lines — "BackBet" brand row, then the nav/action buttons row below it (this is `AppHeader.tsx`'s always-two-rows design from `feat/unified-header`, chosen deliberately there for narrow phones — see that dated entry). At wide desktop widths there's ample room to fit brand + buttons on one line instead. **Touches `client/src/components/AppHeader.tsx`/`useHeaderMenu.ts`/`HeaderActionsContainer.tsx`** (the shared header every screen uses) — watch for conflicts with any other worktree touching those files. Plan: gate on the existing-but-previously-unused `BREAKPOINTS.wide` (1440px) — render the actions row inline inside `Appbar.Header` (same line as the brand) at `isWide`, keep the current stacked-below layout unchanged below that. Add MSW regression coverage at a wide viewport. | **done** — merged to `develop` (`ae3a27b`), deployed, live-verified; worktree can be removed |
 | `~/betfair-nlp-live-filter-performance-drilldown` | `feat/live-filter-performance-drilldown` | Follow-up to the now-merged `feat/live-filter-performance` (see row above/history): user asked for the Live Performance section's meeting rows to be tappable, drilling into per-race breakdown the same way `IspRacesScreen.tsx`'s Races view already does. Changed `saved_filter_set_live_results` from one doc per (filter set, meeting, day) to one doc per (filter set, race) — `IndustrySpDAO.getQualifyingResultsByMeetingForDate` renamed to `getQualifyingRacesForDate`, grouping by race instead of meeting; meeting-level P&L is now a client-side sum over its races (same pattern `IspRacesScreen.tsx` already used). New `onNavigateToMeeting`/`onNavigateToRace` props on `SavedResultDetailScreen.tsx`, wired in `App.tsx` to the same `/isp/meeting`/`/isp/race` routes the Races view uses — runner-level drill-down from the race screen needed no changes at all. **Real production data question, asked and confirmed with the user**: 14 old-shape docs existed from this same feature's own first live run minutes earlier — user chose to delete them (low-stakes, would repopulate correctly the next cron run regardless) over a defensive frontend filter. **Touches `industry-sp-dao.ts` again** (still flagged hot). | **done — merged to `develop` (`123b529`, plus a tiny follow-up log-wording fix `41b38d1`), deployed (Lambda + web), live-verified**: backend/frontend build clean, Supertest 163/163, mongo integration test rewritten for per-race grouping (renamed to `industry-sp-dao-live-race-results.integration.test.ts`, 5/5 pass, added a same-meeting-two-races case the old per-meeting test never covered), Storybook 20/20 (3 new: meeting-link/race-row navigation, meeting-only collapse), `yarn test:e2e:local-ci` 28/29 (same single pre-existing unrelated failure). Deleted the 14 stale docs from production (user-approved) before deploying — self-healing `dropIndex`/`createIndex` in `LiveFilterResultDAO.createIndexes()` also handles the unique-key change for any future deploy. Live-verified via a synthetic `aws lambda invoke` post-deploy: real per-race docs confirmed in Mongo with `raceId`/`raceTime`/`raceName` populated (e.g. "Hkjc World Pool Lennox Stakes (Group 2)", Goodwood 28 July 2026). `app.backbet.co.uk`'s `build-commit` meta tag confirmed `41b38d1`. Worktree removed. |
@@ -4346,3 +4346,66 @@ Deployed: `develop@1559ad1` → app.backbet.co.uk, verified live via the
 `build-commit` meta tag and the prod-repro script re-run above (20.4s
 pre-fix -> 9 requests/17.8s post-fix, same live bundle, same synthetic
 scenario, before vs. after). Worktree removed, branch deleted.
+
+## 2026-07-28 (later still) — `~/betfair-nlp-result-detail-wide-cap` (branch `fix/result-detail-wide-cap`), merged into `develop`
+
+**Task:** user reported (screenshot at a wide desktop viewport) a problem
+on `SavedResultDetailScreen.tsx` (`/results/detail`). The screenshot's
+most visually odd element — a floating box reading "Click to go back,
+hold to see history" — turned out to be a red herring: verified via
+`grep`/full git-history search that this exact string appears nowhere
+in this codebase; it's the browser's own native back-button hover
+tooltip (Chromium), unrelated to any app code.
+
+**Real bug:** this screen was the only one in the app that never
+wrapped its scrollable content in `PageContainer` (every other screen —
+`/isp`, `/events`, `/runners`, etc. — does). At wide desktop viewports
+the Split A/B cards, Live Performance section, and the bottom Restore
+filters/Delete action bar all stretched edge-to-edge instead of
+capping/centering. Confirmed via a local MSW repro before touching any
+code: `saved-result-split-card-a` measured 1975px wide at a 1999px
+viewport (matching the width implied by the user's screenshot).
+
+**Fix:** wrapped the `ScrollView`'s content in `<PageContainer>`
+(default 900px cap), and split the bottom action bar's `actionsRow`
+style into two — `actionsBar` (the full-bleed `position:"absolute"`/
+background/border wrapper) and `actionsRow` (the button row's own
+flex/gap/padding, now inside its own `PageContainer` nested in
+`actionsBar`) — so the Restore filters/Delete buttons cap and center
+the same way the content above them does.
+
+**Real merge conflict, resolved:** `~/betfair-nlp-live-perf-styling`
+(row above) landed on `develop` mid-task, touching the same file's
+Live Performance section styling (underline/divider changes) — a real
+`AGENTS.md` table conflict (both branches added a row at the same
+point), resolved by keeping both entries; `SavedResultDetailScreen.tsx`
+itself auto-merged cleanly since the two changes touched disjoint parts
+of the file (outer wrapper vs. inner list-item styling).
+
+**Own pre-existing bug caught while merging, not a merge artifact:**
+the legacy-result (pre-Split-A/B) rendering branch had its own second
+copy of the action bar `View`, still pointed at the old (now-stripped)
+`styles.actionsRow` directly — before this fix that style carried the
+absolute-position/background/border; after moving those onto the new
+`actionsBar`, that one code path would have silently lost its fixed
+bottom position and background. Caught by re-reading the full diff
+before committing, not by a test (no MSW test exercises the legacy
+path's action bar specifically) — fixed to use the same
+`actionsBar`+`PageContainer` wrapping as the main path.
+
+**Verified:** `yarn build` clean, both before and after the merge. Full
+`saved-results.spec.ts` suite 14/14 (2 new: cards capped+centered,
+action bar capped) both before and after the merge. Real-browser
+screenshot of the exact built bundle at 1999px confirms Split A/B cards
+and the action bar both cap at ~900px and center, matching every other
+screen's convention.
+
+**Not live-verified against the real, authenticated production page**
+— `/results/detail` sits behind the login wall and this agent has no
+real account credentials to reach it on `app.backbet.co.uk` directly
+(same limitation noted by other agents elsewhere in this file). Verified
+instead against the identical built bundle via MSW + a direct headless
+screenshot. Whoever can log in for real should do a final visual check.
+
+Deployed: `develop@0ce536f` → app.backbet.co.uk (`build-commit`
+confirmed via meta tag). Worktree removed, branch deleted.
