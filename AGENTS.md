@@ -126,6 +126,7 @@ tiebreaker.
 
 | Worktree | Branch | Task | Status |
 |---|---|---|---|
+| `~/betfair-nlp-daily-races-filters` | `feat/daily-races-filters` | ISP-style filters on `DailyRacesScreen.tsx` (model win%, trainer form, field size, course/going/class/type/region chips, trainer/jockey search) + a new "Today's Picks" list, plus a "minimum value odds" badge (`client/src/utils/dailyRaceFormat.ts`: `minValueDecimalOdds`/`decimalToFractionalOdds` — breakeven decimal+fractional odds computed purely from `modelWinProbability`, no live odds source exists for upcoming races) on both `DailyRacesScreen.tsx` and `DailyRaceScreen.tsx`. **Note:** a separate, unrelated worktree `~/betfair-nlp-daily-race-fair-odds` (branch `feat/daily-race-fair-odds`) was found concurrently building an overlapping odds badge on `DailyRaceScreen.tsx` only (no filters) — per user direction this one's version was kept; the other worktree's uncommitted work was left as-is for the user to close out, not merged. | in progress — build clean, Storybook (26/26 on the two touched files) + MSW (4/4) tests pass; local-ci suite not run this round (time-constrained), should be run before merge |
 | `/home/ubuntu/betfair-nlp` | `develop` | primary checkout | — |
 | `~/betfair-nlp-deploy-develop` | `develop` (detached) | persistent — `/deploy-web` builds from here | keep |
 | `~/betfair-nlp-deploy-main` | `main` (detached) | persistent — `/deploy-backbet` builds from here | keep |

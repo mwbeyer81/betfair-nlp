@@ -261,6 +261,7 @@ export default function App() {
           onLogout={onLogout}
           date={queryParams.get("date") ?? undefined}
           onNavigateToEvent={(eventId) => navigate("/daily-races/event", `id=${encodeURIComponent(eventId)}`)}
+          onNavigateToRace={(raceId) => navigate("/daily-races/race", `id=${encodeURIComponent(raceId)}`)}
         />
       );
     }

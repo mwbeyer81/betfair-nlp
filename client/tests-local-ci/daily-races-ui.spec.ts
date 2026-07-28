@@ -64,4 +64,27 @@ test.describe("Daily Races against the seeded fixture (real frontend + backend)"
     await expect(page.getByTestId("daily-runner-detail-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("daily-runner-detail-model-win-probability")).toBeVisible();
   });
+
+  test("Today's Picks surfaces the overlap-fixture horse with a value-odds badge, and it navigates to its race", async ({ page }) => {
+    await gotoDailyRaces(page);
+
+    // Default filters (no threshold raised) are enough — Fixture Star has a
+    // real, non-null modelWinProbability from the seeded model run, so
+    // pressing Apply once is all that's needed to surface it.
+    await page.getByTestId("daily-races-filter-apply").click();
+    await expect(page.getByTestId("daily-races-picks-list")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-pick-hrs_test_0001")).toBeVisible();
+
+    const oddsBadge = page.getByTestId("daily-races-pick-value-odds-hrs_test_0001");
+    await expect(oddsBadge).toBeVisible();
+    const oddsText = (await oddsBadge.textContent()) ?? "";
+    expect(oddsText).toMatch(/^Value ≥ \d+\.\d{2} \(\d+\/\d+\)$/);
+
+    await page.getByTestId("daily-races-pick-hrs_test_0001").click();
+    await expect(page.getByTestId("daily-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-race-loading")).not.toBeVisible({ timeout: 15000 });
+    const raceOddsBadge = page.getByTestId("daily-race-item-value-odds-hrs_test_0001");
+    await expect(raceOddsBadge).toBeVisible();
+    await expect(raceOddsBadge).toHaveText(oddsText);
+  });
 });

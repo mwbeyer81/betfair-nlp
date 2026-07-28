@@ -3,7 +3,9 @@ import { test, expect } from "./fixtures";
 // fixtures.ts mocks 3 daily racecards across 2 events:
 // newton-abbot-2026-06-03 (rac_test_0001, rac_test_0002) and
 // ascot-2026-06-03 (rac_test_0003). rac_test_0001 has 2 runners
-// (hrs_1 "Fixture Star", hrs_2 "Second Fixture").
+// (hrs_1 "Fixture Star", hrs_2 "Second Fixture"). hrs_1 has a
+// modelWinProbability of 25 (-> breakeven decimal odds 4.00, "3/1");
+// hrs_2 has none, so it never qualifies for the Today's Picks filters below.
 
 test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
   test("burger menu link opens Daily Races", async ({ page }) => {
@@ -63,5 +65,28 @@ test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
     await expect(page.getByTestId("daily-race-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("daily-race-error")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("daily-race-list")).not.toBeVisible();
+  });
+
+  test("applying a model win% filter narrows Today's Picks and shows the value-odds badge, and a pick navigates to its race", async ({ page }) => {
+    await page.goto("/daily-races");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    // No Apply pressed yet — Today's Picks hasn't appeared.
+    await expect(page.getByTestId("daily-races-picks-list")).not.toBeVisible();
+
+    await page.getByTestId("daily-races-min-model-win-probability").fill("20");
+    await page.getByTestId("daily-races-filter-apply").click();
+
+    await expect(page.getByTestId("daily-races-picks-list")).toBeVisible();
+    await expect(page.getByTestId("daily-races-pick-hrs_1")).toBeVisible();
+    await expect(page.getByTestId("daily-races-pick-value-odds-hrs_1")).toHaveText("Value ≥ 4.00 (3/1)");
+    await expect(page.getByTestId("daily-races-pick-hrs_2")).not.toBeVisible();
+
+    await page.getByTestId("daily-races-pick-hrs_1").click();
+    await expect(page.getByTestId("daily-race-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/daily-races/race");
+    await expect(page.getByTestId("daily-race-item-hrs_1")).toBeVisible();
+    await expect(page.getByTestId("daily-race-item-value-odds-hrs_1")).toHaveText("Value ≥ 4.00 (3/1)");
   });
 });

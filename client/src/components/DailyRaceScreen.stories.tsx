@@ -89,6 +89,41 @@ export const ModelBadgeVisible: Story = {
   },
 };
 
+export const ValueOddsBadgeVisible: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-race-list");
+    // modelWinProbability 62.5 -> breakeven decimal odds 100/62.5 = 1.60,
+    // nearest simple fraction 3/5.
+    const badge = canvas.getByTestId(`daily-race-item-value-odds-${MOCK_RACE.runners[0].runnerId}`);
+    await expect(badge).toBeInTheDocument();
+    await expect(badge).toHaveTextContent("Value ≥ 1.60 (3/5)");
+    // Second runner has no modelWinProbability — badge must not render at all.
+    await expect(
+      canvas.queryByTestId(`daily-race-item-value-odds-${MOCK_RACE.runners[1].runnerId}`)
+    ).not.toBeInTheDocument();
+  },
+};
+
+export const ValueOddsTooltipToggle: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-race-list");
+    const runnerId = MOCK_RACE.runners[0].runnerId;
+
+    await expect(canvas.queryByTestId(`daily-race-item-value-odds-tooltip-${runnerId}`)).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId(`daily-race-item-value-odds-${runnerId}`));
+    await expect(canvas.getByTestId(`daily-race-item-value-odds-tooltip-${runnerId}`)).toHaveTextContent(
+      "no live market price is used"
+    );
+    await expect(args.onNavigateToRunner).not.toHaveBeenCalled();
+
+    await userEvent.click(canvas.getByTestId(`daily-race-item-value-odds-${runnerId}`));
+    await expect(canvas.queryByTestId(`daily-race-item-value-odds-tooltip-${runnerId}`)).not.toBeInTheDocument();
+  },
+};
+
 export const FormTooltipToggle: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
