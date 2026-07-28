@@ -215,7 +215,19 @@ async function setupApiMocks(page: Page) {
       prize: "£3,769", fieldSize: "2", going: "Good", surface: "Turf",
       runners: [
         // modelWinProbability 25 -> breakeven decimal odds 100/25 = 4.00 (3/1).
-        dailyRunner({ modelWinProbability: 25 }),
+        // Also carries modelTopFactors so the tooltip's "why this %" list has
+        // something to render — hrs_2 below is deliberately left free of any
+        // model fields, since it must NOT qualify for the Today's Picks
+        // filter test further down.
+        dailyRunner({
+          modelWinProbability: 25,
+          modelVersionId: "xgb-test-version",
+          modelTopFactors: [
+            { label: "Strong recent form", direction: "positive" },
+            { label: "In-form trainer", direction: "positive" },
+            { label: "Lower official rating", direction: "negative" },
+          ],
+        }),
         dailyRunner({ runnerId: "hrs_2", horse: "Second Fixture", trainer: "C Trainer", jockey: "D Jockey", number: "2" }),
       ],
     },

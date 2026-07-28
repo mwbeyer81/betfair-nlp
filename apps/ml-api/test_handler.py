@@ -154,5 +154,46 @@ class TestHandlerPrediction(unittest.TestCase):
         self.assertAlmostEqual(sum(by_race["race-B"]), 100.0, delta=0.5)
 
 
+class TestHandlerTopFactors(unittest.TestCase):
+    def test_top_factors_present_and_shaped(self):
+        result = handler.handler({"runners": [make_runner()]}, None)
+        factors = result["predictions"][0]["topFactors"]
+        self.assertLessEqual(len(factors), handler.TOP_FACTORS_COUNT)
+        self.assertGreater(len(factors), 0)
+        for factor in factors:
+            self.assertIn("label", factor)
+            self.assertIn("direction", factor)
+            self.assertIn(factor["direction"], ("positive", "negative"))
+
+    def test_top_factors_only_from_num_cols_labels(self):
+        result = handler.handler({"runners": [make_runner()]}, None)
+        factors = result["predictions"][0]["topFactors"]
+        all_labels = {label for pair in train_and_predict.FEATURE_EXPLANATIONS.values() for label in pair}
+        for factor in factors:
+            self.assertIn(factor["label"], all_labels)
+
+    def test_top_factors_direction_matches_contribution_sign(self):
+        # Exercises _top_factors_for_row directly with synthetic
+        # contributions rather than through the full model pipeline, so
+        # the sign-to-direction mapping is pinned down precisely.
+        feature_values = [0.0] * len(handler.FEATURE_COLS)
+        feature_values[handler.FEATURE_COLS.index("horseAvgRPR")] = 5.0
+        feature_values[handler.FEATURE_COLS.index("officialRating")] = -3.0
+        factors = handler._top_factors_for_row(feature_values)
+        by_label = {f["label"]: f["direction"] for f in factors}
+        self.assertEqual(by_label[train_and_predict.FEATURE_EXPLANATIONS["horseAvgRPR"][0]], "positive")
+        self.assertEqual(by_label[train_and_predict.FEATURE_EXPLANATIONS["officialRating"][1]], "negative")
+
+    def test_top_factors_each_runner_scored_independently(self):
+        runners = [
+            make_runner(runner_id="r1", officialRating=95, horseAvgRPR=95),
+            make_runner(runner_id="r2", officialRating=40, horseAvgRPR=40),
+        ]
+        result = handler.handler({"runners": runners}, None)
+        by_runner = {p["runnerId"]: p["topFactors"] for p in result["predictions"]}
+        self.assertGreater(len(by_runner["r1"]), 0)
+        self.assertGreater(len(by_runner["r2"]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
