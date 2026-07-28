@@ -20,6 +20,7 @@ const MOCK_RACES: Array<{
     id: number; name: string; num: number | null; draw: number | null; status: string; sortPriority: number;
     isp: number; ispFraction: string; isFavourite: boolean;
     trainer?: string; trainerFormRuns?: number; trainerFormWins?: number; trainerFormWinRate?: number | null;
+    modelWinProbability?: number | null;
   }>;
 }> = [
   {
@@ -55,6 +56,39 @@ const MOCK_RACES: Array<{
 ];
 
 const TOTAL_RUNNERS_IN_DB = MOCK_RACES.reduce((s, r) => s + r.runners.length, 0); // 4
+
+// A race with a third runner that fails the "model beats SP" filter — used
+// to prove the race-level P&L badge reflects only the runners actually
+// shown, not every runner in the underlying race.
+const FILTERED_RACE_MOCK = [
+  {
+    raceId: 954500,
+    meetingId: "Wetherby|2026-03-01",
+    meetingName: "Wetherby — 1 March 2026",
+    course: "Wetherby",
+    countryCode: "GB",
+    raceTime: "2026-03-01T13:30:00",
+    raceName: "Wetherby 13:30",
+    raceType: "Chase",
+    ran: 3,
+    runners: [
+      { id: 31001, name: "Red Stripes", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbability: 26 },
+      { id: 31002, name: "Aqlette", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 17, ispFraction: "16/1", isFavourite: false, modelWinProbability: 21 },
+      // No modelWinProbability → modelBeatsSp is false, so this runner is
+      // filtered out of the list — but its -£1.00 loser stake used to still
+      // get folded into the race's P&L total.
+      { id: 31003, name: "Filtered Favourite", num: 3, draw: null, status: "LOSER", sortPriority: 3, isp: 2, ispFraction: "1/1", isFavourite: true },
+    ],
+  },
+];
+
+const withQueryParams = (search: string) => {
+  const Decorator = (Story: React.ComponentType) => {
+    window.history.pushState({}, "", `${window.location.pathname}?${search}`);
+    return <Story />;
+  };
+  return Decorator;
+};
 
 const defaultHandlers = [
   http.get(`${BASE}/api/industry-sp`, () =>
@@ -259,6 +293,51 @@ export const PerRunnerPnl: Story = {
     // Meetingofthewaters: LOSER at ISP 5.5, stake £0.22 → -£0.22
     await expect(canvas.getByTestId("industry-sp-pnl-item-21002")).toHaveTextContent("-£0.22");
     await expect(canvas.getByTestId("industry-sp-stake-21002")).toHaveTextContent("Bet £0.22");
+  },
+};
+
+export const RacePnlMatchesVisibleRunnersWhenFiltered: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp`, () =>
+          HttpResponse.json({
+            success: true,
+            data: FILTERED_RACE_MOCK,
+            count: 1,
+            total: 1,
+            page: 1,
+            limit: 20,
+            totalPages: 1,
+            totalRunners: 3,
+            pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
+          })
+        ),
+      ],
+    },
+  },
+  decorators: [withQueryParams("onlyModelBeatsSp=true")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    try {
+      await canvas.findByTestId("industry-sp-list");
+
+      // Only the two runners where the model beats SP are shown...
+      await expect(canvas.getByTestId("industry-sp-item-name-31001")).toBeInTheDocument();
+      await expect(canvas.getByTestId("industry-sp-item-name-31002")).toBeInTheDocument();
+      await expect(canvas.queryByTestId("industry-sp-item-name-31003")).not.toBeInTheDocument();
+
+      // ...and the race-level P&L badge must equal the sum of exactly those
+      // two runners' P&L (+£1.00 winner, -£0.06 loser = +£0.94), not the
+      // whole field including the filtered-out third runner's -£1.00 loser.
+      const raceRow = canvas.getByTestId("industry-sp-race-954500");
+      await expect(within(raceRow).getByText(/^\+£0\.94/)).toBeInTheDocument();
+    } finally {
+      // The test runner reuses one browser page across stories in this
+      // file — clear the query param this story pushed so it doesn't leak
+      // into whichever story runs next, even if an assertion above throws.
+      window.history.pushState({}, "", window.location.pathname);
+    }
   },
 };
 

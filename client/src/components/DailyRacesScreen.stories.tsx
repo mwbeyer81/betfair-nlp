@@ -23,21 +23,27 @@ const MOCK_RACES = [
     offTime: "1:50", offDt: "2026-06-03T13:50:00+01:00", raceName: "Novices' Hurdle",
     distanceF: "16.0", region: "GB", raceClass: "Class 4", type: "Hurdle", ageBand: "4yo+",
     prize: "£3,769", fieldSize: "1", going: "Good", surface: "Turf",
-    runners: [runner()],
+    // modelWinProbability 25 -> breakeven decimal odds 100/25 = 4.00 (3/1) —
+    // qualifies for both the model-win% and trainer-form filters below.
+    runners: [runner({ modelWinProbability: 25, trainerFormRuns: 5, trainerFormWinRate: 40 })],
   },
   {
     raceId: "rac_2", eventId: "newton-abbot-2026-06-03", course: "Newton Abbot", date: "2026-06-03",
     offTime: "2:25", offDt: "2026-06-03T14:25:00+01:00", raceName: "Handicap Chase",
     distanceF: "24.0", region: "GB", raceClass: "Class 3", type: "Chase", ageBand: "5yo+",
     prize: "£5,912", fieldSize: "1", going: "Good", surface: "Turf",
-    runners: [runner({ runnerId: "hrs_2", horse: "Chase Fixture" })],
+    // Same trainer as rac_1 ("A Trainer", the runner() default) but a low
+    // model win probability — excluded once a model-win% threshold is applied.
+    runners: [runner({ runnerId: "hrs_2", horse: "Chase Fixture", modelWinProbability: 5 })],
   },
   {
     raceId: "rac_3", eventId: "ascot-2026-06-03", course: "Ascot", date: "2026-06-03",
     offTime: "3:05", offDt: "2026-06-03T15:05:00+01:00", raceName: "Maiden Stakes",
     distanceF: "8.0", region: "GB", raceClass: "Class 2", type: "Flat", ageBand: "3yo",
     prize: "£9,400", fieldSize: "1", going: "Good to Firm", surface: "Turf",
-    runners: [runner({ runnerId: "hrs_3", horse: "Ascot Fixture" })],
+    // Different trainer/course from the other two — used to test trainer
+    // search and course-chip narrowing.
+    runners: [runner({ runnerId: "hrs_3", horse: "Ascot Fixture", trainer: "Z Trainer", modelWinProbability: 30 })],
   },
 ];
 
@@ -59,6 +65,7 @@ const meta: Meta<typeof DailyRacesScreen> = {
     isAuthenticated: true,
     onLogout: fn(),
     onNavigateToEvent: fn(),
+    onNavigateToRace: fn(),
   },
 };
 
@@ -141,5 +148,113 @@ export const EmptyState: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.findByTestId("daily-races-empty")).resolves.toBeInTheDocument();
+  },
+};
+
+export const FilterBarVisible: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await expect(canvas.getByTestId("daily-races-filter-bar")).toBeInTheDocument();
+    await expect(canvas.getByTestId("daily-races-min-model-win-probability")).toBeInTheDocument();
+    await expect(canvas.getByTestId("daily-races-filter-apply")).toBeInTheDocument();
+    await expect(canvas.getByTestId("daily-races-filter-reset")).toBeInTheDocument();
+    // No Apply pressed yet — Today's Picks hasn't appeared.
+    await expect(canvas.queryByTestId("daily-races-picks-list")).not.toBeInTheDocument();
+  },
+};
+
+export const ApplyModelFilterShowsPicks: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+
+    const minModelInput = canvas.getByTestId("daily-races-min-model-win-probability");
+    await userEvent.clear(minModelInput);
+    await userEvent.type(minModelInput, "20");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    await expect(canvas.getByTestId("daily-races-picks-list")).toBeInTheDocument();
+    // Fixture Star (25%) and Ascot Fixture (30%) qualify; Chase Fixture (5%) doesn't.
+    await expect(canvas.getByTestId("daily-races-pick-hrs_1")).toBeInTheDocument();
+    await expect(canvas.getByTestId("daily-races-pick-hrs_3")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("daily-races-pick-hrs_2")).not.toBeInTheDocument();
+    // 25 -> breakeven decimal odds 100/25 = 4.00, nearest simple fraction 3/1.
+    await expect(canvas.getByTestId("daily-races-pick-fair-odds-hrs_1")).toHaveTextContent("Fair 3/1 (4.00)");
+  },
+};
+
+export const TrainerSearchNarrowsPicks: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    // A clean baseline — this test-runner can carry filter state over from a
+    // previously-run story in the same suite, same gotcha documented for
+    // IndustrySpScreen's own filter stories.
+    await userEvent.click(canvas.getByTestId("daily-races-filter-reset"));
+
+    const trainerInput = canvas.getByTestId("daily-races-trainer-search");
+    await userEvent.type(trainerInput, "A Trainer");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    // Fixture Star + Chase Fixture are both trained by "A Trainer" (the
+    // runner() default); Ascot Fixture is trained by "Z Trainer".
+    await expect(canvas.getByTestId("daily-races-pick-hrs_1")).toBeInTheDocument();
+    await expect(canvas.getByTestId("daily-races-pick-hrs_2")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("daily-races-pick-hrs_3")).not.toBeInTheDocument();
+  },
+};
+
+export const CourseChipFilter: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    // A clean baseline — see the reset-first note in TrainerSearchNarrowsPicks above.
+    await userEvent.click(canvas.getByTestId("daily-races-filter-reset"));
+
+    const chip = canvas.getByTestId("daily-races-course-Newton Abbot");
+    await userEvent.click(chip);
+    // Selected in the draft but not yet applied — pending visual.
+    await expect(chip).toHaveTextContent("Newton Abbot •");
+
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+    await expect(chip).toHaveTextContent("Newton Abbot");
+    await expect(chip).not.toHaveTextContent("•");
+
+    await expect(canvas.getByTestId("daily-races-pick-hrs_1")).toBeInTheDocument();
+    await expect(canvas.getByTestId("daily-races-pick-hrs_2")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("daily-races-pick-hrs_3")).not.toBeInTheDocument();
+  },
+};
+
+export const ResetFiltersClearsPicks: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+
+    const minModelInput = canvas.getByTestId("daily-races-min-model-win-probability");
+    await userEvent.clear(minModelInput);
+    await userEvent.type(minModelInput, "20");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+    await expect(canvas.getByTestId("daily-races-picks-list")).toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId("daily-races-filter-reset"));
+    await expect(canvas.queryByTestId("daily-races-picks-list")).not.toBeInTheDocument();
+    await expect(canvas.getByTestId("daily-races-min-model-win-probability")).toHaveValue("0");
+  },
+};
+
+export const PickNavigatesToRace: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+
+    const minModelInput = canvas.getByTestId("daily-races-min-model-win-probability");
+    await userEvent.clear(minModelInput);
+    await userEvent.type(minModelInput, "20");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    await userEvent.click(canvas.getByTestId("daily-races-pick-hrs_1"));
+    await expect(args.onNavigateToRace).toHaveBeenCalledWith("rac_1");
   },
 };

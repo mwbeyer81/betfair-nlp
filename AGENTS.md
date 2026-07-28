@@ -126,6 +126,7 @@ tiebreaker.
 
 | Worktree | Branch | Task | Status |
 |---|---|---|---|
+| `~/betfair-nlp-daily-races-filters` | `feat/daily-races-filters` | ISP-style filters on `DailyRacesScreen.tsx` (model win%, trainer form, field size, course/going/class/type/region chips, trainer/jockey search) + a new "Today's Picks" list. **Odds-badge history, resolved:** this branch originally added its own "minimum value odds" badge/utility (`dailyRaceFormat.ts`), duplicating a concurrent, unrelated worktree (`~/betfair-nlp-daily-race-fair-odds`) that was building the same idea on `DailyRaceScreen.tsx`. That other worktree ended up merging+deploying its version to `develop` first (`b01cacf`/`c1a4421` "Add fair-odds pill", `client/src/utils/oddsFormat.ts` — `fairDecimalOdds`/`toFractionalOdds`, snaps to the real UK bookmaker fractional-odds ladder) while this branch was still in progress — on merging `origin/develop` into this branch, kept their already-shipped `DailyRaceScreen.tsx`/`oddsFormat.ts` as-is (real conflict, resolved via `git checkout --theirs`) and switched Today's Picks' own odds badge to reuse `oddsFormat.ts` instead of the now-deleted `dailyRaceFormat.ts` odds functions — one consistent "Fair {fraction} ({decimal})" format app-wide, no duplicate math. **Also found+fixed while re-testing post-merge:** the newly-live 3rd pill (form+model+fair-odds) shifts the runner row's geometric center in a way that a coordinate-based click (Playwright's default `.click()` on the row's own testID) can land on the fair-odds pill's own `stopPropagation()` handler instead of the row — not a real production bug (a user tapping the horse name, the actual content, still navigates fine; only a literal-bounding-box-center click is affected), but it broke two **pre-existing** local-ci/MSW drill-down tests that used the row's testID as their click target. Fixed by retargeting those clicks to the horse-name testID (`daily-race-item-horse-{id}`) instead — no production code changed for this. **Gotcha for whoever runs `test:e2e:local-ci` from a freshly-created worktree:** `data/` and `ml/venv` are both gitignored and not brought over by `git worktree add` — symlink both from the primary checkout (`ln -s /home/ubuntu/betfair-nlp/data ./data`, same for `ml/venv`) before running, then remove the symlinks again before committing (they're untracked but not gitignore-matched as symlinks, so `git add -A` would pick them up). | **done** — merged `origin/develop`, resolved the odds-badge conflict, re-verified everything post-merge: build clean, Storybook (34/34 across the three touched story files), MSW (4/4), local-ci (29/29). Ready to merge to `develop` + deploy. |
 | `/home/ubuntu/betfair-nlp` | `develop` | primary checkout | — |
 | `~/betfair-nlp-deploy-develop` | `develop` (detached) | persistent — `/deploy-web` builds from here | keep |
 | `~/betfair-nlp-deploy-main` | `main` (detached) | persistent — `/deploy-backbet` builds from here | keep |
@@ -3763,3 +3764,52 @@ VM and something using `config/local.json` starts behaving oddly
 `localhost`/dev defaults instead of prod), check whether the file's
 content matches what you expect before assuming your own code changed —
 it may have been overwritten out from under you.**
+
+## 2026-07-28 (later) — primary checkout (branch `fix/isp-races-filtered-race-pnl`, merged into `develop`)
+
+**Task:** user reported via screenshots of `/isp/races` (Industry SP
+filter results, live on app.backbet.co.uk) that a race's P&L total
+didn't match the sum of the individual runner P&Ls shown underneath it
+— a winning bet (+£1.00) and a losing bet (-£0.06) net to +£0.94, but
+the race header showed -£0.23.
+
+**Root cause:** `IspRacesScreen.tsx` renders only the runners that pass
+the active filters (`qualifyingRunners(race)` — Model Win %, Model
+beats SP, trainer-form thresholds), but computed the race-level P&L
+badge from `computeRangePnl([race])`, which sums over the *entire
+unfiltered* `race.runners`. Any runner hidden by the filter still had
+its stake/return folded into the displayed total, so the badge could
+disagree with — even flip the sign of — what was actually shown below
+it. Only `IspRacesScreen.tsx` has this per-race runner-filtering
+concept; `IndustryMeetingScreen.tsx`/`IndustryRaceScreen.tsx`/
+`AllRunnersScreen.tsx` show every runner in a race, so their identical
+`computeRangePnl([race])` calls aren't affected.
+
+**Fix:** one line — `computeRangePnl([{ ...race, runners:
+qualifyingRunners(race) }])` instead of `computeRangePnl([race])`.
+
+**Verified:** `yarn build` clean. Added a Storybook regression story
+(`RacePnlMatchesVisibleRunnersWhenFiltered`) with a 3-runner mock race
+where one loser is filtered out by `onlyModelBeatsSp` — asserts the
+race P&L badge equals only the two visible runners' P&L. Fails on the
+old code, passes on the fix. Full `IspRacesScreen.stories.tsx` suite
+green except one pre-existing, unrelated flake (`ScreenLoaded`'s
+`/Races/` text-regex matching multiple nodes — confirmed present on
+unmodified `develop` too, not introduced here).
+
+**Not done in a worktree** — the fix started as direct edits in the
+primary checkout before this AGENTS.md convention was applied
+retroactively (branch created, committed, merged into `develop` with
+`--no-ff` after fast-forwarding `develop` to `origin/develop`).
+Deployed: `develop@ad600b2` → app.backbet.co.uk, verified live via
+`build-commit` meta tag.
+
+**Heads-up for concurrent agents:** while iterating on the Storybook
+regression test above, ran `pkill -f "storybook dev"` to stop a
+locally-started instance on port 6007 — this matches by process name,
+not port, so on a VM with other agents it could kill *their* Storybook
+too, not just yours. `ps aux | grep storybook` showed nothing running
+afterward, so no visible casualty this time, but per the port-picking
+guidance at the top of this file: never `pkill`/`kill` a Storybook
+process without first confirming (via `ps aux`, checking the command
+line's port) that it's actually yours.
