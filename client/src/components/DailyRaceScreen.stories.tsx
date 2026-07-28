@@ -89,6 +89,22 @@ export const ModelBadgeVisible: Story = {
   },
 };
 
+export const FairOddsBadgeVisible: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-race-list");
+    // modelWinProbability 62.5% -> fair decimal odds 1.60 -> nearest real
+    // bookmaker fraction on the ladder is 8/13.
+    const badge = canvas.getByTestId(`daily-race-item-fair-odds-${MOCK_RACE.runners[0].runnerId}`);
+    await expect(badge).toBeInTheDocument();
+    await expect(badge).toHaveTextContent("Fair 8/13 (1.60)");
+    // Second runner has no modelWinProbability — badge must not render at all.
+    await expect(
+      canvas.queryByTestId(`daily-race-item-fair-odds-${MOCK_RACE.runners[1].runnerId}`)
+    ).not.toBeInTheDocument();
+  },
+};
+
 export const FormTooltipToggle: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
@@ -125,6 +141,45 @@ export const ModelTooltipToggle: Story = {
 
     await userEvent.click(canvas.getByTestId(`daily-race-item-model-${runnerId}`));
     await expect(canvas.queryByTestId(`daily-race-item-model-tooltip-${runnerId}`)).not.toBeInTheDocument();
+  },
+};
+
+export const FairOddsTooltipToggle: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-race-list");
+    const runnerId = MOCK_RACE.runners[0].runnerId;
+
+    await expect(canvas.queryByTestId(`daily-race-item-fair-odds-tooltip-${runnerId}`)).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByTestId(`daily-race-item-fair-odds-${runnerId}`));
+    await expect(canvas.getByTestId(`daily-race-item-fair-odds-tooltip-${runnerId}`)).toHaveTextContent(
+      "break even long-run"
+    );
+    await expect(args.onNavigateToRunner).not.toHaveBeenCalled();
+
+    await userEvent.click(canvas.getByTestId(`daily-race-item-fair-odds-${runnerId}`));
+    await expect(canvas.queryByTestId(`daily-race-item-fair-odds-tooltip-${runnerId}`)).not.toBeInTheDocument();
+  },
+};
+
+export const FairOddsTooltipToggleIcon: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-race-list");
+    const runnerId = MOCK_RACE.runners[0].runnerId;
+
+    const icon = canvas.getByTestId(`daily-race-item-fair-odds-tooltip-toggle-${runnerId}`);
+    await expect(icon).toBeInTheDocument();
+
+    await userEvent.click(icon);
+    await expect(canvas.getByTestId(`daily-race-item-fair-odds-tooltip-${runnerId}`)).toHaveTextContent(
+      "break even long-run"
+    );
+    await expect(args.onNavigateToRunner).not.toHaveBeenCalled();
+
+    await userEvent.click(icon);
+    await expect(canvas.queryByTestId(`daily-race-item-fair-odds-tooltip-${runnerId}`)).not.toBeInTheDocument();
   },
 };
 

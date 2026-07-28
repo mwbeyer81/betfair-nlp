@@ -5,12 +5,15 @@ import { chatApi, DailyRace } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
+import { fairDecimalOdds, toFractionalOdds } from "../utils/oddsFormat";
 import type { Route } from "../hooks/useRouter";
 
 const FORM_TOOLTIP =
   "Recent finishing positions, oldest to newest (left to right). A dash marks the start of a new season. 0 means finished outside the top 9.";
 const MODEL_TOOLTIP =
   "Our model's estimated chance this horse wins the race, based on its recent form. Percentages across all runners in a race add up to about 100%.";
+const FAIR_ODDS_TOOLTIP =
+  "The odds at which backing this horse would break even long-run, based on the model's chance. If a bookmaker offers higher odds than this, it may be worth backing; lower, and it likely isn't.";
 
 interface DailyRaceScreenProps {
   navigate: (to: Route, query?: string) => void;
@@ -147,6 +150,18 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                       {renderTooltipToggle(`${runner.runnerId}:model`, `daily-race-item-model-tooltip-toggle-${runner.runnerId}`)}
                     </>
                   )}
+                  {runner.modelWinProbability != null && fairDecimalOdds(runner.modelWinProbability) != null && (
+                    <>
+                      <TouchableOpacity
+                        onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(`${runner.runnerId}:fairOdds`); }}
+                      >
+                        <Text testID={`daily-race-item-fair-odds-${runner.runnerId}`} style={styles.fairOddsBadge}>
+                          Fair {toFractionalOdds(fairDecimalOdds(runner.modelWinProbability)!)} ({fairDecimalOdds(runner.modelWinProbability)!.toFixed(2)})
+                        </Text>
+                      </TouchableOpacity>
+                      {renderTooltipToggle(`${runner.runnerId}:fairOdds`, `daily-race-item-fair-odds-tooltip-toggle-${runner.runnerId}`)}
+                    </>
+                  )}
                   {openTooltip === `${runner.runnerId}:form` && (
                     <Text testID={`daily-race-item-form-tooltip-${runner.runnerId}`} style={styles.tooltipText}>
                       {FORM_TOOLTIP}
@@ -155,6 +170,11 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                   {openTooltip === `${runner.runnerId}:model` && (
                     <Text testID={`daily-race-item-model-tooltip-${runner.runnerId}`} style={styles.tooltipText}>
                       {MODEL_TOOLTIP}
+                    </Text>
+                  )}
+                  {openTooltip === `${runner.runnerId}:fairOdds` && (
+                    <Text testID={`daily-race-item-fair-odds-tooltip-${runner.runnerId}`} style={styles.tooltipText}>
+                      {FAIR_ODDS_TOOLTIP}
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -201,6 +221,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+  },
+  fairOddsBadge: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.info,
+    backgroundColor: colors.infoLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,
