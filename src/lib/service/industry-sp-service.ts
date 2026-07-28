@@ -318,7 +318,7 @@ export class IndustrySpService {
     }));
   }
 
-  public async getQualifyingResultsByMeetingForDate(p: {
+  public async getQualifyingRacesForDate(p: {
     raceDate: string;
     countries: string[];
     minRunners: number;
@@ -340,6 +340,9 @@ export class IndustrySpService {
     onlyModelBeatsSp: boolean;
   }): Promise<
     {
+      raceId: number;
+      raceTime: string;
+      raceName: string;
       meetingId: string;
       meetingName: string;
       raceDate: string;
@@ -347,7 +350,7 @@ export class IndustrySpService {
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
     }[]
   > {
-    return this.industrySpDAO.getQualifyingResultsByMeetingForDate(p);
+    return this.industrySpDAO.getQualifyingRacesForDate(p);
   }
 
   public async getRacesByMeetingId(meetingId: string): Promise<IspRace[]> {

@@ -72,6 +72,9 @@ interface MockLiveFilterResultDoc {
   filters: Record<string, string>;
   modelVersionId: string | null;
   raceDate: string;
+  raceId: number;
+  raceTime: string;
+  raceName: string;
   meetingId: string;
   meetingName: string;
   pnlStats: { staked: number; returns: number; pnl: number; count: number };
@@ -298,13 +301,14 @@ jest.mock("../../config/database", () => ({
           if (name === "saved_filter_set_live_results") {
             return {
               createIndex: jest.fn().mockResolvedValue(undefined),
+              dropIndex: jest.fn().mockResolvedValue(undefined),
               find: jest.fn().mockImplementation((query: { savedFilterSetId?: unknown }) => ({
                 sort: jest.fn().mockReturnThis(),
                 toArray: jest.fn().mockResolvedValue(
                   mockLiveFilterResults
                     .filter(d => String(d.savedFilterSetId) === String(query?.savedFilterSetId))
                     .slice()
-                    .sort((a, b) => (a.raceDate < b.raceDate ? 1 : -1))
+                    .sort((a, b) => (a.raceTime < b.raceTime ? 1 : -1))
                 ),
               })),
               bulkWrite: jest.fn().mockResolvedValue({}),
@@ -1609,6 +1613,9 @@ describe("API Endpoints", () => {
           filters: { courses: "Ascot" },
           modelVersionId: "xgb-20260727-171521",
           raceDate: "2026-07-27",
+          raceId: 914592,
+          raceTime: "2026-07-27T14:00:00",
+          raceName: "Test Handicap Stakes",
           meetingId: "Ascot|2026-07-27",
           meetingName: "Ascot — 27 July 2026",
           pnlStats: { staked: 4, returns: 6, pnl: 2, count: 4 },
@@ -1620,7 +1627,7 @@ describe("API Endpoints", () => {
         await request(app).get(`/api/saved-filter-sets/${liveTestFilterSetId}/live-performance`).expect(401);
       });
 
-      it("returns 200 with the live rollup rows for the owner, count matching data.length", async () => {
+      it("returns 200 with the live per-race rows for the owner, count matching data.length", async () => {
         const response = await request(app)
           .get(`/api/saved-filter-sets/${liveTestFilterSetId}/live-performance`)
           .set("Authorization", `Bearer ${authToken}`)
@@ -1631,6 +1638,9 @@ describe("API Endpoints", () => {
         expect(response.body.data).toHaveLength(1);
         expect(response.body.data[0]).toMatchObject({
           raceDate: "2026-07-27",
+          raceId: 914592,
+          raceTime: "2026-07-27T14:00:00",
+          raceName: "Test Handicap Stakes",
           meetingId: "Ascot|2026-07-27",
           meetingName: "Ascot — 27 July 2026",
           pnlStats: { staked: 4, returns: 6, pnl: 2, count: 4 },

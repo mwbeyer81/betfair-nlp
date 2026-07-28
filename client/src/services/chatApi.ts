@@ -354,13 +354,19 @@ export interface SavedFilterSetsResponse {
   count: number;
 }
 
-// One real day's qualifying P&L at one meeting, for this filter set — the
-// live, actual-results counterpart to the one-time splitA/splitB backtest
-// snapshot above. Written by the daily results-capture cron once a day's
-// RacingAPI results are in; absent entirely until the first day after this
-// filter set was saved has been captured.
+// One real qualifying race's P&L, for this filter set — the live,
+// actual-results counterpart to the one-time splitA/splitB backtest
+// snapshot above. Per-race (not pre-aggregated per meeting) so the Live
+// Performance section can build the same Meeting → Race tap-through
+// hierarchy the historical Races view already has. Written by the daily
+// results-capture cron once a day's RacingAPI results are in; absent
+// entirely until the first day after this filter set was saved has been
+// captured.
 export interface LiveFilterResult {
   raceDate: string;
+  raceId: number;
+  raceTime: string;
+  raceName: string;
   meetingId: string;
   meetingName: string;
   modelVersionId: string | null;

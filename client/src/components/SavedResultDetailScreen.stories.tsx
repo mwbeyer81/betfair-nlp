@@ -37,6 +37,9 @@ const MOCK_RESULT = {
 const MOCK_LIVE_RESULTS = [
   {
     raceDate: "2026-07-27",
+    raceId: 914592,
+    raceTime: "2026-07-27T14:00:00",
+    raceName: "Ascot Handicap Stakes",
     meetingId: "Ascot|2026-07-27",
     meetingName: "Ascot — 27 July 2026",
     modelVersionId: "xgb-20260727-171521",
@@ -44,6 +47,9 @@ const MOCK_LIVE_RESULTS = [
   },
   {
     raceDate: "2026-07-28",
+    raceId: 914593,
+    raceTime: "2026-07-28T15:30:00",
+    raceName: "Newmarket Novice Stakes",
     meetingId: "Newmarket|2026-07-28",
     meetingName: "Newmarket — 28 July 2026",
     modelVersionId: "xgb-20260727-171521",
@@ -70,6 +76,8 @@ const meta: Meta<typeof SavedResultDetailScreen> = {
     id: "result-1",
     onBack: fn(),
     onRestore: fn(),
+    onNavigateToMeeting: fn(),
+    onNavigateToRace: fn(),
   },
 };
 
@@ -278,6 +286,74 @@ export const LivePerformancePopulated: Story = {
     await expect(canvas.getByTestId("saved-result-live-year-pnl-2026")).toHaveTextContent("£0.00");
     await expect(canvas.getByTestId("saved-result-live-meeting-Ascot|2026-07-27")).toHaveTextContent("+£2.00");
     await expect(canvas.getByTestId("saved-result-live-meeting-Newmarket|2026-07-28")).toHaveTextContent("-£2.00");
+    // Each meeting expands to its own tappable race row — a meeting is no
+    // longer the leaf, unlike the old per-meeting aggregation.
+    await expect(canvas.getByTestId("saved-result-live-race-914592")).toHaveTextContent("Ascot Handicap Stakes");
+    await expect(canvas.getByTestId("saved-result-live-race-pnl-914592")).toHaveTextContent("+£2.00");
+    await expect(canvas.getByTestId("saved-result-live-race-914593")).toHaveTextContent("Newmarket Novice Stakes");
+    await expect(canvas.getByTestId("saved-result-live-race-pnl-914593")).toHaveTextContent("-£2.00");
+  },
+};
+
+export const LiveMeetingLinkNavigatesToMeeting: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/saved-filter-sets/:id/live-performance`, () =>
+          HttpResponse.json({ success: true, data: MOCK_LIVE_RESULTS, count: MOCK_LIVE_RESULTS.length })
+        ),
+        ...defaultHandlers,
+      ],
+    },
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    const meetingLink = await canvas.findByTestId("saved-result-live-meeting-link-Ascot|2026-07-27");
+    await userEvent.click(meetingLink);
+    await expect(args.onNavigateToMeeting).toHaveBeenCalledWith("Ascot|2026-07-27");
+  },
+};
+
+export const LiveRaceRowNavigatesToRace: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/saved-filter-sets/:id/live-performance`, () =>
+          HttpResponse.json({ success: true, data: MOCK_LIVE_RESULTS, count: MOCK_LIVE_RESULTS.length })
+        ),
+        ...defaultHandlers,
+      ],
+    },
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    const raceRow = await canvas.findByTestId("saved-result-live-race-914592");
+    await userEvent.click(raceRow);
+    await expect(args.onNavigateToRace).toHaveBeenCalledWith(914592);
+  },
+};
+
+export const LiveMeetingCollapseHidesOnlyItsRaces: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/saved-filter-sets/:id/live-performance`, () =>
+          HttpResponse.json({ success: true, data: MOCK_LIVE_RESULTS, count: MOCK_LIVE_RESULTS.length })
+        ),
+        ...defaultHandlers,
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("saved-result-live-race-914592")).resolves.toBeInTheDocument();
+    const meetingToggle = await canvas.findByTestId("saved-result-live-meeting-toggle-Ascot|2026-07-27");
+    await userEvent.click(meetingToggle);
+    // Collapsing one meeting hides only its own races — the meeting row
+    // itself and the other meeting/day/year rollups stay visible.
+    await expect(canvas.queryByTestId("saved-result-live-race-914592")).not.toBeInTheDocument();
+    await expect(canvas.getByTestId("saved-result-live-meeting-Ascot|2026-07-27")).toBeInTheDocument();
+    await expect(canvas.getByTestId("saved-result-live-race-914593")).toBeInTheDocument();
   },
 };
 
