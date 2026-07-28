@@ -6,9 +6,11 @@ import { test, expect } from "./fixtures";
 // (hrs_1 "Fixture Star", hrs_2 "Second Fixture"). hrs_1 has a
 // modelWinProbability of 25 (-> breakeven decimal odds 4.00, "3/1");
 // hrs_2 has none, so it never qualifies for the Today's Picks filters below.
-// hrs_1 also carries a real captured result (WINNER, isp 4) — its race has
+// hrs_1 also carries a real captured result (WINNER, isp 5) — its race has
 // already finished, unlike every other runner in this fixture, which stays
 // pending (result: undefined, same as never having been captured yet).
+// hrs_1's 25% model probability beats isp 5's 20% implied price, so it also
+// carries a "beats SP" verdict.
 
 test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
   test("burger menu link opens Daily Races", async ({ page }) => {
@@ -118,16 +120,34 @@ test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
     await page.getByTestId("daily-races-min-model-win-probability").fill("20");
     await page.getByTestId("daily-races-filter-apply").click();
 
-    // hrs_1 (Fixture Star) has a finished result — isp 4 WINNER — so its
+    // hrs_1 (Fixture Star) has a finished result — isp 5 WINNER — so its
     // pick row shows both its original pre-race pick info and the result.
     await expect(page.getByTestId("daily-races-pick-hrs_1")).toBeVisible();
     await expect(page.getByTestId("daily-races-pick-fair-odds-hrs_1")).toHaveText("Fair 3/1 (4.00)");
     await expect(page.getByTestId("daily-races-pick-result-hrs_1")).toHaveText("Won");
     await expect(page.getByTestId("daily-races-pick-pnl-hrs_1")).toHaveText("+£1.00");
+    await expect(page.getByTestId("daily-races-pick-beats-sp-hrs_1")).toHaveText("Beat SP");
 
     // Day P&L totals every resulted pick — only hrs_1 has a captured
     // result here, so the day total equals its own +£1.00, "1 resulted".
     await expect(page.getByTestId("daily-races-picks-day-pnl")).toContainText("Day P&L: +£1.00");
     await expect(page.getByTestId("daily-races-picks-day-pnl")).toContainText("1 resulted");
+  });
+
+  test("the 'only value bets' filter narrows to picks that beat their SP", async ({ page }) => {
+    await page.goto("/daily-races");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("daily-races-only-model-beats-sp").click();
+    await page.getByTestId("daily-races-filter-apply").click();
+
+    // hrs_1 is the only runner in this fixture with a modelWinProbability
+    // at all, and it beats its own SP (25% model vs 20% implied) — the
+    // deeper "narrows to only beats-SP picks, excluding a still-pending
+    // one and a below-SP one" behavior is covered by Storybook
+    // (OnlyModelBeatsSpFilterNarrowsToValueBetsOnly); this is a smoke test
+    // that the checkbox + filter-apply flow works end-to-end.
+    await expect(page.getByTestId("daily-races-pick-hrs_1")).toBeVisible();
   });
 });

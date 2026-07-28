@@ -1,4 +1,5 @@
 import { DailyRace, DailyRaceResult, DailyRaceRunner, PnlStats } from "../services/chatApi";
+import { impliedProbabilityPct } from "./ispFormat";
 
 export interface DailyRacesFilters {
   minModelWinProbability: number;
@@ -6,6 +7,15 @@ export interface DailyRacesFilters {
   minTrainerFormRunners: number;
   minFieldSize: number;
   maxFieldSize: number;
+  // Narrows to only picks that have both finished AND beat their real
+  // starting price (see dailyRacePickBeatsSp) — matches the "beats SP"
+  // condition ISP saved filters already use, but can only ever apply to
+  // picks that have already run (Daily Races has no live bookmaker odds
+  // feed pre-race, so there's nothing to check a still-upcoming pick
+  // against). A still-pending pick is excluded while this is on, not shown
+  // as an exception — same "only count what we can actually verify" rule
+  // as dailyRacePickPnl/computeDailyPicksPnl.
+  onlyModelBeatsSp: boolean;
   selectedCourses: Set<string>;
   selectedGoings: Set<string>;
   selectedRaceClasses: Set<string>;
@@ -24,9 +34,22 @@ export const DAILY_RACES_FILTER_DEFAULTS: Omit<
   minTrainerFormRunners: 0,
   minFieldSize: 1,
   maxFieldSize: 40,
+  onlyModelBeatsSp: false,
   trainerSearch: "",
   jockeySearch: "",
 };
+
+// True when this pick's model confidence rated it higher than its own real
+// starting price implied — i.e. it would have qualified as a "value bet"
+// under the same rule ISP screens' onlyModelBeatsSp/modelBeatsSp use (see
+// ispFormat.ts). Returns null (not false) when we can't tell yet — no
+// result/ISP captured, or no model probability at all — so callers can
+// distinguish "confirmed not a value bet" from "unknown, still pending".
+export function dailyRacePickBeatsSp(runner: DailyRaceRunner): boolean | null {
+  if (runner.modelWinProbability == null) return null;
+  if (!runner.result || runner.result.isp == null || runner.result.isp <= 0) return null;
+  return runner.modelWinProbability > impliedProbabilityPct(runner.result.isp);
+}
 
 function matchesChipSet(selected: Set<string>, value: string | null): boolean {
   return selected.size === 0 || (value != null && selected.has(value));
@@ -52,6 +75,7 @@ export function matchesDailyRaceFilters(
   if (filters.trainerFormMinWinRate > 0) {
     if (runner.trainerFormWinRate == null || runner.trainerFormWinRate < filters.trainerFormMinWinRate) return false;
   }
+  if (filters.onlyModelBeatsSp && dailyRacePickBeatsSp(runner) !== true) return false;
   const fieldSize = race.fieldSize != null ? parseInt(race.fieldSize, 10) : null;
   if (fieldSize != null && Number.isFinite(fieldSize)) {
     if (fieldSize < filters.minFieldSize || fieldSize > filters.maxFieldSize) return false;

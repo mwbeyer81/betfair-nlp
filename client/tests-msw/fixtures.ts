@@ -227,10 +227,13 @@ async function setupApiMocks(page: Page) {
             { label: "In-form trainer", direction: "positive" },
             { label: "Lower official rating", direction: "negative" },
           ],
-          // A real captured result — this race has already finished. isp 4
-          // -> £1-to-win stake 1/(4-1)=£0.333, so a WINNER's PnL is exactly
-          // +£1.00 (see ispFormat.ts's stakeToWin1/runnerPnl convention).
-          result: { status: "WINNER", pos: "1", isp: 4, ispFraction: "3/1" },
+          // A real captured result — this race has already finished. isp 5
+          // (implied prob 100/5=20%) -> £1-to-win stake 1/(5-1)=£0.25, so a
+          // WINNER's PnL is exactly +£1.00 regardless of isp (see
+          // ispFormat.ts's stakeToWin1/runnerPnl convention) — and since its
+          // own modelWinProbability (25%) beats that 20% implied price, this
+          // pick also "beats SP" (dailyRacePickBeatsSp).
+          result: { status: "WINNER", pos: "1", isp: 5, ispFraction: "4/1" },
         }),
         dailyRunner({ runnerId: "hrs_2", horse: "Second Fixture", trainer: "C Trainer", jockey: "D Jockey", number: "2" }),
       ],

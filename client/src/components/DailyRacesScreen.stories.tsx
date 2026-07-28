@@ -298,14 +298,19 @@ export const PickNavigatesToRace: Story = {
 };
 
 // Same three races as MOCK_RACES, each now carrying a real captured
-// result: rac_1/hrs_1 (Fixture Star) WINNER at isp 4 -> £1-to-win stake
-// 1/(4-1)=£0.333, so PnL is exactly +£1.00; rac_2/hrs_2 (Chase Fixture)
-// LOSER at isp 3 -> loses its 1/(3-1)=£0.50 stake; rac_3/hrs_3 (Ascot
-// Fixture) NON_FINISHER with no valid isp -> no PnL at all, same
-// "excluded from PnL" convention as ispFormat.ts's computeRangePnl.
+// result: rac_1/hrs_1 (Fixture Star, modelWinProbability 25) WINNER at isp
+// 5 (implied 100/5=20%) -> beats its own SP (25% > 20%) AND £1-to-win stake
+// 1/(5-1)=£0.25, PnL exactly +£1.00 (a win always nets +£1 regardless of
+// isp under this staking convention — only the loss side's stake size
+// scales with isp); rac_2/hrs_2 (Chase Fixture, modelWinProbability 5)
+// LOSER at isp 3 (implied 33.3%) -> does NOT beat SP (5% < 33.3%) and
+// loses its 1/(3-1)=£0.50 stake; rac_3/hrs_3 (Ascot Fixture) NON_FINISHER
+// with no valid isp -> no PnL and no beats-SP verdict at all (unknown, not
+// "no"), same "excluded, not treated as false/zero" convention as
+// ispFormat.ts's computeRangePnl.
 const MOCK_RACES_WITH_RESULTS = MOCK_RACES.map(race => {
   const resultByRaceId: Record<string, { status: "WINNER" | "LOSER" | "NON_FINISHER"; pos: string; isp: number | null; ispFraction: string | null }> = {
-    rac_1: { status: "WINNER", pos: "1", isp: 4, ispFraction: "3/1" },
+    rac_1: { status: "WINNER", pos: "1", isp: 5, ispFraction: "4/1" },
     rac_2: { status: "LOSER", pos: "4", isp: 3, ispFraction: "2/1" },
     rac_3: { status: "NON_FINISHER", pos: "PU", isp: null, ispFraction: null },
   };
@@ -357,6 +362,83 @@ export const LostPickShowsResultAndPnl: Story = {
 
     await expect(canvas.getByTestId("daily-races-pick-result-hrs_2")).toHaveTextContent("Lost");
     await expect(canvas.getByTestId("daily-races-pick-pnl-hrs_2")).toHaveTextContent("-£0.50");
+  },
+};
+
+export const BeatsSpBadgeShowsOnValuePick: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/daily-races`, () =>
+          HttpResponse.json({ success: true, data: MOCK_RACES_WITH_RESULTS, count: MOCK_RACES_WITH_RESULTS.length })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+
+    const minModelInput = canvas.getByTestId("daily-races-min-model-win-probability");
+    await userEvent.clear(minModelInput);
+    await userEvent.type(minModelInput, "20");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    // hrs_1: modelWinProbability 25% > isp-5 implied 20% -> beats its SP.
+    await expect(canvas.getByTestId("daily-races-pick-beats-sp-hrs_1")).toHaveTextContent("Beat SP");
+  },
+};
+
+export const BelowSpBadgeShowsOnNonValuePick: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/daily-races`, () =>
+          HttpResponse.json({ success: true, data: MOCK_RACES_WITH_RESULTS, count: MOCK_RACES_WITH_RESULTS.length })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-reset"));
+
+    const trainerInput = canvas.getByTestId("daily-races-trainer-search");
+    await userEvent.type(trainerInput, "A Trainer");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    // hrs_2: modelWinProbability 5% < isp-3 implied 33.3% -> below SP.
+    await expect(canvas.getByTestId("daily-races-pick-beats-sp-hrs_2")).toHaveTextContent("Below SP");
+    // hrs_3 (non-finisher, no isp) is a separate race/trainer — not
+    // reachable by this search, so no beats-SP verdict is asserted here.
+  },
+};
+
+export const OnlyModelBeatsSpFilterNarrowsToValueBetsOnly: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/daily-races`, () =>
+          HttpResponse.json({ success: true, data: MOCK_RACES_WITH_RESULTS, count: MOCK_RACES_WITH_RESULTS.length })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-reset"));
+
+    await userEvent.click(canvas.getByTestId("daily-races-only-model-beats-sp"));
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    // Only hrs_1 (beats its SP) qualifies — hrs_2 (below SP) and hrs_3
+    // (no result yet, so unverifiable) are both excluded, not shown as
+    // exceptions.
+    await expect(canvas.getByTestId("daily-races-pick-hrs_1")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("daily-races-pick-hrs_2")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("daily-races-pick-hrs_3")).not.toBeInTheDocument();
   },
 };
 

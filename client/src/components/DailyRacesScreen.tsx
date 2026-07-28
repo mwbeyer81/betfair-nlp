@@ -17,6 +17,7 @@ import type { Route } from "../hooks/useRouter";
 import {
   buildDailyRacesPicks,
   computeDailyPicksPnl,
+  dailyRacePickBeatsSp,
   dailyRacePickPnl,
   dailyRacePickResultLabel,
   DailyRacesFilters,
@@ -104,6 +105,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
     String(urlFloatParam("trainerFormMinWinRate", FILTER_DEFAULTS.trainerFormMinWinRate))
   );
   const [draftHasTrainerForm, setDraftHasTrainerForm] = useState(() => urlStringParam("hasTrainerForm", "") === "true");
+  const [draftOnlyModelBeatsSp, setDraftOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
   const [draftMinFieldSize, setDraftMinFieldSize] = useState(() =>
     String(urlIntParam("minFieldSize", FILTER_DEFAULTS.minFieldSize))
   );
@@ -129,6 +131,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
   const [minTrainerFormRunners, setMinTrainerFormRunners] = useState(() =>
     urlStringParam("hasTrainerForm", "") === "true" ? 1 : 0
   );
+  const [onlyModelBeatsSp, setOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
   const [minFieldSize, setMinFieldSize] = useState(() => urlIntParam("minFieldSize", FILTER_DEFAULTS.minFieldSize));
   const [maxFieldSize, setMaxFieldSize] = useState(() => urlIntParam("maxFieldSize", FILTER_DEFAULTS.maxFieldSize));
   const [selectedCourses, setSelectedCourses] = useState(() => urlSetParam("courses"));
@@ -175,6 +178,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
       minTrainerFormRunners,
       minFieldSize,
       maxFieldSize,
+      onlyModelBeatsSp,
       selectedCourses,
       selectedGoings,
       selectedRaceClasses,
@@ -184,7 +188,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
       jockeySearch,
     }),
     [
-      minModelWinProbability, trainerFormMinWinRate, minTrainerFormRunners, minFieldSize, maxFieldSize,
+      minModelWinProbability, trainerFormMinWinRate, minTrainerFormRunners, minFieldSize, maxFieldSize, onlyModelBeatsSp,
       selectedCourses, selectedGoings, selectedRaceClasses, selectedRaceTypes, selectedRegions,
       trainerSearch, jockeySearch,
     ]
@@ -207,6 +211,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
     setMinModelWinProbability(Number.isFinite(nextMinModelWinProbability) ? nextMinModelWinProbability : FILTER_DEFAULTS.minModelWinProbability);
     setTrainerFormMinWinRate(Number.isFinite(nextTrainerFormMinWinRate) ? nextTrainerFormMinWinRate : FILTER_DEFAULTS.trainerFormMinWinRate);
     setMinTrainerFormRunners(draftHasTrainerForm ? 1 : 0);
+    setOnlyModelBeatsSp(draftOnlyModelBeatsSp);
     setMinFieldSize(Number.isFinite(nextMinFieldSize) ? nextMinFieldSize : FILTER_DEFAULTS.minFieldSize);
     setMaxFieldSize(Number.isFinite(nextMaxFieldSize) ? nextMaxFieldSize : FILTER_DEFAULTS.maxFieldSize);
     setSelectedCourses(new Set(draftSelectedCourses));
@@ -222,6 +227,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
       minModelWinProbability: draftMinModelWinProbability !== String(FILTER_DEFAULTS.minModelWinProbability) ? draftMinModelWinProbability : undefined,
       trainerFormMinWinRate: draftTrainerFormMinWinRate !== String(FILTER_DEFAULTS.trainerFormMinWinRate) ? draftTrainerFormMinWinRate : undefined,
       hasTrainerForm: draftHasTrainerForm ? "true" : undefined,
+      onlyModelBeatsSp: draftOnlyModelBeatsSp ? "true" : undefined,
       minFieldSize: draftMinFieldSize !== String(FILTER_DEFAULTS.minFieldSize) ? draftMinFieldSize : undefined,
       maxFieldSize: draftMaxFieldSize !== String(FILTER_DEFAULTS.maxFieldSize) ? draftMaxFieldSize : undefined,
       courses: draftSelectedCourses.size > 0 ? Array.from(draftSelectedCourses).join(",") : undefined,
@@ -238,6 +244,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
     setDraftMinModelWinProbability(String(FILTER_DEFAULTS.minModelWinProbability));
     setDraftTrainerFormMinWinRate(String(FILTER_DEFAULTS.trainerFormMinWinRate));
     setDraftHasTrainerForm(false);
+    setDraftOnlyModelBeatsSp(false);
     setDraftMinFieldSize(String(FILTER_DEFAULTS.minFieldSize));
     setDraftMaxFieldSize(String(FILTER_DEFAULTS.maxFieldSize));
     setDraftSelectedCourses(new Set());
@@ -251,6 +258,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
     setMinModelWinProbability(FILTER_DEFAULTS.minModelWinProbability);
     setTrainerFormMinWinRate(FILTER_DEFAULTS.trainerFormMinWinRate);
     setMinTrainerFormRunners(0);
+    setOnlyModelBeatsSp(false);
     setMinFieldSize(FILTER_DEFAULTS.minFieldSize);
     setMaxFieldSize(FILTER_DEFAULTS.maxFieldSize);
     setSelectedCourses(new Set());
@@ -266,6 +274,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
       minModelWinProbability: undefined,
       trainerFormMinWinRate: undefined,
       hasTrainerForm: undefined,
+      onlyModelBeatsSp: undefined,
       minFieldSize: undefined,
       maxFieldSize: undefined,
       courses: undefined,
@@ -474,6 +483,13 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
                     checked: draftHasTrainerForm,
                     onToggle: () => setDraftHasTrainerForm(v => !v),
                   })}
+                  {renderCheckboxFilterRow({
+                    filterKey: "onlyModelBeatsSp",
+                    label: "Only value bets (beat SP, finished only)",
+                    testId: "daily-races-only-model-beats-sp",
+                    checked: draftOnlyModelBeatsSp,
+                    onToggle: () => setDraftOnlyModelBeatsSp(v => !v),
+                  })}
                   {renderRangeRow({
                     filterKey: "fieldSize",
                     label: "Field Size",
@@ -590,7 +606,9 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
                       No runners match these filters.
                     </Text>
                   )}
-                  {picks.map(({ race, runner }) => (
+                  {picks.map(({ race, runner }) => {
+                    const beatsSp = dailyRacePickBeatsSp(runner);
+                    return (
                     <TouchableOpacity
                       key={runner.runnerId}
                       testID={`daily-races-pick-${runner.runnerId}`}
@@ -632,8 +650,17 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
                           {formatPnl(dailyRacePickPnl(runner.result)!)}
                         </Text>
                       )}
+                      {beatsSp != null && (
+                        <Text
+                          testID={`daily-races-pick-beats-sp-${runner.runnerId}`}
+                          style={beatsSp ? styles.beatsSpBadge : styles.belowSpBadge}
+                        >
+                          {beatsSp ? "Beat SP" : "Below SP"}
+                        </Text>
+                      )}
                     </TouchableOpacity>
-                  ))}
+                    );
+                  })}
                 </View>
               )}
 
@@ -1014,5 +1041,25 @@ const styles = StyleSheet.create({
   },
   pnlNegativeText: {
     color: colors.pnlNegative,
+  },
+  beatsSpBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.success,
+    backgroundColor: colors.successLight,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+  },
+  belowSpBadge: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textSecondary,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
   },
 });

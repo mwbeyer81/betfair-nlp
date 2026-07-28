@@ -12,6 +12,7 @@ const DAILY_RACES_FILTER_PARAM_NAMES = [
   "minModelWinProbability",
   "trainerFormMinWinRate",
   "hasTrainerForm",
+  "onlyModelBeatsSp",
   "minFieldSize",
   "maxFieldSize",
   "courses",
