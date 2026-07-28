@@ -4566,3 +4566,56 @@ the old 10000. **Same `config/local.json` secrets-refresh crash as the
 (`JWT_SECRET`, `OPENAI_API_KEY`, etc.) are all still present and
 untouched via `aws lambda get-function-configuration`. Worktree removed,
 branch deleted.
+
+## 2026-07-28 (later still) — primary checkout, could not reproduce a "still broke" report post-fix
+
+**Task:** user reported (2 screenshots, taken against
+`d3jepqko9i1lgu.cloudfront.net` directly rather than
+`app.backbet.co.uk`) that the isp-year-walk-error fix immediately above
+was "still broke" — this time on a plainer scenario than the one that
+fix targeted: Split B (`fromRow=4925&toRow=9848`), Date 2024-01-01 ->
+2025-01-01, **no** Model win%/Model-beats-SP/trainer-form filters
+active (ISP range left at its full 1-1000 default). Asked for a
+Playwright script in `./scripts` this time and to tap "Tap to load"
+then wait for an error to surface.
+
+**Investigated two ways, both came back clean:**
+1. `client/scripts/prod-repro/isp-year-walk-still-broken-2026-07-28.spec.ts`
+   — `page.route()`-intercepted Playwright test against the real
+   deployed bundle (confirmed serving `build-commit 89f4210`, which
+   includes the fix, via both hostnames — CloudFront invalidation isn't
+   per-hostname). Synthetic ~4924-race dataset shaped like the report.
+   Result: 11 requests, 6.4s, zero console errors, zero page errors, "no
+   'Failed to load races' banner", resolves to the correct count.
+2. `scripts/verify-isp-year-walk-no-model-filter-2026-07-28.ts` — same
+   walk algorithm direct-to-DAO against real production Mongo with this
+   *exact* filter combination (worth checking separately: no
+   runner-level filter active means `getAllRacesByRace`'s `pnlStats`
+   facet branch takes its cheap fast path, a $sum over precomputed
+   fields, rather than the $lookup+$filter slow path the original
+   BSON-limit bug was found under — a genuinely different query shape).
+   Result: 10 requests, zero errors, loaded=4876/4876.
+
+**Could not reproduce the failure by either method** against the real
+fix/real data. Checked for the one other plausible explanation this
+app has a documented history of: a leftover service worker serving
+stale cached responses indefinitely regardless of new deploys
+(`mockServiceWorker.js` — deploy.sh explicitly strips it from `dist/`
+specifically because of this risk, see its own inline comment). Current
+`/mockServiceWorker.js` returns the SPA's `index.html` fallback (200,
+`text/html`), not an actual service worker file, so nothing is being
+served *now* that would install one — but this doesn't rule out one
+still registered from a much older deploy, before that safeguard
+existed, lingering in the reporting browser specifically.
+
+**Working theory, not confirmed:** stale cached bundle/service worker
+on the reporting device, or the report predates CloudFront invalidation
+finishing propagating globally — not a live regression in what's
+actually deployed right now. Suggested the user hard-refresh / clear
+site data for both hostnames and retry before assuming this is still
+broken. **Whoever picks up a future report of the same symptom:**
+check `build-commit` on the exact URL being tested first, and try the
+direct-to-DAO diagnostic pattern established in the isp-year-walk-error
+entry above before assuming a new regression — it's the only way to
+exercise real backend/Mongo behavior at the scale this class of bug
+only appears at, given the anonymous-caller 100-row cap.
