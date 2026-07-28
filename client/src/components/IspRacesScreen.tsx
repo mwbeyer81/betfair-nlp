@@ -269,7 +269,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                       <Text style={styles.raceType}>{race.raceType}</Text>
                       <Text style={styles.raceCount}>{qualifyingRunners(race).length} runners</Text>
                       {(() => {
-                        const rp = computeRangePnl([race]);
+                        const rp = computeRangePnl([{ ...race, runners: qualifyingRunners(race) }]);
                         if (rp.staked === 0) return null;
                         return (
                           <Text style={[styles.racePnl, rp.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
