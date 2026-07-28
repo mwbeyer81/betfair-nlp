@@ -1226,6 +1226,16 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-race-914592")).toBeVisible({ timeout: 5000 });
   });
 
+  // Regression test: formatRaceTime (ispFormat.ts) relied on "en-GB" defaulting
+  // to a 24-hour clock, but some browsers instead render a 12-hour time with
+  // no AM/PM suffix — e.g. the fixture's 14:01 race silently showing as
+  // "02:01", indistinguishable from an actual 2am race. hour12: false now
+  // forces the 24-hour format explicitly rather than relying on locale
+  // defaults.
+  test("race time renders in 24-hour format, not an ambiguous 12-hour one", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-race-914592")).toContainText("14:01");
+  });
+
   test("shows the trainer-form badge for a runner with a sample, and omits it for one without", async ({ page }) => {
     // Fixture: runner 12347 (Fact To File) has trainerFormRuns=14/Wins=3/WinRate=21.43;
     // runner 12345 (Springwell Bay) has a trainer but no trainerFormRuns field at
