@@ -4761,3 +4761,40 @@ meta tag confirmed live. Live-curl confirmed the new param actually
 filters real production data correctly (see above). Same
 `config/local.json` secrets-refresh crash as every other Lambda deploy
 in this file — confirmed live env vars untouched.
+
+## 2026-07-28 (later still) — primary checkout (branch `feat/isp-month-placeholders`), merged into `develop`
+
+**Task:** user, viewing the just-shipped isp-year-direct-load feature
+live (screenshot): 2024 expanded, only "July 2024" visible even though
+2024's own header said "140 races" loaded (7 pages in) with "Load more
+2024 (4736 remaining)" still showing — every other month in 2024
+(August onward) simply didn't exist on screen. "Even though the
+default month load I should still see all the other collapsed months."
+
+**Fix:** years already rendered a full placeholder set for every year
+the filter's date range could contain, even before data loaded (see
+`mergeYearPlaceholders`) — months never got the same treatment, so an
+expanded year only ever showed headers for whichever months its
+*already-loaded* races happened to fall in. Added `mergeMonthPlaceholders`
+(mirrors `mergeYearPlaceholders` one level down) and a new
+`monthsInRange` helper (mirrors `yearsInRange`) — every year now renders
+a header for every month within its own (filter-clipped) span, whether
+or not that month has loaded data yet. Each month's count label
+distinguishes "Not loaded yet" (this year's own "Load more" hasn't
+reached it) from a real "0 races" (the year is fully loaded and there's
+genuinely nothing there) — same ambiguity `yearCountLabel` already
+resolved for years, one level down.
+
+**Verified:** `yarn build` clean (frontend only — no backend touched,
+no Lambda redeploy needed). Storybook still fully broken repo-wide (see
+prior entries) — added a new test to `client/tests-msw/
+isp-races-year-loading.spec.ts` instead: confirms a partially-loaded
+year (45 races, all in June, page 1 = 20 loaded) renders placeholder
+headers for every other month with "Not loaded yet", and that finishing
+the year's load resolves those to a real "0 races". Full
+`industry-sp.spec.ts` suite: 80/83, the same 3 pre-existing unrelated
+failures documented repeatedly above, confirmed by exact name/testID
+match.
+
+Deployed: `develop@e8b4f2c` → app.backbet.co.uk (web only).
+`build-commit` meta tag confirmed live.
