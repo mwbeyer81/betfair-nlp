@@ -1732,11 +1732,20 @@ describe("API Endpoints", () => {
       mockPredict.mockReset();
     });
 
-    it("scores runners via PredictionApiClient and writes modelWinProbability/modelVersionId back", async () => {
+    it("scores runners via PredictionApiClient and writes modelWinProbability/modelVersionId/modelTopFactors back", async () => {
       mockPredict.mockResolvedValue({
         status: 200,
         ok: true,
-        body: { modelVersionId: "xgb-test-version", predictions: [{ runnerId: "hrs_1", modelWinProbability: 42.5 }] },
+        body: {
+          modelVersionId: "xgb-test-version",
+          predictions: [
+            {
+              runnerId: "hrs_1",
+              modelWinProbability: 42.5,
+              topFactors: [{ label: "Strong recent form", direction: "positive" }],
+            },
+          ],
+        },
       });
 
       const response = await request(app)

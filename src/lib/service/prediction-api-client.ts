@@ -47,10 +47,20 @@ export interface PredictionRunnerInput {
   horseTravelledWellRate: number | null;
 }
 
+export interface PredictionTopFactor {
+  label: string;
+  direction: "positive" | "negative";
+}
+
 export interface PredictionApiResponse {
   status: number;
   ok: boolean;
-  body: { modelVersionId: string; predictions: { runnerId: string; modelWinProbability: number }[] } | { error: string };
+  body:
+    | {
+        modelVersionId: string;
+        predictions: { runnerId: string; modelWinProbability: number; topFactors: PredictionTopFactor[] }[];
+      }
+    | { error: string };
 }
 
 // Thin wrapper over the internal ml-prediction-api Lambda (apps/ml-api) —

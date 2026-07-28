@@ -68,6 +68,10 @@ export interface DailyRaceRunnerDoc {
   // Written by ml/predict_daily_races.py.
   modelWinProbability: number | null;
   modelVersionId: string | null;
+  // Top 3 plain-language "why this %" factors, from apps/ml-api/handler.py's
+  // topFactors (XGBoost's native SHAP contributions restricted to numeric
+  // features) — see ml/train_and_predict.py's FEATURE_EXPLANATIONS.
+  modelTopFactors: { label: string; direction: "positive" | "negative" }[] | null;
 }
 
 export interface DailyRaceDoc {
@@ -191,6 +195,7 @@ export function mapRacecardToDoc(racecard: Record<string, unknown>): DailyRaceDo
     featuresComputedAt: null,
     modelWinProbability: null,
     modelVersionId: null,
+    modelTopFactors: null,
   }));
 
   const raceId = String(racecard.race_id ?? "");

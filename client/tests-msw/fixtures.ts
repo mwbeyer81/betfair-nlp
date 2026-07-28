@@ -214,7 +214,15 @@ async function setupApiMocks(page: Page) {
       distanceF: "16.0", region: "GB", raceClass: "Class 4", type: "Hurdle", ageBand: "4yo+",
       prize: "£3,769", fieldSize: "2", going: "Good", surface: "Turf",
       runners: [
-        dailyRunner(),
+        dailyRunner({
+          modelWinProbability: 62.5,
+          modelVersionId: "xgb-test-version",
+          modelTopFactors: [
+            { label: "Strong recent form", direction: "positive" },
+            { label: "In-form trainer", direction: "positive" },
+            { label: "Lower official rating", direction: "negative" },
+          ],
+        }),
         dailyRunner({ runnerId: "hrs_2", horse: "Second Fixture", trainer: "C Trainer", jockey: "D Jockey", number: "2" }),
       ],
     },

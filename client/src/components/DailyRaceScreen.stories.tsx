@@ -20,6 +20,11 @@ const MOCK_RACE = {
       owner: "Owner", ownerId: "own_1", number: "1", draw: "0", headgear: "", lbs: "154",
       officialRating: "98", jockey: "B Jockey", jockeyId: "jky_1", lastRun: "21", form: "1-21",
       modelWinProbability: 62.5, modelVersionId: "xgb-test-version",
+      modelTopFactors: [
+        { label: "Strong recent form", direction: "positive" },
+        { label: "In-form trainer", direction: "positive" },
+        { label: "Lower official rating", direction: "negative" },
+      ],
     },
     {
       runnerId: "hrs_2", horse: "Second Fixture", age: "5", sex: "mare", sexCode: "M", colour: "ch",
@@ -141,6 +146,28 @@ export const ModelTooltipToggle: Story = {
 
     await userEvent.click(canvas.getByTestId(`daily-race-item-model-${runnerId}`));
     await expect(canvas.queryByTestId(`daily-race-item-model-tooltip-${runnerId}`)).not.toBeInTheDocument();
+  },
+};
+
+export const ModelFactorsRendered: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-race-list");
+    const runnerId = MOCK_RACE.runners[0].runnerId;
+
+    await userEvent.click(canvas.getByTestId(`daily-race-item-model-${runnerId}`));
+    const factors = MOCK_RACE.runners[0].modelTopFactors ?? [];
+    for (const [index, factor] of factors.entries()) {
+      const line = canvas.getByTestId(`daily-race-item-model-factor-${runnerId}-${index}`);
+      await expect(line).toHaveTextContent(factor.label);
+      await expect(line).toHaveTextContent(factor.direction === "positive" ? "▲" : "▼");
+    }
+
+    // Second runner has no modelWinProbability at all, so its Model pill
+    // (and therefore any factor list) never renders.
+    await expect(
+      canvas.queryByTestId(`daily-race-item-model-${MOCK_RACE.runners[1].runnerId}`)
+    ).not.toBeInTheDocument();
   },
 };
 

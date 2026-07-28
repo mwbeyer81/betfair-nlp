@@ -181,6 +181,9 @@ export interface DailyRaceRunner {
   // Written by ml/predict_daily_races.py.
   modelWinProbability: number | null;
   modelVersionId: string | null;
+  // Top 3 plain-language "why this %" factors, from apps/ml-api/handler.py's
+  // topFactors. See ml/train_and_predict.py's FEATURE_EXPLANATIONS.
+  modelTopFactors: { label: string; direction: "positive" | "negative" }[] | null;
 }
 
 export interface DailyRace {

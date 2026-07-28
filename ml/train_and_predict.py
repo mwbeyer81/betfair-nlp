@@ -78,6 +78,38 @@ NUM_COLS = [
 ]
 FEATURE_COLS = CAT_COLS + NUM_COLS
 
+# Plain-language (helped_phrase, hurt_phrase) pair per NUM_COLS entry, used
+# by apps/ml-api/handler.py to turn a runner's top SHAP contributions into
+# a punter-readable "why this %" list. CAT_COLS are deliberately excluded —
+# a SHAP value for an identity column like "trainer" reflects a learned
+# per-category pattern that doesn't reduce to one clean "helped/hurt" line
+# the way a numeric feature's sign does. Adding a new NUM_COLS entry above
+# should always come with a new row here.
+FEATURE_EXPLANATIONS = {
+    "distanceFurlongs": ("Well-suited by this distance", "Less proven at this distance"),
+    "ran": ("Field size suits this horse", "Field size less ideal for this horse"),
+    "num": ("Race conditions suit this runner", "Race conditions less ideal for this runner"),
+    "draw": ("Favourable draw", "Awkward draw"),
+    "trainerFormRuns": ("Trainer active with plenty of recent runners", "Trainer has had fewer runners recently"),
+    "trainerFormWinRate": ("In-form trainer", "Trainer out of form recently"),
+    "trainerFormROI": ("Trainer's runners have been profitable to back", "Trainer's runners have been unprofitable to back"),
+    "jockeyFormRuns": ("Jockey riding regularly at the moment", "Jockey riding less regularly lately"),
+    "jockeyFormWinRate": ("In-form jockey", "Jockey out of form recently"),
+    "jockeyFormROI": ("Jockey's rides have been profitable to back", "Jockey's rides have been unprofitable to back"),
+    "officialRating": ("High official rating", "Lower official rating"),
+    "wgt": ("Favourable weight carried", "Carrying more weight than ideal"),
+    "age": ("Prime racing age", "Outside the ideal age range"),
+    "daysSinceLastRun": ("Well-spaced racing schedule", "Time since last run less ideal"),
+    "horseCareerRuns": ("Experienced horse", "Lightly-raced horse"),
+    "horseCareerWinRate": ("Strong career win rate", "Modest career win rate"),
+    "horseAvgRPR": ("Strong recent form", "Below-average recent form"),
+    "horseAvgTS": ("Strong recent speed figures", "Weaker recent speed figures"),
+    "horseAvgBeatenDistance": ("Usually finishes close up", "Often beaten by some distance"),
+    "horseAvgExcuseScore": ("Few excuses in past runs", "Has had trouble in past runs"),
+    "horseTroubleInRunningRate": ("Rarely hits trouble in running", "Often hits trouble in running"),
+    "horseTravelledWellRate": ("Travels well in races", "Doesn't always travel well"),
+}
+
 # Single source of truth for make_model()'s XGBoost hyperparams (excluding
 # early_stopping_rounds, which only applies to the early-stopping fit — see
 # make_model() below) — persisted verbatim into each model_evaluations doc

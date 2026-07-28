@@ -168,9 +168,19 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                     </Text>
                   )}
                   {openTooltip === `${runner.runnerId}:model` && (
-                    <Text testID={`daily-race-item-model-tooltip-${runner.runnerId}`} style={styles.tooltipText}>
-                      {MODEL_TOOLTIP}
-                    </Text>
+                    <View testID={`daily-race-item-model-tooltip-${runner.runnerId}`} style={styles.tooltipBlock}>
+                      <Text style={styles.tooltipText}>{MODEL_TOOLTIP}</Text>
+                      {runner.modelTopFactors?.map((factor, index) => (
+                        <Text
+                          key={index}
+                          testID={`daily-race-item-model-factor-${runner.runnerId}-${index}`}
+                          style={styles.tooltipText}
+                        >
+                          {factor.direction === "positive" ? "▲ " : "▼ "}
+                          {factor.label}
+                        </Text>
+                      ))}
+                    </View>
                   )}
                   {openTooltip === `${runner.runnerId}:fairOdds` && (
                     <Text testID={`daily-race-item-fair-odds-tooltip-${runner.runnerId}`} style={styles.tooltipText}>
@@ -239,6 +249,9 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textSecondary,
     paddingTop: 2,
+  },
+  tooltipBlock: {
+    width: "100%",
   },
   tooltipToggle: {
     width: 16,

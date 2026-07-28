@@ -23,16 +23,25 @@ all live together at the Lambda task root.
 Request payload (the Lambda `Payload` Node sends via InvokeCommand):
     {"apiKey": "<shared secret>", "runners": [{"raceId": ..., "runnerId": ..., <every CAT_COLS/NUM_COLS field>}]}
 Response (success):
-    {"modelVersionId": "...", "predictions": [{"runnerId": ..., "modelWinProbability": 12.34}]}
+    {"modelVersionId": "...", "predictions": [{"runnerId": ..., "modelWinProbability": 12.34,
+        "topFactors": [{"label": "Strong recent form", "direction": "positive"}, ...]}]}
 Response (handled error):
     {"error": "..."}
 Unexpected errors are allowed to raise — Lambda surfaces them as
 FunctionError in the Invoke response rather than a 200 with an error body.
+
+topFactors is the model's per-runner top-3 SHAP contributions (computed
+natively via XGBoost's pred_contribs, no extra ML dependency), restricted
+to NUM_COLS and translated through FEATURE_EXPLANATIONS into a plain-
+language "why this %" line for a non-technical punter — see that table in
+train_and_predict.py for why CAT_COLS (course/trainer/jockey/etc. identity
+columns) are excluded from this list.
 """
 
 import json
 import os
 
+import numpy as np
 import pandas as pd
 import xgboost as xgb
 
@@ -40,10 +49,13 @@ from train_and_predict import (
     CAT_COLS,
     NUM_COLS,
     FEATURE_COLS,
+    FEATURE_EXPLANATIONS,
     MODEL_PATH,
     CATEGORIES_PATH,
     normalize_within_race,
 )
+
+TOP_FACTORS_COUNT = 3
 
 API_KEY = os.environ.get("PREDICTION_API_KEY", "")
 MODEL_VERSION_ID = os.environ.get("MODEL_VERSION_ID", "unknown")
@@ -102,6 +114,23 @@ def _apply_trained_categories(df: pd.DataFrame, trained_categories: dict) -> pd.
     return df
 
 
+def _top_factors_for_row(feature_values: np.ndarray) -> list:
+    # feature_values is one row of pred_contribs, aligned to FEATURE_COLS,
+    # with a trailing bias term already stripped by the caller.
+    num_contribs = [
+        (feature, float(value))
+        for feature, value in zip(FEATURE_COLS, feature_values)
+        if feature in NUM_COLS
+    ]
+    top = sorted(num_contribs, key=lambda pair: -abs(pair[1]))[:TOP_FACTORS_COUNT]
+    factors = []
+    for feature, value in top:
+        helped_phrase, hurt_phrase = FEATURE_EXPLANATIONS[feature]
+        direction = "positive" if value >= 0 else "negative"
+        factors.append({"label": helped_phrase if direction == "positive" else hurt_phrase, "direction": direction})
+    return factors
+
+
 def handler(event, context):
     if API_KEY and event.get("apiKey") != API_KEY:
         return {"error": "unauthorized"}
@@ -127,8 +156,15 @@ def handler(event, context):
     df = normalize_within_race(df, "raw_pred", "modelWinProbability")
     df["modelWinProbability"] = df["modelWinProbability"].round(2)
 
+    dmatrix = xgb.DMatrix(df[FEATURE_COLS], enable_categorical=True)
+    contribs = model.get_booster().predict(dmatrix, pred_contribs=True)[:, :-1]  # drop trailing bias column
+
     predictions = [
-        {"runnerId": row["runnerId"], "modelWinProbability": float(row["modelWinProbability"])}
-        for _, row in df.iterrows()
+        {
+            "runnerId": row["runnerId"],
+            "modelWinProbability": float(row["modelWinProbability"]),
+            "topFactors": _top_factors_for_row(contribs[i]),
+        }
+        for i, (_, row) in enumerate(df.iterrows())
     ]
     return {"modelVersionId": MODEL_VERSION_ID, "predictions": predictions}

@@ -146,12 +146,16 @@ export class DailyRaceService {
         return null;
       }
       const body = res.body;
-      const byRunnerId = new Map(body.predictions.map(p => [p.runnerId, p.modelWinProbability]));
-      const runners = race.runners.map(runner => ({
-        ...runner,
-        modelWinProbability: byRunnerId.get(runner.runnerId) ?? runner.modelWinProbability,
-        modelVersionId: body.modelVersionId,
-      }));
+      const byRunnerId = new Map(body.predictions.map(p => [p.runnerId, p]));
+      const runners = race.runners.map(runner => {
+        const prediction = byRunnerId.get(runner.runnerId);
+        return {
+          ...runner,
+          modelWinProbability: prediction?.modelWinProbability ?? runner.modelWinProbability,
+          modelVersionId: body.modelVersionId,
+          modelTopFactors: prediction?.topFactors ?? runner.modelTopFactors ?? null,
+        };
+      });
       return { ...race, runners };
     };
 
