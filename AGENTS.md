@@ -4620,3 +4620,143 @@ direct-to-DAO diagnostic pattern established in the isp-year-walk-error
 entry above before assuming a new regression — it's the only way to
 exercise real backend/Mongo behavior at the scale this class of bug
 only appears at, given the anonymous-caller 100-row cap.
+
+## 2026-07-28 (later still) — primary checkout (branch `fix/isp-response-compression`), merged into `develop`
+
+**Task:** while investigating the "still broke" report just above, the
+user's own DevTools Network panel (screenshot) showed the real cause
+wasn't an error at all — a 640-race `/api/industry-sp` response was
+~5MB with the request pending for several seconds, on a request the
+user described as looking stuck. Checked whether responses were
+compressed at all.
+
+**Root cause:** API Gateway HTTP APIs (v2, what this Lambda uses via
+`@vendia/serverless-express`) don't auto-compress Lambda proxy
+responses the way REST APIs (v1) can — the Lambda itself has to gzip
+its own response body. Confirmed live: `curl -H "Accept-Encoding:
+gzip"` against `/api/industry-sp?limit=500` came back with no
+`Content-Encoding` header at all, full uncompressed JSON.
+
+**Fix:** added Express `compression()` middleware to both
+`apps/lambda/src/handler.ts` and the local dev server
+(`src/server/app.ts`). Confirmed locally against real production data:
+the same 500-race request dropped from ~685KB to ~73KB (~9.3x), valid
+gzip, decodes to identical JSON.
+
+**Verified:** new `src/server/__tests__/compression.test.ts` (a
+standalone Express app mounting just `compression()`, since the
+existing mocked-DAO Supertest app's shared fixture response is too
+small to cross the default 1KB threshold either way) — 3/3 pass:
+compresses a large response when the client accepts gzip, skips a
+response under threshold, skips when the client doesn't advertise
+support. Full `app.test.ts` unaffected: 163/163.
+
+Deployed: `develop@7725502` → app.backbet.co.uk (web, no frontend
+change needed — browsers negotiate `Accept-Encoding` automatically) AND
+`hello-api` Lambda. Live-verified: `curl -H "Accept-Encoding: gzip"`
+against the real API Gateway URL now returns `content-encoding: gzip`.
+Same `config/local.json` secrets-refresh crash as prior entries in this
+file — `set -e` aborted before `aws lambda update-function-configuration`,
+confirmed live env vars untouched via `aws lambda
+get-function-configuration`.
+
+## 2026-07-28 (later still) — primary checkout (branch `feat/isp-year-direct-load`), merged into `develop`
+
+**Task:** after the isp-year-walk-error fix above, the user pushed back
+directly on the whole approach (paraphrased): "the 2024 numbers are
+changing when I click 2025 expand — I still only want paginated
+responses anyway, just like 2024. Your approach seems weird... getting
+5MB data, you mentioned hitting Mongo's 16MB limit?" Correct on all
+counts: fetching ever-larger batches just to walk *past* years the user
+isn't looking at, then compressing the result to make that tolerable,
+was patching the symptom, not the actual design flaw. Asked directly:
+"load 2025, just like you would load 2024."
+
+**Redesign:** replaced the entire `ensureYearLoaded` walk (page 1
+forward, doubling batches, `MAX_WALK_BATCH` cap, overlap-trim) with a
+direct, independently-paginated fetch per year (`loadYearPage`) — the
+same 20-race request every year uses, whether it's the year the mount
+probe landed on, a year just tapped open, or "Load more" within an
+already-expanded year. No more walking through intervening years as a
+side effect, no more "collapse other years during the walk" render-cost
+workaround (nothing to collapse around anymore), and — directly
+addressing complaint #1 — tapping a different year can no longer touch
+an already-loaded year's own numbers, since each year's state is now
+completely independent (`yearStates: Record<string, YearLoadState>`).
+
+**Backend — the actual interesting part:** the reason the walk existed
+in the first place was that Split A/B's row range (`fromRow`/`toRow`)
+defines "row N" relative to the *whole* filtered, sorted sequence — a
+naive "just query for 2025 directly" would silently mean something
+different (row numbers relative to 2025 alone, not the original split
+window). Fixed properly instead of working around it: `getAllRacesByRace`
+gained `subMinRaceTime`/`subMaxRaceTime` (DAO), surfaced as
+`subMinDate`/`subMaxDate` (router `parseDateRangeParams`, `chatApi`) —
+a calendar sub-range applied as a `$match` stage *after* the row-range
+`$skip`/`$limit` window, before `$facet`, so `total`/`totalRunners`/
+`pnlStats` all correctly reflect "this year, within this row range"
+too. Verified against real production data (a throwaway script, not
+committed): 2024's own total (4876) + 2025's own total (48) = Split B's
+full total (4924) exactly — no gaps, no overlap. Also live-curl
+confirmed post-deploy: `subMinDate=2015-01-01&subMaxDate=2015-01-01`
+returns exactly that day's 38 races.
+
+**Own bug caught during MSW testing, not a production bug:** the
+existing `industry-sp.spec.ts` shared fixture (3 races dated 2021,
+2022, and 2025) exposed two real issues in the first pass of this
+rewrite. (1) The mount effect only expanded the *single* year from
+`probe.data[0]`, not every year actually present in that first page —
+fixed by collecting the full `Set` of years in the probe and firing
+`loadYearPage` for each. (2) Since that shared fixture's mock handler
+doesn't implement `subMinDate`/`subMaxDate` filtering (it's used by
+many unrelated tests), firing 3 concurrent per-year fetches each got
+*all 3* races back — race 914592 rendered 3 times, a `strict mode
+violation` failure. Real production would never hit this (verified
+DAO-level partitioning above), but it exposed a genuine gap: the
+per-year union had no defensive dedup. Added a global raceId dedup when
+flattening `yearStates` into the rendered list — cheap insurance against
+the backend (or a test mock) ever returning a race under more than one
+year's sub-range, not just relying on each year's own local dedup.
+
+**Storybook is still fully broken repo-wide** (confirmed on this
+worktree too, and independently on a completely unrelated component's
+story — `Message.stories.tsx` — nothing renders at all, not just a
+`play`-function issue, worse than the CLI test-runner's own previously-
+flagged `StorybookTestRunnerError`). Pivoted verification entirely to
+`client/tests-msw/` (a real static build + Playwright, unrelated
+tooling) instead: wrote `isp-races-year-loading.spec.ts` (4 new tests —
+mount lands on the right year, tapping a different year fetches only it
+without touching the loaded one, a year's own Load More paginates only
+that year, Expand All loads every collapsed year independently) plus 3
+new DAO integration tests and 2 new Supertest cases for
+`subMinRaceTime`/`subMaxRaceTime`. Old walk-specific Storybook stories
+(`TappingACollapsedYearWalksForwardAndLoadsIt`,
+`WalkingToADistantYearCollapsesOtherExpandedYearsToAvoidRenderCost`,
+`ExpandAllChasesTheLastYear`, `WalkingPastTheBatchCapDoesNotDuplicateOrDropRaces`)
+replaced with ones matching the new model, though these can't currently
+be executed either way.
+
+**Local test Mongo (`localhost:27019`) had to be restarted** — the
+`mongod` process (not Docker; see `.claude/commands/mongo-integration-tests.md`)
+had died since it was last confirmed running earlier today, though its
+data directory (`/home/ubuntu/mongo-data-27019`) was intact. Restarted
+with the same dbpath, no data lost, no reseed needed.
+
+**Verified:** `yarn build` clean (backend + frontend), both before and
+after merging `origin/develop` twice mid-task (clean auto-merges — a
+concurrent `daily-picks-results-pnl` branch also touched
+`industry-sp-dao.ts`/`chatApi.ts`, no real conflicts). Supertest:
+204/204 (`app.test.ts` + DAO integration together). DAO integration:
+38/38 including the 3 new sub-date-range cases. Full MSW suite
+(`industry-sp.spec.ts` + the new file, real static build + real
+browser): 87/91 — the same 3 pre-existing, already-documented failures
+noted repeatedly above in this file (Reset date-range default, the P&L
+convergence panel, the meeting-level PnL bar), confirmed by exact
+name/testID match, not a regression; all 4 new tests pass.
+
+Deployed: `develop@73a6ecb` → app.backbet.co.uk (web) AND `hello-api`
+Lambda (backend `subMinDate`/`subMaxDate` support). `build-commit`
+meta tag confirmed live. Live-curl confirmed the new param actually
+filters real production data correctly (see above). Same
+`config/local.json` secrets-refresh crash as every other Lambda deploy
+in this file — confirmed live env vars untouched.
