@@ -329,6 +329,8 @@ export default function App() {
           id={id}
           onBack={() => navigate("/results")}
           onRestore={(filters) => navigate("/isp", new URLSearchParams(filters).toString())}
+          onNavigateToMeeting={(meetingId) => navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}`)}
+          onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}`)}
         />
       );
     }

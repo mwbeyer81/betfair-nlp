@@ -644,22 +644,27 @@ export class IndustrySpDAO {
   }
 
   /**
-   * Qualifying-runner P&L for a single date, grouped by meeting — the live
-   * counterpart to getAllRacesByRace's pnlStats, used by
+   * Qualifying-runner P&L for a single date, grouped by race (not meeting)
+   * — the live counterpart to getAllRacesByRace's pnlStats, used by
    * LiveFilterResultService to turn one day's just-captured RacingAPI
-   * results into a per-meeting rollup for a saved filter set. Scoped to one
-   * date at a time (called once/day per filter set from the results-capture
-   * cron), so unlike getAllRacesByRace this has no pagination/row-range
-   * concerns — every matching race for the date is small enough (a UK
-   * racing day is on the order of tens of races) to filter+group in one
-   * pass, no $facet/$lookup-back-to-full-doc optimization needed.
+   * results into a per-race rollup for a saved filter set. Per-race (not
+   * pre-aggregated per-meeting) so the frontend can build the same
+   * Meeting → Race tap-through hierarchy IspRacesScreen.tsx's Races view
+   * already has, via the same client-side buildHierarchy grouping — meeting/
+   * day/month/year rollups are a derived sum over these race rows, not
+   * computed here. Scoped to one date at a time (called once/day per filter
+   * set from the results-capture cron), so unlike getAllRacesByRace this has
+   * no pagination/row-range concerns — every matching race for the date is
+   * small enough (a UK racing day is on the order of tens of races) to
+   * filter+group in one pass, no $facet/$lookup-back-to-full-doc
+   * optimization needed.
    *
    * Matches on `raceTime` (not `raceDate`) to reuse the existing
    * `{raceTime: 1}` index — `raceDate` itself has no index of its own, and
    * raceTime's "YYYY-MM-DDTHH:mm:ss" prefix makes a same-day range query
    * exactly equivalent to a raceDate equality match.
    */
-  public async getQualifyingResultsByMeetingForDate(p: {
+  public async getQualifyingRacesForDate(p: {
     raceDate: string;
     countries: string[];
     minRunners: number;
@@ -681,6 +686,9 @@ export class IndustrySpDAO {
     onlyModelBeatsSp: boolean;
   }): Promise<
     {
+      raceId: number;
+      raceTime: string;
+      raceName: string;
       meetingId: string;
       meetingName: string;
       raceDate: string;
@@ -761,7 +769,11 @@ export class IndustrySpDAO {
       { $unwind: "$qualifyingRunners" },
       {
         $group: {
-          _id: "$meetingId",
+          _id: "$_id",
+          raceId: { $first: "$raceId" },
+          raceTime: { $first: "$raceTime" },
+          raceName: { $first: "$raceName" },
+          meetingId: { $first: "$meetingId" },
           meetingName: { $first: "$meetingName" },
           raceDate: { $first: "$raceDate" },
           modelVersionId: { $first: "$qualifyingRunners.modelVersionId" },
@@ -782,7 +794,10 @@ export class IndustrySpDAO {
 
     const results = await this.collection
       .aggregate<{
-        _id: string;
+        raceId: number;
+        raceTime: string;
+        raceName: string;
+        meetingId: string;
         meetingName: string;
         raceDate: string;
         modelVersionId: string | null;
@@ -793,7 +808,10 @@ export class IndustrySpDAO {
       .toArray();
 
     return results.map(r => ({
-      meetingId: r._id,
+      raceId: r.raceId,
+      raceTime: r.raceTime,
+      raceName: r.raceName,
+      meetingId: r.meetingId,
       meetingName: r.meetingName,
       raceDate: r.raceDate,
       modelVersionId: r.modelVersionId ?? null,

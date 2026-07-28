@@ -5,7 +5,7 @@ import { chatApi, SavedFilterSet, SavedFilterSetSplit, LiveFilterResult } from "
 import { SplitDetailPanel } from "./SplitDetailPanel";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
 import { AppHeader } from "./AppHeader";
-import { buildFilterSummaryFromParams, formatPnl, formatPct } from "../utils/ispFormat";
+import { buildFilterSummaryFromParams, formatPnl, formatPct, formatRaceTime } from "../utils/ispFormat";
 import { buildHierarchy, collectHierarchyNodeKeys } from "../utils/raceHierarchy";
 import { colors, radii, spacing } from "../theme";
 import type { Route } from "../hooks/useRouter";
@@ -29,15 +29,24 @@ function sumPnlStats(items: LiveFilterResult[]): LivePnlStats {
   );
 }
 
-// Year → Month → Day → Meeting rollup of a filter set's live, actual-results
-// track record — the day-by-day counterpart to the Split A/B backtest cards
-// above, built from real RacingAPI results the daily capture cron has
-// upserted so far (see live-filter-result-dao.ts). Reuses the same
-// buildHierarchy tree IspRacesScreen.tsx uses for the full race list, just
-// grouping already-per-meeting rows instead of individual races — a meeting
-// here has no further per-race drill-down (each row already is the finest
-// granularity this endpoint returns), so meeting nodes render as leaves.
-function LivePerformanceSection({ results }: { results: LiveFilterResult[] }) {
+// Year → Month → Day → Meeting → Race rollup of a filter set's live,
+// actual-results track record — the day-by-day counterpart to the Split A/B
+// backtest cards above, built from real RacingAPI results the daily capture
+// cron has upserted so far (see live-filter-result-dao.ts). Reuses the same
+// buildHierarchy tree IspRacesScreen.tsx uses for the full race list — one
+// item per qualifying race, grouped into meetings the same way — so a
+// meeting expands to its individual races, each tappable through to the
+// same IndustryMeetingScreen/IndustryRaceScreen/RunnerDetailScreen chain the
+// historical Races view already uses.
+function LivePerformanceSection({
+  results,
+  onNavigateToMeeting,
+  onNavigateToRace,
+}: {
+  results: LiveFilterResult[];
+  onNavigateToMeeting: (meetingId: string) => void;
+  onNavigateToRace: (raceId: number) => void;
+}) {
   const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
 
   if (results.length === 0) {
@@ -52,7 +61,7 @@ function LivePerformanceSection({ results }: { results: LiveFilterResult[] }) {
   }
 
   const hierarchy = buildHierarchy(results, {
-    dateTime: r => r.raceDate,
+    dateTime: r => r.raceTime,
     meetingId: r => r.meetingId,
     meetingLabel: r => r.meetingName,
   });
@@ -146,17 +155,51 @@ function LivePerformanceSection({ results }: { results: LiveFilterResult[] }) {
                         </TouchableOpacity>
 
                         {!dayCollapsed && day.meetings.map(meeting => {
+                          const meetingKey = `meeting:${meeting.meetingId}`;
+                          const meetingCollapsed = collapsedKeys.has(meetingKey);
                           const meetingPnl = sumPnlStats(meeting.items);
                           return (
-                            <View key={meeting.meetingId} testID={`saved-result-live-meeting-${meeting.meetingId}`} style={styles.liveMeetingRow}>
-                              <Text style={styles.liveMeetingLabel}>{meeting.label}</Text>
-                              {meetingPnl.staked > 0 ? (
-                                <Text testID={`saved-result-live-meeting-pnl-${meeting.meetingId}`} style={[styles.liveGroupPnl, meetingPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
-                                  {formatPnl(meetingPnl.pnl)} ({formatPct(meetingPnl.pnl, meetingPnl.staked)})
-                                </Text>
-                              ) : (
-                                <Text style={styles.liveMeetingEmptyText}>No qualifying bets</Text>
-                              )}
+                            <View key={meeting.meetingId} testID={`saved-result-live-meeting-${meeting.meetingId}`}>
+                              <View style={styles.liveMeetingRow}>
+                                <TouchableOpacity
+                                  testID={`saved-result-live-meeting-toggle-${meeting.meetingId}`}
+                                  onPress={() => toggleNode(meetingKey)}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ expanded: !meetingCollapsed }}
+                                >
+                                  <Text style={styles.liveGroupChevron}>{meetingCollapsed ? "▸" : "▾"}</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  testID={`saved-result-live-meeting-link-${meeting.meetingId}`}
+                                  onPress={() => onNavigateToMeeting(meeting.meetingId)}
+                                >
+                                  <Text style={styles.liveMeetingLabel}>{meeting.label}</Text>
+                                </TouchableOpacity>
+                                {meetingPnl.staked > 0 ? (
+                                  <Text testID={`saved-result-live-meeting-pnl-${meeting.meetingId}`} style={[styles.liveGroupPnl, meetingPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                                    {formatPnl(meetingPnl.pnl)} ({formatPct(meetingPnl.pnl, meetingPnl.staked)})
+                                  </Text>
+                                ) : (
+                                  <Text style={styles.liveMeetingEmptyText}>No qualifying bets</Text>
+                                )}
+                              </View>
+                              {!meetingCollapsed && meeting.items.map(race => (
+                                <TouchableOpacity
+                                  key={race.raceId}
+                                  testID={`saved-result-live-race-${race.raceId}`}
+                                  style={styles.liveRaceRow}
+                                  onPress={() => onNavigateToRace(race.raceId)}
+                                >
+                                  <Text style={styles.liveRaceTime}>{formatRaceTime(race.raceTime)}</Text>
+                                  <Text style={styles.liveRaceName} numberOfLines={1}>{race.raceName}</Text>
+                                  <Text
+                                    testID={`saved-result-live-race-pnl-${race.raceId}`}
+                                    style={[styles.liveGroupPnl, race.pnlStats.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}
+                                  >
+                                    {formatPnl(race.pnlStats.pnl)} ({formatPct(race.pnlStats.pnl, race.pnlStats.staked)})
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
                             </View>
                           );
                         })}
@@ -180,6 +223,8 @@ interface SavedResultDetailScreenProps {
   id: string;
   onBack: () => void;
   onRestore: (filters: Record<string, string>) => void;
+  onNavigateToMeeting: (meetingId: string) => void;
+  onNavigateToRace: (raceId: number) => void;
 }
 
 // The live Filters screen's own Split A/Split B card look (see
@@ -250,6 +295,8 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
   id,
   onBack,
   onRestore,
+  onNavigateToMeeting,
+  onNavigateToRace,
 }) => {
   const [result, setResult] = useState<SavedFilterSet | null>(null);
   const [loading, setLoading] = useState(true);
@@ -402,7 +449,13 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
                 <Text style={styles.errorText}>{liveError}</Text>
               </View>
             )}
-            {!liveLoading && !liveError && <LivePerformanceSection results={liveResults} />}
+            {!liveLoading && !liveError && (
+              <LivePerformanceSection
+                results={liveResults}
+                onNavigateToMeeting={onNavigateToMeeting}
+                onNavigateToRace={onNavigateToRace}
+              />
+            )}
           </ScrollView>
           <View style={styles.actionsRow}>
             <Button testID="saved-result-detail-restore" mode="contained" buttonColor={colors.accent} onPress={() => onRestore(result.filters)} style={styles.actionButton}>
@@ -516,11 +569,22 @@ const styles = StyleSheet.create({
   liveMeetingRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: spacing.sm,
     paddingVertical: spacing.xs,
     paddingLeft: spacing.xl,
   },
-  liveMeetingLabel: { fontSize: 13, color: colors.text },
+  liveMeetingLabel: { fontSize: 13, fontWeight: "600", color: colors.text, textDecorationLine: "underline" },
   liveMeetingEmptyText: { fontSize: 12, color: colors.textSecondary, marginLeft: "auto" },
+  liveRaceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    paddingLeft: spacing.xl + spacing.md,
+    paddingRight: spacing.md,
+  },
+  liveRaceTime: { fontSize: 12, color: colors.textSecondary, width: 44 },
+  liveRaceName: { fontSize: 12, color: colors.text, flex: 1 },
   actionsRow: {
     position: "absolute",
     bottom: 0,

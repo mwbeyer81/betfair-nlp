@@ -7,6 +7,9 @@ import { computeSnapshotParamsFromFilters } from "./saved-filter-set-service";
 
 export interface LiveFilterResultApiResponse {
   raceDate: string;
+  raceId: number;
+  raceTime: string;
+  raceName: string;
   meetingId: string;
   meetingName: string;
   modelVersionId: string | null;
@@ -16,6 +19,9 @@ export interface LiveFilterResultApiResponse {
 function toApiResponse(doc: LiveFilterResultDocument): LiveFilterResultApiResponse {
   return {
     raceDate: doc.raceDate,
+    raceId: doc.raceId,
+    raceTime: doc.raceTime,
+    raceName: doc.raceName,
     meetingId: doc.meetingId,
     meetingName: doc.meetingName,
     modelVersionId: doc.modelVersionId,
@@ -41,21 +47,23 @@ export class LiveFilterResultService {
 
   /** For every user-saved filter set (agent-generated training-battery rows
    * excluded — this is a user's own live track record, not a training
-   * artifact), computes that date's qualifying meetings/P&L against
-   * whatever RacingAPI results have just been captured into
-   * industry_starting_prices, and upserts one saved_filter_set_live_results
-   * doc per (filter set, meeting). Chained onto the existing 21:30 UTC
-   * capture-results cron, right after captureTodayResults() — see
-   * apps/lambda/src/handler.ts. A meeting with zero qualifying runners for
-   * a given filter set produces no row at all (nothing to upsert), same
-   * "absence means no match" convention getAllRacesByRace's pnlStats uses. */
+   * artifact), computes that date's qualifying races/P&L against whatever
+   * RacingAPI results have just been captured into industry_starting_prices,
+   * and upserts one saved_filter_set_live_results doc per (filter set,
+   * race) — per-race, not per-meeting, so the frontend can build the same
+   * Meeting → Race tap-through hierarchy the historical Races view has.
+   * Chained onto the existing 21:30 UTC capture-results cron, right after
+   * captureTodayResults() — see apps/lambda/src/handler.ts. A race with zero
+   * qualifying runners for a given filter set produces no row at all
+   * (nothing to upsert), same "absence means no match" convention
+   * getAllRacesByRace's pnlStats uses. */
   public async captureLiveResultsForDate(date: string): Promise<{ filterSetsProcessed: number; rowsUpserted: number }> {
     const allFilterSets = await this.savedFilterSetDAO.listAllUserOwned();
     let rowsUpserted = 0;
 
     for (const filterSet of allFilterSets) {
       const params = computeSnapshotParamsFromFilters(filterSet.filters);
-      const meetings = await this.industrySpService.getQualifyingResultsByMeetingForDate({
+      const races = await this.industrySpService.getQualifyingRacesForDate({
         raceDate: date,
         countries: params.countries,
         minRunners: params.minRunners,
@@ -77,21 +85,24 @@ export class LiveFilterResultService {
         onlyModelBeatsSp: params.onlyModelBeatsSp,
       });
 
-      if (meetings.length === 0) continue;
+      if (races.length === 0) continue;
 
       await this.liveFilterResultDAO.upsertMany(
-        meetings.map(m => ({
+        races.map(r => ({
           savedFilterSetId: filterSet._id as ObjectId,
           filters: filterSet.filters,
-          modelVersionId: m.modelVersionId,
-          raceDate: m.raceDate,
-          meetingId: m.meetingId,
-          meetingName: m.meetingName,
-          pnlStats: m.pnlStats,
+          modelVersionId: r.modelVersionId,
+          raceDate: r.raceDate,
+          raceId: r.raceId,
+          raceTime: r.raceTime,
+          raceName: r.raceName,
+          meetingId: r.meetingId,
+          meetingName: r.meetingName,
+          pnlStats: r.pnlStats,
           capturedAt: new Date().toISOString(),
         }))
       );
-      rowsUpserted += meetings.length;
+      rowsUpserted += races.length;
     }
 
     return { filterSetsProcessed: allFilterSets.length, rowsUpserted };
