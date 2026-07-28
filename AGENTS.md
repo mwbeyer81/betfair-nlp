@@ -136,7 +136,8 @@ tiebreaker.
 | `~/betfair-nlp-ai-training-battery` | `feat/ai-training-battery` | **Recovered from a session that died mid-task** (killed process, no `AGENTS.md` entry ever written — found via a Claude memory/session search, not a live agent). Task: after each XGBoost retrain, run the new model against a fixed, curated battery of filter combinations (not a replay of user data) and persist each as a `saved_filter_sets` result flagged `createdBy: "agent"` (an "AI Training" badge, no delete button) — extends `feat/saved-results` above rather than `model_evaluations`/`ModelPerformanceDashboard`. Plan: `/home/ubuntu/.claude/plans/sequential-cuddling-cerf.md`. **Done** — the recovered work already matched the plan file-for-file; audited, verified (full test suite + a real Python→HTTP→Mongo smoke test), merged (real conflict in `SavedResultsListScreen.stories.tsx` against `results-white-screen` below — both added new stories after the same point, kept both), pushed to `origin/develop` (`bc1be02`). See dated entry below. | **done** — merged, deployed (Lambda + web), live-verified; feature is inert until the user sets a real `TRAINING_PIPELINE_API_KEY`, see dated entry below; worktree can be removed |
 | `~/betfair-nlp-results-white-screen` | `fix/results-white-screen` | Prod bug: clicking Results showed a blank white screen for a legacy (pre-Split-A/B) saved result — see dated entry below | done, verified, committing/deploying now |
 | `~/betfair-nlp-results-filter-sort` | `feat/results-filter-sort` | Results screen (`SavedResultsListScreen.tsx`): add an icon to the existing "AI Training" badge, add a User/Agent source filter (All / Mine / AI Training), confirm date+PnL sort already works via the existing sort toggle. **Touches `SavedResultsListScreen.tsx`/`.stories.tsx`, `tests-msw/saved-results.spec.ts`, `tests-local-ci/saved-results-ui.spec.ts`** — watch for conflicts with any other worktree still touching that screen. | in progress |
-| `.claude/worktrees/ml-prediction-api` | `worktree-ml-prediction-api` | Serve the win-probability model over an internal API instead of requiring a manual retrain/script run for predictions — new container-image Python Lambda (`apps/ml-api/`, no web framework, reuses `CAT_COLS`/`NUM_COLS`/`normalize_within_race` from `ml/train_and_predict.py` + the row-shaping logic from `ml/predict_daily_races.py`'s `load_daily_dataframe`), invoked via IAM `lambda:InvokeFunction` from the existing `hello-api` Node Lambda (no public Function URL), model artifact durable in a new S3 bucket + baked into the image at build time. New `src/lib/service/prediction-api-client.ts` (mirrors `racing-api-client.ts`), new `POST /api/daily-races/predict` route. **v1 is on-demand/manually-triggered only — not wired into the existing EventBridge daily cron** (user's explicit choice). Full plan: `/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`. See dated entry below for what was verified. | **done — merged (`d84ce7f`), pushed, deployed, live-verified**; worktree removed |
+| `.claude/worktrees/ml-prediction-api` | `worktree-ml-prediction-api` | Serve the win-probability model over an internal API instead of requiring a manual retrain/script run for predictions — new container-image Python Lambda (`apps/ml-api/`, no web framework, reuses `CAT_COLS`/`NUM_COLS`/`normalize_within_race` from `ml/train_and_predict.py` + the row-shaping logic from `ml/predict_daily_races.py`'s `load_daily_dataframe`), invoked via IAM `lambda:InvokeFunction` from the existing `hello-api` Node Lambda (no public Function URL), model artifact durable in a new S3 bucket + baked into the image at build time. New `src/lib/service/prediction-api-client.ts` (mirrors `racing-api-client.ts`), new `POST /api/daily-races/predict` route. **v1 was on-demand/manually-triggered only — since wired into the daily EventBridge cron, see the `wire-predictions-cron` row below.** Full plan: `/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md`. See dated entry below for what was verified. | **done — merged (`d84ce7f`), pushed, deployed, live-verified**; worktree removed |
+| `.claude/worktrees/wire-predictions-cron` | `worktree-wire-predictions-cron` | Chains feature-compute + predict onto the existing 06:00 UTC daily-races-ingest EventBridge rule (`handler.ts`'s default scheduled branch, no new rule) — closes the automation gap `ml-prediction-api` above was built to unblock. Predict/feature-compute failures are logged, not thrown (ingest already committed by that point; don't want EventBridge retrying the whole invocation). **Hit and fixed a real production timeout** — see dated entry below: `fetchTrainerOrJockeyHistory` fetched a trainer/jockey's entire career history (one real trainer had 4,220 historical race docs) instead of just the 14-day window it needed, and both feature-compute's historical lookups and predict's per-race Lambda invokes ran fully sequential. Fixed by pushing the date-window bound into the query and running both in concurrency-8 chunks with incremental writes (a timeout partway through no longer discards already-completed chunks). `apps/lambda/build.sh` timeout/memory bumped 30s/512MB → 300s/1536MB (only affects the scheduled/direct-invoke path, not API Gateway's own ~29s HTTP timeout). | **done — merged, deployed, live-verified**: a clean production run after the fix completed in ~16.5s total (down from timing out at the full 300s) — 42/42 races, 477/477 runners, 0 errors, confirmed in Mongo. Worktree removed. |
 | `~/betfair-nlp-daily-races-model` | `daily-races-model` | Score today's Daily Races runners with the existing XGBoost win-probability model — new read-only feature-computation step (`daily-race-feature-service.ts`, queries `industry_starting_prices` but never writes to it) + new predict-only `ml/predict_daily_races.py` + a `Model {x}%` badge/detail row in the UI. Full plan: `/home/ubuntu/.claude/plans/go-to-racingapi-website-zesty-stearns.md` (file has since been overwritten with the follow-up `ml-prediction-api` plan below — see git history if you need the original). See dated entry below for what was verified. | **done — merged, deployed (Lambda `apps/lambda/build.sh` + web `apps/web/deploy.sh`, `develop@25a6aff` live on `app.backbet.co.uk`), live-verified**: retrained the model for real on the full 109,775-race prod dataset (AUC 0.707, `modelVersionId=xgb-20260727-171521` — the historical `industry_starting_prices` data itself is stale, stops 2026-05-27, so trailing trainer/jockey/horse form is near-empty for current dates; user explicitly chose to ship anyway, caveated), ran `compute-daily-race-features.ts` + `predict_daily_races.py` against real prod Mongo, confirmed all 52 of today's (2026-07-27) races have `modelWinProbability` summing to ~100% per race. Worktree removed. |
 | `~/betfair-nlp-industry-sp-results-capture` | `feat/industry-sp-results-capture` | Closes the recency gap noted in the `daily-races-model` row above: `industry_starting_prices` stops at 2026-05-27, so today's runners have near-empty trailing form. Live-tested RacingAPI's Basic plan (now upgraded and confirmed live) — `/results/today` works with a fully verified real schema, but historical/dated `/results` queries 401 "Standard Plan required" (Basic can't backfill the past). User chose: capture forward daily instead of paying for another tier upgrade — new `IndustrySpResultsCaptureService.captureTodayResults()` (`src/lib/service/industry-sp-results-capture-service.ts`) pulls `/results/today` and upserts real, finished GB races into `industry_starting_prices` (never an unresolved race — same read-only invariant, now correctly complemented rather than violated). Shared row-mapping helpers extracted from `import-industry-sp.ts` into new `src/lib/dao/industry-sp-row-mapping.ts` so the CSV and RacingAPI paths can't drift. New second EventBridge rule (`scripts/setup-industry-sp-results-schedule.sh`, `.claude/commands/industry-sp-results-cron.md`) at **21:30 UTC** — not 23:00, see the dated entry below for why. 14-day trainer/jockey trailing window fully catches up ~2 weeks after this first runs; horse form improves incrementally from day one. Full plan: `/home/ubuntu/.claude/plans/cuddly-nibbling-quasar.md`. | **done — merged, deployed (2026-07-28, by a different concurrent agent session at the user's request), live-verified.** `apps/lambda/build.sh` + `scripts/setup-industry-sp-results-schedule.sh` both run for real — EventBridge rule `industry-sp-results-capture-schedule` confirmed `ENABLED` at `cron(30 21 * * ? *)` targeting `hello-api` with `{"action":"capture-results"}`. A synthetic `aws lambda invoke` with that exact payload at 08:33 UTC completed cleanly end-to-end (real Mongo, real RacingAPI call, no errors) — `upserted 0 races`, correctly expected since no UK races had finished yet at that hour; the schedule fires for real at 21:30 UTC, after racing finishes. **Not yet confirmed non-zero** — check `industry_starting_prices` for today's date after 21:30 UTC (or tomorrow) to close the loop on the one thing this row's earlier note flagged as unverified. **Heads up for whoever picks this worktree back up:** `config/local.json` in the primary checkout (`/home/ubuntu/betfair-nlp`) was found wiped/partially-overwritten mid-session while this deploy was happening — if that was this worktree's doing, note that `config/local.json` is per-checkout/gitignored, not something to copy or sync between worktrees; if it wasn't, something else touched it and is worth a look. |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
@@ -3683,3 +3684,77 @@ it:** backfilling 2026-05-28 through whenever this cron first ran
 successfully — would need the Standard-tier historical `/results`
 endpoint, which the account doesn't have. The row-mapping/schema work here
 would mostly carry over if that's ever picked up.
+
+---
+
+## 2026-07-28 — Agent in `.claude/worktrees/wire-predictions-cron` (branch `worktree-wire-predictions-cron`)
+
+**Task:** wire the `ml-prediction-api` prediction pipeline (built the day
+before, on-demand only) into the daily EventBridge cron so today's races
+always carry model probabilities without a manual re-run — user asked
+after noticing prod showed no probabilities for the new day (predictions
+had only ever been run manually for the previous day). Sequenced
+deliberately after `industry-sp-results-capture` (deployed earlier the
+same session) since both touch `handler.ts`/EventBridge and the user
+wanted the data-freshness fix live first.
+
+**Real production incident, caught before it shipped clean:** first
+deploy attempt chained `computeDailyRaceFeatures` + `predictDailyRaces`
+straight onto the existing ingest branch with a bumped 300s/1536MB
+Lambda config. A real synchronous test invoke (`aws lambda invoke`
+against 42 real today's-races) blew past the AWS CLI's own client-side
+read timeout at ~3 minutes; the CLI's automatic retry then spawned two
+*more* concurrent invocations against the same production Lambda while
+the first was presumably still running. All three eventually hit the
+full 300s Lambda-side timeout and were killed — confirmed via
+`Status: timeout` in the CloudWatch REPORT line, and confirmed in Mongo
+that **zero** races ended up with features or predictions, because
+`computeDailyRaceFeatures` wrote everything in one `bulkUpsertRaces` call
+at the very end — a mid-run timeout meant total loss of otherwise-valid
+work, not partial progress.
+
+**Root cause, once traced:** `fetchTrainerOrJockeyHistory` queried
+`industry_starting_prices` with only `raceDate: { $lt: today }` — no
+lower bound — then filtered to the real 14-day window client-side in
+`computeTrailingFormStats`. For a popular trainer this fetched their
+*entire career* over the network (one real production trainer: 4,220
+historical race docs) just to use ~0-5 recent rows. Combined with every
+such lookup — and every per-race `ml-prediction-api` invoke in
+`predictDailyRaces` — running fully sequential (one `await` at a time,
+each a real network round trip), the chain was slow enough to exceed even
+a 5-minute budget under real data volume.
+
+**Fix:** pushed the 14-day window into the Mongo query itself instead of
+filtering after fetch; ran both the historical-lookup phase and the
+per-race predict phase in concurrency-8 chunks (`Promise.all` per chunk,
+not one giant `Promise.all` — didn't want to hammer `ml-prediction-api`
+or Atlas with 40-50 simultaneous requests); made `predictDailyRaces` write
+each completed chunk immediately rather than batching every race into one
+write at the end, so a future timeout (if it ever happens again) only
+loses the in-flight chunk, not everything already scored.
+
+**Verified:** existing unit tests (19, `daily-race-feature-service.test.ts`
++ `daily-race-service.test.ts`) still pass unchanged — the fix is a
+performance/resilience change, not a behavior change, confirmed by same
+green tests before/after. Full `local-ci-e2e.sh` 28/28. Live: after
+redeploying, a single clean synchronous invoke (`--cli-read-timeout 400`
+this time, to avoid retriggering the CLI-retry pile-up) completed in
+**~16.5s total** (features: ~7.4s, predict: ~6.5s, plus ~1s cold-start
+init) — down from timing out at the full 300s. 42/42 races, 477/477
+runners, 0 errors; confirmed directly in Mongo
+(`withFeatures=42 withModel=42`, matching `total=42`).
+
+**Also found and cleaned up mid-task:** `config/local.json` in the
+primary checkout kept getting wiped/reset to an earlier, incomplete
+version while this work was in progress — almost certainly a different
+concurrent agent session on this same VM writing to that shared,
+gitignored file (plausibly the `industry-sp-results-capture` work,
+deployed earlier the same session, which also needs RacingAPI secrets).
+Worked around it by passing `PREDICTION_API_KEY` as an inline env var for
+the specific commands that needed it rather than relying on the file
+being stable. **If you're running concurrently with another agent on this
+VM and something using `config/local.json` starts behaving oddly
+(unexplained empty config values, credentials resolving to
+`localhost`/dev defaults instead of prod), check whether the file's
+content matches what you expect before assuming your own code changed —
+it may have been overwritten out from under you.**
