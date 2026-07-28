@@ -169,7 +169,13 @@ jest.mock("twilio", () =>
 );
 
 // Mock the database connection
-jest.mock("../../config/database", () => ({
+jest.mock("../../config/database", () => {
+  // Lazily required (not a top-level import) — jest.mock factories can't
+  // reference out-of-scope module bindings directly, only via a require()
+  // call made inside the factory itself.
+  const { synthRaceId, synthNumericId } = require("../../lib/dao/industry-sp-row-mapping");
+
+  return {
   DatabaseConnection: {
     getInstance: jest.fn().mockReturnValue({
       connect: jest.fn().mockResolvedValue(undefined),
@@ -361,28 +367,89 @@ jest.mock("../../config/database", () => ({
               bulkWrite: jest.fn().mockResolvedValue({}),
             };
           }
+          // A captured result for mockDailyRace above (raceId "rac_test_0001",
+          // runner "hrs_1") — hashed with the exact same helpers
+          // IndustrySpResultsCaptureService/DailyRaceService use, so
+          // DailyRaceService.getResultsForRaceIds's join actually matches in
+          // this test the same way it would against real captured data.
+          // industry_starting_prices falls through to this shared generic
+          // branch (not its own dedicated one) so it keeps the same
+          // aggregate/distinct/countDocuments mocks every other
+          // /api/industry-sp/* route here already depends on — only `find`
+          // is special-cased for the `_id: {$in: [...]}` shape
+          // getResultsForRaceIds actually issues.
+          const mockResultRaceId = synthRaceId("rac_test_0001");
+          const mockResultRace = {
+            _id: mockResultRaceId,
+            raceId: mockResultRaceId,
+            course: "Newton Abbot",
+            countryCode: "GB",
+            raceDate: "2026-06-03",
+            raceTime: "2026-06-03T13:50:00",
+            raceName: "Novices' Hurdle",
+            raceType: "Hurdle",
+            raceClass: "Class 4",
+            going: "Good",
+            distance: "16.0",
+            ran: 1,
+            meetingId: "Newton Abbot|2026-06-03",
+            meetingName: "Newton Abbot — 3 June 2026",
+            runnersWithIspCount: 1,
+            raceStaked: 1 / 3,
+            raceReturns: 1 / 3 + 1,
+            runners: [
+              {
+                id: synthNumericId("rac_test_0001:hrs_1"),
+                name: "Fixture Star",
+                num: 1,
+                draw: 0,
+                pos: "1",
+                status: "WINNER",
+                sortPriority: 1,
+                isp: 4,
+                ispFraction: "3/1",
+                isFavourite: true,
+                age: 6,
+                wgt: 154,
+                officialRating: 98,
+                rpr: null,
+                ts: null,
+                beatenDistance: null,
+                comment: null,
+              },
+            ],
+          };
           return {
             distinct: jest.fn().mockResolvedValue(["GB", "IE"]),
-          find: jest.fn().mockReturnValue({
-            sort: jest.fn().mockReturnThis(),
-            limit: jest.fn().mockReturnThis(),
-            toArray: jest.fn().mockResolvedValue([
-              {
-                eventId: "33858191",
-                marketId: "1.237066150",
-                changeId: "12890365544",
-                status: "OPEN",
-                marketType: "WIN",
-                marketTime: "2025-01-01T14:01:00.000Z",
-                numberOfActiveRunners: 5,
-                timestamp: new Date().toISOString(),
-                runners: [],
-                runnerId: 12345,
-                runnerName: "Springwell Bay",
-                lastTradedPrice: 4.5,
-                eventName: "Cheltenham 1st Jan",
-              },
-            ]),
+          find: jest.fn().mockImplementation((query?: { _id?: { $in?: number[] } }) => {
+            if (name === "industry_starting_prices" && query?._id?.$in) {
+              return {
+                toArray: jest.fn().mockResolvedValue(
+                  query._id!.$in!.includes(mockResultRaceId) ? [mockResultRace] : []
+                ),
+              };
+            }
+            return {
+              sort: jest.fn().mockReturnThis(),
+              limit: jest.fn().mockReturnThis(),
+              toArray: jest.fn().mockResolvedValue([
+                {
+                  eventId: "33858191",
+                  marketId: "1.237066150",
+                  changeId: "12890365544",
+                  status: "OPEN",
+                  marketType: "WIN",
+                  marketTime: "2025-01-01T14:01:00.000Z",
+                  numberOfActiveRunners: 5,
+                  timestamp: new Date().toISOString(),
+                  runners: [],
+                  runnerId: 12345,
+                  runnerName: "Springwell Bay",
+                  lastTradedPrice: 4.5,
+                  eventName: "Cheltenham 1st Jan",
+                },
+              ]),
+            };
           }),
           countDocuments: jest.fn().mockResolvedValue(42),
           findOne: jest.fn().mockResolvedValue({ id: 1, name: "Test Horse" }),
@@ -469,7 +536,8 @@ jest.mock("../../config/database", () => ({
       isConnected: jest.fn().mockReturnValue(true),
     }),
   },
-}));
+  };
+});
 
 describe("API Endpoints", () => {
   describe("GET /health", () => {
@@ -1780,6 +1848,16 @@ describe("API Endpoints", () => {
       expect(Array.isArray(doc.runners)).toBe(true);
     });
 
+    it("attaches the real result once industry_starting_prices has captured the race", async () => {
+      const response = await request(app)
+        .get("/api/daily-races?date=2026-06-03")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const doc = response.body.data[0];
+      expect(doc.runners[0].result).toEqual({ status: "WINNER", pos: "1", isp: 4, ispFraction: "3/1" });
+    });
+
     it("returns 401 without auth", async () => {
       await request(app).get("/api/daily-races?date=2026-06-03").expect(401);
     });
@@ -1830,6 +1908,7 @@ describe("API Endpoints", () => {
       expect(response.body).toHaveProperty("success", true);
       expect(response.body.data).toHaveProperty("raceId", "rac_test_0001");
       expect(Array.isArray(response.body.data.runners)).toBe(true);
+      expect(response.body.data.runners[0].result).toEqual({ status: "WINNER", pos: "1", isp: 4, ispFraction: "3/1" });
     });
 
     it("returns 404 for an unknown raceId", async () => {

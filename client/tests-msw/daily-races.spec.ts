@@ -6,6 +6,9 @@ import { test, expect } from "./fixtures";
 // (hrs_1 "Fixture Star", hrs_2 "Second Fixture"). hrs_1 has a
 // modelWinProbability of 25 (-> breakeven decimal odds 4.00, "3/1");
 // hrs_2 has none, so it never qualifies for the Today's Picks filters below.
+// hrs_1 also carries a real captured result (WINNER, isp 4) — its race has
+// already finished, unlike every other runner in this fixture, which stays
+// pending (result: undefined, same as never having been captured yet).
 
 test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
   test("burger menu link opens Daily Races", async ({ page }) => {
@@ -105,5 +108,26 @@ test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
     expect(page.url()).toContain("/daily-races/race");
     await expect(page.getByTestId("daily-race-item-hrs_1")).toBeVisible();
     await expect(page.getByTestId("daily-race-item-fair-odds-hrs_1")).toHaveText("Fair 3/1 (4.00)");
+  });
+
+  test("a pick with a captured result shows Won + PnL alongside its pre-race Model/Fair-odds badges", async ({ page }) => {
+    await page.goto("/daily-races");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("daily-races-min-model-win-probability").fill("20");
+    await page.getByTestId("daily-races-filter-apply").click();
+
+    // hrs_1 (Fixture Star) has a finished result — isp 4 WINNER — so its
+    // pick row shows both its original pre-race pick info and the result.
+    await expect(page.getByTestId("daily-races-pick-hrs_1")).toBeVisible();
+    await expect(page.getByTestId("daily-races-pick-fair-odds-hrs_1")).toHaveText("Fair 3/1 (4.00)");
+    await expect(page.getByTestId("daily-races-pick-result-hrs_1")).toHaveText("Won");
+    await expect(page.getByTestId("daily-races-pick-pnl-hrs_1")).toHaveText("+£1.00");
+
+    // Day P&L totals every resulted pick — only hrs_1 has a captured
+    // result here, so the day total equals its own +£1.00, "1 resulted".
+    await expect(page.getByTestId("daily-races-picks-day-pnl")).toContainText("Day P&L: +£1.00");
+    await expect(page.getByTestId("daily-races-picks-day-pnl")).toContainText("1 resulted");
   });
 });

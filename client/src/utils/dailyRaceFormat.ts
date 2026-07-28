@@ -1,4 +1,4 @@
-import { DailyRace, DailyRaceRunner } from "../services/chatApi";
+import { DailyRace, DailyRaceResult, DailyRaceRunner, PnlStats } from "../services/chatApi";
 
 export interface DailyRacesFilters {
   minModelWinProbability: number;
@@ -81,4 +81,40 @@ export function buildDailyRacesPicks(races: DailyRace[], filters: DailyRacesFilt
     }
   }
   return picks;
+}
+
+// Mirrors ispFormat.ts's stakeToWin1/runnerPnl — same £1-to-win staking
+// convention (stake sized so a win nets exactly £1 profit) — applied here to
+// a DailyRaceResult rather than a full IspRunner (a different payload
+// shape, same math, so duplicated rather than shared). A runner with no
+// valid ISP (isp == null or <= 1 — e.g. a non-finisher) is excluded from
+// PnL entirely, same as every ISP screen's own qualifying-runner filter,
+// not treated as a £0 result.
+export function dailyRacePickPnl(result: DailyRaceResult): number | null {
+  if (result.isp == null || result.isp <= 1) return null;
+  return result.status === "WINNER" ? 1 : -(1 / (result.isp - 1));
+}
+
+export function dailyRacePickResultLabel(result: DailyRaceResult): "Won" | "Lost" | "Non-finisher" {
+  if (result.status === "NON_FINISHER") return "Non-finisher";
+  return result.status === "WINNER" ? "Won" : "Lost";
+}
+
+// Total staked/returns/pnl across every pick that has a resulted, valid-ISP
+// runner (same "excluded, not £0" rule as dailyRacePickPnl/ispFormat.ts's
+// computeRangePnl) — mirrors that function's shape/math exactly, just
+// sourced from DailyRacePick[]/result instead of IspRace[]/runner directly.
+// count is how many picks actually contributed, so the UI can show e.g.
+// "8 resulted" alongside the total for a 19-pick list still mostly pending.
+export function computeDailyPicksPnl(picks: DailyRacePick[]): PnlStats {
+  let staked = 0, returns = 0, count = 0;
+  for (const { runner } of picks) {
+    const result = runner.result;
+    if (!result || result.isp == null || result.isp <= 1) continue;
+    count++;
+    const stake = 1 / (result.isp - 1);
+    staked += stake;
+    if (result.status === "WINNER") returns += stake + 1;
+  }
+  return { staked, returns, pnl: returns - staked, count };
 }

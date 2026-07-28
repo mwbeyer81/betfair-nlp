@@ -1,8 +1,33 @@
 import config from "config";
 import { DailyRaceDAO, DailyRaceDoc, DailyRaceRunnerDoc, mapRacecardToDoc } from "../dao/daily-race-dao";
+import { IndustrySpDAO } from "../dao/industry-sp-dao";
+import { synthNumericId } from "../dao/industry-sp-row-mapping";
 import { DatabaseConnection } from "../../config/database";
 import { RacingApiClient } from "./racing-api-client";
 import { PredictionApiClient, PredictionRunnerInput } from "./prediction-api-client";
+
+// A runner's real outcome, once industry_starting_prices has captured it —
+// never persisted onto daily_racecards itself (see enrichWithResults below),
+// only attached to the response each time a race is read. isp/ispFraction
+// are the runner's actual Industry SP, the real market price it went off
+// at — not the model's own "fair odds" implied price shown pre-race.
+export interface DailyRaceResult {
+  status: "WINNER" | "PLACED" | "LOSER" | "NON_FINISHER";
+  pos: string;
+  isp: number | null;
+  ispFraction: string | null;
+}
+
+export interface DailyRaceRunnerWithResult extends DailyRaceRunnerDoc {
+  // null until the race has been captured by the 21:30 UTC results job (or
+  // a manual capture run) — same "pending" meaning as before this field
+  // existed, not an error/missing-data state.
+  result: DailyRaceResult | null;
+}
+
+export interface DailyRaceWithResult extends Omit<DailyRaceDoc, "runners"> {
+  runners: DailyRaceRunnerWithResult[];
+}
 
 function toNum(value: string | null | undefined): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -60,13 +85,20 @@ function readConfigString(key: string): string {
 
 export class DailyRaceService {
   private dailyRaceDAO: DailyRaceDAO;
+  private industrySpDAO: IndustrySpDAO;
 
-  constructor(dailyRaceDAO?: DailyRaceDAO) {
+  constructor(dailyRaceDAO?: DailyRaceDAO, industrySpDAO?: IndustrySpDAO) {
     if (dailyRaceDAO) {
       this.dailyRaceDAO = dailyRaceDAO;
     } else {
       const db = DatabaseConnection.getInstance().getDb();
       this.dailyRaceDAO = new DailyRaceDAO(db);
+    }
+    if (industrySpDAO) {
+      this.industrySpDAO = industrySpDAO;
+    } else {
+      const db = DatabaseConnection.getInstance().getDb();
+      this.industrySpDAO = new IndustrySpDAO(db);
     }
   }
 
@@ -74,16 +106,46 @@ export class DailyRaceService {
     return this.dailyRaceDAO.createIndexes();
   }
 
-  public async getDailyRaces(date: string): Promise<DailyRaceDoc[]> {
-    return this.dailyRaceDAO.getRacesByDate(date);
+  /** Attaches each runner's real result (see DailyRaceResult above) by
+   * batch-joining this set of races against industry_starting_prices via
+   * IndustrySpDAO.getResultsForRaceIds — one query total regardless of how
+   * many races are passed in, not one per race. A race with no matching
+   * result doc yet (not run, or not yet captured by the daily batch job)
+   * leaves every one of its runners' result: null. */
+  private async enrichWithResults(races: DailyRaceDoc[]): Promise<DailyRaceWithResult[]> {
+    const resultsByRaceId = await this.industrySpDAO.getResultsForRaceIds(races.map(r => r.raceId));
+    return races.map(race => {
+      const resultDoc = resultsByRaceId.get(race.raceId);
+      const runners: DailyRaceRunnerWithResult[] = race.runners.map(runner => {
+        const resultRunner = resultDoc?.runners.find(
+          r => r.id === synthNumericId(`${race.raceId}:${runner.runnerId}`)
+        );
+        return {
+          ...runner,
+          result: resultRunner
+            ? { status: resultRunner.status, pos: resultRunner.pos, isp: resultRunner.isp, ispFraction: resultRunner.ispFraction }
+            : null,
+        };
+      });
+      return { ...race, runners };
+    });
   }
 
-  public async getDailyRacesByEvent(eventId: string): Promise<DailyRaceDoc[]> {
-    return this.dailyRaceDAO.getRacesByEventId(eventId);
+  public async getDailyRaces(date: string): Promise<DailyRaceWithResult[]> {
+    const races = await this.dailyRaceDAO.getRacesByDate(date);
+    return this.enrichWithResults(races);
   }
 
-  public async getDailyRaceById(raceId: string): Promise<DailyRaceDoc | null> {
-    return this.dailyRaceDAO.getRaceById(raceId);
+  public async getDailyRacesByEvent(eventId: string): Promise<DailyRaceWithResult[]> {
+    const races = await this.dailyRaceDAO.getRacesByEventId(eventId);
+    return this.enrichWithResults(races);
+  }
+
+  public async getDailyRaceById(raceId: string): Promise<DailyRaceWithResult | null> {
+    const race = await this.dailyRaceDAO.getRaceById(raceId);
+    if (!race) return null;
+    const [enriched] = await this.enrichWithResults([race]);
+    return enriched;
   }
 
   /** Pulls today's racecards from RacingAPI and upserts them. Shared by
