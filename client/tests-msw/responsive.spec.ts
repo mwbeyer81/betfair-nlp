@@ -464,6 +464,95 @@ test.describe("Responsive layout — /isp/races screen (MSW mocked, iPhone 12 mi
   });
 });
 
+// Regression test for a real narrow-viewport bug reported against
+// production (iPhone 12 mini, real Safari): DailyRacesScreen.tsx's filter
+// bar overflowed the whole page horizontally, cutting off inputs/buttons at
+// the right edge. Root cause was the same flexbox bug class as the ISP
+// filters screen's own filterStepper fix (see the /isp filters screen
+// describe block above and its "filter grid's rows/inputs had no width
+// constraint" comment): filterGridRow/chipFilterRow/countryBar (a flex:1
+// child) had no flexShrink/minWidth:0, so they grew to fit their own
+// unwrapped content and forced the whole scrollable page wider than the
+// viewport before any internal wrap could engage.
+//
+// The shared MOCK_DAILY_RACES fixture (2 courses, 1 going/class/type) isn't
+// diverse enough to reproduce this — confirmed by testing against it first,
+// which didn't overflow even before the fix. A real day's card easily spans
+// a dozen+ distinct courses/goings/classes/types/regions, so this block
+// mocks a richer, self-contained dataset (not touching the shared fixture,
+// to avoid affecting other daily-races tests' assumed counts) sized to
+// actually exercise the failure mode.
+function dailyRaceRunnerForResponsiveTest(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    runnerId: "hrs_1", horse: "Fixture Star", age: "6", sex: "gelding", sexCode: "G", colour: "b",
+    region: "GB", dam: "Star Dam", damId: "dam_1", sire: "Star Sire", sireId: "sir_1",
+    damsire: "Star Damsire", damsireId: "dsi_1", trainer: "A Trainer", trainerId: "trn_1",
+    owner: "Owner", ownerId: "own_1", number: "1", draw: "0", headgear: "", lbs: "154",
+    officialRating: "98", jockey: "B Jockey", jockeyId: "jky_1", lastRun: "21", form: "1-21",
+    modelWinProbability: 25,
+    ...overrides,
+  };
+}
+const DAILY_RACES_COURSES = ["Beverley", "Compiegne", "Ffos Las", "Newton Abbot", "Ascot", "Chepstow", "Nottingham", "Ripon", "Warwick", "Curragh"];
+const DAILY_RACES_GOINGS = ["Good", "Good To Firm", "Good To Soft", "Soft", "Heavy"];
+const DAILY_RACES_CLASSES = ["Class 1", "Class 2", "Class 3", "Class 4", "Class 5", "Class 6"];
+const DAILY_RACES_TYPES = ["Flat", "Hurdle", "Chase", "NH Flat"];
+const DAILY_RACES_REGIONS = ["GB", "IRE", "FR"];
+const MOCK_DAILY_RACES_RICH = DAILY_RACES_COURSES.map((course, i) => ({
+  raceId: `rac_${i}`, eventId: `${course.toLowerCase().replace(/\s+/g, "-")}-2026-06-03`, course, date: "2026-06-03",
+  offTime: "1:50", offDt: "2026-06-03T13:50:00+01:00", raceName: "Novices' Hurdle",
+  distanceF: "16.0", region: DAILY_RACES_REGIONS[i % DAILY_RACES_REGIONS.length],
+  raceClass: DAILY_RACES_CLASSES[i % DAILY_RACES_CLASSES.length],
+  type: DAILY_RACES_TYPES[i % DAILY_RACES_TYPES.length], ageBand: "4yo+",
+  prize: "£3,769", fieldSize: "1", going: DAILY_RACES_GOINGS[i % DAILY_RACES_GOINGS.length], surface: "Turf",
+  runners: [dailyRaceRunnerForResponsiveTest({ runnerId: `hrs_${i}` })],
+}));
+
+for (const width of [320, 375, 390]) {
+  test.describe(`Responsive layout — Daily Races filter bar (MSW mocked, ${width}px)`, () => {
+    test.use({ viewport: { width, height: 812 } });
+
+    test.beforeEach(async ({ page }) => {
+      await page.route((url) => url.pathname === "/api/daily-races", (route) =>
+        route.fulfill({ json: { success: true, data: MOCK_DAILY_RACES_RICH, count: MOCK_DAILY_RACES_RICH.length } })
+      );
+      await page.goto("/daily-races");
+      await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+      await page.getByTestId("daily-races-filter-apply").click();
+    });
+
+    // Deliberately NOT the findOverflowingElements element-scan used
+    // elsewhere in this file — the Course/Going/Class/Type/Region chip rows
+    // are intentionally horizontally-scrollable, so with this many distinct
+    // values, chips genuinely (and correctly) sit off-screen inside their
+    // own ScrollView. getBoundingClientRect doesn't know the difference
+    // between "off-screen inside a properly clipping scroll container" and
+    // "actually overflowing the page", so that scan produces false
+    // positives here. document.scrollWidth doesn't have that problem — it
+    // reflects the page's real, laid-out width regardless of what's
+    // scrolled off-screen inside a child container.
+    test(`page does not overflow horizontally at ${width}px`, async ({ page }) => {
+      const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+      expect(scrollWidth).toBeLessThanOrEqual(width);
+    });
+
+    test("filter bar, Apply, and Reset all fit within the viewport", async ({ page }) => {
+      const bar = page.getByTestId("daily-races-filter-bar");
+      await expect(bar).toBeVisible();
+      const barBox = (await bar.boundingBox())!;
+      expect(barBox.x + barBox.width).toBeLessThanOrEqual(width + 1);
+
+      for (const testId of ["daily-races-filter-apply", "daily-races-filter-reset"]) {
+        const el = page.getByTestId(testId);
+        await expect(el).toBeVisible();
+        const box = (await el.boundingBox())!;
+        expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
+      }
+    });
+  });
+}
+
 test.describe("Responsive layout — Runner Detail screen (MSW mocked, iPhone 12 mini, 375px)", () => {
   test.use({ viewport: IPHONE_12_MINI_VIEWPORT });
 
