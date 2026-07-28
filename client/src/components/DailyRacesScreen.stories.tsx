@@ -98,6 +98,44 @@ export const NavigationTriggered: Story = {
   },
 };
 
+export const GroupModeDefaultsToMeeting: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await expect(canvas.getByTestId("daily-races-event-newton-abbot-2026-06-03")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("daily-races-time-row-rac_1")).not.toBeInTheDocument();
+  },
+};
+
+export const GroupModeSwitchesToTime: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await userEvent.click(canvas.getByTestId("daily-races-group-by-time"));
+
+    // Flat, individual race rows across both meetings, no meeting grouping.
+    await expect(canvas.getByTestId("daily-races-time-row-rac_1")).toBeInTheDocument();
+    await expect(canvas.getByTestId("daily-races-time-row-rac_2")).toBeInTheDocument();
+    await expect(canvas.getByTestId("daily-races-time-row-rac_3")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("daily-races-event-newton-abbot-2026-06-03")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("daily-races-event-ascot-2026-06-03")).not.toBeInTheDocument();
+
+    // Chronological order (1:50, 2:25, 3:05), independent of course.
+    const rows = canvas.getAllByText(/^\d:\d\d$/);
+    await expect(rows.map(el => el.textContent)).toEqual(["1:50", "2:25", "3:05"]);
+  },
+};
+
+export const TimeRowNavigatesToRace: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await userEvent.click(canvas.getByTestId("daily-races-group-by-time"));
+    await userEvent.click(canvas.getByTestId("daily-races-time-row-rac_3"));
+    await expect(args.onNavigateToRace).toHaveBeenCalledWith("rac_3");
+  },
+};
+
 export const LoadingState: Story = {
   parameters: {
     msw: {

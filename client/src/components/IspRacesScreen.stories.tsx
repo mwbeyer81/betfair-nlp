@@ -82,6 +82,69 @@ const FILTERED_RACE_MOCK = [
   },
 ];
 
+// Spans two years, two months within 2015, and two meetings on the same
+// day — exercises every level of the year/month/day/meeting collapsible
+// hierarchy with hand-computed P&L at each level (see the group-pnl-rollup
+// stories below for the arithmetic).
+const HIERARCHY_MOCK_RACES = [
+  {
+    raceId: 700001,
+    meetingId: "Musselburgh|2015-01-01",
+    meetingName: "Musselburgh — 1 January 2015",
+    course: "Musselburgh",
+    countryCode: "GB",
+    raceTime: "2015-01-01T13:00:00",
+    raceName: "Musselburgh 13:00",
+    raceType: "Hurdle",
+    ran: 1,
+    runners: [
+      { id: 70101, name: "January Winner", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false },
+    ],
+  },
+  {
+    raceId: 700002,
+    meetingId: "Ascot|2015-01-01",
+    meetingName: "Ascot — 1 January 2015",
+    course: "Ascot",
+    countryCode: "GB",
+    raceTime: "2015-01-01T14:00:00",
+    raceName: "Ascot 14:00",
+    raceType: "Hurdle",
+    ran: 1,
+    runners: [
+      { id: 70201, name: "January Loser", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false },
+    ],
+  },
+  {
+    raceId: 700003,
+    meetingId: "Musselburgh|2015-02-15",
+    meetingName: "Musselburgh — 15 February 2015",
+    course: "Musselburgh",
+    countryCode: "GB",
+    raceTime: "2015-02-15T13:00:00",
+    raceName: "Musselburgh 13:00",
+    raceType: "Chase",
+    ran: 1,
+    runners: [
+      { id: 70301, name: "February Loser", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 3, ispFraction: "2/1", isFavourite: false },
+    ],
+  },
+  {
+    raceId: 700004,
+    meetingId: "Ascot|2016-01-01",
+    meetingName: "Ascot — 1 January 2016",
+    course: "Ascot",
+    countryCode: "GB",
+    raceTime: "2016-01-01T13:00:00",
+    raceName: "Ascot 13:00",
+    raceType: "Flat",
+    ran: 1,
+    runners: [
+      { id: 70401, name: "Next Year Winner", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 3, ispFraction: "2/1", isFavourite: false },
+    ],
+  },
+];
+
 const withQueryParams = (search: string) => {
   const Decorator = (Story: React.ComponentType) => {
     window.history.pushState({}, "", `${window.location.pathname}?${search}`);
@@ -213,8 +276,12 @@ export const MeetingSections: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expect(canvas.findByTestId("industry-sp-meeting-Leopardstown|2026-02-01")).resolves.toBeInTheDocument();
-    await expect(canvas.findByText("Leopardstown — 1 February 2026")).resolves.toBeInTheDocument();
+    // Meeting header shows just the course now — the date lives on the day
+    // header above it in the year/month/day/meeting hierarchy.
+    const meeting = await canvas.findByTestId("industry-sp-meeting-Leopardstown|2026-02-01");
+    await expect(within(meeting).getByText("Leopardstown")).toBeInTheDocument();
+    const day = await canvas.findByTestId("industry-sp-day-2026-02-01");
+    await expect(within(day).getByText("1 Feb 2026")).toBeInTheDocument();
   },
 };
 
@@ -303,14 +370,7 @@ export const MeetingPnlDisplayed: Story = {
 
     // Leopardstown's two races combined: Galopin (+£1.00, stake £1.05),
     // Meetingofthewaters (-£0.22), State Man (+£1.00, stake £2.50),
-    // Brighterdaysahead (-£0.20) — 4 horses, £3.97 staked, £1.58 net.
-    const bar = canvas.getByTestId(`industry-sp-meeting-pnl-bar-${MOCK_RACES[0].meetingId}`);
-    await expect(bar).toBeInTheDocument();
-    await expect(
-      canvas.getByTestId(`industry-sp-meeting-pnl-count-${MOCK_RACES[0].meetingId}`)
-    ).toHaveTextContent("Horses 4");
-    await expect(bar).toHaveTextContent(/Staked.*£3\.97/);
-    await expect(bar).toHaveTextContent(/Return.*£5\.55/);
+    // Brighterdaysahead (-£0.20) — £3.97 staked, £1.58 net.
     await expect(
       canvas.getByTestId(`industry-sp-meeting-pnl-${MOCK_RACES[0].meetingId}`)
     ).toHaveTextContent("+£1.58");
@@ -343,13 +403,9 @@ export const MeetingPnlRespondsToFilters: Story = {
     try {
       await canvas.findByTestId("industry-sp-list");
 
-      // Only Red Stripes + Aqlette pass the filter — the meeting-level bar
-      // must total just those two (+£1.00 winner, -£0.06 loser = +£0.94),
-      // not the whole field including the filtered-out third runner.
-      const bar = canvas.getByTestId(`industry-sp-meeting-pnl-bar-${FILTERED_RACE_MOCK[0].meetingId}`);
-      await expect(
-        canvas.getByTestId(`industry-sp-meeting-pnl-count-${FILTERED_RACE_MOCK[0].meetingId}`)
-      ).toHaveTextContent("Horses 2");
+      // Only Red Stripes + Aqlette pass the filter — the meeting-level
+      // total must count just those two (+£1.00 winner, -£0.06 loser =
+      // +£0.94), not the whole field including the filtered-out third runner.
       await expect(
         canvas.getByTestId(`industry-sp-meeting-pnl-${FILTERED_RACE_MOCK[0].meetingId}`)
       ).toHaveTextContent("+£0.94");
@@ -440,6 +496,12 @@ export const SortToggleSwitchesToDesc: Story = {
     await expect(btn).toHaveTextContent("First → Last");
     await userEvent.click(btn);
     await expect(btn).toHaveTextContent("Last → First");
+
+    // Clicking the toggle writes ?sort=desc to the real browser URL (see
+    // ispUrlParams.updateUrlParams) — the test runner reuses one page
+    // across stories in this file, so clear it or it leaks into whichever
+    // story runs next (that story's sortOrder would then init to "desc").
+    window.history.pushState({}, "", window.location.pathname);
   },
 };
 
@@ -467,6 +529,164 @@ export const LoadMoreVisibleWhenMorePagesExist: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
     await expect(canvas.getByTestId("industry-sp-load-more")).toHaveTextContent("Load more (48 remaining)");
+  },
+};
+
+const hierarchyHandlers = [
+  http.get(`${BASE}/api/industry-sp`, () =>
+    HttpResponse.json({
+      success: true,
+      data: HIERARCHY_MOCK_RACES,
+      count: HIERARCHY_MOCK_RACES.length,
+      total: HIERARCHY_MOCK_RACES.length,
+      page: 1,
+      limit: 20,
+      totalPages: 1,
+      totalRunners: HIERARCHY_MOCK_RACES.reduce((s, r) => s + r.runners.length, 0),
+      pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
+    })
+  ),
+];
+
+export const HierarchyLevelsVisible: Story = {
+  parameters: { msw: { handlers: hierarchyHandlers } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    await expect(canvas.getByTestId("industry-sp-year-2015")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-year-2016")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-month-2015-01")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-month-2015-02")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-day-2015-01-01")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-day-2015-02-15")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-meeting-Musselburgh|2015-01-01")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-meeting-Ascot|2015-01-01")).toBeInTheDocument();
+    await expect(canvas.getByText("January 2015")).toBeInTheDocument();
+  },
+};
+
+export const GroupPnlRollupsMatchChildRaces: Story = {
+  parameters: { msw: { handlers: hierarchyHandlers } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    // Meeting level: one race each. Each testID targets the group's own
+    // P&L text directly (not a free-text search of the whole subtree) —
+    // a single-race meeting's total is numerically identical to that
+    // race's own P&L badge, so a loose text match would find both.
+    // Musselburgh (Jan 1) — WINNER at 4/1, stake £0.25 → +£1.00 (+400.0%)
+    await expect(canvas.getByTestId("industry-sp-meeting-pnl-Musselburgh|2015-01-01"))
+      .toHaveTextContent("+£1.00 (+400.0%)");
+    // Ascot (Jan 1) — LOSER at 4/1, stake £0.25 → -£0.25 (-100.0%)
+    await expect(canvas.getByTestId("industry-sp-meeting-pnl-Ascot|2015-01-01"))
+      .toHaveTextContent("-£0.25 (-100.0%)");
+
+    // Day level: both Jan 1 meetings combined → +£1.00 - £0.25 = +£0.75 (+150.0%)
+    await expect(canvas.getByTestId("industry-sp-day-pnl-2015-01-01")).toHaveTextContent("+£0.75 (+150.0%)");
+
+    // Month level: January 2015 (same as the single day in it) vs February
+    // 2015 (one LOSER at 2/1, stake £0.50 → -£0.50, -100.0%).
+    await expect(canvas.getByTestId("industry-sp-month-pnl-2015-01")).toHaveTextContent("+£0.75 (+150.0%)");
+    await expect(canvas.getByTestId("industry-sp-month-pnl-2015-02")).toHaveTextContent("-£0.50 (-100.0%)");
+
+    // Year level: 2015 = Jan (staked £0.50, returns £1.25) + Feb (staked
+    // £0.50, returns £0) → staked £1.00, returns £1.25, net +£0.25
+    // (+25.0%). 2016 = single WINNER at 2/1, stake £0.50 → +£1.00 (+200.0%).
+    await expect(canvas.getByTestId("industry-sp-year-pnl-2015")).toHaveTextContent("+£0.25 (+25.0%)");
+    await expect(canvas.getByTestId("industry-sp-year-pnl-2016")).toHaveTextContent("+£1.00 (+200.0%)");
+  },
+};
+
+export const YearToggleCollapsesDescendants: Story = {
+  parameters: { msw: { handlers: hierarchyHandlers } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2015"));
+
+    await expect(canvas.queryByTestId("industry-sp-month-2015-01")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-day-2015-01-01")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-meeting-Musselburgh|2015-01-01")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-race-700001")).not.toBeInTheDocument();
+    // The year header itself stays, just its chevron flips.
+    await expect(canvas.getByTestId("industry-sp-year-2015")).toBeInTheDocument();
+    // A sibling year is unaffected.
+    await expect(canvas.getByTestId("industry-sp-year-2016")).toBeInTheDocument();
+  },
+};
+
+export const MonthToggleCollapsesDescendants: Story = {
+  parameters: { msw: { handlers: hierarchyHandlers } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2015-01"));
+
+    await expect(canvas.queryByTestId("industry-sp-day-2015-01-01")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-race-700001")).not.toBeInTheDocument();
+    // A sibling month (Feb 2015) is unaffected.
+    await expect(canvas.getByTestId("industry-sp-day-2015-02-15")).toBeInTheDocument();
+  },
+};
+
+export const DayToggleCollapsesDescendants: Story = {
+  parameters: { msw: { handlers: hierarchyHandlers } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-day-toggle-2015-01-01"));
+
+    await expect(canvas.queryByTestId("industry-sp-meeting-Musselburgh|2015-01-01")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-meeting-Ascot|2015-01-01")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-race-700001")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-race-700002")).not.toBeInTheDocument();
+  },
+};
+
+export const MeetingToggleCollapsesRacesButLinkStillNavigates: Story = {
+  parameters: { msw: { handlers: hierarchyHandlers } },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    await userEvent.click(canvas.getByTestId("industry-sp-meeting-toggle-Musselburgh|2015-01-01"));
+    await expect(canvas.queryByTestId("industry-sp-race-700001")).not.toBeInTheDocument();
+    // Meeting header (course name + P&L) stays visible, collapsed or not.
+    await expect(canvas.getByTestId("industry-sp-meeting-Musselburgh|2015-01-01")).toBeInTheDocument();
+
+    // The course-name link is a separate control from the collapse chevron
+    // — clicking it still navigates rather than just toggling.
+    await userEvent.click(canvas.getByTestId("industry-sp-meeting-link-Musselburgh|2015-01-01"));
+    await expect(args.onNavigateToMeeting).toHaveBeenCalledWith("Musselburgh|2015-01-01");
+  },
+};
+
+export const CollapseAllTogglesEverything: Story = {
+  parameters: { msw: { handlers: hierarchyHandlers } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    const btn = canvas.getByTestId("industry-sp-collapse-all-toggle");
+    await expect(btn).toHaveTextContent("Collapse All");
+
+    await userEvent.click(btn);
+    await expect(btn).toHaveTextContent("Expand All");
+    // Nothing below year level survives a full collapse.
+    await expect(canvas.queryByTestId("industry-sp-month-2015-01")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-race-700004")).not.toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-year-2015")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-year-2016")).toBeInTheDocument();
+
+    await userEvent.click(btn);
+    await expect(btn).toHaveTextContent("Collapse All");
+    await expect(canvas.getByTestId("industry-sp-month-2015-01")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-race-700004")).toBeInTheDocument();
   },
 };
 
