@@ -149,6 +149,55 @@ describe("IndustrySpDAO (integration)", () => {
     expect(new Date(earliestOfDescRange).getTime()).toBeGreaterThanOrEqual(new Date(latestOfAscRange).getTime());
   });
 
+  // subMinRaceTime/subMaxRaceTime restrict an already row-ranged window to
+  // a calendar sub-range without changing what "row N" means — see
+  // IspRacesScreen's per-year loading (isp-year-direct-load), which calls
+  // this once per expanded year instead of walking the whole row range
+  // forward from page 1 to "discover" a distant year.
+  it("subMinRaceTime/subMaxRaceTime narrows the row-ranged result, and never returns a race outside the sub-range", async () => {
+    const rowRanged = await dao.getAllRacesByRace(1, 50, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, 50);
+    expect(rowRanged.data.length).toBeGreaterThan(1);
+
+    const midIndex = Math.floor(rowRanged.data.length / 2);
+    const midRaceTime = rowRanged.data[midIndex].raceTime;
+
+    const restricted = await dao.getAllRacesByRace(
+      1, 50, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, 50,
+      null, null, [], [], [], [], null, null, 0, 0, 100, null, 0, false, null,
+      midRaceTime, null
+    );
+    // Strictly narrower than (or equal to, if every race happens to be at
+    // or after the midpoint) the unrestricted row range.
+    expect(restricted.total).toBeLessThanOrEqual(rowRanged.total);
+    expect(restricted.total).toBeGreaterThan(0);
+    for (const race of restricted.data) {
+      expect(race.raceTime >= midRaceTime).toBe(true);
+    }
+  });
+
+  it("subMinRaceTime/subMaxRaceTime covering the row range's own full span returns the same total as no sub-range at all", async () => {
+    const rowRanged = await dao.getAllRacesByRace(1, 50, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, 50);
+    const first = rowRanged.data[0].raceTime;
+    const last = rowRanged.data[rowRanged.data.length - 1].raceTime;
+
+    const restricted = await dao.getAllRacesByRace(
+      1, 50, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, 50,
+      null, null, [], [], [], [], null, null, 0, 0, 100, null, 0, false, null,
+      first, last
+    );
+    expect(restricted.total).toBe(rowRanged.total);
+  });
+
+  it("a subMinRaceTime after every race in the row range returns an empty result", async () => {
+    const restricted = await dao.getAllRacesByRace(
+      1, 50, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, 50,
+      null, null, [], [], [], [], null, null, 0, 0, 100, null, 0, false, null,
+      "2099-01-01"
+    );
+    expect(restricted.total).toBe(0);
+    expect(restricted.data).toEqual([]);
+  });
+
   it("getFilterBounds returns sensible bounds", async () => {
     const bounds = await dao.getFilterBounds();
     expect(bounds.maxRunnersPerRace).toBeGreaterThan(0);

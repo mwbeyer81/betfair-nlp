@@ -303,7 +303,17 @@ export class IndustrySpDAO {
     runnerName: string | null = null,
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
-    modelVersionId: string | null = null
+    modelVersionId: string | null = null,
+    // Applied AFTER fromRow/toRow's row-range window (below), unlike
+    // minRaceTime/maxRaceTime above which applies BEFORE it (and so
+    // participates in defining what "row N" even means). Lets a caller ask
+    // "just the races in this calendar year, within this already-fixed
+    // row range" as a normal small paginated query — see IspRacesScreen's
+    // per-year loading, which calls this once per expanded year instead of
+    // walking the whole row range forward from page 1 to "discover" a
+    // distant year (the isp-year-walk-error/isp-year-direct-load history).
+    subMinRaceTime: string | null = null,
+    subMaxRaceTime: string | null = null
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -380,6 +390,27 @@ export class IndustrySpDAO {
     const rowRangeStages: Record<string, unknown>[] = [];
     if (rowSkip > 0) rowRangeStages.push({ $skip: rowSkip });
     if (rowLimit !== null) rowRangeStages.push({ $limit: rowLimit });
+
+    // Restricts the already row-ranged window down to a calendar
+    // sub-range — e.g. "just 2025's races within Split B's rows
+    // 4925-9848". Placed after rowRangeStages (so it can't change what
+    // "row N" means) and before $facet (so total/totalRunners/pnlStats
+    // below all reflect this sub-range too, not just the "data" page —
+    // the whole point is that a caller can page through *this year alone*
+    // the same way it would page through the unscoped row range).
+    const subDateMatchStage: Record<string, unknown>[] =
+      subMinRaceTime != null || subMaxRaceTime != null
+        ? [
+            {
+              $match: {
+                raceTime: {
+                  ...(subMinRaceTime != null ? { $gte: subMinRaceTime } : {}),
+                  ...(subMaxRaceTime != null ? { $lte: subMaxRaceTime } : {}),
+                },
+              },
+            },
+          ]
+        : [];
 
     // Once rowRangeStages has already sorted+skipped+limited the input
     // ahead of $facet, the "data" branch only needs to page within that
@@ -493,6 +524,7 @@ export class IndustrySpDAO {
         // the rowRangeStages comment above for why this can't live inside
         // the facet branches below (that would re-run the sort per branch).
         ...rowRangeStages,
+        ...subDateMatchStage,
         {
           $facet: {
             data: [

@@ -44,7 +44,9 @@ export class IndustrySpService {
     runnerName: string | null = null,
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
-    modelVersionId: string | null = null
+    modelVersionId: string | null = null,
+    subMinRaceTime: string | null = null,
+    subMaxRaceTime: string | null = null
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -78,7 +80,9 @@ export class IndustrySpService {
       runnerName,
       minModelWinProbability,
       onlyModelBeatsSp,
-      modelVersionId
+      modelVersionId,
+      subMinRaceTime,
+      subMaxRaceTime
     );
   }
 

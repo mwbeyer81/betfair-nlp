@@ -1282,6 +1282,28 @@ describe("API Endpoints", () => {
       expect(response.body).toHaveProperty("success", true);
     });
 
+    // subMinDate/subMaxDate restrict an already row-ranged (fromRow/toRow)
+    // window to a calendar sub-range — see IspRacesScreen's per-year
+    // loading (isp-year-direct-load). Distinct from minDate/maxDate above,
+    // which participate in defining the row range itself.
+    it("accepts subMinDate/subMaxDate alongside fromRow/toRow without erroring", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?fromRow=1&toRow=100&minDate=2024-01-01&maxDate=2025-12-31&subMinDate=2025-01-01&subMaxDate=2025-12-31")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+    });
+
+    it("ignores a malformed subMinDate/subMaxDate instead of erroring", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?subMinDate=not-a-date&subMaxDate=also-not-a-date")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+    });
+
     it("count equals data.length", async () => {
       const response = await request(app)
         .get("/api/industry-sp")

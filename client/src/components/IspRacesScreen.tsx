@@ -36,13 +36,6 @@ import { buildHierarchy, collectHierarchyNodeKeys, YearNode } from "../utils/rac
 
 const PAGE_SIZE = 20;
 
-// The largest single batch ensureYearLoaded's doubling walk will ever
-// request — see its own comment for why: past this, a single request's
-// $facet-packed result risks exceeding MongoDB's 16MB document limit.
-// Comfortably under the ~2400-2560 failure threshold measured live, and
-// under the router's own defensive 2000 clamp on `limit`.
-const MAX_WALK_BATCH = 1000;
-
 // Same values as IndustrySpScreen's own ABSOLUTE_MIN_DATE/ABSOLUTE_MAX_DATE —
 // duplicated rather than imported to avoid adding a dependency on that
 // screen's internals; both represent "the real dataset's earliest/latest
@@ -67,11 +60,40 @@ function buildRaceHierarchy(races: IspRace[]) {
 // Inserts an empty placeholder YearNode for every year the applied date
 // filter could contain but no race data has loaded for yet — lets the
 // screen render a full "2024 / 2025 / 2026" set of collapsed year headers
-// immediately (see ensureYearLoaded), rather than only years reachable by
-// however far the paginated cursor happens to have advanced.
+// immediately (see loadYearPage), rather than only years the user has
+// actually tapped open so far.
 function mergeYearPlaceholders(hierarchy: YearNode<IspRace>[], yearKeys: string[]): YearNode<IspRace>[] {
   const byKey = new Map(hierarchy.map(y => [y.key, y]));
   return yearKeys.map(key => byKey.get(key) ?? { key, items: [], months: [] });
+}
+
+// Loading state for one calendar year's own races — each expanded year
+// paginates completely independently of every other year (see
+// loadYearPage), the same way the whole screen used to paginate as one
+// flat sequence. `total` is null until the first page for this year has
+// actually been fetched (see yearCountLabel — that's what distinguishes
+// "haven't checked yet" from "checked, and there are genuinely none").
+interface YearLoadState {
+  races: IspRace[];
+  page: number;
+  total: number | null;
+  isLoading: boolean;
+  error: boolean;
+}
+
+// Clips `year`'s own Jan1->Dec31 span to the filter's actual effective
+// range — e.g. a filter of 2024-06-01 -> 2025-03-01 shouldn't let 2024's
+// "own" query reach back to 2024-01-01, or 2025's reach past 2025-03-01.
+// Plain string min/max is safe here since every value involved is a bare
+// "YYYY-MM-DD" (the API appends the end-of-day time suffix server-side —
+// see parseDateRangeParams — so this never needs to reason about times).
+function yearBounds(year: string, effectiveMinDate: string, effectiveMaxDate: string): { from: string; to: string } {
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
+  return {
+    from: yearStart > effectiveMinDate ? yearStart : effectiveMinDate,
+    to: yearEnd < effectiveMaxDate ? yearEnd : effectiveMaxDate,
+  };
 }
 
 interface IspRacesScreenProps {
@@ -100,31 +122,26 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   onNavigateToRunner,
   onNavigateToTrainer,
 }) => {
-  const [races, setRaces] = useState<IspRace[]>([]);
+  // Every expanded year owns its own races/page/total, loaded via its own
+  // small paginated request (see loadYearPage) — there is no single flat
+  // "all loaded races" list or cursor anymore; the rendered race list
+  // (visibleRaces below) is just the union of whatever years currently
+  // have state.
+  const [yearStates, setYearStates] = useState<Record<string, YearLoadState>>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  // Which year a background "keep paging until we reach it" walk is
-  // currently chasing (see ensureYearLoaded) — null when idle. Distinct
-  // from isLoadingMore so the two loading affordances (the manual "Load
-  // more" button vs. a year header you just tapped) don't fight over the
-  // same in-flight guard.
-  const [isJumpingToYear, setIsJumpingToYear] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [totalRaces, setTotalRaces] = useState(0);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">(() => urlSortParam());
   const [oddsMode, setOddsMode] = useState<OddsMode>("fraction");
   // Every year header renders immediately from the filter's own date range
   // (see yearKeys below), long before any race data for most of them has
   // loaded — only whichever year(s) page 1 actually landed in start
-  // expanded (set once that fetch resolves, see the mount/sortOrder effect
-  // below — NOT statically computed from yearKeys[0] here, since with an
-  // unbounded filter yearKeys starts at ABSOLUTE_MIN_DATE's year, which for
-  // real data is typically nowhere near where the real results actually
-  // are). Every other year starts collapsed until the user taps it (or
-  // "Expand All"), which triggers ensureYearLoaded to page forward until
-  // real data for it arrives.
+  // expanded (set once the mount fetch resolves, see the mount/sortOrder
+  // effect below — NOT statically computed from yearKeys[0] here, since
+  // with an unbounded filter yearKeys starts at ABSOLUTE_MIN_DATE's year,
+  // which for real data is typically nowhere near where the real results
+  // actually are). Every other year starts collapsed until the user taps
+  // it (or "Expand All"), which triggers loadYearPage for it.
   const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
 
   const minRunners = urlIntParam("minRunners", 1);
@@ -174,25 +191,39 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     (async () => {
       setIsLoading(true);
       setError(null);
-      setRaces([]);
+      setYearStates({});
       try {
-        const result = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
+        // A small, unscoped probe — page 1 of the row-ranged sequence with
+        // no sub-date range — purely to learn the grand total (for the
+        // header) and which year(s) real data actually starts in. A single
+        // 20-race page usually lands entirely within one year, but not
+        // always (a filter matching few races near a year boundary can
+        // genuinely span two) — every year actually present gets expanded,
+        // not just the first race's year, or a real race that did load
+        // would end up invisible under a collapsed year header. Not used
+        // to seed any year's own races directly: yearKeys[0] can't be
+        // trusted for this (see above), and this probe's own `total` is
+        // the *grand* total across the whole row range, not any single
+        // year's — every year present still needs its own scoped fetch
+        // below to learn its own total, the same one every other year
+        // uses when tapped.
+        const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
         if (cancelled) return;
-        setRaces(result.data);
-        setPage(1);
-        setTotalPages(result.totalPages);
-        setTotalRaces(result.total);
-        // Expand whichever year(s) page 1 actually landed in (typically
-        // just one) — collapse every other placeholder year in range. Set
-        // from the real fetched data, not yearKeys[0], since with an
-        // unbounded filter yearKeys starts at ABSOLUTE_MIN_DATE's year,
-        // which is usually nowhere near where real results actually are.
-        const loadedYears = new Set(result.data.map(r => raceYearKey(r.raceTime)));
-        setCollapsedKeys(new Set(yearKeys.filter(y => !loadedYears.has(y)).map(y => `year:${y}`)));
+        setTotalRaces(probe.total);
+        if (probe.data.length === 0) {
+          setCollapsedKeys(new Set());
+          setIsLoading(false);
+          return;
+        }
+        const startYears = new Set(probe.data.map(r => raceYearKey(r.raceTime)));
+        setCollapsedKeys(new Set(yearKeys.filter(y => !startYears.has(y)).map(y => `year:${y}`)));
+        setIsLoading(false);
+        await Promise.all([...startYears].map(y => loadYearPage(y)));
       } catch {
-        if (!cancelled) setError("Failed to load races");
-      } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) {
+          setError("Failed to load races");
+          setIsLoading(false);
+        }
       }
     })();
     return () => {
@@ -204,117 +235,37 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortOrder]);
 
-  // A walk (ensureYearLoaded) that stops mid-way can leave `races.length`
-  // not perfectly aligned to a PAGE_SIZE boundary, since its own batches
-  // double in size rather than staying fixed at 20 — deduping by raceId
-  // on every append (here and in ensureYearLoaded) means a subsequent
-  // fetch that re-covers a few already-loaded rows at that boundary just
-  // no-ops on the overlap instead of rendering the same race twice.
-  function appendRaces(prev: IspRace[], fetched: IspRace[]): IspRace[] {
-    const seen = new Set(prev.map(r => r.raceId));
-    return [...prev, ...fetched.filter(r => !seen.has(r.raceId))];
-  }
-
-  async function loadMore() {
-    if (isLoadingMore || isJumpingToYear || races.length >= totalRaces) return;
-    setIsLoadingMore(true);
+  // Fetches the next page of exactly one calendar year's own races —
+  // scoped via subMinDate/subMaxDate (see chatApi.getIndustrySp/the DAO)
+  // to (the filter's row range) ∩ (this year), so it pages independently
+  // of every other year rather than needing to walk through them first.
+  // Called for a year's very first page when it's tapped open (see
+  // toggleNode) and again for each subsequent page via that year's own
+  // "Load more" button — the exact same function either way, the same way
+  // the mount effect uses it for whichever year starts expanded.
+  async function loadYearPage(year: string) {
+    const state = yearStates[year];
+    if (state?.isLoading) return;
+    if (state && state.total != null && state.races.length >= state.total) return;
+    const nextPage = (state?.page ?? 0) + 1;
+    setYearStates(prev => ({
+      ...prev,
+      [year]: { races: prev[year]?.races ?? [], page: prev[year]?.page ?? 0, total: prev[year]?.total ?? null, isLoading: true, error: false },
+    }));
     try {
-      const next = page + 1;
-      const result = await chatApi.getIndustrySp(next, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
-      setRaces(prev => appendRaces(prev, result.data));
-      setPage(next);
-      setTotalPages(result.totalPages);
+      const { from, to } = yearBounds(year, effectiveMinDate, effectiveMaxDate);
+      const result = await chatApi.getIndustrySp(nextPage, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to);
+      setYearStates(prev => {
+        const prevRaces = prev[year]?.races ?? [];
+        const seen = new Set(prevRaces.map(r => r.raceId));
+        const newRaces = result.data.filter(r => !seen.has(r.raceId));
+        return { ...prev, [year]: { races: [...prevRaces, ...newRaces], page: nextPage, total: result.total, isLoading: false, error: false } };
+      });
     } catch {
-      // silently ignore
-    } finally {
-      setIsLoadingMore(false);
-    }
-  }
-
-  // Races arrive in a single date-ordered, row-ranged sequence (fromRow/
-  // toRow — see the Split A/B feature on IndustrySpScreen — is a row-index
-  // slice of *that whole ordered sequence*, not something that can be
-  // independently intersected with a per-year date bound without changing
-  // what the row numbers mean) — so "jump to year Y" can't be a targeted,
-  // differently-scoped query. It has to walk the exact same paginated
-  // cursor loadMore() advances, just automatically and repeatedly, until a
-  // race actually in year Y appears. Any intervening year gets loaded as a
-  // side effect of passing through it, which is why toggleCollapseAll only
-  // ever needs to chase the *last* year, not every year individually.
-  async function ensureYearLoaded(year: string) {
-    if (isLoadingMore || isJumpingToYear) return;
-    if (races.some(r => raceYearKey(r.raceTime) === year)) return;
-    if (races.length === 0 || races.length >= totalRaces) return;
-    setIsJumpingToYear(year);
-    // Collapse every other year while this walks — the doubling batches
-    // (20 -> 40 -> ... -> thousands) almost always land in whichever year
-    // is already expanded (typically the default first year), and with
-    // it expanded, each append forces React to reconcile/lay out its
-    // entire, ever-growing race list. Confirmed live: with ~9500 races in
-    // range and no other filters narrowing them, the fetches alone
-    // resolved in ~9 requests / ~12s, but the last one still took ~8s
-    // *after* its response arrived before the UI reflected it — pure
-    // render cost, not network. Collapsing the source year means
-    // buildRaceHierarchy still processes every loaded race each render
-    // (cheap — plain array grouping), but the expensive part (rendering
-    // thousands of nested race/runner rows) never happens until the user
-    // actually re-expands that year afterward.
-    setCollapsedKeys(prev => {
-      const next = new Set(prev);
-      for (const y of yearKeys) {
-        if (y !== year) next.add(`year:${y}`);
-      }
-      return next;
-    });
-    try {
-      let loaded = races.length;
-      let found = false;
-      while (loaded < totalRaces && !found) {
-        // getIndustrySp(page, limit, ...) skips (page-1)*limit rows —
-        // requesting page=2 at limit=`loaded` skips exactly the rows
-        // already loaded and takes that many more, doubling the loaded set
-        // each round trip (there's no dedicated "fetch from offset N"
-        // endpoint, so this repurposes the existing page/limit pair rather
-        // than adding one). Turns an O(totalRaces / 20) walk — one request
-        // per 20 races, confirmed to need ~250 requests and still not
-        // finish within 90s on a ~4900-race gap in the
-        // isp-lazy-year-slow-walk prod-repro script — into an
-        // O(log2(totalRaces / 20)) one, ~8-12 requests for the same gap.
-        //
-        // Capped at MAX_WALK_BATCH: getAllRacesByRace's $facet packs the
-        // "data" page plus total/totalRunners/pnlStats into a single BSON
-        // document, so an uncapped doubling limit eventually exceeds
-        // MongoDB's 16MB single-document limit — confirmed live against
-        // production data, a ~2560-race batch failed with
-        // `BSONObjectTooLarge` (~20.5MB), 2400 succeeded. Once the desired
-        // batch size would exceed the cap, `limit` pins at MAX_WALK_BATCH
-        // instead of `loaded`, which decouples skip=(page-1)*limit from
-        // `loaded` — `page` is chosen as the largest integer that keeps
-        // skip <= loaded (never skipping/missing a race), and the small
-        // resulting overlap with already-loaded races is trimmed off the
-        // front of the response before appending.
-        const batchLimit = Math.min(loaded, MAX_WALK_BATCH);
-        const page = Math.floor(loaded / batchLimit) + 1;
-        const skip = (page - 1) * batchLimit;
-        const overlap = loaded - skip;
-        const result = await chatApi.getIndustrySp(page, batchLimit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
-        const newRaces = result.data.slice(overlap);
-        if (newRaces.length === 0) break;
-        setRaces(prev => appendRaces(prev, newRaces));
-        loaded += newRaces.length;
-        found = newRaces.some(r => raceYearKey(r.raceTime) === year);
-      }
-      // result.totalPages (above) is relative to whatever `limit` that
-      // specific request used, which changes every iteration here — not
-      // the fixed PAGE_SIZE the flat "Load more" cursor assumes. Compute
-      // page/totalPages directly from real counts instead, so a manual
-      // "Load more" click after a walk continues cleanly from here.
-      setPage(Math.max(1, Math.floor(loaded / PAGE_SIZE)));
-      setTotalPages(Math.max(1, Math.ceil(totalRaces / PAGE_SIZE)));
-    } catch {
-      setError("Failed to load races");
-    } finally {
-      setIsJumpingToYear(null);
+      setYearStates(prev => ({
+        ...prev,
+        [year]: { races: prev[year]?.races ?? [], page: prev[year]?.page ?? 0, total: prev[year]?.total ?? null, isLoading: false, error: true },
+      }));
     }
   }
 
@@ -345,6 +296,27 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     });
   }
 
+  // The union of every year's own independently-loaded races — there's no
+  // single flat list/cursor anymore (see yearStates/loadYearPage above).
+  // Deduped by raceId globally (not just within a single year's own
+  // fetch — loadYearPage's own dedup only ever sees that one year's prior
+  // races), a defensive check against the backend ever returning a race
+  // under more than one year's sub-date range (e.g. a boundary case, or
+  // multiple years' fetches racing on mount when a single page-1 spans
+  // more than one calendar year — see the mount effect above).
+  const races = (() => {
+    const seen = new Set<number>();
+    const result: IspRace[] = [];
+    for (const state of Object.values(yearStates)) {
+      for (const race of state.races) {
+        if (!seen.has(race.raceId)) {
+          seen.add(race.raceId);
+          result.push(race);
+        }
+      }
+    }
+    return result;
+  })();
   const visibleRaces = races.filter(race => qualifyingRunners(race).length > 0);
   const visibleRunners = visibleRaces.reduce((sum, r) => sum + qualifyingRunners(r).length, 0);
 
@@ -364,18 +336,26 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
-    if (wasCollapsed && key.startsWith("year:")) {
-      ensureYearLoaded(key.slice("year:".length));
+    if (key.startsWith("year:")) {
+      const year = key.slice("year:".length);
+      // Retry on a re-tap too, not just the first expand — otherwise a
+      // failed fetch needs two taps (collapse, then re-expand) before
+      // loadYearPage's own guard lets a retry through again.
+      if (wasCollapsed || yearStates[year]?.error) {
+        loadYearPage(year);
+      }
     }
   }
 
   function toggleCollapseAll() {
     if (isAllCollapsed) {
       setCollapsedKeys(new Set());
-      // Walking forward to the last year passes through (and so loads)
-      // every year in between — no need to chase each one individually.
-      const lastYear = yearKeys[yearKeys.length - 1];
-      if (lastYear) ensureYearLoaded(lastYear);
+      // Every not-yet-loaded year now needs its own page-1 fetch — no more
+      // "walking through them as a side effect of chasing the last one".
+      // Each is independent and small, so fire them together.
+      for (const year of yearKeys) {
+        if (!yearStates[year]) loadYearPage(year);
+      }
     } else {
       setCollapsedKeys(new Set(allNodeKeys));
     }
@@ -413,14 +393,21 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     return { staked, returns, pnl: returns - staked, count };
   }
 
-  // A year header with zero loaded races is ambiguous on its own — it
-  // could mean "confirmed no races here" or "just hasn't been reached by
-  // the pagination cursor yet" (see ensureYearLoaded). Distinguishing them
-  // is what makes the placeholder years worth rendering at all.
+  // A year header with zero visible races is ambiguous on its own — it
+  // could mean "never fetched yet" or "fetched, genuinely nothing to show"
+  // (including "loaded, but every runner got filtered out by a trainer-
+  // form/model filter"). yearStates distinguishes them directly, since
+  // each year now tracks its own real fetch state instead of inferring it
+  // from a single flat cursor's position.
   function yearCountLabel(year: YearNode<IspRace>): string {
     if (year.items.length > 0) return `${year.items.length} races`;
-    if (isJumpingToYear === year.key) return "Loading…";
-    if (races.length >= totalRaces) return "0 races";
+    const state = yearStates[year.key];
+    if (state?.isLoading) return "Loading…";
+    // A failed fetch leaves state.total unset (see loadYearPage's catch) —
+    // check error before the generic "state exists" fallback below, or a
+    // failure reads as "confirmed zero races" instead of "tap to retry".
+    if (state?.error) return "Failed to load — tap to retry";
+    if (state) return "0 races";
     return "Tap to load";
   }
 
@@ -520,7 +507,9 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                     )}
                   </TouchableOpacity>
 
-                  {!yearCollapsed && year.months.map(month => {
+                  {!yearCollapsed && (
+                  <>
+                  {year.months.map(month => {
                     const monthKey = `month:${month.key}`;
                     const monthCollapsed = collapsedKeys.has(monthKey);
                     const monthPnl = groupPnl(month.items);
@@ -703,21 +692,31 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                       </View>
                     );
                   })}
+                  {(() => {
+                    // This year's own "Load more" — the same mechanism
+                    // that loaded its first page (loadYearPage), just
+                    // requesting the next one. Independent of every other
+                    // expanded year's own state.
+                    const state = yearStates[year.key];
+                    if (!state || state.total == null || state.races.length >= state.total) return null;
+                    return (
+                      <Button
+                        testID={`industry-sp-year-load-more-${year.key}`}
+                        mode="contained-tonal"
+                        onPress={() => loadYearPage(year.key)}
+                        disabled={state.isLoading}
+                        loading={state.isLoading}
+                        style={styles.loadMoreButton}
+                      >
+                        Load more {year.key} ({state.total - state.races.length} remaining)
+                      </Button>
+                    );
+                  })()}
+                  </>
+                  )}
                 </View>
               );
             })}
-            {races.length < totalRaces && (
-              <Button
-                testID="industry-sp-load-more"
-                mode="contained-tonal"
-                onPress={loadMore}
-                disabled={isLoadingMore || isJumpingToYear !== null}
-                loading={isLoadingMore}
-                style={styles.loadMoreButton}
-              >
-                Load more ({totalRaces - races.length} remaining)
-              </Button>
-            )}
           </PageContainer>
           </ScrollView>
         )}

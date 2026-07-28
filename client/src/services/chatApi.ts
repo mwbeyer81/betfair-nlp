@@ -682,7 +682,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string): Promise<IspPage> {
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string, subMinDate?: string, subMaxDate?: string): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -712,6 +712,12 @@ class ChatApi {
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
     if (modelVersionId) params.set("modelVersionId", modelVersionId);
+    // Restricts an already row-ranged (fromRow/toRow) window to a calendar
+    // sub-range without changing what "row N" means — see the DAO's own
+    // comment on subMinRaceTime/subMaxRaceTime. Distinct from minDate/
+    // maxDate above, which participate in defining the row range itself.
+    if (subMinDate) params.set("subMinDate", subMinDate);
+    if (subMaxDate) params.set("subMaxDate", subMaxDate);
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp?${params}`,
       { headers: this.authHeader() }

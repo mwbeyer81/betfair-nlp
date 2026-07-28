@@ -569,7 +569,15 @@ router.get("/api/industry-sp", async (req, res) => {
     const minModelWinProbability = Math.min(100, Math.max(0, parseFloat(req.query.minModelWinProbability as string) || 0));
     const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
     const modelVersionId = typeof req.query.modelVersionId === "string" && req.query.modelVersionId.trim() ? req.query.modelVersionId.trim() : null;
-    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId);
+    // Restricts an already-row-ranged window to a calendar sub-range —
+    // see the DAO's own comment on subMinRaceTime/subMaxRaceTime. Distinct
+    // from minDate/maxDate above: those participate in defining the row
+    // range itself, these narrow *within* it without changing what "row
+    // N" means. Used by IspRacesScreen's per-year loading (tap a
+    // collapsed year -> a normal small paginated request scoped to that
+    // year, instead of walking the whole row range forward to reach it).
+    const { minRaceTime: subMinRaceTime, maxRaceTime: subMaxRaceTime } = parseDateRangeParams(req.query.subMinDate, req.query.subMaxDate);
+    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime);
     res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
   } catch (error) {
     console.error("getAllRacesByRace error:", error);
