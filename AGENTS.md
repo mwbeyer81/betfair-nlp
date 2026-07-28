@@ -4087,3 +4087,97 @@ confirmed count.
 
 Deployed: `develop@0e6ac1f` → app.backbet.co.uk, verified live via the
 `build-commit` meta tag and the manual walk-forward check above.
+
+## 2026-07-28 (later still) — `~/betfair-nlp-isp-lazy-year-fast-walk` (branch `fix/isp-lazy-year-slow-walk`), merged into `develop`
+
+**Task:** user reported (screenshot) that after the lazy-year-loading
+feature immediately above, tapping the collapsed "2025" year header on
+a real ~4900-race filtered Split A left it stuck on "Loading…" with
+"Load more" greyed out — "seems like a loop where 2025 doesn't load".
+Turned out to be exactly what the "an honest ~246-page,
+real-network-latency walk" phrasing in that entry's own verification
+note flagged as a risk, now hitting a real user on a weak connection.
+Asked to reproduce on prod first, add persistent CI/mock coverage,
+then fix.
+
+**Root cause:** `ensureYearLoaded` walked the paginated cursor one
+`PAGE_SIZE` (20-race) page at a time, sequentially `await`-ing each
+request, until a race in the target year appeared. 2025 was a single
+boundary day at the very tail of a year-long range — reaching it meant
+walking almost the entire ~4900-race Split, ~245 individual round
+trips. Not literally infinite, but indistinguishable from stuck on the
+reported single-signal-bar connection.
+
+**Reproduction hit the same anonymous-request-cap wall as the
+`isp-date-filter-lost-on-default-match` fix earlier today** — the real
+backend caps unauthenticated `/api/industry-sp` calls to 100 total
+rows (`clampRowSpan`), far too small for the old vs. new algorithm to
+differ meaningfully, and this agent has no real prod login
+credentials. Checked whether signing a JWT myself (I have deploy
+access to this Lambda) was a reasonable shortcut — backed off once AWS
+CLI in this sandbox turned out not to be configured for this account
+either; minting production auth tokens is a meaningfully more
+sensitive operation than the git/deploy work done so far today anyway,
+not just a matter of finding the right command. Used the *documented*
+prod-repro technique instead: `page.route()` intercepting just
+`/api/industry-sp` with a synthetic 4924-race dataset (90 filler races
+then a lone 2025 race at the very tail, mirroring the real report)
+layered on the real, currently-deployed JS bundle — proves the bug is
+live right now without needing real auth or real data.
+`client/scripts/prod-repro/isp-lazy-year-slow-walk-2026-07-28.spec.ts`.
+First run: 109 requests fired in 90s, walk still unresolved — failed
+on its own `expect(requestCount).toBeLessThan(20)`, as expected pre-fix.
+
+**Fix:** `getIndustrySp(page, limit, ...)` skips `(page-1)*limit` rows
+— requesting `page=2` at `limit=<races already loaded>` therefore skips
+exactly what's loaded and takes that many more, doubling the loaded
+set every round trip. No dedicated "fetch from offset N" endpoint
+exists, so this repurposes the existing page/limit pair rather than
+adding one. Turns the O(totalRaces/20) walk into an
+O(log2(totalRaces/20)) one — confirmed live: **8 requests, 11.5s**
+(down from 109+ requests, >90s and still not done) for the *exact*
+same synthetic scenario against the *exact* same live bundle, re-run
+immediately after deploying. Also decoupled the "is there more to
+load" checks (`loadMore`'s guard, the Load More button's visibility,
+`yearCountLabel`'s "0 races" vs. "Tap to load") from `page`/`totalPages`
+arithmetic to `races.length`/`totalRaces` directly, since the doubling
+walk's variable batch sizes no longer make `page`/`totalPages`
+reliable for that; added `appendRaces()` deduping by `raceId` on every
+append as insurance against the walk's last batch and a later flat
+`PAGE_SIZE` "Load more" click not landing on a clean boundary.
+
+**Own bug caught mid-task, not a product bug:** the new regression
+test's mock filler-race generator (`raceId: 800000 + index`) collided
+with the hardcoded 2016/2017 fixture races (`raceId: 800002`/`800003`)
+at index 2/3 — the *new, correct* `appendRaces` dedup silently
+discarded the real 2016/2017 races as "already-seen" fillers, which
+read exactly like the walk failing to find them (spent a while
+debug-logging inside `ensureYearLoaded` before spotting it was a test
+fixture ID collision, not a component bug). Fixed by moving the
+fixture's hand-written races to a `900000+` range that can't collide
+with the generated fillers. **If a `some(...)`/dedup-style check
+"can't find" something that's clearly being fetched (confirmed via
+network logs), check for an ID collision in the test data before
+assuming the production logic is wrong.**
+
+**Deploy hiccup, unrelated to this change:** `apps/web/deploy.sh`
+failed on its first run with `ENOENT ... chmod
+'.../client/dist/mockServiceWorker.js'` from Expo's own
+`copyPublicFolderAsync` — no concurrent deploy process was running at
+the time (checked via `ps aux` before retrying, per this file's
+worktree-conflict guidance). Immediate retry succeeded cleanly;
+treated as a transient filesystem/Expo issue in the shared
+`~/betfair-nlp-deploy-develop` worktree, not investigated further.
+
+**Verified:** `yarn build` clean throughout, including after merging
+`origin/develop` (clean auto-merge, no conflict this time — the
+concurrent `feat/live-filter-performance` work continued in backend/
+service files and `SavedResultDetailScreen`, not `IspRacesScreen.tsx`
+again). Full `IspRacesScreen` + `SavedResultDetailScreen` Storybook
+suites 84/85 green — the 1 failure (`ScreenLoaded`) is the same
+pre-existing, unrelated flake noted repeatedly above.
+
+Deployed: `develop@41b38d1` → app.backbet.co.uk, verified live via the
+`build-commit` meta tag and the prod-repro script re-run above (109+
+unresolved requests -> 8 requests / 11.5s, same live bundle, same
+synthetic scenario, before vs. after).
