@@ -44,6 +44,19 @@ async function pickDateRangeInCanvas(
   await userEvent.click(canvas.getByTestId(`${prefix}-apply`));
 }
 
+// The test runner reuses one browser page across every story in this
+// file, so an earlier story's Apply click can leave minDate/maxDate (or
+// other filter params) sitting in the real URL. hadUrlParamsOnMount (see
+// IndustrySpScreen.tsx) is captured once via a useState initializer at
+// mount time, so clearing the URL from inside a story's own play function
+// (which runs after mount) is too late — this has to run as a decorator,
+// before the component renders, for any story that specifically needs a
+// true bare/idle mount.
+const withCleanUrl = (Story: React.ComponentType) => {
+  window.history.pushState({}, "", window.location.pathname);
+  return <Story />;
+};
+
 // Split cards (and the filter bar's chip rows) now render immediately on
 // mount, in a "pending" placeholder state (see renderSplitCard/
 // renderChipRow in IndustrySpScreen.tsx) — so `findByTestId("industry-sp-
@@ -230,6 +243,7 @@ export const BareLoadShowsIdlePlaceholderNotResults: Story = {
   // filter chips already populated from real data. A bare mount (no
   // filter params in the story's own URL) must fetch nothing and show
   // nothing until Apply is pressed.
+  decorators: [withCleanUrl],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
@@ -269,6 +283,7 @@ export const Loading: Story = {
       ],
     },
   },
+  decorators: [withCleanUrl],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     // Bare mount — idle, nothing fetched yet, so there's nothing "loading"
@@ -298,6 +313,7 @@ export const WithError: Story = {
   parameters: {
     msw: { handlers: [http.get(`${BASE}/api/industry-sp/splits`, () => HttpResponse.error()), countriesHandler, filterBoundsHandler] },
   },
+  decorators: [withCleanUrl],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByTestId("industry-sp-split-idle-a")).toBeInTheDocument();
@@ -1116,6 +1132,109 @@ export const DateRangeWiderThanOneYearIsClampedOnApply: Story = {
 
     const trigger = canvas.getByTestId("industry-sp-date-range-picker");
     await expect(trigger).toHaveTextContent("Jan 1, 2024");
+  },
+};
+
+export const DateFilterMatchingConvenienceDefaultStillPersistsInUrl: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp/splits`, () =>
+          HttpResponse.json({
+            success: true,
+            totalRaces: 2,
+            totalRunners: 4,
+            filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+            countries: ["GB", "IE"],
+            courses: ["Ascot", "Cheltenham"],
+            goings: ["Good", "Soft"],
+            raceClasses: ["Class 1", "Class 2"],
+            raceTypes: ["Flat", "Hurdle"],
+            splitA: { fromRow: 1, toRow: 1, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+            splitB: { fromRow: 2, toRow: null, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+          })
+        ),
+        countriesHandler,
+        filterBoundsHandler,
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // The test runner reuses one browser page across every story in this
+    // file — start from a clean query string so a leftover minDate/maxDate
+    // from whichever story ran before this one can't feed this story's
+    // own initial mount state (urlStringParam reads window.location.search
+    // directly), and so this story doesn't leak into whichever runs next.
+    window.history.pushState({}, "", window.location.pathname);
+    try {
+      await waitForLoaded(canvas);
+
+      // "2024-01-01" is FILTER_DEFAULTS.minDate — a wholly plausible real
+      // choice for a user to explicitly apply, not just the untouched
+      // default. Regression: syncUrl used to compare against
+      // FILTER_DEFAULTS.minDate/maxDate and omit minDate from the URL
+      // whenever it matched, even though an *absent* minDate means "no
+      // lower bound at all" server-side, not "defaults to 2024-01-01" —
+      // so /isp/races (which reads minDate straight from the URL with no
+      // fallback of its own) would silently fetch with no lower bound,
+      // matching races back to the dataset's true earliest year instead
+      // of the one actually applied.
+      await pickDateRangeInCanvas(canvas, "2024-01-01", "2025-01-01");
+      await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
+
+      await waitFor(() => {
+        expect(window.location.search).toContain("minDate=2024-01-01");
+        expect(window.location.search).toContain("maxDate=2025-01-01");
+      }, { timeout: 3000 });
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  },
+};
+
+export const DateFilterAtAbsoluteMinIsOmittedFromUrl: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp/splits`, () =>
+          HttpResponse.json({
+            success: true,
+            totalRaces: 2,
+            totalRunners: 4,
+            filterBounds: { maxRunnersPerRace: 29, maxIsp: 1000, minIsp: 1.1 },
+            countries: ["GB", "IE"],
+            courses: ["Ascot", "Cheltenham"],
+            goings: ["Good", "Soft"],
+            raceClasses: ["Class 1", "Class 2"],
+            raceTypes: ["Flat", "Hurdle"],
+            splitA: { fromRow: 1, toRow: 1, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+            splitB: { fromRow: 2, toRow: null, total: 1, totalRunners: 2, pnlStats: DEFAULT_PNL },
+          })
+        ),
+        countriesHandler,
+        filterBoundsHandler,
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    window.history.pushState({}, "", window.location.pathname);
+    try {
+      await waitForLoaded(canvas);
+
+      // A minDate that genuinely means "no lower bound" (ABSOLUTE_MIN_DATE)
+      // should still be omitted from the URL — the fix targets the wrong
+      // comparison value, not "always write minDate/maxDate".
+      await pickDateRangeInCanvas(canvas, "2015-01-01", "2015-06-01");
+      await userEvent.click(canvas.getByTestId("industry-sp-filter-apply"));
+
+      await waitFor(() => {
+        expect(window.location.search).not.toContain("minDate");
+      }, { timeout: 3000 });
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
   },
 };
 

@@ -758,8 +758,21 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         maxIsp: maxIsp !== FILTER_DEFAULTS.maxIsp ? String(maxIsp) : undefined,
         minInIspRange: minRunnersInRange !== FILTER_DEFAULTS.minInIspRange ? String(minRunnersInRange) : undefined,
         maxInIspRange: maxRunnersInRange !== FILTER_DEFAULTS.maxInIspRange ? String(maxRunnersInRange) : undefined,
-        minDate: minDate !== FILTER_DEFAULTS.minDate ? minDate : undefined,
-        maxDate: maxDate !== FILTER_DEFAULTS.maxDate ? maxDate : undefined,
+        // Deliberately compared against ABSOLUTE_MIN_DATE/ABSOLUTE_MAX_DATE
+        // here, NOT FILTER_DEFAULTS.minDate/maxDate — an absent minDate/
+        // maxDate query param means "no bound at all" server-side (see
+        // router.ts parseDateRangeParams), which only matches
+        // FILTER_DEFAULTS' arbitrary "last month" convenience default by
+        // coincidence. A user who explicitly applies a range that happens
+        // to start on FILTER_DEFAULTS.minDate ("2024-01-01" — a very
+        // plausible real choice, not just the untouched default) would
+        // otherwise have minDate silently dropped from the URL, and
+        // IspRacesScreen reads a *missing* minDate as "" (no lower bound
+        // at all, not "2024-01-01") — so /isp/races would fetch with no
+        // lower bound, matching every race back to the dataset's true
+        // earliest date instead of the applied one.
+        minDate: minDate !== ABSOLUTE_MIN_DATE ? minDate : undefined,
+        maxDate: maxDate !== ABSOLUTE_MAX_DATE ? maxDate : undefined,
         countries: selectedCountries.size > 0 ? [...selectedCountries].sort().join(",") : undefined,
         courses: selectedCourses.size > 0 ? [...selectedCourses].sort().join(",") : undefined,
         goings: selectedGoings.size > 0 ? [...selectedGoings].sort().join(",") : undefined,
@@ -1157,7 +1170,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // narrowed it, without cross-referencing the Filters screen from memory.
   function buildConvergenceFilterSummary(): { key: string; label: string }[] {
     const summary: { key: string; label: string }[] = [];
-    if (minDate !== FILTER_DEFAULTS.minDate || maxDate !== FILTER_DEFAULTS.maxDate) {
+    // Same ABSOLUTE_MIN_DATE/ABSOLUTE_MAX_DATE comparison as syncUrl above,
+    // and for the same reason — FILTER_DEFAULTS.minDate/maxDate is just an
+    // arbitrary convenience default, not a "no date filter applied" sentinel.
+    if (minDate !== ABSOLUTE_MIN_DATE || maxDate !== ABSOLUTE_MAX_DATE) {
       summary.push({ key: "date", label: `Date: ${minDate} → ${maxDate}` });
     }
     if (minRunners !== FILTER_DEFAULTS.minRunners || maxRunners !== FILTER_DEFAULTS.maxRunners) {
