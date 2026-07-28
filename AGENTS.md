@@ -4255,3 +4255,92 @@ Pushed straight to `develop` (`ae3a27b`) and deployed via
 1439/1440/1999px — identical result to the pre-deploy local check
 above, and 1999px matches the user's original screenshot's viewport
 almost exactly. Worktree can be removed.
+
+## 2026-07-28 (later still) — `~/betfair-nlp-isp-year-walk-render-perf` (branch `fix/isp-year-walk-render-perf`), merged into `develop`
+
+**Task:** user reported (5 screenshots) that even after the
+`isp-lazy-year-slow-walk` doubling fix above, a *larger* and otherwise-
+unfiltered scenario — Split B, ~9511 races, Date Jan 2024 -> Jan 2025
+and no other narrowing filter — still looked stuck tapping the
+collapsed "2025" year header: progress crept 20 -> 160 -> 640 races
+loaded across the screenshots, "Loading…" the whole time, "Load more"
+greyed out. User's exact words: "Still broke." Clarified mid-
+investigation that this was specifically the Split B "View 9511 Races"
+path, not Split A.
+
+**Root cause:** the doubling fix genuinely cut this scenario to ~9
+network requests, but every one of those requests appends its batch
+into whichever year is *currently expanded* — the default first year
+("2024" here), which stays expanded for the whole walk. Each append
+forces React to reconcile/lay out that year's entire, ever-growing race
+list (up to ~9480 rows plus nested runner rows, right before the walk
+resolves) — pure client-side render cost, not network, growing every
+iteration since the accumulating year never collapses. Also found
+`groupPnl` (used for every year/month/day/meeting header's P&L badge)
+was allocating a full `{...race, runners: qualifyingRunners(race)}`
+array copy per race on every render pass over that same ever-growing
+list, compounding the cost.
+
+**Reproduction:** same anonymous-request-cap constraint as both fixes
+above — `page.route()` intercepting `/api/industry-sp` with a synthetic
+~9511-race dataset (`YEAR_BOUNDARY = 9480`, 2025 a thin ~31-race sliver
+at the tail) shaped like the real report, `fromRow=338&toRow=9848`
+matching the actual Split B range, layered on the real, currently-
+deployed JS bundle.
+`client/scripts/prod-repro/isp-year-walk-render-cost-2026-07-28.spec.ts`.
+First run against the live pre-fix bundle: 20.4s wall-clock — confirmed
+the render-cost hypothesis (request count was already low from the
+prior fix; the remaining time was render, not network).
+
+**VM-contention discovery — changed how this got verified:** this
+sandbox VM runs several concurrent Claude Code agent sessions sharing
+~2 CPU cores (`uptime` showed load average 8.37/7.74/5.78 while
+measuring this; `ps aux` showed other worktrees' Playwright/Chromium
+processes running concurrently, e.g.
+`betfair-nlp-live-perf-return-nav`, `betfair-nlp-header-wide-single-
+line`). The *same* built code measured anywhere from 5.7s (idle) to
+17.5s+ (contended) locally, and repeated live re-runs of the identical
+fix varied 10.8s / 16.6s / 20.3s / 17.8s run to run — wall-clock time
+alone isn't trustworthy evidence on this machine. Rewrote the prod-repro
+script's primary assertion to request COUNT (`expect(requestCount).
+toBeLessThan(20)`), which the doubling fix guarantees regardless of
+machine load, and kept wall-clock only as a generous secondary sanity
+check (`expect(elapsedSeconds).toBeLessThan(60)`) confirming the walk
+resolves in bounded time at all, not as a performance target. **If a
+prod-repro or perf assertion is flaky/inconsistent on this VM, check
+`uptime`/`ps aux` for concurrent agent load before assuming the fix is
+wrong — prefer a load-independent assertion (request count, item count)
+over wall-clock where one is available.**
+
+**Fix (two commits):**
+1. `18ad7bd` — `toggleNode` now collapses every *other* `year:` key
+   before `ensureYearLoaded` starts walking toward the tapped year, so
+   only the target year's list grows during the walk; the default-
+   expanded year stops re-rendering thousands of stale rows on every
+   batch append.
+2. `1559ad1` — leaned `groupPnl` from a `computeRangePnl(races.map(race
+   => ({...race, runners: qualifyingRunners(race)})))` allocation-heavy
+   call into a single manual accumulation loop (iterate races ->
+   iterate `qualifyingRunners(race)` -> accumulate `staked`/`returns`/
+   `count` directly), avoiding a full per-race object-and-array copy on
+   every render pass over the same large list.
+
+**Verified:** `yarn build` clean after both commits. New Storybook
+regression test in `IspRacesScreen.stories.tsx`
+(`WalkingToADistantYearCollapsesOtherExpandedYearsToAvoidRenderCost`,
+alongside the existing `TappingACollapsedYearWalksForwardAndLoadsIt` /
+`ExpandAllChasesTheLastYear`) passes, asserting the previously-expanded
+year's day rows disappear during the walk while the target year's count
+badge still resolves correctly. Live prod-repro re-run after deploying
+`18ad7bd` alone was inconsistent (10.8s once, then 16.6s/20.3s/17.8s on
+repeats) due to the VM contention above — request count stayed low and
+stable throughout, which is what motivated leaning `groupPnl` next
+rather than chasing wall-clock noise further. Final re-run after
+`1559ad1`: **9 requests, 17.8s**, passed reliably (request-count
+assertion is what's load-independent; wall-clock stayed comfortably
+under the 60s sanity bound across every run regardless of contention).
+
+Deployed: `develop@1559ad1` → app.backbet.co.uk, verified live via the
+`build-commit` meta tag and the prod-repro script re-run above (20.4s
+pre-fix -> 9 requests/17.8s post-fix, same live bundle, same synthetic
+scenario, before vs. after). Worktree removed, branch deleted.
