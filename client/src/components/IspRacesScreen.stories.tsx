@@ -296,6 +296,69 @@ export const PerRunnerPnl: Story = {
   },
 };
 
+export const MeetingPnlDisplayed: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    // Leopardstown's two races combined: Galopin (+£1.00, stake £1.05),
+    // Meetingofthewaters (-£0.22), State Man (+£1.00, stake £2.50),
+    // Brighterdaysahead (-£0.20) — 4 horses, £3.97 staked, £1.58 net.
+    const bar = canvas.getByTestId(`industry-sp-meeting-pnl-bar-${MOCK_RACES[0].meetingId}`);
+    await expect(bar).toBeInTheDocument();
+    await expect(
+      canvas.getByTestId(`industry-sp-meeting-pnl-count-${MOCK_RACES[0].meetingId}`)
+    ).toHaveTextContent("Horses 4");
+    await expect(bar).toHaveTextContent(/Staked.*£3\.97/);
+    await expect(bar).toHaveTextContent(/Return.*£5\.55/);
+    await expect(
+      canvas.getByTestId(`industry-sp-meeting-pnl-${MOCK_RACES[0].meetingId}`)
+    ).toHaveTextContent("+£1.58");
+  },
+};
+
+export const MeetingPnlRespondsToFilters: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp`, () =>
+          HttpResponse.json({
+            success: true,
+            data: FILTERED_RACE_MOCK,
+            count: 1,
+            total: 1,
+            page: 1,
+            limit: 20,
+            totalPages: 1,
+            totalRunners: 3,
+            pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
+          })
+        ),
+      ],
+    },
+  },
+  decorators: [withQueryParams("onlyModelBeatsSp=true")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    try {
+      await canvas.findByTestId("industry-sp-list");
+
+      // Only Red Stripes + Aqlette pass the filter — the meeting-level bar
+      // must total just those two (+£1.00 winner, -£0.06 loser = +£0.94),
+      // not the whole field including the filtered-out third runner.
+      const bar = canvas.getByTestId(`industry-sp-meeting-pnl-bar-${FILTERED_RACE_MOCK[0].meetingId}`);
+      await expect(
+        canvas.getByTestId(`industry-sp-meeting-pnl-count-${FILTERED_RACE_MOCK[0].meetingId}`)
+      ).toHaveTextContent("Horses 2");
+      await expect(
+        canvas.getByTestId(`industry-sp-meeting-pnl-${FILTERED_RACE_MOCK[0].meetingId}`)
+      ).toHaveTextContent("+£0.94");
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  },
+};
+
 export const RacePnlMatchesVisibleRunnersWhenFiltered: Story = {
   parameters: {
     msw: {

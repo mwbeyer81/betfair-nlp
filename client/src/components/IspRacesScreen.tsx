@@ -248,7 +248,11 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
             {visibleRaces.length === 0 && (
               <Text style={styles.emptyText}>No races found.</Text>
             )}
-            {Object.entries(byMeeting).map(([meetingId, { meetingName, races: meetingRaces }]) => (
+            {Object.entries(byMeeting).map(([meetingId, { meetingName, races: meetingRaces }]) => {
+              const meetingPnl = computeRangePnl(
+                meetingRaces.map(race => ({ ...race, runners: qualifyingRunners(race) }))
+              );
+              return (
               <View key={meetingId} testID={`industry-sp-meeting-${meetingId}`}>
                 <TouchableOpacity
                   testID={`industry-sp-meeting-link-${meetingId}`}
@@ -257,6 +261,31 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                 >
                   <Text style={styles.eventName}>{meetingName}</Text>
                 </TouchableOpacity>
+                {meetingPnl.staked > 0 && (
+                  <View testID={`industry-sp-meeting-pnl-bar-${meetingId}`} style={styles.pnlBar}>
+                    <Text style={styles.pnlLabel}>Stake to win £1 per runner</Text>
+                    <View style={styles.pnlStats}>
+                      <Text testID={`industry-sp-meeting-pnl-count-${meetingId}`} style={styles.pnlStat}>
+                        <Text style={styles.pnlStatLabel}>Horses </Text>{meetingPnl.count}
+                      </Text>
+                      <Text style={styles.pnlStat}>
+                        <Text style={styles.pnlStatLabel}>Staked </Text>{formatGbp(meetingPnl.staked)}
+                      </Text>
+                      <Text style={styles.pnlStat}>
+                        <Text style={styles.pnlStatLabel}>Return </Text>{formatGbp(meetingPnl.returns)}
+                      </Text>
+                      <Text
+                        testID={`industry-sp-meeting-pnl-${meetingId}`}
+                        style={[styles.pnlValue, meetingPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}
+                      >
+                        {formatPnl(meetingPnl.pnl)}{" "}
+                        <Text style={[styles.pnlPct, meetingPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                          ({formatPct(meetingPnl.pnl, meetingPnl.staked)})
+                        </Text>
+                      </Text>
+                    </View>
+                  </View>
+                )}
                 {meetingRaces.map(race => (
                   <View key={race.raceId}>
                     <TouchableOpacity
@@ -359,7 +388,8 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                   </View>
                 ))}
               </View>
-            ))}
+              );
+            })}
             {page < totalPages && (
               <Button
                 testID="industry-sp-load-more"
@@ -445,6 +475,48 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryLight,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  // Same PnL-bar idiom as IndustryMeetingScreen.tsx's pnlBar/pnlLabel/etc —
+  // copied rather than shared, matching how this codebase already
+  // duplicates the pattern per-screen (IndustryRaceScreen.tsx,
+  // AllRunnersScreen.tsx) rather than extracting a shared component.
+  pnlBar: {
+    backgroundColor: colors.text,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  pnlLabel: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.5)",
+    marginRight: spacing.sm,
+  },
+  pnlStats: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    flexShrink: 1,
+    minWidth: 0,
+    gap: 10,
+  },
+  pnlStat: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.75)",
+  },
+  pnlStatLabel: {
+    color: "rgba(255,255,255,0.4)",
+  },
+  pnlValue: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  pnlPct: {
+    fontSize: 12,
+    fontWeight: "400",
+    opacity: 0.8,
   },
   eventName: {
     fontSize: 15,

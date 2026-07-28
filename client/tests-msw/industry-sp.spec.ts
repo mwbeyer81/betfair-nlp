@@ -1362,6 +1362,15 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     expect(box!.width).toBeGreaterThan(40);
   });
 
+  test("meeting-level PnL bar totals the meeting's races (Cheltenham: Springwell Bay -£0.29, Gaelic Warrior -£0.12, Fact To File +£1.00 = +£0.59)", async ({ page }) => {
+    const bar = page.getByTestId("industry-sp-meeting-pnl-bar-Cheltenham|2025-01-01");
+    await expect(bar).toBeVisible();
+    await expect(page.getByTestId("industry-sp-meeting-pnl-count-Cheltenham|2025-01-01")).toContainText("Horses 3");
+    await expect(bar).toContainText("Staked £1.32");
+    await expect(bar).toContainText("Return £1.91");
+    await expect(page.getByTestId("industry-sp-meeting-pnl-Cheltenham|2025-01-01")).toContainText("+£0.59");
+  });
+
   test("← Filters button returns to /isp", async ({ page }) => {
     await page.getByTestId("industry-sp-races-back-button").click();
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
