@@ -44,10 +44,17 @@ aws lambda update-function-code \
 aws lambda wait function-updated --function-name hello-api --region eu-north-1
 
 echo "Configuring Lambda runtime..."
+# timeout/memory bumped from the original 30s/512MB — the scheduled
+# racecards-ingest path now chains feature-compute + predict (see
+# handler.ts, ~40-50 sequential per-race ml-prediction-api invokes plus
+# targeted historical queries against a 100k+ doc collection) onto the
+# same invocation. Only affects the scheduled/direct-invoke path — API
+# Gateway HTTP requests are still bounded by its own ~29s gateway timeout
+# regardless of this value, so normal API latency is unaffected.
 aws lambda update-function-configuration \
   --function-name hello-api \
-  --timeout 30 \
-  --memory-size 512 \
+  --timeout 300 \
+  --memory-size 1536 \
   --handler handler.handler \
   --region eu-north-1 \
   --output text --query FunctionName
