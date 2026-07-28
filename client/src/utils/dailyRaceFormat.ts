@@ -1,4 +1,4 @@
-import { DailyRace, DailyRaceResult, DailyRaceRunner } from "../services/chatApi";
+import { DailyRace, DailyRaceResult, DailyRaceRunner, PnlStats } from "../services/chatApi";
 
 export interface DailyRacesFilters {
   minModelWinProbability: number;
@@ -98,4 +98,23 @@ export function dailyRacePickPnl(result: DailyRaceResult): number | null {
 export function dailyRacePickResultLabel(result: DailyRaceResult): "Won" | "Lost" | "Non-finisher" {
   if (result.status === "NON_FINISHER") return "Non-finisher";
   return result.status === "WINNER" ? "Won" : "Lost";
+}
+
+// Total staked/returns/pnl across every pick that has a resulted, valid-ISP
+// runner (same "excluded, not £0" rule as dailyRacePickPnl/ispFormat.ts's
+// computeRangePnl) — mirrors that function's shape/math exactly, just
+// sourced from DailyRacePick[]/result instead of IspRace[]/runner directly.
+// count is how many picks actually contributed, so the UI can show e.g.
+// "8 resulted" alongside the total for a 19-pick list still mostly pending.
+export function computeDailyPicksPnl(picks: DailyRacePick[]): PnlStats {
+  let staked = 0, returns = 0, count = 0;
+  for (const { runner } of picks) {
+    const result = runner.result;
+    if (!result || result.isp == null || result.isp <= 1) continue;
+    count++;
+    const stake = 1 / (result.isp - 1);
+    staked += stake;
+    if (result.status === "WINNER") returns += stake + 1;
+  }
+  return { staked, returns, pnl: returns - staked, count };
 }

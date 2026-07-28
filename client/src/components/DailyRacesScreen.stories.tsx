@@ -384,6 +384,36 @@ export const NonFinisherPickShowsResultWithNoPnl: Story = {
   },
 };
 
+export const DayPnlSummaryTotalsResultedPicks: Story = {
+  // rac_1/hrs_1 WINNER (isp 4, PnL +£1.00) and rac_2/hrs_2 LOSER (isp 3,
+  // PnL -£0.50) both qualify (modelWinProbability 25/5, min 0 default) once
+  // trainer-searched to "A Trainer" — total should be +£1.00 - £0.50 =
+  // +£0.50, "2 resulted" (rac_3/hrs_3 is a Non-finisher with no valid isp,
+  // excluded from the total, and isn't matched by this trainer search
+  // anyway).
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/daily-races`, () =>
+          HttpResponse.json({ success: true, data: MOCK_RACES_WITH_RESULTS, count: MOCK_RACES_WITH_RESULTS.length })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-reset"));
+
+    const trainerInput = canvas.getByTestId("daily-races-trainer-search");
+    await userEvent.type(trainerInput, "A Trainer");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    await expect(canvas.getByTestId("daily-races-picks-day-pnl")).toHaveTextContent("Day P&L: +£0.50");
+    await expect(canvas.getByTestId("daily-races-picks-day-pnl")).toHaveTextContent("2 resulted");
+  },
+};
+
 export const PendingPickShowsNoResultBadge: Story = {
   // Default handlers (MOCK_RACES) — no runner carries a result yet, same as
   // a race that hasn't been captured by the results job at all.

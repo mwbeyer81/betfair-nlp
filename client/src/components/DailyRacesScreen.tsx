@@ -14,9 +14,15 @@ import { colors, radii, spacing, statusPill } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
 import type { Route } from "../hooks/useRouter";
-import { buildDailyRacesPicks, dailyRacePickPnl, dailyRacePickResultLabel, DailyRacesFilters } from "../utils/dailyRaceFormat";
+import {
+  buildDailyRacesPicks,
+  computeDailyPicksPnl,
+  dailyRacePickPnl,
+  dailyRacePickResultLabel,
+  DailyRacesFilters,
+} from "../utils/dailyRaceFormat";
 import { fairDecimalOdds, toFractionalOdds } from "../utils/oddsFormat";
-import { formatPnl } from "../utils/ispFormat";
+import { formatPct, formatPnl } from "../utils/ispFormat";
 import {
   urlIntParam,
   urlFloatParam,
@@ -188,6 +194,9 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
     () => (hasAppliedOnce ? buildDailyRacesPicks(races, activeFilters) : []),
     [races, activeFilters, hasAppliedOnce]
   );
+
+  const picksPnl = useMemo(() => computeDailyPicksPnl(picks), [picks]);
+  const picksResultedCount = picksPnl.count ?? 0;
 
   function applyFilter() {
     const nextMinModelWinProbability = parseFloat(draftMinModelWinProbability);
@@ -565,7 +574,17 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
 
               {hasAppliedOnce && (
                 <View testID="daily-races-picks-list" style={styles.picksSection}>
-                  <Text style={styles.picksHeading}>Today's Picks · {picks.length}</Text>
+                  <View style={styles.picksHeadingRow}>
+                    <Text style={styles.picksHeading}>Today's Picks · {picks.length}</Text>
+                    {picksResultedCount > 0 && (
+                      <Text
+                        testID="daily-races-picks-day-pnl"
+                        style={[styles.picksDayPnl, picksPnl.pnl >= 0 ? styles.pnlPositiveText : styles.pnlNegativeText]}
+                      >
+                        Day P&L: {formatPnl(picksPnl.pnl)} ({formatPct(picksPnl.pnl, picksPnl.staked)}) · {picksResultedCount} resulted
+                      </Text>
+                    )}
+                  </View>
                   {picks.length === 0 && (
                     <Text testID="daily-races-picks-empty" style={styles.emptyText}>
                       No runners match these filters.
@@ -927,11 +946,21 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.lg,
     marginBottom: spacing.md,
   },
+  picksHeadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    marginBottom: spacing.xs,
+  },
   picksHeading: {
     fontSize: 13,
     fontWeight: "700",
     color: colors.textSecondary,
-    marginBottom: spacing.xs,
+  },
+  picksDayPnl: {
+    fontSize: 12,
+    fontWeight: "700",
   },
   pickRow: {
     flexDirection: "row",
