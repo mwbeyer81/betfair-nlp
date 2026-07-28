@@ -5,6 +5,7 @@ import { chatApi, SavedFilterSet, SavedFilterSetSplit, LiveFilterResult } from "
 import { SplitDetailPanel } from "./SplitDetailPanel";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
 import { AppHeader } from "./AppHeader";
+import { PageContainer } from "./PageContainer";
 import { buildFilterSummaryFromParams, formatPnl, formatPct, formatRaceTime } from "../utils/ispFormat";
 import { buildHierarchy, collectHierarchyNodeKeys } from "../utils/raceHierarchy";
 import { colors, radii, spacing } from "../theme";
@@ -425,45 +426,49 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
             />
           )}
           <ScrollView contentContainerStyle={styles.scrollContent}>
-            <SplitCard
-              id="a"
-              label="Split A"
-              split={result.splitA!}
-              onDetails={() => setDetailSplit("a")}
-              onGraph={() => setGraphSplit("a")}
-            />
-            <SplitCard
-              id="b"
-              label="Split B"
-              split={result.splitB!}
-              onDetails={() => setDetailSplit("b")}
-              onGraph={() => setGraphSplit("b")}
-            />
-            {liveLoading && (
-              <View testID="saved-result-live-loading" style={styles.liveStateContainer}>
-                <ActivityIndicator size="small" animating color={colors.primary} />
-              </View>
-            )}
-            {!liveLoading && liveError && (
-              <View testID="saved-result-live-error" style={styles.liveStateContainer}>
-                <Text style={styles.errorText}>{liveError}</Text>
-              </View>
-            )}
-            {!liveLoading && !liveError && (
-              <LivePerformanceSection
-                results={liveResults}
-                onNavigateToMeeting={onNavigateToMeeting}
-                onNavigateToRace={onNavigateToRace}
+            <PageContainer>
+              <SplitCard
+                id="a"
+                label="Split A"
+                split={result.splitA!}
+                onDetails={() => setDetailSplit("a")}
+                onGraph={() => setGraphSplit("a")}
               />
-            )}
+              <SplitCard
+                id="b"
+                label="Split B"
+                split={result.splitB!}
+                onDetails={() => setDetailSplit("b")}
+                onGraph={() => setGraphSplit("b")}
+              />
+              {liveLoading && (
+                <View testID="saved-result-live-loading" style={styles.liveStateContainer}>
+                  <ActivityIndicator size="small" animating color={colors.primary} />
+                </View>
+              )}
+              {!liveLoading && liveError && (
+                <View testID="saved-result-live-error" style={styles.liveStateContainer}>
+                  <Text style={styles.errorText}>{liveError}</Text>
+                </View>
+              )}
+              {!liveLoading && !liveError && (
+                <LivePerformanceSection
+                  results={liveResults}
+                  onNavigateToMeeting={onNavigateToMeeting}
+                  onNavigateToRace={onNavigateToRace}
+                />
+              )}
+            </PageContainer>
           </ScrollView>
-          <View style={styles.actionsRow}>
-            <Button testID="saved-result-detail-restore" mode="contained" buttonColor={colors.accent} onPress={() => onRestore(result.filters)} style={styles.actionButton}>
-              Restore filters
-            </Button>
-            <Button testID="saved-result-detail-delete" mode="outlined" textColor={colors.danger} onPress={handleDelete} style={styles.actionButton}>
-              Delete
-            </Button>
+          <View style={styles.actionsBar}>
+            <PageContainer style={styles.actionsRow}>
+              <Button testID="saved-result-detail-restore" mode="contained" buttonColor={colors.accent} onPress={() => onRestore(result.filters)} style={styles.actionButton}>
+                Restore filters
+              </Button>
+              <Button testID="saved-result-detail-delete" mode="outlined" textColor={colors.danger} onPress={handleDelete} style={styles.actionButton}>
+                Delete
+              </Button>
+            </PageContainer>
           </View>
         </View>
       )}
@@ -585,19 +590,21 @@ const styles = StyleSheet.create({
   },
   liveRaceTime: { fontSize: 12, color: colors.textSecondary, width: 44 },
   liveRaceName: { fontSize: 12, color: colors.text, flex: 1 },
-  actionsRow: {
+  actionsBar: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     zIndex: 200,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  actionsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm,
     padding: spacing.lg,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
   },
   actionButton: { flexGrow: 1, minWidth: 160 },
 });

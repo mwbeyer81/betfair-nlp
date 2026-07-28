@@ -104,6 +104,41 @@ test.describe("Saved Results — MSW mocked network", () => {
   });
 });
 
+// Regression test for a real production screenshot (a wide desktop browser
+// window on a Result detail page): SavedResultDetailScreen.tsx never
+// wrapped its content in PageContainer (unlike every other screen — /isp,
+// /events, /runners, etc.), so the Split A/B cards, Live Performance
+// section, and the bottom Restore/Delete action bar all stretched
+// edge-to-edge at wide viewports instead of capping/centering like the
+// rest of the app. Fixed by wrapping both the scrollable content and the
+// action bar in their own PageContainer.
+test.describe("Saved Results — detail screen at wide viewports (MSW mocked)", () => {
+  test.use({ viewport: { width: 1999, height: 1000 } });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/results/detail?id=mock-result-1");
+    await expect(page.getByTestId("saved-result-detail-screen")).toBeVisible({ timeout: 10000 });
+  });
+
+  test("Split A/B cards are capped well short of the full viewport width, and centered", async ({ page }) => {
+    const box = (await page.getByTestId("saved-result-split-card-a").boundingBox())!;
+    expect(box.width).toBeLessThan(1999 - 400);
+    // Centered means roughly equal empty space on both sides.
+    const rightGap = 1999 - (box.x + box.width);
+    expect(Math.abs(box.x - rightGap)).toBeLessThan(5);
+  });
+
+  test("the bottom Restore filters/Delete action bar is also capped, not stretched edge-to-edge", async ({ page }) => {
+    const restoreBox = (await page.getByTestId("saved-result-detail-restore").boundingBox())!;
+    const deleteBox = (await page.getByTestId("saved-result-detail-delete").boundingBox())!;
+    // Neither button should come anywhere near the viewport's own edges —
+    // before the fix, the row stretched the full 1999px with only ~24px
+    // padding on each side.
+    expect(restoreBox.x).toBeGreaterThan(200);
+    expect(deleteBox.x + deleteBox.width).toBeLessThan(1999 - 200);
+  });
+});
+
 test.describe("Saved Results — empty state", () => {
   test("shows the empty state when there are no saved results", async ({ page }) => {
     await page.route((url) => url.pathname === "/api/saved-filter-sets", (route) => {
