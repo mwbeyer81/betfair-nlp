@@ -3896,3 +3896,105 @@ investigated further (out of scope for this task).
 
 Deployed: `develop@61f43c2` → app.backbet.co.uk, verified live via the
 `build-commit` meta tag.
+
+## 2026-07-28 (later still) — `~/betfair-nlp-isp-date-filter-lost` (branch `fix/isp-date-filter-lost-on-default-match`), merged into `develop`
+
+**Task:** user reported (screenshots) that applying Date "Jan 1, 2024 →
+Jan 1, 2025" on the Industry SP filters, then "View Races", showed
+races from January 2015 at the top of the list — years before the
+applied range. Asked to: reproduce against real prod first, add a
+persistent CI/mock regression test, fix it, deploy, and do the work in
+a proper worktree (the two fixes right above this one were done
+directly in the primary checkout without one).
+
+**Root cause:** `IndustrySpScreen.tsx`'s `syncUrl()` only wrote
+`minDate`/`maxDate` into `window.location.search` when they differed
+from `FILTER_DEFAULTS.minDate`/`maxDate` (`"2024-01-01"`/
+`"2024-01-31"`) — an arbitrary "last month" convenience default for a
+fresh, never-touched screen, not a "no date filter applied" sentinel.
+`minDate="2024-01-01"` is a completely plausible real choice (this
+exact bug report), so applying it got the param silently omitted from
+the URL. `IspRacesScreen.tsx` then reads `minDate` from the URL with
+its *own* fallback of `""` (no lower bound at all — very different
+from "2024-01-01"), so `/isp/races` fetched with no lower bound at
+all, matching every race back to the dataset's true earliest year
+(2015). The backend query (`industry-sp-dao.ts`'s `dateMatchStage`)
+was always correct — this was purely a frontend URL round-trip bug,
+and it only manifests when the writer's "safe to omit" default and the
+reader's "value when absent" fallback disagree. (Checked whether the
+same class of bug affects any other filter here — `maxRunners`/
+`maxInIspRange` have an analogous client-default-vs-server-raw-default
+mismatch, but don't manifest as a real bug because
+`IspRacesScreen.tsx`'s own fallback for those already matches
+`IndustrySpScreen`'s `FILTER_DEFAULTS`, unlike `minDate`/`maxDate`'s
+`""` fallback — not fixed, no live bug there today, but worth knowing
+if either screen's fallback values ever drift.)
+
+**Fix:** compare against `ABSOLUTE_MIN_DATE`/`ABSOLUTE_MAX_DATE`
+instead of `FILTER_DEFAULTS.minDate`/`maxDate` — the only values where
+omitting the param from the URL is truly a no-op (an absent param
+already means "no bound", exactly matching those). Same fix applied to
+`buildConvergenceFilterSummary`'s identical comparison (a cosmetic
+"what's filtered" chip list with the same latent bug, lower impact,
+same root cause).
+
+**Reproduced against real prod before writing any fix** — see
+`client/scripts/prod-repro/isp-date-filter-lost-on-default-match-2026-07-28.spec.ts`
+(`.claude/commands/prod-repro-scripts.md`). First run against live
+`app.backbet.co.uk` failed exactly as expected:
+`Expected substring: "minDate=2024-01-01"` /
+`Received: ".../isp/races?maxDate=2025-01-01&fromRow=1&toRow=100"` —
+confirming `minDate` was completely absent. Re-ran the same script
+after deploying the fix — passes against live prod now.
+
+**Persistent regression coverage** (Storybook/MSW, not the prod-repro
+script — that one's a one-time historical record, per its own
+convention): `DateFilterMatchingConvenienceDefaultStillPersistsInUrl`
+(the exact bug — `minDate=2024-01-01` must survive Apply) and
+`DateFilterAtAbsoluteMinIsOmittedFromUrl` (proves the fix targets the
+right comparison value, not "always write minDate/maxDate" — a
+genuinely-no-op `minDate` at `ABSOLUTE_MIN_DATE` should still be
+omitted).
+
+**Second-order test breakage, fixed in the same branch:** the
+correctness fix means `minDate`/`maxDate` now get written to the URL
+on *every* Apply (previously incorrectly omitted whenever left at the
+default) — since the test runner reuses one browser page across every
+story in a file (documented repeatedly above), this newly polluted
+`window.location.search` for whichever story ran next, breaking two
+*pre-existing* stories (`Loading`, `WithError`) that assert a bare/
+idle mount. Isolated via `git stash` before writing the fix, to
+confirm these two only broke *because of* this change and weren't
+already flaky. Fixed with a `withCleanUrl` decorator (applied to those
+two plus `BareLoadShowsIdlePlaceholderNotResults`) — **must run as a
+`decorators` entry, not inside the story's own `play` function**:
+`hadUrlParamsOnMount` is captured via a `useState` initializer at
+mount time, so resetting the URL from inside `play` (which runs after
+mount) is one render too late to matter.
+
+**Worktree setup gotcha:** a fresh `git worktree add` only gets
+`client/`'s own `node_modules` from `yarn install` run there — `tsc`
+failed on `Cannot find module 'jsonwebtoken'` (a *root* `package.json`
+dependency, pulled in transitively by `tests-live/chat-live.spec.ts`,
+that the primary checkout's `client/` can resolve by walking up to
+`/home/ubuntu/betfair-nlp/node_modules` since it's nested inside that
+tree — a sibling worktree's `client/` walks up to its *own* worktree
+root instead, which has no `node_modules` at all). Fixed by symlinking
+the whole root `node_modules` from the primary checkout
+(`ln -s /home/ubuntu/betfair-nlp/node_modules
+~/betfair-nlp-<slug>/node_modules`) rather than a slower full root
+`yarn install` — same idea as the existing `data/`/`ml/venv` symlink
+note elsewhere in this file for gitignored dirs `git worktree add`
+doesn't bring over.
+
+**Verified:** `yarn build` clean throughout, including after merging
+`origin/develop` (fast-forward only, no conflict this time). Full
+`IndustrySpScreen` Storybook suite 59 tests, 57 green — the 2
+remaining failures (`ApplyingAPendingCourseChipQueriesApiAndUpdatesUrl`,
+`ResetClearsCourseChipsSelection`) are the same pre-existing, unrelated
+baseline confirmed present on unmodified `develop`.
+
+Deployed: `develop@6c4a3b8` → app.backbet.co.uk, verified live both via
+the `build-commit` meta tag and by re-running the prod-repro script
+against the live site post-deploy. Worktree removed after merge+deploy
+per this file's own convention.
