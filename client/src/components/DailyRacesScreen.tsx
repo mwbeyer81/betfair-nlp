@@ -85,6 +85,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
 
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [hasAppliedOnce, setHasAppliedOnce] = useState(() => dailyRacesUrlHasAnyParams());
+  const [groupMode, setGroupMode] = useState<"meeting" | "time">("meeting");
 
   // Draft (uncommitted) filter state — mirrors IndustrySpScreen's
   // draft/applied split: typing or toggling a filter only affects these
@@ -149,6 +150,10 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
   }, [date]);
 
   const events = groupByEvent(races);
+  const racesByTime = useMemo(
+    () => [...races].sort((a, b) => new Date(a.offDt).getTime() - new Date(b.offDt).getTime()),
+    [races]
+  );
 
   const availableCourses = useMemo(() => distinctValues(races, r => r.course), [races]);
   const availableGoings = useMemo(() => distinctValues(races, r => r.going), [races]);
@@ -587,11 +592,39 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
                 </View>
               )}
 
-              <Text style={styles.eventsHeading}>Meetings</Text>
-              {events.length === 0 && (
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.eventsHeading}>{groupMode === "meeting" ? "Meetings" : "All Races"}</Text>
+                <View testID="daily-races-group-mode-toggle" style={styles.groupModeToggle}>
+                  <TouchableOpacity
+                    testID="daily-races-group-by-meeting"
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: groupMode === "meeting" }}
+                    onPress={() => setGroupMode("meeting")}
+                    style={[styles.groupModeBtn, groupMode === "meeting" && styles.groupModeBtnActive]}
+                  >
+                    <Text style={[styles.groupModeBtnText, groupMode === "meeting" && styles.groupModeBtnTextActive]}>
+                      By meeting
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    testID="daily-races-group-by-time"
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: groupMode === "time" }}
+                    onPress={() => setGroupMode("time")}
+                    style={[styles.groupModeBtn, groupMode === "time" && styles.groupModeBtnActive]}
+                  >
+                    <Text style={[styles.groupModeBtnText, groupMode === "time" && styles.groupModeBtnTextActive]}>
+                      By time
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {races.length === 0 && (
                 <Text testID="daily-races-empty" style={styles.emptyText}>No races found for today.</Text>
               )}
-              {events.map(event => (
+
+              {races.length > 0 && groupMode === "meeting" && events.map(event => (
                 <TouchableOpacity
                   key={event.eventId}
                   testID={`daily-races-event-${event.eventId}`}
@@ -601,6 +634,20 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
                   <Text style={styles.eventCourse}>{event.course}</Text>
                   <Text style={styles.eventDate}>{event.date}</Text>
                   <Text style={styles.eventCount}>{event.races.length} races</Text>
+                </TouchableOpacity>
+              ))}
+
+              {races.length > 0 && groupMode === "time" && racesByTime.map(race => (
+                <TouchableOpacity
+                  key={race.raceId}
+                  testID={`daily-races-time-row-${race.raceId}`}
+                  style={styles.eventRow}
+                  onPress={() => onNavigateToRace(race.raceId)}
+                >
+                  <Text style={styles.eventCourse}>{race.offTime}</Text>
+                  <Text style={styles.timeRowCourse} numberOfLines={1}>{race.course}</Text>
+                  <Text style={styles.timeRowRaceName} numberOfLines={1}>{race.raceName}</Text>
+                  <Text style={styles.eventCount}>{race.runners.length} runners</Text>
                 </TouchableOpacity>
               ))}
             </PageContainer>
@@ -619,13 +666,55 @@ const styles = StyleSheet.create({
   errorText: { color: colors.danger, fontSize: 16 },
   list: { flex: 1, ...({ overscrollBehavior: "contain" } as any) },
   emptyText: { padding: spacing.xl, color: colors.textTertiary, fontSize: 16, textAlign: "center" },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
   eventsHeading: {
     fontSize: 13,
     fontWeight: "700",
     color: colors.textSecondary,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
-    marginBottom: spacing.xs,
+  },
+  groupModeToggle: {
+    flexDirection: "row",
+    backgroundColor: colors.surface,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 2,
+    gap: 2,
+  },
+  groupModeBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radii.sm - 2,
+  },
+  groupModeBtnActive: {
+    backgroundColor: colors.primary,
+  },
+  groupModeBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  groupModeBtnTextActive: {
+    color: "#fff",
+  },
+  timeRowCourse: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.text,
+    maxWidth: 120,
+  },
+  timeRowRaceName: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    flexShrink: 1,
+    maxWidth: 180,
   },
   eventRow: {
     flexDirection: "row",
