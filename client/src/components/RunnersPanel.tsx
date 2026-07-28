@@ -31,6 +31,7 @@ function formatRaceTime(isoTime: string): string {
       hour: "2-digit",
       minute: "2-digit",
       timeZone: "Europe/London",
+      hour12: false,
     });
   } catch {
     return isoTime;
