@@ -36,6 +36,23 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
 
   const toggleTooltip = (key: string) => setOpenTooltip(current => (current === key ? null : key));
 
+  // Small "?" badge signalling a pill has more info behind a tap — same
+  // circular-outline pattern as ModelPerformanceDashboard.tsx /
+  // IndustrySpScreen.tsx's own renderTooltipToggle, reused here rather than
+  // invented fresh. Unlike those two (standalone toggle buttons), this one
+  // sits inside a row that's itself one big TouchableOpacity, so it needs
+  // its own stopPropagation to avoid also triggering onNavigateToRunner.
+  const renderTooltipToggle = (key: string, testID: string) => (
+    <TouchableOpacity
+      testID={testID}
+      onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(key); }}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      style={styles.tooltipToggle}
+    >
+      <Text style={styles.tooltipToggleText}>?</Text>
+    </TouchableOpacity>
+  );
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -108,21 +125,27 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                     <Text style={styles.drawBadge}>Draw {runner.draw}</Text>
                   )}
                   {runner.form && (
-                    <TouchableOpacity
-                      testID={`daily-race-item-form-${runner.runnerId}`}
-                      onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(`${runner.runnerId}:form`); }}
-                    >
-                      <Text style={styles.formBadge}>{runner.form}</Text>
-                    </TouchableOpacity>
+                    <>
+                      <TouchableOpacity
+                        testID={`daily-race-item-form-${runner.runnerId}`}
+                        onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(`${runner.runnerId}:form`); }}
+                      >
+                        <Text style={styles.formBadge}>{runner.form}</Text>
+                      </TouchableOpacity>
+                      {renderTooltipToggle(`${runner.runnerId}:form`, `daily-race-item-form-tooltip-toggle-${runner.runnerId}`)}
+                    </>
                   )}
                   {runner.modelWinProbability != null && (
-                    <TouchableOpacity
-                      onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(`${runner.runnerId}:model`); }}
-                    >
-                      <Text testID={`daily-race-item-model-${runner.runnerId}`} style={styles.modelBadge}>
-                        Model {runner.modelWinProbability.toFixed(0)}%
-                      </Text>
-                    </TouchableOpacity>
+                    <>
+                      <TouchableOpacity
+                        onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(`${runner.runnerId}:model`); }}
+                      >
+                        <Text testID={`daily-race-item-model-${runner.runnerId}`} style={styles.modelBadge}>
+                          Model {runner.modelWinProbability.toFixed(0)}%
+                        </Text>
+                      </TouchableOpacity>
+                      {renderTooltipToggle(`${runner.runnerId}:model`, `daily-race-item-model-tooltip-toggle-${runner.runnerId}`)}
+                    </>
                   )}
                   {openTooltip === `${runner.runnerId}:form` && (
                     <Text testID={`daily-race-item-form-tooltip-${runner.runnerId}`} style={styles.tooltipText}>
@@ -187,5 +210,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textSecondary,
     paddingTop: 2,
+  },
+  tooltipToggle: {
+    width: 16,
+    height: 16,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.textTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tooltipToggleText: {
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "700",
+    color: colors.textSecondary,
   },
 });

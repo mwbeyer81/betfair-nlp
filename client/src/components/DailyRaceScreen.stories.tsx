@@ -128,6 +128,46 @@ export const ModelTooltipToggle: Story = {
   },
 };
 
+export const FormTooltipToggleIcon: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-race-list");
+    const runnerId = MOCK_RACE.runners[0].runnerId;
+
+    const icon = canvas.getByTestId(`daily-race-item-form-tooltip-toggle-${runnerId}`);
+    await expect(icon).toBeInTheDocument();
+
+    await userEvent.click(icon);
+    await expect(canvas.getByTestId(`daily-race-item-form-tooltip-${runnerId}`)).toHaveTextContent(
+      "Recent finishing positions"
+    );
+    await expect(args.onNavigateToRunner).not.toHaveBeenCalled();
+
+    await userEvent.click(icon);
+    await expect(canvas.queryByTestId(`daily-race-item-form-tooltip-${runnerId}`)).not.toBeInTheDocument();
+  },
+};
+
+export const ModelTooltipToggleIcon: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-race-list");
+    const runnerId = MOCK_RACE.runners[0].runnerId;
+
+    const icon = canvas.getByTestId(`daily-race-item-model-tooltip-toggle-${runnerId}`);
+    await expect(icon).toBeInTheDocument();
+
+    await userEvent.click(icon);
+    await expect(canvas.getByTestId(`daily-race-item-model-tooltip-${runnerId}`)).toHaveTextContent(
+      "estimated chance this horse wins"
+    );
+    await expect(args.onNavigateToRunner).not.toHaveBeenCalled();
+
+    await userEvent.click(icon);
+    await expect(canvas.queryByTestId(`daily-race-item-model-tooltip-${runnerId}`)).not.toBeInTheDocument();
+  },
+};
+
 export const BackButton: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
