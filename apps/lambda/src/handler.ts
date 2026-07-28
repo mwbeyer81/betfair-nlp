@@ -1,5 +1,6 @@
 import serverlessExpress from "@vendia/serverless-express";
 import express from "express";
+import compression from "compression";
 import rateLimit from "express-rate-limit";
 import { router, initializeServices } from "../../../src/server/router";
 import { corsMiddleware, helmetMiddleware } from "../../../src/server/middleware";
@@ -18,6 +19,14 @@ app.set("trust proxy", 1);
 
 app.use(corsMiddleware);
 app.use(helmetMiddleware);
+// gzips JSON responses before @vendia/serverless-express base64-encodes the
+// body for API Gateway — HTTP APIs (v2) don't auto-compress Lambda proxy
+// responses the way REST APIs (v1) can, so without this the backend was
+// sending large industry-sp payloads fully uncompressed (confirmed live: a
+// 640-race page came back as ~5MB with no Content-Encoding header at all,
+// despite the client sending Accept-Encoding: gzip) — see the
+// isp-response-compression entry in AGENTS.md.
+app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(
