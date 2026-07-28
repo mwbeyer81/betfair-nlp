@@ -82,7 +82,7 @@ export const handler = async (event: APIGatewayProxyEventV2 | ScheduledEvent, co
         const liveResult = await new LiveFilterResultService().captureLiveResultsForDate(today);
         console.log(
           `Scheduled live filter-result capture: ${liveResult.filterSetsProcessed} filter sets processed, ` +
-            `${liveResult.rowsUpserted} meeting rows upserted.`
+            `${liveResult.rowsUpserted} race rows upserted.`
         );
       } catch (error) {
         console.error("Scheduled live filter-result capture failed (results capture already succeeded):", error);
