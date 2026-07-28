@@ -142,8 +142,10 @@ export default function App() {
           onLogout={onLogout}
           onRequestAuth={onRequestAuth}
           onBack={() => navigate("/isp", window.location.search.slice(1))}
-          onNavigateToMeeting={(meetingId) => navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}`)}
-          onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}`)}
+          onNavigateToMeeting={(meetingId) =>
+            navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}&${buildReturnParams(route)}`)
+          }
+          onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}&${buildReturnParams(route)}`)}
           onNavigateToRunner={(raceId, runnerId) =>
             navigate("/isp/runner", `raceId=${raceId}&runnerId=${runnerId}&${buildReturnParams(route)}`)
           }
@@ -155,6 +157,11 @@ export default function App() {
     }
     if (route === "/isp/meeting") {
       const meetingId = queryParams.get("id") ?? "";
+      // Reachable from more than just the races list now (also from a saved
+      // Result's Live Performance section) — "back" must resolve to
+      // whichever screen the user actually drilled in from, same as the
+      // runner/trainer screens below, not a hardcoded /isp/races.
+      const back = resolveReturn(queryParams, "/isp/races");
       return (
         <IndustryMeetingScreen
           navigate={navigate}
@@ -162,10 +169,8 @@ export default function App() {
           onLogout={onLogout}
           onRequestAuth={onRequestAuth}
           meetingId={meetingId}
-          // The user drilled into this meeting from the races list, so "back"
-          // returns there (not the filters screen they aren't editing).
-          onBack={() => navigate("/isp/races")}
-          onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}`)}
+          onBack={() => navigate(back.route, back.query)}
+          onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}&${buildReturnParams(route)}`)}
           onNavigateToRunner={(raceId, runnerId) =>
             navigate("/isp/runner", `raceId=${raceId}&runnerId=${runnerId}&${buildReturnParams(route)}`)
           }
@@ -177,6 +182,11 @@ export default function App() {
     }
     if (route === "/isp/race") {
       const raceId = parseInt(queryParams.get("id") ?? "", 10);
+      // Same reasoning as /isp/meeting above — this screen's own "back" (via
+      // onNavigateToMeeting once the race has loaded, or onNavigateToIsp as
+      // the loading-state fallback) must resolve to wherever the user
+      // actually came from, not a hardcoded /isp/races.
+      const back = resolveReturn(queryParams, "/isp/races");
       return (
         <IndustryRaceScreen
           navigate={navigate}
@@ -184,8 +194,22 @@ export default function App() {
           onLogout={onLogout}
           onRequestAuth={onRequestAuth}
           raceId={raceId}
-          onNavigateToMeeting={(meetingId) => navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}`)}
-          onNavigateToIsp={() => navigate("/isp/races")}
+          // IndustryRaceScreen only ever calls onNavigateToMeeting as its own
+          // back button's action ("go up to my meeting"), never as a forward
+          // link — so this hop must forward this screen's own `back`
+          // pointer (already resolved above) rather than create a fresh one
+          // pointing back at this race. Otherwise the meeting screen's own
+          // back button would return here instead of continuing on to
+          // wherever this race itself was reached from (e.g. a saved
+          // Result's Live Performance section), turning one "back" tap into
+          // an infinite Race ⇄ Meeting loop that never reaches it.
+          onNavigateToMeeting={(meetingId) =>
+            navigate(
+              "/isp/meeting",
+              `id=${encodeURIComponent(meetingId)}&returnRoute=${encodeURIComponent(back.route)}&returnQuery=${encodeURIComponent(back.query)}`
+            )
+          }
+          onNavigateToIsp={() => navigate(back.route, back.query)}
           onNavigateToRunner={(raceId, runnerId) =>
             navigate("/isp/runner", `raceId=${raceId}&runnerId=${runnerId}&${buildReturnParams(route)}`)
           }
@@ -329,8 +353,10 @@ export default function App() {
           id={id}
           onBack={() => navigate("/results")}
           onRestore={(filters) => navigate("/isp", new URLSearchParams(filters).toString())}
-          onNavigateToMeeting={(meetingId) => navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}`)}
-          onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}`)}
+          onNavigateToMeeting={(meetingId) =>
+            navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}&${buildReturnParams(route)}`)
+          }
+          onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}&${buildReturnParams(route)}`)}
         />
       );
     }
