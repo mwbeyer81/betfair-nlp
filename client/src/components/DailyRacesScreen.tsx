@@ -10,12 +10,13 @@ import {
 } from "react-native";
 import { Text, Button, Chip, Checkbox, ActivityIndicator } from "react-native-paper";
 import { chatApi, DailyRace } from "../services/chatApi";
-import { colors, radii, spacing } from "../theme";
+import { colors, radii, spacing, statusPill } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
 import type { Route } from "../hooks/useRouter";
-import { buildDailyRacesPicks, DailyRacesFilters } from "../utils/dailyRaceFormat";
+import { buildDailyRacesPicks, dailyRacePickPnl, dailyRacePickResultLabel, DailyRacesFilters } from "../utils/dailyRaceFormat";
 import { fairDecimalOdds, toFractionalOdds } from "../utils/oddsFormat";
+import { formatPnl } from "../utils/ispFormat";
 import {
   urlIntParam,
   urlFloatParam,
@@ -587,6 +588,31 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
                           Fair {toFractionalOdds(fairDecimalOdds(runner.modelWinProbability)!)} ({fairDecimalOdds(runner.modelWinProbability)!.toFixed(2)})
                         </Text>
                       )}
+                      {runner.result && (
+                        <Text
+                          testID={`daily-races-pick-result-${runner.runnerId}`}
+                          style={[
+                            styles.pickResultBadge,
+                            {
+                              backgroundColor: (statusPill[runner.result.status] ?? statusPill.HIDDEN).bg,
+                              color: (statusPill[runner.result.status] ?? statusPill.HIDDEN).fg,
+                            },
+                          ]}
+                        >
+                          {dailyRacePickResultLabel(runner.result)}
+                        </Text>
+                      )}
+                      {runner.result && dailyRacePickPnl(runner.result) != null && (
+                        <Text
+                          testID={`daily-races-pick-pnl-${runner.runnerId}`}
+                          style={[
+                            styles.pickPnlBadge,
+                            dailyRacePickPnl(runner.result)! >= 0 ? styles.pnlPositiveText : styles.pnlNegativeText,
+                          ]}
+                        >
+                          {formatPnl(dailyRacePickPnl(runner.result)!)}
+                        </Text>
+                      )}
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -942,5 +968,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,
+  },
+  pickResultBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+  },
+  pickPnlBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  pnlPositiveText: {
+    color: colors.pnlPositive,
+  },
+  pnlNegativeText: {
+    color: colors.pnlNegative,
   },
 });

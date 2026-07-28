@@ -296,3 +296,111 @@ export const PickNavigatesToRace: Story = {
     await expect(args.onNavigateToRace).toHaveBeenCalledWith("rac_1");
   },
 };
+
+// Same three races as MOCK_RACES, each now carrying a real captured
+// result: rac_1/hrs_1 (Fixture Star) WINNER at isp 4 -> £1-to-win stake
+// 1/(4-1)=£0.333, so PnL is exactly +£1.00; rac_2/hrs_2 (Chase Fixture)
+// LOSER at isp 3 -> loses its 1/(3-1)=£0.50 stake; rac_3/hrs_3 (Ascot
+// Fixture) NON_FINISHER with no valid isp -> no PnL at all, same
+// "excluded from PnL" convention as ispFormat.ts's computeRangePnl.
+const MOCK_RACES_WITH_RESULTS = MOCK_RACES.map(race => {
+  const resultByRaceId: Record<string, { status: "WINNER" | "LOSER" | "NON_FINISHER"; pos: string; isp: number | null; ispFraction: string | null }> = {
+    rac_1: { status: "WINNER", pos: "1", isp: 4, ispFraction: "3/1" },
+    rac_2: { status: "LOSER", pos: "4", isp: 3, ispFraction: "2/1" },
+    rac_3: { status: "NON_FINISHER", pos: "PU", isp: null, ispFraction: null },
+  };
+  return { ...race, runners: race.runners.map(r => ({ ...r, result: resultByRaceId[race.raceId] })) };
+});
+
+export const WonPickShowsResultAndPnl: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/daily-races`, () =>
+          HttpResponse.json({ success: true, data: MOCK_RACES_WITH_RESULTS, count: MOCK_RACES_WITH_RESULTS.length })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+
+    const minModelInput = canvas.getByTestId("daily-races-min-model-win-probability");
+    await userEvent.clear(minModelInput);
+    await userEvent.type(minModelInput, "20");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    await expect(canvas.getByTestId("daily-races-pick-result-hrs_1")).toHaveTextContent("Won");
+    await expect(canvas.getByTestId("daily-races-pick-pnl-hrs_1")).toHaveTextContent("+£1.00");
+  },
+};
+
+export const LostPickShowsResultAndPnl: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/daily-races`, () =>
+          HttpResponse.json({ success: true, data: MOCK_RACES_WITH_RESULTS, count: MOCK_RACES_WITH_RESULTS.length })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-reset"));
+
+    const trainerInput = canvas.getByTestId("daily-races-trainer-search");
+    await userEvent.type(trainerInput, "A Trainer");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    await expect(canvas.getByTestId("daily-races-pick-result-hrs_2")).toHaveTextContent("Lost");
+    await expect(canvas.getByTestId("daily-races-pick-pnl-hrs_2")).toHaveTextContent("-£0.50");
+  },
+};
+
+export const NonFinisherPickShowsResultWithNoPnl: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/daily-races`, () =>
+          HttpResponse.json({ success: true, data: MOCK_RACES_WITH_RESULTS, count: MOCK_RACES_WITH_RESULTS.length })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-reset"));
+
+    const trainerInput = canvas.getByTestId("daily-races-trainer-search");
+    await userEvent.type(trainerInput, "Z Trainer");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    await expect(canvas.getByTestId("daily-races-pick-result-hrs_3")).toHaveTextContent("Non-finisher");
+    await expect(canvas.queryByTestId("daily-races-pick-pnl-hrs_3")).not.toBeInTheDocument();
+  },
+};
+
+export const PendingPickShowsNoResultBadge: Story = {
+  // Default handlers (MOCK_RACES) — no runner carries a result yet, same as
+  // a race that hasn't been captured by the results job at all.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    // A clean baseline — this test-runner can carry filter state over from a
+    // previously-run story in the same suite, same gotcha documented above.
+    await userEvent.click(canvas.getByTestId("daily-races-filter-reset"));
+
+    const minModelInput = canvas.getByTestId("daily-races-min-model-win-probability");
+    await userEvent.clear(minModelInput);
+    await userEvent.type(minModelInput, "20");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    await expect(canvas.getByTestId("daily-races-pick-hrs_1")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("daily-races-pick-result-hrs_1")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("daily-races-pick-pnl-hrs_1")).not.toBeInTheDocument();
+  },
+};

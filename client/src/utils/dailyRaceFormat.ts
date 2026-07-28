@@ -1,4 +1,4 @@
-import { DailyRace, DailyRaceRunner } from "../services/chatApi";
+import { DailyRace, DailyRaceResult, DailyRaceRunner } from "../services/chatApi";
 
 export interface DailyRacesFilters {
   minModelWinProbability: number;
@@ -81,4 +81,21 @@ export function buildDailyRacesPicks(races: DailyRace[], filters: DailyRacesFilt
     }
   }
   return picks;
+}
+
+// Mirrors ispFormat.ts's stakeToWin1/runnerPnl — same £1-to-win staking
+// convention (stake sized so a win nets exactly £1 profit) — applied here to
+// a DailyRaceResult rather than a full IspRunner (a different payload
+// shape, same math, so duplicated rather than shared). A runner with no
+// valid ISP (isp == null or <= 1 — e.g. a non-finisher) is excluded from
+// PnL entirely, same as every ISP screen's own qualifying-runner filter,
+// not treated as a £0 result.
+export function dailyRacePickPnl(result: DailyRaceResult): number | null {
+  if (result.isp == null || result.isp <= 1) return null;
+  return result.status === "WINNER" ? 1 : -(1 / (result.isp - 1));
+}
+
+export function dailyRacePickResultLabel(result: DailyRaceResult): "Won" | "Lost" | "Non-finisher" {
+  if (result.status === "NON_FINISHER") return "Non-finisher";
+  return result.status === "WINNER" ? "Won" : "Lost";
 }

@@ -114,6 +114,19 @@ export interface IspFilterBounds {
   minIsp: number;
 }
 
+// A runner's real outcome, once industry_starting_prices has captured it —
+// null until the race has been picked up by the daily results-capture job
+// (or a manual run), same "pending" meaning as the pre-race pick display.
+// isp/ispFraction are the real Industry SP the runner actually went off at,
+// not the model's own pre-race "fair odds" implied price. Mirrors
+// DailyRaceResult in src/lib/service/daily-race-service.ts field-for-field.
+export interface DailyRaceResult {
+  status: "WINNER" | "PLACED" | "LOSER" | "NON_FINISHER";
+  pos: string;
+  isp: number | null;
+  ispFraction: string | null;
+}
+
 // RacingAPI-backed "Daily Races" feature — a different domain from the ISP
 // types above, now also carrying a model win-probability view. See
 // src/lib/dao/daily-race-dao.ts for the backend document shape this
@@ -184,6 +197,7 @@ export interface DailyRaceRunner {
   // Top 3 plain-language "why this %" factors, from apps/ml-api/handler.py's
   // topFactors. See ml/train_and_predict.py's FEATURE_EXPLANATIONS.
   modelTopFactors: { label: string; direction: "positive" | "negative" }[] | null;
+  result: DailyRaceResult | null;
 }
 
 export interface DailyRace {
