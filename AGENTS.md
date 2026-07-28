@@ -4799,3 +4799,55 @@ match.
 
 Deployed: `develop@e8b4f2c` → app.backbet.co.uk (web only).
 `build-commit` meta tag confirmed live.
+
+## 2026-07-28 (later still) — primary checkout (branch `feat/isp-month-direct-load`), merged into `develop`
+
+**Task:** user, viewing the just-shipped month-placeholder feature live
+(screenshot): 2024 expanded, every month rendered as asked — but July
+2024 was the one showing real data ("80 races"), every other month
+"Not loaded yet". "Why default to July. Default to first month in the
+filter. Also tapping on months did nothing." Both correct: (1) the
+year's own mount fetch just landed page 1 wherever the earliest
+*matching* race happened to be (July, for this filter combination), not
+the filter's own literal January 1st start; (2) months had no fetch
+mechanism of their own at all — tapping one only toggled its (empty)
+collapse state, since only years could load data.
+
+**Fix:** generalized the per-year direct-load model
+(isp-year-direct-load) one level down to months, using the exact same
+`subMinDate`/`subMaxDate` backend mechanism years already used — no
+backend changes needed, a month's bounds are just a narrower calendar
+sub-range within the same query shape. Years are now pure rollup/
+grouping with no independent fetch state of their own —
+`yearCountLabel` derives a year's count/loading/empty state entirely
+from summing its own months' states. New `expandYearDefaultMonth`
+replaces a year's own "page 1" load: expands+loads that year's own
+*literal* first month within the filter's effective range (not
+wherever real data starts), collapsing every other month in that year.
+Idempotent via a new `initializedYears` set, so re-collapsing/
+re-expanding a year already interacted with doesn't reset or refetch
+months the user already opened by hand. Tapping any month directly
+(the default first one or any other) now calls `loadMonthPage` — a real
+scoped fetch, fixing "tapping did nothing" outright. Each month gets
+its own "Load more" button, replacing the year-level one.
+
+**Verified:** `yarn build` clean (frontend + backend, though this
+change is frontend-only — no Lambda redeploy needed). Storybook still
+fully broken repo-wide (see prior entries) — rewrote
+`isp-races-year-loading.spec.ts` as `isp-races-month-loading.spec.ts`
+(7 tests: mount defaults to the filter's first month not wherever real
+data is, tapping a placeholder month fetches only it directly, a
+month's own Load more paginates only that month, expanding a different
+year loads its own first month independently, re-expanding an
+already-interacted-with year preserves its state, Expand All loads
+every year's own default month). Full `industry-sp.spec.ts` suite
+needed 3 *real* test updates (not workarounds) — they asserted a
+fixture race dated 2022-06-01 visible without ever tapping anything,
+which only worked under the old "expand wherever real data is"
+behavior; added the explicit month tap each now needs, matching what a
+real user has to do too. 87/90 passing overall, the same 3 pre-existing
+unrelated failures documented repeatedly above, confirmed by exact
+name/testID match.
+
+Deployed: `develop@dda06b0` → app.backbet.co.uk (web only, no backend
+change). `build-commit` meta tag confirmed live.
