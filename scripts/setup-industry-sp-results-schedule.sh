@@ -21,16 +21,18 @@ REGION="eu-north-1"
 FUNCTION_NAME="hello-api"
 RULE_NAME="industry-sp-results-capture-schedule"
 STATEMENT_ID="industry-sp-results-eventbridge"
-# Daily at 21:30 UTC — after UK racing has finished for the day, but safely
-# before RacingAPI's own "today" rolls over. Confirmed empirically while
-# building this (not just inferred): a live call at 23:09 UTC on a July day
-# (BST, UTC+1) already returned zero results for "today" — RacingAPI's day
-# boundary tracks UK local time, so 23:00 UTC is already past midnight BST
-# and too late. 21:30 UTC stays safely on the UK-today side of that
-# boundary year-round (21:30 UTC = 22:30 BST in summer, 21:30 GMT in
-# winter) while still being after typical UK race-card end times. Still
-# worth double-checking against any unusually late-finishing card.
-SCHEDULE_EXPRESSION="cron(30 21 * * ? *)"
+# Every 10 minutes, all day — changed from the original once-daily 21:30
+# UTC firing (see git history/AGENTS.md for that reasoning) once Daily
+# Races' Today's Picks started showing live results/P&L per pick: punters
+# want a race's result to show up shortly after it finishes, not only once
+# at 21:30 UTC. RacingAPI's /results/today only ever returns races that
+# have ALREADY finished (never an unresolved race), so calling it more
+# often is safe — it just means newly-finished races get upserted sooner,
+# same idempotent upsert-by-hashed-raceId as before. No day-boundary
+# concern either: since this now runs continuously through and past
+# midnight UK time, it naturally keeps working across that transition
+# rather than needing to land in one narrow pre-midnight window.
+SCHEDULE_EXPRESSION="rate(10 minutes)"
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 RULE_ARN="arn:aws:events:${REGION}:${ACCOUNT_ID}:rule/${RULE_NAME}"

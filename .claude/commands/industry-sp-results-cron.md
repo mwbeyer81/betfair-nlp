@@ -57,18 +57,29 @@ the API itself — see "Failure behavior" below).
 
 ## Schedule
 
-Default: **daily at 21:30 UTC**, `cron(30 21 * * ? *)`, set in
-`scripts/setup-industry-sp-results-schedule.sh` — deliberately later than
-the racecards cron's 06:00 UTC, since results for "today" don't exist until
-racing has actually finished, but **not as late as 23:00 UTC**. That was
-the original default until a live call during this cron's build, at 23:09
-UTC on a July day (BST, UTC+1), came back with zero results for "today" —
-RacingAPI's day boundary tracks UK local time, so 23:00 UTC is already past
-midnight BST and lands on the wrong day. 21:30 UTC stays on the correct
-side of that boundary year-round (22:30 BST in summer, 21:30 GMT in winter)
-while still being after typical UK race-card end times. Still worth
-double-checking against any unusually late-finishing card, and adjusting
-`SCHEDULE_EXPRESSION` if needed. To change it, edit that script and re-run
+**As of 2026-07-28: every 10 minutes, all day** (`rate(10 minutes)`), set
+in `scripts/setup-industry-sp-results-schedule.sh` — changed from the
+original once-daily 21:30 UTC firing once Daily Races' Today's Picks
+started showing live per-pick results/P&L (`feat/daily-picks-results-pnl`):
+punters want a race's result to show up shortly after it finishes, not
+only once in the evening. Safe to call this often — `/results/today` only
+ever returns races that have already finished, and the write is an
+idempotent upsert keyed by hashed raceId, so an extra call just means
+nothing new to upsert yet. Also sidesteps the old day-boundary edge case
+below (running continuously through midnight UK time rather than needing
+to land in one narrow pre-midnight window). **Worth keeping an eye on**:
+this is ~144 calls/day to RacingAPI's `/results/today` — if the account's
+Basic-plan rate limit ever becomes a problem, dial `SCHEDULE_EXPRESSION`
+back down (e.g. `rate(30 minutes)`) rather than reverting to once-daily.
+
+Original reasoning for the old once-daily 21:30 UTC default, kept for
+context: deliberately later than the racecards cron's 06:00 UTC, since
+results for "today" don't exist until racing has actually finished, but
+**not as late as 23:00 UTC** — a live call during this cron's original
+build, at 23:09 UTC on a July day (BST, UTC+1), came back with zero
+results for "today" (RacingAPI's day boundary tracks UK local time, so
+23:00 UTC is already past midnight BST and lands on the wrong day). To
+change the schedule, edit `SCHEDULE_EXPRESSION` in that script and re-run
 it — `put-rule` is upsert-safe.
 
 ## Verify it's wired up
