@@ -1,6 +1,6 @@
 import React from "react";
 import type { Meta, StoryObj } from "@storybook/react";
-import { within, userEvent, expect, fn } from "@storybook/test";
+import { within, userEvent, expect, fn, waitFor } from "@storybook/test";
 import { http, HttpResponse } from "msw";
 import { IspRacesScreen } from "./IspRacesScreen";
 
@@ -687,6 +687,154 @@ export const CollapseAllTogglesEverything: Story = {
     await expect(btn).toHaveTextContent("Collapse All");
     await expect(canvas.getByTestId("industry-sp-month-2015-01")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-race-700004")).toBeInTheDocument();
+  },
+};
+
+// One race per calendar year, each on its own "page" (see lazyYearHandlers
+// below) — 2016 and 2017 are unreachable by the normal paginated cursor
+// until something explicitly walks forward to them (see ensureYearLoaded).
+const LAZY_YEAR_RACES = [
+  {
+    raceId: 800001,
+    meetingId: "Ascot|2015-06-01",
+    meetingName: "Ascot — 1 June 2015",
+    course: "Ascot",
+    countryCode: "GB",
+    raceTime: "2015-06-01T13:00:00",
+    raceName: "Ascot 13:00",
+    raceType: "Flat",
+    ran: 1,
+    runners: [
+      { id: 80101, name: "Twenty Fifteen", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false },
+    ],
+  },
+  {
+    raceId: 800002,
+    meetingId: "Ascot|2016-06-01",
+    meetingName: "Ascot — 1 June 2016",
+    course: "Ascot",
+    countryCode: "GB",
+    raceTime: "2016-06-01T13:00:00",
+    raceName: "Ascot 13:00",
+    raceType: "Flat",
+    ran: 1,
+    runners: [
+      { id: 80201, name: "Twenty Sixteen", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false },
+    ],
+  },
+  {
+    raceId: 800003,
+    meetingId: "Ascot|2017-06-01",
+    meetingName: "Ascot — 1 June 2017",
+    course: "Ascot",
+    countryCode: "GB",
+    raceTime: "2017-06-01T13:00:00",
+    raceName: "Ascot 13:00",
+    raceType: "Flat",
+    ran: 1,
+    runners: [
+      { id: 80301, name: "Twenty Seventeen", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 3, ispFraction: "2/1", isFavourite: false },
+    ],
+  },
+];
+
+const lazyYearHandlers = [
+  http.get(`${BASE}/api/industry-sp`, ({ request }) => {
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get("page") || "1", 10);
+    const race = LAZY_YEAR_RACES[page - 1];
+    return HttpResponse.json({
+      success: true,
+      data: race ? [race] : [],
+      count: race ? 1 : 0,
+      total: LAZY_YEAR_RACES.length,
+      page,
+      limit: 20,
+      totalPages: LAZY_YEAR_RACES.length,
+      totalRunners: LAZY_YEAR_RACES.length,
+      pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
+    });
+  }),
+];
+
+export const LazyYearPlaceholdersRenderFromDateRangeImmediately: Story = {
+  parameters: { msw: { handlers: lazyYearHandlers } },
+  decorators: [withQueryParams("minDate=2015-01-01&maxDate=2017-12-31")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    try {
+      await canvas.findByTestId("industry-sp-list");
+
+      // All three years the filter spans render immediately, even though
+      // only page 1 (2015) has actually loaded.
+      await expect(canvas.getByTestId("industry-sp-year-2015")).toBeInTheDocument();
+      await expect(canvas.getByTestId("industry-sp-year-2016")).toBeInTheDocument();
+      await expect(canvas.getByTestId("industry-sp-year-2017")).toBeInTheDocument();
+
+      // 2015 is the default (first, ascending) selection — already loaded.
+      await expect(canvas.getByTestId("industry-sp-year-count-2015")).toHaveTextContent("1 races");
+      await expect(canvas.getByTestId("industry-sp-day-2015-06-01")).toBeInTheDocument();
+
+      // 2016/2017 haven't been reached by the cursor yet — not "0 races"
+      // (which would claim there's confirmed nothing there).
+      await expect(canvas.getByTestId("industry-sp-year-count-2016")).toHaveTextContent("Tap to load");
+      await expect(canvas.getByTestId("industry-sp-year-count-2017")).toHaveTextContent("Tap to load");
+      await expect(canvas.queryByTestId("industry-sp-day-2016-06-01")).not.toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  },
+};
+
+export const TappingACollapsedYearWalksForwardAndLoadsIt: Story = {
+  parameters: { msw: { handlers: lazyYearHandlers } },
+  decorators: [withQueryParams("minDate=2015-01-01&maxDate=2017-12-31")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    try {
+      await canvas.findByTestId("industry-sp-list");
+      await expect(canvas.getByTestId("industry-sp-year-count-2017")).toHaveTextContent("Tap to load");
+
+      // 2017 is two pages past what's loaded — tapping it walks the same
+      // paginated cursor loadMore() would, automatically, through 2016
+      // (loading it as a side effect) to reach 2017.
+      await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2017"));
+
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-year-count-2017")).toHaveTextContent("1 races");
+      }, { timeout: 5000 });
+      await expect(canvas.getByTestId("industry-sp-day-2017-06-01")).toBeInTheDocument();
+
+      // 2016 was loaded along the way even though nobody tapped it directly.
+      await expect(canvas.getByTestId("industry-sp-year-count-2016")).toHaveTextContent("1 races");
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  },
+};
+
+export const ExpandAllChasesTheLastYear: Story = {
+  parameters: { msw: { handlers: lazyYearHandlers } },
+  decorators: [withQueryParams("minDate=2015-01-01&maxDate=2017-12-31")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    try {
+      await canvas.findByTestId("industry-sp-list");
+      const btn = canvas.getByTestId("industry-sp-collapse-all-toggle");
+
+      await userEvent.click(btn); // -> Collapse All
+      await expect(btn).toHaveTextContent("Expand All");
+      await userEvent.click(btn); // -> Expand All: chase the last year (2017)
+
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-year-count-2017")).toHaveTextContent("1 races");
+      }, { timeout: 5000 });
+      // 2016 loaded as a side effect of walking through it to reach 2017.
+      await expect(canvas.getByTestId("industry-sp-year-count-2016")).toHaveTextContent("1 races");
+      await expect(canvas.getByTestId("industry-sp-day-2017-06-01")).toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
   },
 };
 

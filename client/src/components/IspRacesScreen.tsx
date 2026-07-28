@@ -15,6 +15,8 @@ import {
   computeRangePnl,
   runnerPnl,
   formatRaceTime,
+  raceYearKey,
+  yearsInRange,
   toFormCategory,
   OddsMode,
   modelBeatsSp,
@@ -30,9 +32,18 @@ import {
   urlSortParam,
   updateUrlParams,
 } from "../utils/ispUrlParams";
-import { buildHierarchy, collectHierarchyNodeKeys } from "../utils/raceHierarchy";
+import { buildHierarchy, collectHierarchyNodeKeys, YearNode } from "../utils/raceHierarchy";
 
 const PAGE_SIZE = 20;
+
+// Same values as IndustrySpScreen's own ABSOLUTE_MIN_DATE/ABSOLUTE_MAX_DATE —
+// duplicated rather than imported to avoid adding a dependency on that
+// screen's internals; both represent "the real dataset's earliest/latest
+// possible date" and change together only if the underlying data range
+// itself changes. Used here purely to know which years to render a header
+// for when minDate/maxDate are absent from the URL (an unbounded filter).
+const ABSOLUTE_MIN_DATE = "2015-01-01";
+const ABSOLUTE_MAX_DATE = "2026-12-31";
 
 // Groups races into a Year → Month → Day → Meeting tree for the collapsible
 // results list — thin IspRace-specific wrapper over the generic
@@ -44,6 +55,16 @@ function buildRaceHierarchy(races: IspRace[]) {
     meetingId: race => race.meetingId,
     meetingLabel: race => race.course,
   });
+}
+
+// Inserts an empty placeholder YearNode for every year the applied date
+// filter could contain but no race data has loaded for yet — lets the
+// screen render a full "2024 / 2025 / 2026" set of collapsed year headers
+// immediately (see ensureYearLoaded), rather than only years reachable by
+// however far the paginated cursor happens to have advanced.
+function mergeYearPlaceholders(hierarchy: YearNode<IspRace>[], yearKeys: string[]): YearNode<IspRace>[] {
+  const byKey = new Map(hierarchy.map(y => [y.key, y]));
+  return yearKeys.map(key => byKey.get(key) ?? { key, items: [], months: [] });
 }
 
 interface IspRacesScreenProps {
@@ -75,12 +96,28 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const [races, setRaces] = useState<IspRace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  // Which year a background "keep paging until we reach it" walk is
+  // currently chasing (see ensureYearLoaded) — null when idle. Distinct
+  // from isLoadingMore so the two loading affordances (the manual "Load
+  // more" button vs. a year header you just tapped) don't fight over the
+  // same in-flight guard.
+  const [isJumpingToYear, setIsJumpingToYear] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRaces, setTotalRaces] = useState(0);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">(() => urlSortParam());
   const [oddsMode, setOddsMode] = useState<OddsMode>("fraction");
+  // Every year header renders immediately from the filter's own date range
+  // (see yearKeys below), long before any race data for most of them has
+  // loaded — only whichever year(s) page 1 actually landed in start
+  // expanded (set once that fetch resolves, see the mount/sortOrder effect
+  // below — NOT statically computed from yearKeys[0] here, since with an
+  // unbounded filter yearKeys starts at ABSOLUTE_MIN_DATE's year, which for
+  // real data is typically nowhere near where the real results actually
+  // are). Every other year starts collapsed until the user taps it (or
+  // "Expand All"), which triggers ensureYearLoaded to page forward until
+  // real data for it arrives.
   const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
 
   const minRunners = urlIntParam("minRunners", 1);
@@ -111,6 +148,16 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const minModelWinProbability = urlFloatParam("minModelWinProbability", 0);
   const onlyModelBeatsSp = urlStringParam("onlyModelBeatsSp", "") === "true";
 
+  // Absent minDate/maxDate means "unbounded" (see IspRacesScreen's own
+  // fallback of "" — deliberately not FILTER_DEFAULTS' arbitrary
+  // convenience default, see the isp-date-filter-lost-on-default-match
+  // fix) — falling back to the dataset's true absolute bounds here still
+  // gives a full, correct year list (e.g. 2015-2026) to render placeholder
+  // headers for, rather than an empty one.
+  const effectiveMinDate = minDate || ABSOLUTE_MIN_DATE;
+  const effectiveMaxDate = maxDate || ABSOLUTE_MAX_DATE;
+  const yearKeys = yearsInRange(effectiveMinDate, effectiveMaxDate, sortOrder);
+
   useEffect(() => {
     updateUrlParams({ sort: sortOrder !== "asc" ? sortOrder : undefined });
   }, [sortOrder]);
@@ -128,6 +175,13 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         setPage(1);
         setTotalPages(result.totalPages);
         setTotalRaces(result.total);
+        // Expand whichever year(s) page 1 actually landed in (typically
+        // just one) — collapse every other placeholder year in range. Set
+        // from the real fetched data, not yearKeys[0], since with an
+        // unbounded filter yearKeys starts at ABSOLUTE_MIN_DATE's year,
+        // which is usually nowhere near where real results actually are.
+        const loadedYears = new Set(result.data.map(r => raceYearKey(r.raceTime)));
+        setCollapsedKeys(new Set(yearKeys.filter(y => !loadedYears.has(y)).map(y => `year:${y}`)));
       } catch {
         if (!cancelled) setError("Failed to load races");
       } finally {
@@ -144,7 +198,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   }, [sortOrder]);
 
   async function loadMore() {
-    if (isLoadingMore || page >= totalPages) return;
+    if (isLoadingMore || isJumpingToYear || page >= totalPages) return;
     setIsLoadingMore(true);
     try {
       const next = page + 1;
@@ -156,6 +210,41 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       // silently ignore
     } finally {
       setIsLoadingMore(false);
+    }
+  }
+
+  // Races arrive in a single date-ordered, row-ranged sequence (fromRow/
+  // toRow — see the Split A/B feature on IndustrySpScreen — is a row-index
+  // slice of *that whole ordered sequence*, not something that can be
+  // independently intersected with a per-year date bound without changing
+  // what the row numbers mean) — so "jump to year Y" can't be a targeted,
+  // differently-scoped query. It has to walk the exact same paginated
+  // cursor loadMore() advances, just automatically and repeatedly, until a
+  // race actually in year Y appears. Any intervening year gets loaded as a
+  // side effect of passing through it, which is why toggleCollapseAll only
+  // ever needs to chase the *last* year, not every year individually.
+  async function ensureYearLoaded(year: string) {
+    if (isLoadingMore || isJumpingToYear) return;
+    if (races.some(r => raceYearKey(r.raceTime) === year)) return;
+    if (page >= totalPages) return;
+    setIsJumpingToYear(year);
+    try {
+      let currentPage = page;
+      let currentTotalPages = totalPages;
+      let found = false;
+      while (currentPage < currentTotalPages && !found) {
+        currentPage += 1;
+        const result = await chatApi.getIndustrySp(currentPage, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
+        setRaces(prev => [...prev, ...result.data]);
+        setPage(currentPage);
+        currentTotalPages = result.totalPages;
+        setTotalPages(currentTotalPages);
+        found = result.data.some(r => raceYearKey(r.raceTime) === year);
+      }
+    } catch {
+      setError("Failed to load races");
+    } finally {
+      setIsJumpingToYear(null);
     }
   }
 
@@ -189,20 +278,37 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const visibleRaces = races.filter(race => qualifyingRunners(race).length > 0);
   const visibleRunners = visibleRaces.reduce((sum, r) => sum + qualifyingRunners(r).length, 0);
 
-  const hierarchy = buildRaceHierarchy(visibleRaces);
+  // yearKeys (the filter's full possible year range) always wins over
+  // whatever years happen to already have loaded data — a year with zero
+  // races loaded so far still gets a header, just an empty/placeholder one
+  // (see mergeYearPlaceholders), so the user can see and tap it instead of
+  // it silently not existing until the pagination cursor happens to reach it.
+  const hierarchy = mergeYearPlaceholders(buildRaceHierarchy(visibleRaces), yearKeys);
   const allNodeKeys = collectHierarchyNodeKeys(hierarchy);
   const isAllCollapsed = allNodeKeys.length > 0 && allNodeKeys.every(k => collapsedKeys.has(k));
 
   function toggleNode(key: string) {
+    const wasCollapsed = collapsedKeys.has(key);
     setCollapsedKeys(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
+    if (wasCollapsed && key.startsWith("year:")) {
+      ensureYearLoaded(key.slice("year:".length));
+    }
   }
 
   function toggleCollapseAll() {
-    setCollapsedKeys(isAllCollapsed ? new Set() : new Set(allNodeKeys));
+    if (isAllCollapsed) {
+      setCollapsedKeys(new Set());
+      // Walking forward to the last year passes through (and so loads)
+      // every year in between — no need to chase each one individually.
+      const lastYear = yearKeys[yearKeys.length - 1];
+      if (lastYear) ensureYearLoaded(lastYear);
+    } else {
+      setCollapsedKeys(new Set(allNodeKeys));
+    }
   }
 
   // Same staking math as the per-race P&L badge (ispFormat.computeRangePnl),
@@ -211,6 +317,17 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // matches the sum of the individual race/runner rows rendered under it.
   function groupPnl(races: IspRace[]) {
     return computeRangePnl(races.map(race => ({ ...race, runners: qualifyingRunners(race) })));
+  }
+
+  // A year header with zero loaded races is ambiguous on its own — it
+  // could mean "confirmed no races here" or "just hasn't been reached by
+  // the pagination cursor yet" (see ensureYearLoaded). Distinguishing them
+  // is what makes the placeholder years worth rendering at all.
+  function yearCountLabel(year: YearNode<IspRace>): string {
+    if (year.items.length > 0) return `${year.items.length} races`;
+    if (isJumpingToYear === year.key) return "Loading…";
+    if (page >= totalPages) return "0 races";
+    return "Tap to load";
   }
 
   return (
@@ -281,7 +398,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         {!isLoading && !error && (
           <ScrollView testID="industry-sp-list" style={styles.list}>
           <PageContainer>
-            {visibleRaces.length === 0 && (
+            {totalRaces === 0 && (
               <Text style={styles.emptyText}>No races found.</Text>
             )}
             {hierarchy.map(year => {
@@ -299,7 +416,9 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                   >
                     <Text style={[styles.groupChevron, styles.groupChevronLight]}>{yearCollapsed ? "▸" : "▾"}</Text>
                     <Text style={styles.yearLabel}>{year.key}</Text>
-                    <Text style={[styles.groupCount, styles.groupCountLight]}>{year.items.length} races</Text>
+                    <Text testID={`industry-sp-year-count-${year.key}`} style={[styles.groupCount, styles.groupCountLight]}>
+                      {yearCountLabel(year)}
+                    </Text>
                     {yearPnl.staked > 0 && (
                       <Text testID={`industry-sp-year-pnl-${year.key}`} style={[styles.groupPnl, yearPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
                         {formatPnl(yearPnl.pnl)} ({formatPct(yearPnl.pnl, yearPnl.staked)})
@@ -498,7 +617,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                 testID="industry-sp-load-more"
                 mode="contained-tonal"
                 onPress={loadMore}
-                disabled={isLoadingMore}
+                disabled={isLoadingMore || isJumpingToYear !== null}
                 loading={isLoadingMore}
                 style={styles.loadMoreButton}
               >
