@@ -239,6 +239,26 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     if (races.some(r => raceYearKey(r.raceTime) === year)) return;
     if (races.length === 0 || races.length >= totalRaces) return;
     setIsJumpingToYear(year);
+    // Collapse every other year while this walks — the doubling batches
+    // (20 -> 40 -> ... -> thousands) almost always land in whichever year
+    // is already expanded (typically the default first year), and with
+    // it expanded, each append forces React to reconcile/lay out its
+    // entire, ever-growing race list. Confirmed live: with ~9500 races in
+    // range and no other filters narrowing them, the fetches alone
+    // resolved in ~9 requests / ~12s, but the last one still took ~8s
+    // *after* its response arrived before the UI reflected it — pure
+    // render cost, not network. Collapsing the source year means
+    // buildRaceHierarchy still processes every loaded race each render
+    // (cheap — plain array grouping), but the expensive part (rendering
+    // thousands of nested race/runner rows) never happens until the user
+    // actually re-expands that year afterward.
+    setCollapsedKeys(prev => {
+      const next = new Set(prev);
+      for (const y of yearKeys) {
+        if (y !== year) next.add(`year:${y}`);
+      }
+      return next;
+    });
     try {
       let loaded = races.length;
       let found = false;
@@ -344,8 +364,32 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // rolled up over every qualifying runner across a whole year/month/day/
   // meeting's races — reuses qualifyingRunners so a group total always
   // matches the sum of the individual race/runner rows rendered under it.
+  // Deliberately NOT `computeRangePnl(races.map(race => ({ ...race,
+  // runners: qualifyingRunners(race) })))` — that allocates a new race
+  // object (plus a new filtered runners array) for every single race,
+  // just to hand them to a function that immediately iterates and
+  // discards them. Every hierarchy level's header (year/month/day/
+  // meeting) calls this on every render, including collapsed ones —
+  // their rows aren't rendered, but their P&L badge still needs a real
+  // number — so at a few thousand loaded races this allocation churn
+  // alone was a measurable chunk of the total cost confirmed via the
+  // isp-year-walk-render-cost prod-repro script (still 16-20s live even
+  // after collapsing the non-target year stopped DOM rendering from
+  // being the bottleneck). Same staking math as computeRangePnl, just
+  // iterating in place instead of building throwaway intermediates.
   function groupPnl(races: IspRace[]) {
-    return computeRangePnl(races.map(race => ({ ...race, runners: qualifyingRunners(race) })));
+    let staked = 0, returns = 0, count = 0;
+    for (const race of races) {
+      for (const runner of qualifyingRunners(race)) {
+        if (runner.isp != null && runner.isp > 1) {
+          count++;
+          const stake = 1 / (runner.isp - 1);
+          staked += stake;
+          if (runner.status === "WINNER") returns += stake + 1;
+        }
+      }
+    }
+    return { staked, returns, pnl: returns - staked, count };
   }
 
   // A year header with zero loaded races is ambiguous on its own — it
