@@ -3813,3 +3813,85 @@ afterward, so no visible casualty this time, but per the port-picking
 guidance at the top of this file: never `pkill`/`kill` a Storybook
 process without first confirming (via `ps aux`, checking the command
 line's port) that it's actually yours.
+
+## 2026-07-28 (later still) — primary checkout (branches `feat/isp-races-collapsible-pnl-hierarchy` + a DailyRacesScreen commit, merged into `develop`)
+
+**Task 1:** user asked for a "By meeting / By time" toggle on
+`DailyRacesScreen` — a flat list of every race that day sorted
+chronologically by off-time, independent of which meeting/course it's
+at, alongside the existing course-grouped view.
+
+**Task 2:** user then asked to collapse the Industry SP results list
+(`IspRacesScreen`, `/isp/races`) at every level — meeting, day, month,
+year — each showing its own P&L rollup, plus a "Collapse All" button.
+
+**Found a live collision before starting task 2:** a sibling worktree
+`~/betfair-nlp-meeting-pnl` (branch `feat/isp-races-meeting-pnl`) had
+uncommitted changes adding a meeting-level P&L bar to the exact same
+`IspRacesScreen.tsx` render block this task needed to restructure.
+Flagged it to the user rather than silently building a competing
+version — they chose "build fresh in a new branch" over extending that
+worktree. Their branch merged into `develop` (5b8cd83) *while this
+branch was still in progress*; by the time this branch was ready to
+merge, `develop` had moved 11 commits including that one. The merge
+conflict was real (both touched the same JSX around the meeting
+header) — resolved by keeping this branch's Year/Month/Day/Meeting
+hierarchy version, since it's a strict superset: meeting-level P&L is
+one of its four rollup levels, so the standalone PnL bar became
+redundant. Removed the now-unused `pnlBar`/`pnlLabel`/`pnlStats`/etc.
+styles and adapted that branch's `MeetingPnlDisplayed`/
+`MeetingPnlRespondsToFilters` stories to assert against the surviving
+`industry-sp-meeting-pnl-*` testID instead of the removed
+`pnl-bar`/`pnl-count` ones, rather than deleting their test coverage
+outright. **If you're about to build a UI feature on a screen another
+agent is actively touching (check `git worktree list` for sibling
+worktrees + uncommitted diffs, not just AGENTS.md entries — the other
+agent may not have checked in yet), ask the user how to proceed before
+writing code; if you do end up building in parallel, expect `develop`
+to have moved by merge time and check for exactly this kind of
+same-region conflict.**
+
+**Implementation notes for `IspRacesScreen.tsx`:** `buildRaceHierarchy()`
+groups the already-`qualifyingRunners`-filtered race list into a
+Year → Month → Day → Meeting tree using `Map` at *every* level, not
+plain objects — year keys like `"2015"` are numeric-looking strings,
+and JS silently reorders integer-like object keys ascending regardless
+of insertion order, which would have broken the existing "Last → First"
+sort toggle at the year level specifically (a bug that would only show
+up when sorting descending, easy to miss in testing if you don't think
+to check that combination). Every group level's P&L reuses the same
+`qualifyingRunners`-filtered `computeRangePnl` call as the per-race
+badge (the fix earlier this session), so a group total always equals
+the sum of the rows rendered under it — never recompute a rollup from
+the raw unfiltered `race.runners`. `raceYearKey`/`raceMonthKey`/
+`raceDayKey` (new in `ispFormat.ts`) derive their grouping keys via
+`Intl.DateTimeFormat` parts in `Europe/London`, not
+`Date.getFullYear()`/`getMonth()` (which read the *browser's* local
+timezone) — otherwise a race just before/after midnight could group
+into the wrong day depending on where the browser is physically
+running.
+
+**Storybook test-runner gotcha (recurring):** the test runner reuses
+one browser page across every story in a file rather than a fresh
+navigation per story — confirmed again here (see the `?sort=desc`
+leak from `SortToggleSwitchesToDesc` into whichever story ran next,
+same class of bug as the `onlyModelBeatsSp` leak documented earlier
+this session). Any story whose `play` function changes the real
+browser URL (clicking a sort/filter toggle wired to
+`updateUrlParams`) needs a `finally` block resetting
+`window.history` back, or it silently corrupts every later story in
+that file's run.
+
+**Verified:** `yarn build` clean at every step, including after merge
+conflict resolution. Storybook: `IspRacesScreen` 30 new/updated tests
++ `DailyRacesScreen` 3 new tests, 44/45 green — the 1 failure
+(`ScreenLoaded`) is the same pre-existing, unrelated `/Races/`
+text-regex flake noted earlier this session on unmodified `develop`.
+Full-suite run (`yarn storybook:test-runner` with no filter) showed 8
+failures across `AllRunnersScreen`/`EventsScreen`/`IndustrySpScreen`/
+`RunnerDetailScreen`/`SavedResultsListScreen` — none of those files are
+in this branch's diff, confirmed pre-existing/unrelated, not
+investigated further (out of scope for this task).
+
+Deployed: `develop@61f43c2` → app.backbet.co.uk, verified live via the
+`build-commit` meta tag.
