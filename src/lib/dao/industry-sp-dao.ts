@@ -1,4 +1,5 @@
 import { Collection, Db } from "mongodb";
+import { RaceDoc, synthRaceId } from "./industry-sp-row-mapping";
 
 export interface IspFilterBounds {
   maxRunnersPerRace: number;
@@ -1111,6 +1112,33 @@ export class IndustrySpDAO {
       ])
       .toArray();
     return race ?? null;
+  }
+
+  /** Batch-fetches full result docs for a set of Daily Races raceIds (raw
+   * RacingAPI race_id strings, e.g. daily_racecards.raceId) — lets
+   * DailyRaceService show a finished race's real outcome on Today's Picks
+   * once this collection has captured it. A race only ever appears here
+   * once RacingAPI's results feed reports it finished (see
+   * IndustrySpResultsCaptureService) — there's no separate "is complete"
+   * flag to check, presence is the signal. Returns every runner unfiltered
+   * (unlike getRaceById above, which drops any runner with isp <= 1) — the
+   * picked runner must always be present here regardless of its own SP
+   * validity, so the caller can tell "not run yet" apart from "ran, but no
+   * valid SP". Keyed by the caller's own raw raceId — this collection's
+   * numeric _id is a one-way hash (synthRaceId), so it can't be recovered
+   * from the doc alone; the caller-supplied ids are zipped back in instead. */
+  public async getResultsForRaceIds(rawRaceIds: string[]): Promise<Map<string, RaceDoc>> {
+    if (rawRaceIds.length === 0) return new Map();
+    const hashedToRaw = new Map<number, string>();
+    for (const rawId of rawRaceIds) hashedToRaw.set(synthRaceId(rawId), rawId);
+
+    const docs = await this.collection.find({ _id: { $in: Array.from(hashedToRaw.keys()) } }).toArray();
+    const byRawId = new Map<string, RaceDoc>();
+    for (const doc of docs) {
+      const rawId = hashedToRaw.get(doc._id);
+      if (rawId) byRawId.set(rawId, doc as unknown as RaceDoc);
+    }
+    return byRawId;
   }
 
   public async getPnlStats(): Promise<{ staked: number; returns: number; pnl: number }> {
