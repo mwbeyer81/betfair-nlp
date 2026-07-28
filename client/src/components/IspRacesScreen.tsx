@@ -15,11 +15,6 @@ import {
   computeRangePnl,
   runnerPnl,
   formatRaceTime,
-  formatRaceDate,
-  raceYearKey,
-  raceMonthKey,
-  raceMonthLabel,
-  raceDayKey,
   toFormCategory,
   OddsMode,
   modelBeatsSp,
@@ -35,98 +30,20 @@ import {
   urlSortParam,
   updateUrlParams,
 } from "../utils/ispUrlParams";
+import { buildHierarchy, collectHierarchyNodeKeys } from "../utils/raceHierarchy";
 
 const PAGE_SIZE = 20;
 
-interface MeetingNode {
-  meetingId: string;
-  course: string;
-  races: IspRace[];
-}
-interface DayNode {
-  key: string;
-  label: string;
-  races: IspRace[];
-  meetings: MeetingNode[];
-}
-interface MonthNode {
-  key: string;
-  label: string;
-  races: IspRace[];
-  days: DayNode[];
-}
-interface YearNode {
-  key: string;
-  races: IspRace[];
-  months: MonthNode[];
-}
-
-function getOrCreate<K, V>(map: Map<K, V>, key: K, create: () => V): V {
-  const existing = map.get(key);
-  if (existing) return existing;
-  const created = create();
-  map.set(key, created);
-  return created;
-}
-
 // Groups races into a Year → Month → Day → Meeting tree for the collapsible
-// results list. Uses Map (not plain objects) at every level — year keys
-// like "2015" are numeric-looking strings, and JS reorders integer-like
-// object keys ascending regardless of insertion order, which would silently
-// break the "Last → First" sort toggle at the year level.
-function buildRaceHierarchy(races: IspRace[]): YearNode[] {
-  const years = new Map<string, { races: IspRace[]; months: Map<string, { label: string; races: IspRace[]; days: Map<string, { label: string; races: IspRace[]; meetings: Map<string, MeetingNode> }> }> }>();
-
-  for (const race of races) {
-    const yearKey = raceYearKey(race.raceTime);
-    const monthKey = raceMonthKey(race.raceTime);
-    const dayKey = raceDayKey(race.raceTime);
-
-    const year = getOrCreate(years, yearKey, () => ({ races: [], months: new Map() }));
-    year.races.push(race);
-
-    const month = getOrCreate(year.months, monthKey, () => ({ label: raceMonthLabel(race.raceTime), races: [], days: new Map() }));
-    month.races.push(race);
-
-    const day = getOrCreate(month.days, dayKey, () => ({ label: formatRaceDate(race.raceTime), races: [], meetings: new Map() }));
-    day.races.push(race);
-
-    const meeting = getOrCreate(day.meetings, race.meetingId, () => ({ meetingId: race.meetingId, course: race.course, races: [] }));
-    meeting.races.push(race);
-  }
-
-  return Array.from(years.entries()).map(([yearKey, year]) => ({
-    key: yearKey,
-    races: year.races,
-    months: Array.from(year.months.entries()).map(([monthKey, month]) => ({
-      key: monthKey,
-      label: month.label,
-      races: month.races,
-      days: Array.from(month.days.entries()).map(([dayKey, day]) => ({
-        key: dayKey,
-        label: day.label,
-        races: day.races,
-        meetings: Array.from(day.meetings.values()),
-      })),
-    })),
-  }));
-}
-
-function collectHierarchyNodeKeys(years: YearNode[]): string[] {
-  const keys: string[] = [];
-  for (const year of years) {
-    keys.push(`year:${year.key}`);
-    for (const month of year.months) {
-      keys.push(`month:${month.key}`);
-      for (const day of month.days) {
-        keys.push(`day:${day.key}`);
-        for (const meeting of day.meetings) {
-          keys.push(`meeting:${meeting.meetingId}`);
-        }
-      }
-    }
-  }
-  return keys;
+// results list — thin IspRace-specific wrapper over the generic
+// buildHierarchy (client/src/utils/raceHierarchy.ts), shared with
+// SavedResultDetailScreen's own Live Performance hierarchy.
+function buildRaceHierarchy(races: IspRace[]) {
+  return buildHierarchy(races, {
+    dateTime: race => race.raceTime,
+    meetingId: race => race.meetingId,
+    meetingLabel: race => race.course,
+  });
 }
 
 interface IspRacesScreenProps {
@@ -370,7 +287,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
             {hierarchy.map(year => {
               const yearKey = `year:${year.key}`;
               const yearCollapsed = collapsedKeys.has(yearKey);
-              const yearPnl = groupPnl(year.races);
+              const yearPnl = groupPnl(year.items);
               return (
                 <View key={year.key} testID={`industry-sp-year-${year.key}`}>
                   <TouchableOpacity
@@ -382,7 +299,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                   >
                     <Text style={[styles.groupChevron, styles.groupChevronLight]}>{yearCollapsed ? "▸" : "▾"}</Text>
                     <Text style={styles.yearLabel}>{year.key}</Text>
-                    <Text style={[styles.groupCount, styles.groupCountLight]}>{year.races.length} races</Text>
+                    <Text style={[styles.groupCount, styles.groupCountLight]}>{year.items.length} races</Text>
                     {yearPnl.staked > 0 && (
                       <Text testID={`industry-sp-year-pnl-${year.key}`} style={[styles.groupPnl, yearPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
                         {formatPnl(yearPnl.pnl)} ({formatPct(yearPnl.pnl, yearPnl.staked)})
@@ -393,7 +310,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                   {!yearCollapsed && year.months.map(month => {
                     const monthKey = `month:${month.key}`;
                     const monthCollapsed = collapsedKeys.has(monthKey);
-                    const monthPnl = groupPnl(month.races);
+                    const monthPnl = groupPnl(month.items);
                     return (
                       <View key={month.key} testID={`industry-sp-month-${month.key}`}>
                         <TouchableOpacity
@@ -405,7 +322,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                         >
                           <Text style={[styles.groupChevron, styles.groupChevronLight]}>{monthCollapsed ? "▸" : "▾"}</Text>
                           <Text style={styles.monthLabel}>{month.label}</Text>
-                          <Text style={[styles.groupCount, styles.groupCountLight]}>{month.races.length} races</Text>
+                          <Text style={[styles.groupCount, styles.groupCountLight]}>{month.items.length} races</Text>
                           {monthPnl.staked > 0 && (
                             <Text testID={`industry-sp-month-pnl-${month.key}`} style={[styles.groupPnl, monthPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
                               {formatPnl(monthPnl.pnl)} ({formatPct(monthPnl.pnl, monthPnl.staked)})
@@ -416,7 +333,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                         {!monthCollapsed && month.days.map(day => {
                           const dayKey = `day:${day.key}`;
                           const dayCollapsed = collapsedKeys.has(dayKey);
-                          const dayPnl = groupPnl(day.races);
+                          const dayPnl = groupPnl(day.items);
                           return (
                             <View key={day.key} testID={`industry-sp-day-${day.key}`}>
                               <TouchableOpacity
@@ -428,7 +345,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                               >
                                 <Text style={styles.groupChevron}>{dayCollapsed ? "▸" : "▾"}</Text>
                                 <Text style={styles.dayLabel}>{day.label}</Text>
-                                <Text style={styles.groupCount}>{day.races.length} races</Text>
+                                <Text style={styles.groupCount}>{day.items.length} races</Text>
                                 {dayPnl.staked > 0 && (
                                   <Text testID={`industry-sp-day-pnl-${day.key}`} style={[styles.groupPnl, dayPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
                                     {formatPnl(dayPnl.pnl)} ({formatPct(dayPnl.pnl, dayPnl.staked)})
@@ -439,7 +356,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                               {!dayCollapsed && day.meetings.map(meeting => {
                                 const meetingKey = `meeting:${meeting.meetingId}`;
                                 const meetingCollapsed = collapsedKeys.has(meetingKey);
-                                const meetingPnl = groupPnl(meeting.races);
+                                const meetingPnl = groupPnl(meeting.items);
                                 return (
                                   <View key={meeting.meetingId} testID={`industry-sp-meeting-${meeting.meetingId}`}>
                                     <View style={styles.eventHeader}>
@@ -455,16 +372,16 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                                         testID={`industry-sp-meeting-link-${meeting.meetingId}`}
                                         onPress={() => onNavigateToMeeting(meeting.meetingId)}
                                       >
-                                        <Text style={styles.eventName}>{meeting.course}</Text>
+                                        <Text style={styles.eventName}>{meeting.label}</Text>
                                       </TouchableOpacity>
-                                      <Text style={styles.groupCount}>{meeting.races.length} races</Text>
+                                      <Text style={styles.groupCount}>{meeting.items.length} races</Text>
                                       {meetingPnl.staked > 0 && (
                                         <Text testID={`industry-sp-meeting-pnl-${meeting.meetingId}`} style={[styles.groupPnl, meetingPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
                                           {formatPnl(meetingPnl.pnl)} ({formatPct(meetingPnl.pnl, meetingPnl.staked)})
                                         </Text>
                                       )}
                                     </View>
-                                    {!meetingCollapsed && meeting.races.map(race => (
+                                    {!meetingCollapsed && meeting.items.map(race => (
                                       <View key={race.raceId}>
                                         <TouchableOpacity
                                           testID={`industry-sp-race-${race.raceId}`}

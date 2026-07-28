@@ -7,7 +7,9 @@ import { IndustrySpService } from "../lib/service/industry-sp-service";
 import { DailyRaceService } from "../lib/service/daily-race-service";
 import { TrainerFormService } from "../lib/service/trainer-form-service";
 import { ModelVersionService } from "../lib/service/model-version-service";
-import { SavedFilterSetService } from "../lib/service/saved-filter-set-service";
+import { SavedFilterSetService, computeSnapshotParamsFromFilters } from "../lib/service/saved-filter-set-service";
+import { LiveFilterResultService } from "../lib/service/live-filter-result-service";
+import { parseDateRangeParams, parseCsvListParam } from "../lib/service/filter-params-util";
 import { AuthService, AuthError } from "../lib/service/auth-service";
 import { DatabaseConnection } from "../config/database";
 import { jwtAuth, optionalJwtAuth } from "./middleware";
@@ -24,6 +26,7 @@ let dailyRaceService: DailyRaceService | null = null;
 let trainerFormService: TrainerFormService | null = null;
 let modelVersionService: ModelVersionService | null = null;
 let savedFilterSetService: SavedFilterSetService | null = null;
+let liveFilterResultService: LiveFilterResultService | null = null;
 let authService: AuthService | null = null;
 
 export const initializeServices = async () => {
@@ -68,6 +71,12 @@ export const initializeServices = async () => {
     }
     modelVersionService = new ModelVersionService();
     savedFilterSetService = new SavedFilterSetService();
+    liveFilterResultService = new LiveFilterResultService();
+    try {
+      await liveFilterResultService.createIndexes();
+    } catch (indexError) {
+      console.warn("live-filter-result createIndexes failed (non-fatal, queries may be slower):", indexError);
+    }
     authService = new AuthService(dbConnection.getDb());
     try {
       await authService.createIndexes();
@@ -242,33 +251,6 @@ router.post("/api/auth/sms/verify", async (req, res) => {
 // the Split A/Split B windows. Every other route stays behind the hard
 // `router.use(jwtAuth)` gate further down, unchanged.
 router.use("/api/industry-sp", optionalJwtAuth);
-
-// minDate/maxDate arrive as plain "YYYY-MM-DD" strings; raceTime is a
-// full ISO datetime string ("2024-03-05T14:01:00"). Lexicographic
-// comparison means a bare date already behaves as an inclusive
-// start-of-day lower bound ("2024-03-05" sorts before any same-day
-// datetime), but the same trick makes it an *exclusive* upper bound (any
-// same-day datetime sorts after the bare date) — so maxDate needs an
-// end-of-day time appended to actually include that whole day.
-function parseDateRangeParams(
-  minDateRaw: unknown,
-  maxDateRaw: unknown
-): { minRaceTime: string | null; maxRaceTime: string | null } {
-  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-  const minDate = typeof minDateRaw === "string" && DATE_RE.test(minDateRaw) ? minDateRaw : null;
-  const maxDate = typeof maxDateRaw === "string" && DATE_RE.test(maxDateRaw) ? maxDateRaw : null;
-  return {
-    minRaceTime: minDate,
-    maxRaceTime: maxDate ? `${maxDate}T23:59:59.999` : null,
-  };
-}
-
-// Same comma-joined-list convention already used for `countries`.
-function parseCsvListParam(raw: unknown): string[] {
-  return typeof raw === "string"
-    ? raw.split(",").map(v => v.trim()).filter(Boolean)
-    : [];
-}
 
 // Anonymous callers get a 100-race window on /api/industry-sp*, a
 // logged-in caller gets 10000 (see getSplitStats for the Split A/Split B
@@ -736,52 +718,12 @@ router.post("/api/daily-races/predict", async (req, res) => {
 // this codebase, so all 4 routes live here (after router.use(jwtAuth)
 // above), not alongside the public /api/model-versions route. filters is
 // the raw ISP_FILTER_PARAM_NAMES string map from the client (see
-// client/src/utils/ispUrlParams.ts) — parsed here into ComputeSnapshotParams
-// using the exact same helpers/clamping /api/industry-sp/splits uses, so
-// the snapshot's PnL/graph is computed identically to what the Filters
-// screen itself would have shown.
-function computeSnapshotParamsFromFilters(filters: Record<string, string>) {
-  const { minRaceTime, maxRaceTime } = parseDateRangeParams(filters.minDate, filters.maxDate);
-  // Same "omit entirely means let getSplitStats compute the default 50/50
-  // split" convention as /api/industry-sp/splits above — a saved result
-  // from before an explicit split edit (or one that never touched the
-  // split boxes) has no fromRowA/etc in its filters map at all, which is
-  // exactly what should resolve to the default divide here too.
-  const fromRowARaw = parseInt(filters.fromRowA);
-  const toRowARaw = parseInt(filters.toRowA);
-  const fromRowBRaw = parseInt(filters.fromRowB);
-  const toRowBRaw = parseInt(filters.toRowB);
-  const fromRowA = isNaN(fromRowARaw) ? null : Math.max(1, fromRowARaw);
-  const toRowA = isNaN(toRowARaw) ? null : Math.max(1, toRowARaw);
-  const fromRowB = isNaN(fromRowBRaw) ? null : Math.max(1, fromRowBRaw);
-  const toRowB = isNaN(toRowBRaw) ? null : Math.max(1, toRowBRaw);
-  return {
-    minRunners: Math.max(1, parseInt(filters.minRunners) || 1),
-    maxRunners: Math.min(100, Math.max(1, parseInt(filters.maxRunners) || 30)),
-    countries: parseCsvListParam(filters.countries),
-    minIsp: Math.max(1, parseFloat(filters.minIsp) || 1),
-    maxIsp: Math.min(100000, parseFloat(filters.maxIsp) || 1000),
-    minInIspRange: Math.max(1, parseInt(filters.minInIspRange) || 1),
-    maxInIspRange: Math.min(10000, Math.max(1, parseInt(filters.maxInIspRange) || 10000)),
-    fromRowA,
-    toRowA,
-    fromRowB,
-    toRowB,
-    minRaceTime,
-    maxRaceTime,
-    courses: parseCsvListParam(filters.courses),
-    goings: parseCsvListParam(filters.goings),
-    raceClasses: parseCsvListParam(filters.raceClasses),
-    raceTypes: parseCsvListParam(filters.raceTypes),
-    trainerSearch: filters.trainer?.trim() || null,
-    jockeySearch: filters.jockey?.trim() || null,
-    trainerFormMinWinRate: Math.min(100, Math.max(0, parseFloat(filters.trainerFormMinWinRate) || 0)),
-    minTrainerFormRunners: filters.hasTrainerForm === "true" ? 1 : 0,
-    maxTrainerFormRunners: 100,
-    minModelWinProbability: Math.min(100, Math.max(0, parseFloat(filters.minModelWinProbability) || 0)),
-    onlyModelBeatsSp: filters.onlyModelBeatsSp === "true",
-  };
-}
+// client/src/utils/ispUrlParams.ts) — parsed via computeSnapshotParamsFromFilters
+// (saved-filter-set-service.ts) into ComputeSnapshotParams using the exact
+// same helpers/clamping /api/industry-sp/splits uses, so the snapshot's
+// PnL/graph is computed identically to what the Filters screen itself would
+// have shown. Also reused by LiveFilterResultService for the live,
+// day-by-day counterpart to this snapshot.
 
 router.post("/api/saved-filter-sets", async (req, res) => {
   const userId = userIdFromAuthHeader(req);
@@ -823,6 +765,27 @@ router.get("/api/saved-filter-sets/:id", async (req, res) => {
   } catch (error) {
     console.error("getSavedFilterSet error:", error);
     res.status(500).json({ success: false, error: "Failed to fetch saved result" });
+  }
+});
+
+router.get("/api/saved-filter-sets/:id/live-performance", async (req, res) => {
+  const userId = userIdFromAuthHeader(req);
+  if (!userId) return res.status(401).json({ success: false, error: "Invalid or expired token" });
+  try {
+    if (!savedFilterSetService || !liveFilterResultService) {
+      return res.status(503).json({ success: false, error: "Service not initialized" });
+    }
+    // Same ownership rule as GET /api/saved-filter-sets/:id (owner, or any
+    // logged-in user for an agent-generated result) — 404 rather than 403
+    // for the same reason deleteForUser above doesn't distinguish "doesn't
+    // exist" from "belongs to someone else".
+    const filterSet = await savedFilterSetService.getForUser(req.params.id, userId);
+    if (!filterSet) return res.status(404).json({ success: false, error: "Not found" });
+    const data = await liveFilterResultService.listForFilterSet(req.params.id);
+    res.status(200).json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error("getLiveFilterPerformance error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch live performance" });
   }
 });
 

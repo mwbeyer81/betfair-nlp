@@ -34,9 +34,29 @@ const MOCK_RESULT = {
   createdAt: "2026-01-15T09:00:00.000Z",
 };
 
+const MOCK_LIVE_RESULTS = [
+  {
+    raceDate: "2026-07-27",
+    meetingId: "Ascot|2026-07-27",
+    meetingName: "Ascot — 27 July 2026",
+    modelVersionId: "xgb-20260727-171521",
+    pnlStats: { staked: 4, returns: 6, pnl: 2, count: 4 },
+  },
+  {
+    raceDate: "2026-07-28",
+    meetingId: "Newmarket|2026-07-28",
+    meetingName: "Newmarket — 28 July 2026",
+    modelVersionId: "xgb-20260727-171521",
+    pnlStats: { staked: 3, returns: 1, pnl: -2, count: 3 },
+  },
+];
+
 const defaultHandlers = [
   http.get(`${BASE}/api/saved-filter-sets/:id`, () => HttpResponse.json({ success: true, data: MOCK_RESULT })),
   http.delete(`${BASE}/api/saved-filter-sets/:id`, () => HttpResponse.json({ success: true })),
+  http.get(`${BASE}/api/saved-filter-sets/:id/live-performance`, () =>
+    HttpResponse.json({ success: true, data: [], count: 0 })
+  ),
 ];
 
 const meta: Meta<typeof SavedResultDetailScreen> = {
@@ -226,5 +246,104 @@ export const LegacyResultWithoutSplitsShowsNoticeInstead: Story = {
     );
     await expect(canvas.getByTestId("saved-result-detail-delete")).toBeInTheDocument();
     await expect(canvas.queryByTestId("saved-result-split-card-a")).not.toBeInTheDocument();
+  },
+};
+
+// New Live Performance section: real day-by-day results the daily capture
+// cron has upserted so far, distinct from the Split A/B backtest snapshot
+// above it. Two different days/meetings roll up correctly at every level of
+// the Year/Month/Day/Meeting hierarchy.
+export const LivePerformancePopulated: Story = {
+  parameters: {
+    msw: {
+      // Override listed BEFORE the ...defaultHandlers spread — MSW resolves
+      // to the first handler that matches a given path, so a duplicate
+      // default handler for the same path listed first would silently win
+      // over this override otherwise.
+      handlers: [
+        http.get(`${BASE}/api/saved-filter-sets/:id/live-performance`, () =>
+          HttpResponse.json({ success: true, data: MOCK_LIVE_RESULTS, count: MOCK_LIVE_RESULTS.length })
+        ),
+        ...defaultHandlers,
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("saved-result-live-section")).resolves.toBeInTheDocument();
+    await expect(canvas.getByTestId("saved-result-live-year-2026")).toBeInTheDocument();
+    // Both meetings fall in the same year/month, different days — year/month
+    // rollups must sum both (+2 and -2 nets to 0), while each day/meeting
+    // still shows its own individual number.
+    await expect(canvas.getByTestId("saved-result-live-year-pnl-2026")).toHaveTextContent("£0.00");
+    await expect(canvas.getByTestId("saved-result-live-meeting-Ascot|2026-07-27")).toHaveTextContent("+£2.00");
+    await expect(canvas.getByTestId("saved-result-live-meeting-Newmarket|2026-07-28")).toHaveTextContent("-£2.00");
+  },
+};
+
+export const LivePerformanceEmptyState: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("saved-result-live-empty")).resolves.toHaveTextContent(
+      "No live results captured yet"
+    );
+  },
+};
+
+export const LivePerformanceLoadingState: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/saved-filter-sets/:id/live-performance`, async () => {
+          await new Promise(r => setTimeout(r, 99999));
+          return HttpResponse.json({ success: true, data: [], count: 0 });
+        }),
+        ...defaultHandlers,
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("saved-result-split-card-a")).resolves.toBeInTheDocument();
+    await expect(canvas.getByTestId("saved-result-live-loading")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("saved-result-live-section")).not.toBeInTheDocument();
+  },
+};
+
+export const LivePerformanceErrorState: Story = {
+  parameters: {
+    msw: {
+      handlers: [http.get(`${BASE}/api/saved-filter-sets/:id/live-performance`, () => HttpResponse.error()), ...defaultHandlers],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("saved-result-live-error")).resolves.toBeInTheDocument();
+    // The Split A/B cards must still render — a failure in this
+    // independent fetch must never block the rest of the screen.
+    await expect(canvas.getByTestId("saved-result-split-card-a")).toBeInTheDocument();
+  },
+};
+
+export const LivePerformanceCollapseToggle: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/saved-filter-sets/:id/live-performance`, () =>
+          HttpResponse.json({ success: true, data: MOCK_LIVE_RESULTS, count: MOCK_LIVE_RESULTS.length })
+        ),
+        ...defaultHandlers,
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.findByTestId("saved-result-live-meeting-Ascot|2026-07-27")).resolves.toBeInTheDocument();
+    const collapseAll = await canvas.findByTestId("saved-result-live-collapse-all");
+    await userEvent.click(collapseAll);
+    await expect(canvas.queryByTestId("saved-result-live-meeting-Ascot|2026-07-27")).not.toBeInTheDocument();
+    await expect(canvas.getByTestId("saved-result-live-collapse-all")).toHaveTextContent("Expand all");
+    await userEvent.click(collapseAll);
+    await expect(canvas.findByTestId("saved-result-live-meeting-Ascot|2026-07-27")).resolves.toBeInTheDocument();
   },
 };

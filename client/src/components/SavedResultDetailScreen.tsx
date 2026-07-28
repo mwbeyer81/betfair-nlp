@@ -1,13 +1,177 @@
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet, SafeAreaView, ScrollView } from "react-native";
+import { View, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity } from "react-native";
 import { Text, Button, ActivityIndicator } from "react-native-paper";
-import { chatApi, SavedFilterSet, SavedFilterSetSplit } from "../services/chatApi";
+import { chatApi, SavedFilterSet, SavedFilterSetSplit, LiveFilterResult } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
 import { AppHeader } from "./AppHeader";
 import { buildFilterSummaryFromParams, formatPnl, formatPct } from "../utils/ispFormat";
+import { buildHierarchy, collectHierarchyNodeKeys } from "../utils/raceHierarchy";
 import { colors, radii, spacing } from "../theme";
 import type { Route } from "../hooks/useRouter";
+
+interface LivePnlStats {
+  staked: number;
+  returns: number;
+  pnl: number;
+  count: number;
+}
+
+function sumPnlStats(items: LiveFilterResult[]): LivePnlStats {
+  return items.reduce(
+    (acc, item) => ({
+      staked: acc.staked + item.pnlStats.staked,
+      returns: acc.returns + item.pnlStats.returns,
+      pnl: acc.pnl + item.pnlStats.pnl,
+      count: acc.count + item.pnlStats.count,
+    }),
+    { staked: 0, returns: 0, pnl: 0, count: 0 }
+  );
+}
+
+// Year → Month → Day → Meeting rollup of a filter set's live, actual-results
+// track record — the day-by-day counterpart to the Split A/B backtest cards
+// above, built from real RacingAPI results the daily capture cron has
+// upserted so far (see live-filter-result-dao.ts). Reuses the same
+// buildHierarchy tree IspRacesScreen.tsx uses for the full race list, just
+// grouping already-per-meeting rows instead of individual races — a meeting
+// here has no further per-race drill-down (each row already is the finest
+// granularity this endpoint returns), so meeting nodes render as leaves.
+function LivePerformanceSection({ results }: { results: LiveFilterResult[] }) {
+  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+
+  if (results.length === 0) {
+    return (
+      <View testID="saved-result-live-empty" style={styles.liveEmptyContainer}>
+        <Text style={styles.liveEmptyText}>
+          No live results captured yet — this fills in day by day as real
+          races finish and match this filter.
+        </Text>
+      </View>
+    );
+  }
+
+  const hierarchy = buildHierarchy(results, {
+    dateTime: r => r.raceDate,
+    meetingId: r => r.meetingId,
+    meetingLabel: r => r.meetingName,
+  });
+  const allNodeKeys = collectHierarchyNodeKeys(hierarchy);
+  const isAllCollapsed = allNodeKeys.length > 0 && allNodeKeys.every(k => collapsedKeys.has(k));
+
+  function toggleNode(key: string) {
+    setCollapsedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleCollapseAll() {
+    setCollapsedKeys(isAllCollapsed ? new Set() : new Set(allNodeKeys));
+  }
+
+  return (
+    <View testID="saved-result-live-section">
+      <View style={styles.liveSectionHeader}>
+        <Text style={styles.liveSectionTitle}>Live Performance</Text>
+        <TouchableOpacity testID="saved-result-live-collapse-all" onPress={toggleCollapseAll}>
+          <Text style={styles.liveCollapseAllText}>{isAllCollapsed ? "Expand all" : "Collapse all"}</Text>
+        </TouchableOpacity>
+      </View>
+      {hierarchy.map(year => {
+        const yearKey = `year:${year.key}`;
+        const yearCollapsed = collapsedKeys.has(yearKey);
+        const yearPnl = sumPnlStats(year.items);
+        return (
+          <View key={year.key} testID={`saved-result-live-year-${year.key}`}>
+            <TouchableOpacity
+              testID={`saved-result-live-year-toggle-${year.key}`}
+              style={styles.liveYearHeader}
+              onPress={() => toggleNode(yearKey)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: !yearCollapsed }}
+            >
+              <Text style={styles.liveGroupChevron}>{yearCollapsed ? "▸" : "▾"}</Text>
+              <Text style={styles.liveYearLabel}>{year.key}</Text>
+              {yearPnl.staked > 0 && (
+                <Text testID={`saved-result-live-year-pnl-${year.key}`} style={[styles.liveGroupPnl, yearPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                  {formatPnl(yearPnl.pnl)} ({formatPct(yearPnl.pnl, yearPnl.staked)})
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            {!yearCollapsed && year.months.map(month => {
+              const monthKey = `month:${month.key}`;
+              const monthCollapsed = collapsedKeys.has(monthKey);
+              const monthPnl = sumPnlStats(month.items);
+              return (
+                <View key={month.key} testID={`saved-result-live-month-${month.key}`}>
+                  <TouchableOpacity
+                    testID={`saved-result-live-month-toggle-${month.key}`}
+                    style={styles.liveMonthHeader}
+                    onPress={() => toggleNode(monthKey)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: !monthCollapsed }}
+                  >
+                    <Text style={styles.liveGroupChevron}>{monthCollapsed ? "▸" : "▾"}</Text>
+                    <Text style={styles.liveMonthLabel}>{month.label}</Text>
+                    {monthPnl.staked > 0 && (
+                      <Text testID={`saved-result-live-month-pnl-${month.key}`} style={[styles.liveGroupPnl, monthPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                        {formatPnl(monthPnl.pnl)} ({formatPct(monthPnl.pnl, monthPnl.staked)})
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+
+                  {!monthCollapsed && month.days.map(day => {
+                    const dayKey = `day:${day.key}`;
+                    const dayCollapsed = collapsedKeys.has(dayKey);
+                    const dayPnl = sumPnlStats(day.items);
+                    return (
+                      <View key={day.key} testID={`saved-result-live-day-${day.key}`}>
+                        <TouchableOpacity
+                          testID={`saved-result-live-day-toggle-${day.key}`}
+                          style={styles.liveDayHeader}
+                          onPress={() => toggleNode(dayKey)}
+                          accessibilityRole="button"
+                          accessibilityState={{ expanded: !dayCollapsed }}
+                        >
+                          <Text style={styles.liveGroupChevron}>{dayCollapsed ? "▸" : "▾"}</Text>
+                          <Text style={styles.liveDayLabel}>{day.label}</Text>
+                          {dayPnl.staked > 0 && (
+                            <Text testID={`saved-result-live-day-pnl-${day.key}`} style={[styles.liveGroupPnl, dayPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                              {formatPnl(dayPnl.pnl)} ({formatPct(dayPnl.pnl, dayPnl.staked)})
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+
+                        {!dayCollapsed && day.meetings.map(meeting => {
+                          const meetingPnl = sumPnlStats(meeting.items);
+                          return (
+                            <View key={meeting.meetingId} testID={`saved-result-live-meeting-${meeting.meetingId}`} style={styles.liveMeetingRow}>
+                              <Text style={styles.liveMeetingLabel}>{meeting.label}</Text>
+                              {meetingPnl.staked > 0 ? (
+                                <Text testID={`saved-result-live-meeting-pnl-${meeting.meetingId}`} style={[styles.liveGroupPnl, meetingPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                                  {formatPnl(meetingPnl.pnl)} ({formatPct(meetingPnl.pnl, meetingPnl.staked)})
+                                </Text>
+                              ) : (
+                                <Text style={styles.liveMeetingEmptyText}>No qualifying bets</Text>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            })}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
 
 interface SavedResultDetailScreenProps {
   navigate: (to: Route, query?: string) => void;
@@ -92,6 +256,9 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
   const [error, setError] = useState<string | null>(null);
   const [detailSplit, setDetailSplit] = useState<"a" | "b" | null>(null);
   const [graphSplit, setGraphSplit] = useState<"a" | "b" | null>(null);
+  const [liveResults, setLiveResults] = useState<LiveFilterResult[]>([]);
+  const [liveLoading, setLiveLoading] = useState(true);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +274,28 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  // Independent of the splitA/splitB fetch above — its own loading/error
+  // state, so a failure here never blocks the backtest cards from showing.
+  useEffect(() => {
+    let cancelled = false;
+    setLiveLoading(true);
+    setLiveError(null);
+    chatApi
+      .getLiveFilterPerformance(id)
+      .then(res => {
+        if (!cancelled) setLiveResults(res.data);
+      })
+      .catch(err => {
+        if (!cancelled) setLiveError(err instanceof Error ? err.message : "Failed to load live performance.");
+      })
+      .finally(() => {
+        if (!cancelled) setLiveLoading(false);
       });
     return () => {
       cancelled = true;
@@ -203,6 +392,17 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
               onDetails={() => setDetailSplit("b")}
               onGraph={() => setGraphSplit("b")}
             />
+            {liveLoading && (
+              <View testID="saved-result-live-loading" style={styles.liveStateContainer}>
+                <ActivityIndicator size="small" animating color={colors.primary} />
+              </View>
+            )}
+            {!liveLoading && liveError && (
+              <View testID="saved-result-live-error" style={styles.liveStateContainer}>
+                <Text style={styles.errorText}>{liveError}</Text>
+              </View>
+            )}
+            {!liveLoading && !liveError && <LivePerformanceSection results={liveResults} />}
           </ScrollView>
           <View style={styles.actionsRow}>
             <Button testID="saved-result-detail-restore" mode="contained" buttonColor={colors.accent} onPress={() => onRestore(result.filters)} style={styles.actionButton}>
@@ -279,6 +479,48 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#fff",
   },
+  liveStateContainer: { alignItems: "center", padding: spacing.md },
+  liveEmptyContainer: { padding: spacing.md },
+  liveEmptyText: { fontSize: 13, color: colors.textSecondary, textAlign: "center" },
+  liveSectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  liveSectionTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
+  liveCollapseAllText: { fontSize: 13, color: colors.primary, fontWeight: "600" },
+  liveGroupChevron: { fontSize: 12, color: colors.textSecondary, marginRight: spacing.sm },
+  liveGroupPnl: { fontSize: 13, fontWeight: "700", marginLeft: "auto" },
+  liveYearHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+  },
+  liveYearLabel: { fontSize: 15, fontWeight: "700", color: colors.text },
+  liveMonthHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.xs,
+    paddingLeft: spacing.md,
+  },
+  liveMonthLabel: { fontSize: 14, fontWeight: "600", color: colors.text },
+  liveDayHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.xs,
+    paddingLeft: spacing.lg,
+  },
+  liveDayLabel: { fontSize: 13, color: colors.textSecondary },
+  liveMeetingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.xs,
+    paddingLeft: spacing.xl,
+  },
+  liveMeetingLabel: { fontSize: 13, color: colors.text },
+  liveMeetingEmptyText: { fontSize: 12, color: colors.textSecondary, marginLeft: "auto" },
   actionsRow: {
     position: "absolute",
     bottom: 0,

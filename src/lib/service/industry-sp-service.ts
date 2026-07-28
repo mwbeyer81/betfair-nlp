@@ -318,6 +318,38 @@ export class IndustrySpService {
     }));
   }
 
+  public async getQualifyingResultsByMeetingForDate(p: {
+    raceDate: string;
+    countries: string[];
+    minRunners: number;
+    maxRunners: number;
+    minIsp: number;
+    maxIsp: number;
+    minInIspRange: number;
+    maxInIspRange: number;
+    courses: string[];
+    goings: string[];
+    raceClasses: string[];
+    raceTypes: string[];
+    trainerSearch: string | null;
+    jockeySearch: string | null;
+    trainerFormMinWinRate: number;
+    minTrainerFormRunners: number;
+    maxTrainerFormRunners: number;
+    minModelWinProbability: number;
+    onlyModelBeatsSp: boolean;
+  }): Promise<
+    {
+      meetingId: string;
+      meetingName: string;
+      raceDate: string;
+      modelVersionId: string | null;
+      pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    }[]
+  > {
+    return this.industrySpDAO.getQualifyingResultsByMeetingForDate(p);
+  }
+
   public async getRacesByMeetingId(meetingId: string): Promise<IspRace[]> {
     return this.industrySpDAO.getRacesByMeetingId(meetingId);
   }

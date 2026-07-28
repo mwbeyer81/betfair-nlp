@@ -1,6 +1,7 @@
 import { AGENT_USER_ID, SavedFilterSetDAO, SavedFilterSetDocument, SavedFilterSetSplit } from "../dao/saved-filter-set-dao";
 import { IndustrySpService } from "./industry-sp-service";
 import { DatabaseConnection } from "../../config/database";
+import { parseDateRangeParams, parseCsvListParam } from "./filter-params-util";
 
 // A snapshot is computed once, at save time, over the full qualifying set
 // (not paginated) — mirrors the authenticated race cap used elsewhere
@@ -100,6 +101,57 @@ export function buildAutoName(filters: Record<string, string>): string {
       : new Date().toISOString().slice(0, 10);
   const descriptor = firstNonEmptyFilterValue(filters) ?? "All races";
   return `${descriptor} · ${dateRange}`;
+}
+
+// Parses a saved filter set's raw ISP_FILTER_PARAM_NAMES string map (see
+// client/src/utils/ispUrlParams.ts) into ComputeSnapshotParams, using the
+// exact same helpers/clamping /api/industry-sp/splits uses — so a filter
+// set's snapshot (computeSplits below) and its live day-by-day rollup
+// (LiveFilterResultService) are both computed from identical parsed params,
+// never a second, silently-drifting parse of the same filters map. Moved
+// here from router.ts (formerly private to it) so both call sites share one
+// implementation without router.ts depending on this service, or vice versa.
+export function computeSnapshotParamsFromFilters(filters: Record<string, string>): ComputeSnapshotParams {
+  const { minRaceTime, maxRaceTime } = parseDateRangeParams(filters.minDate, filters.maxDate);
+  // Same "omit entirely means let getSplitStats compute the default 50/50
+  // split" convention as /api/industry-sp/splits above — a saved result
+  // from before an explicit split edit (or one that never touched the
+  // split boxes) has no fromRowA/etc in its filters map at all, which is
+  // exactly what should resolve to the default divide here too.
+  const fromRowARaw = parseInt(filters.fromRowA);
+  const toRowARaw = parseInt(filters.toRowA);
+  const fromRowBRaw = parseInt(filters.fromRowB);
+  const toRowBRaw = parseInt(filters.toRowB);
+  const fromRowA = isNaN(fromRowARaw) ? null : Math.max(1, fromRowARaw);
+  const toRowA = isNaN(toRowARaw) ? null : Math.max(1, toRowARaw);
+  const fromRowB = isNaN(fromRowBRaw) ? null : Math.max(1, fromRowBRaw);
+  const toRowB = isNaN(toRowBRaw) ? null : Math.max(1, toRowBRaw);
+  return {
+    minRunners: Math.max(1, parseInt(filters.minRunners) || 1),
+    maxRunners: Math.min(100, Math.max(1, parseInt(filters.maxRunners) || 30)),
+    countries: parseCsvListParam(filters.countries),
+    minIsp: Math.max(1, parseFloat(filters.minIsp) || 1),
+    maxIsp: Math.min(100000, parseFloat(filters.maxIsp) || 1000),
+    minInIspRange: Math.max(1, parseInt(filters.minInIspRange) || 1),
+    maxInIspRange: Math.min(10000, Math.max(1, parseInt(filters.maxInIspRange) || 10000)),
+    fromRowA,
+    toRowA,
+    fromRowB,
+    toRowB,
+    minRaceTime,
+    maxRaceTime,
+    courses: parseCsvListParam(filters.courses),
+    goings: parseCsvListParam(filters.goings),
+    raceClasses: parseCsvListParam(filters.raceClasses),
+    raceTypes: parseCsvListParam(filters.raceTypes),
+    trainerSearch: filters.trainer?.trim() || null,
+    jockeySearch: filters.jockey?.trim() || null,
+    trainerFormMinWinRate: Math.min(100, Math.max(0, parseFloat(filters.trainerFormMinWinRate) || 0)),
+    minTrainerFormRunners: filters.hasTrainerForm === "true" ? 1 : 0,
+    maxTrainerFormRunners: 100,
+    minModelWinProbability: Math.min(100, Math.max(0, parseFloat(filters.minModelWinProbability) || 0)),
+    onlyModelBeatsSp: filters.onlyModelBeatsSp === "true",
+  };
 }
 
 export class SavedFilterSetService {

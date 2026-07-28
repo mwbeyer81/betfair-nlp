@@ -3,6 +3,7 @@ import { Db } from "mongodb";
 import { DatabaseConnection } from "../../config/database";
 import { RacingApiClient } from "./racing-api-client";
 import { parseIsp } from "../dao/parse-isp";
+import { DailyRaceDAO } from "../dao/daily-race-dao";
 import {
   RaceDoc,
   RunnerDoc,
@@ -14,6 +15,13 @@ import {
   toNullableRating,
   formatMeetingName,
 } from "../dao/industry-sp-row-mapping";
+
+// Pre-race prediction for one runner, looked up from `daily_racecards` and
+// copied onto the matching live-captured RunnerDoc — see mapRace below.
+interface RunnerPrediction {
+  modelWinProbability: number | null;
+  modelVersionId: string | null;
+}
 
 const COLLECTION_NAME = "industry_starting_prices";
 const BATCH_SIZE = 1000;
@@ -72,7 +80,7 @@ interface RawRunner {
   trainer?: string;
 }
 
-function mapRunner(raw: RawRunner, raceId: string, idx: number): RunnerDoc {
+function mapRunner(raw: RawRunner, raceId: string, idx: number, prediction?: RunnerPrediction): RunnerDoc {
   const { odds, isFavourite, fraction } = parseIsp(raw.sp);
   const num = toNullableInt(raw.number);
   return {
@@ -101,10 +109,12 @@ function mapRunner(raw: RawRunner, raceId: string, idx: number): RunnerDoc {
     ts: toNullableRating(raw.tsr),
     beatenDistance: toNullableFloat(raw.ovr_btn),
     comment: (raw.comment || "").trim() || null,
+    modelWinProbability: prediction?.modelWinProbability ?? null,
+    modelVersionId: prediction?.modelVersionId ?? null,
   };
 }
 
-function mapRace(raw: RawRace): RaceDoc | null {
+function mapRace(raw: RawRace, predictionsByHorseId: Map<string, RunnerPrediction>): RaceDoc | null {
   if (!raw.race_id || !raw.course || !raw.date) return null;
   const raceId = synthRaceId(raw.race_id);
   const course = raw.course;
@@ -112,7 +122,9 @@ function mapRace(raw: RawRace): RaceDoc | null {
   const raceTime = `${raceDate}T${(raw.off || "00:00").padStart(5, "0")}:00`;
 
   const rawRunners = raw.runners || [];
-  const runners: RunnerDoc[] = rawRunners.map((r, idx) => mapRunner(r, raw.race_id as string, idx));
+  const runners: RunnerDoc[] = rawRunners.map((r, idx) =>
+    mapRunner(r, raw.race_id as string, idx, r.horse_id ? predictionsByHorseId.get(r.horse_id) : undefined)
+  );
 
   const validIspRunners = runners.filter(r => r.isp !== null && r.isp > 1);
   const raceStaked = validIspRunners.reduce((sum, r) => sum + 1 / (r.isp! - 1), 0);
@@ -154,9 +166,32 @@ export interface CaptureTodayResultsResult {
 
 export class IndustrySpResultsCaptureService {
   private db: Db;
+  private dailyRaceDAO: DailyRaceDAO;
 
-  constructor(db?: Db) {
+  constructor(db?: Db, dailyRaceDAO?: DailyRaceDAO) {
     this.db = db || DatabaseConnection.getInstance().getDb();
+    this.dailyRaceDAO = dailyRaceDAO || new DailyRaceDAO(this.db);
+  }
+
+  /** Pre-race modelWinProbability/modelVersionId for every runner in one
+   * race, keyed by RacingAPI horse_id — looked up from `daily_racecards`
+   * (written by the 06:00 UTC daily-races cron + its predictDailyRaces step,
+   * same raw `race_id` this results feed uses as its own `_id`). Returns an
+   * empty map for a race with no matching `daily_racecards` doc (e.g. it
+   * never got ingested pre-race, or isn't GB) — that's just "no prediction
+   * available", not an error; the runner still gets captured with
+   * modelWinProbability: null exactly as before this join existed. */
+  private async lookupPredictions(raceId: string): Promise<Map<string, RunnerPrediction>> {
+    const dailyRace = await this.dailyRaceDAO.getRaceById(raceId);
+    const map = new Map<string, RunnerPrediction>();
+    if (!dailyRace) return map;
+    for (const runner of dailyRace.runners) {
+      map.set(runner.runnerId, {
+        modelWinProbability: runner.modelWinProbability,
+        modelVersionId: runner.modelVersionId,
+      });
+    }
+    return map;
   }
 
   /** Pulls today's finished race results from RacingAPI and upserts them
@@ -193,7 +228,10 @@ export class IndustrySpResultsCaptureService {
         nonGbSkipped++;
         continue;
       }
-      const doc = mapRace(rawRace);
+      const predictionsByHorseId = rawRace.race_id
+        ? await this.lookupPredictions(rawRace.race_id)
+        : new Map<string, RunnerPrediction>();
+      const doc = mapRace(rawRace, predictionsByHorseId);
       if (doc) docs.push(doc);
     }
 

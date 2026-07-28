@@ -66,6 +66,19 @@ interface MockSavedFilterSetDoc {
 }
 const mockSavedFilterSets: MockSavedFilterSetDoc[] = [];
 
+interface MockLiveFilterResultDoc {
+  _id: InstanceType<typeof ObjectId>;
+  savedFilterSetId: InstanceType<typeof ObjectId>;
+  filters: Record<string, string>;
+  modelVersionId: string | null;
+  raceDate: string;
+  meetingId: string;
+  meetingName: string;
+  pnlStats: { staked: number; returns: number; pnl: number; count: number };
+  capturedAt: string;
+}
+const mockLiveFilterResults: MockLiveFilterResultDoc[] = [];
+
 beforeAll(async () => {
   const res = await request(app)
     .post("/api/auth/login")
@@ -280,6 +293,21 @@ jest.mock("../../config/database", () => ({
                 mockSavedFilterSets.splice(index, 1);
                 return { deletedCount: 1 };
               }),
+            };
+          }
+          if (name === "saved_filter_set_live_results") {
+            return {
+              createIndex: jest.fn().mockResolvedValue(undefined),
+              find: jest.fn().mockImplementation((query: { savedFilterSetId?: unknown }) => ({
+                sort: jest.fn().mockReturnThis(),
+                toArray: jest.fn().mockResolvedValue(
+                  mockLiveFilterResults
+                    .filter(d => String(d.savedFilterSetId) === String(query?.savedFilterSetId))
+                    .slice()
+                    .sort((a, b) => (a.raceDate < b.raceDate ? 1 : -1))
+                ),
+              })),
+              bulkWrite: jest.fn().mockResolvedValue({}),
             };
           }
           if (name === "daily_racecards") {
@@ -1563,6 +1591,65 @@ describe("API Endpoints", () => {
         .delete(`/api/saved-filter-sets/${savedId}`)
         .set("Authorization", `Bearer ${authToken}`)
         .expect(404);
+    });
+
+    describe("GET /api/saved-filter-sets/:id/live-performance", () => {
+      let liveTestFilterSetId: string;
+
+      beforeAll(async () => {
+        const res = await request(app)
+          .post("/api/saved-filter-sets")
+          .set("Authorization", `Bearer ${authToken}`)
+          .send({ name: "Live perf test filter", filters: { courses: "Ascot" } })
+          .expect(201);
+        liveTestFilterSetId = res.body.data.id;
+        mockLiveFilterResults.push({
+          _id: new ObjectId(),
+          savedFilterSetId: new ObjectId(liveTestFilterSetId),
+          filters: { courses: "Ascot" },
+          modelVersionId: "xgb-20260727-171521",
+          raceDate: "2026-07-27",
+          meetingId: "Ascot|2026-07-27",
+          meetingName: "Ascot — 27 July 2026",
+          pnlStats: { staked: 4, returns: 6, pnl: 2, count: 4 },
+          capturedAt: "2026-07-27T21:31:00.000Z",
+        });
+      });
+
+      it("rejects without auth", async () => {
+        await request(app).get(`/api/saved-filter-sets/${liveTestFilterSetId}/live-performance`).expect(401);
+      });
+
+      it("returns 200 with the live rollup rows for the owner, count matching data.length", async () => {
+        const response = await request(app)
+          .get(`/api/saved-filter-sets/${liveTestFilterSetId}/live-performance`)
+          .set("Authorization", `Bearer ${authToken}`)
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.count).toBe(response.body.data.length);
+        expect(response.body.data).toHaveLength(1);
+        expect(response.body.data[0]).toMatchObject({
+          raceDate: "2026-07-27",
+          meetingId: "Ascot|2026-07-27",
+          meetingName: "Ascot — 27 July 2026",
+          pnlStats: { staked: 4, returns: 6, pnl: 2, count: 4 },
+        });
+      });
+
+      it("returns 404 for another user's filter set, never leaking another user's data", async () => {
+        await request(app)
+          .get(`/api/saved-filter-sets/${liveTestFilterSetId}/live-performance`)
+          .set("Authorization", `Bearer ${secondUserToken}`)
+          .expect(404);
+      });
+
+      it("returns 404 for an unknown filter set id", async () => {
+        await request(app)
+          .get("/api/saved-filter-sets/000000000000000000000000/live-performance")
+          .set("Authorization", `Bearer ${authToken}`)
+          .expect(404);
+      });
     });
 
   describe("POST /api/saved-filter-sets/agent", () => {

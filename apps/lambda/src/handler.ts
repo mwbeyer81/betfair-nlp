@@ -5,6 +5,7 @@ import { router, initializeServices } from "../../../src/server/router";
 import { corsMiddleware, helmetMiddleware } from "../../../src/server/middleware";
 import { DailyRaceService } from "../../../src/lib/service/daily-race-service";
 import { IndustrySpResultsCaptureService } from "../../../src/lib/service/industry-sp-results-capture-service";
+import { LiveFilterResultService } from "../../../src/lib/service/live-filter-result-service";
 import { computeDailyRaceFeatures } from "../../../src/lib/service/daily-race-feature-service";
 import { DatabaseConnection } from "../../../src/config/database";
 import type { APIGatewayProxyEventV2, Context } from "aws-lambda";
@@ -63,11 +64,31 @@ export const handler = async (event: APIGatewayProxyEventV2 | ScheduledEvent, co
           `Scheduled industry-sp results capture: upserted ${result.racesUpserted} races ` +
             `(${result.runnersUpserted} runners), skipped ${result.nonGbSkipped} non-GB races.`
         );
-        return { statusCode: 200 };
       } catch (error) {
         console.error("Scheduled industry-sp results capture failed:", error);
         throw error;
       }
+
+      // Chained onto the same invocation (no separate EventBridge rule) —
+      // turns the results just captured above into a live, day-by-day P&L
+      // rollup per saved filter set. Logged, not thrown, on failure: the
+      // results capture above already succeeded and its upsert is real/
+      // committed — letting this downstream step fail the whole invocation
+      // would make EventBridge retry and redundantly re-capture results
+      // that already landed correctly (same reasoning as the daily-races
+      // branch's own feature-compute/predict chaining below).
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const liveResult = await new LiveFilterResultService().captureLiveResultsForDate(today);
+        console.log(
+          `Scheduled live filter-result capture: ${liveResult.filterSetsProcessed} filter sets processed, ` +
+            `${liveResult.rowsUpserted} meeting rows upserted.`
+        );
+      } catch (error) {
+        console.error("Scheduled live filter-result capture failed (results capture already succeeded):", error);
+      }
+
+      return { statusCode: 200 };
     }
     const dailyRaceService = new DailyRaceService();
     let count: number;
