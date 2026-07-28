@@ -42,6 +42,15 @@ export interface RunnerDoc {
   ts: number | null;
   beatenDistance: number | null;
   comment: string | null;
+  // Pre-race XGBoost win-probability + the training run that produced it —
+  // absent on every CSV-imported historical runner (that pipeline never
+  // scores runners itself). Only the RacingAPI results-capture path sets
+  // these, joined in from the same day's `daily_racecards` prediction (see
+  // industry-sp-results-capture-service.ts) — copied across, never
+  // recomputed here, so a live-captured runner's modelWinProbability always
+  // matches exactly what the pre-race Daily Races screen showed for it.
+  modelWinProbability?: number | null;
+  modelVersionId?: string | null;
 }
 
 export interface RaceDoc {

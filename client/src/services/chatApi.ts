@@ -354,6 +354,25 @@ export interface SavedFilterSetsResponse {
   count: number;
 }
 
+// One real day's qualifying P&L at one meeting, for this filter set — the
+// live, actual-results counterpart to the one-time splitA/splitB backtest
+// snapshot above. Written by the daily results-capture cron once a day's
+// RacingAPI results are in; absent entirely until the first day after this
+// filter set was saved has been captured.
+export interface LiveFilterResult {
+  raceDate: string;
+  meetingId: string;
+  meetingName: string;
+  modelVersionId: string | null;
+  pnlStats: { staked: number; returns: number; pnl: number; count: number };
+}
+
+export interface LiveFilterResultsResponse {
+  success: boolean;
+  data: LiveFilterResult[];
+  count: number;
+}
+
 export interface AuthResult {
   token: string;
   // Deliberately not derived from the JWT itself — verification status can
@@ -743,6 +762,14 @@ class ChatApi {
       headers: this.authHeader(),
     });
     if (!response.ok) throw new Error("Failed to delete saved result");
+    return response.json();
+  }
+
+  async getLiveFilterPerformance(id: string): Promise<LiveFilterResultsResponse> {
+    const response = await fetch(`${this.baseUrl}/api/saved-filter-sets/${id}/live-performance`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch live performance");
     return response.json();
   }
 

@@ -11,7 +11,12 @@ function fakeClient(overrides: Partial<RacingApiClient> = {}): RacingApiClient {
 }
 
 function fakeCollection() {
-  return { bulkWrite: jest.fn().mockResolvedValue({}) };
+  // findOne backs DailyRaceDAO.getRaceById, called once per race to look up
+  // a pre-race prediction to join in — defaults to null ("no matching
+  // daily_racecards doc"), same as every real race with no prior ingest,
+  // so existing assertions here (none of which cover modelWinProbability)
+  // stay valid unless a test explicitly overrides it.
+  return { bulkWrite: jest.fn().mockResolvedValue({}), findOne: jest.fn().mockResolvedValue(null) };
 }
 
 function fakeDb(collection: ReturnType<typeof fakeCollection>) {
@@ -167,6 +172,44 @@ describe("IndustrySpResultsCaptureService.captureTodayResults", () => {
     expect(second.status).toBe("PLACED");
     expect(second.ts).toBeNull();
     expect(second.beatenDistance).toBeCloseTo(0.2);
+  });
+
+  it("attaches modelWinProbability/modelVersionId from a matching daily_racecards prediction", async () => {
+    const collection = fakeCollection();
+    (collection.findOne as jest.Mock).mockResolvedValue({
+      _id: "rac_1",
+      raceId: "rac_1",
+      runners: [
+        { runnerId: "hrs_1", modelWinProbability: 62.5, modelVersionId: "xgb-live-1" },
+        { runnerId: "hrs_2", modelWinProbability: 37.5, modelVersionId: "xgb-live-1" },
+      ],
+    });
+    const service = new IndustrySpResultsCaptureService(fakeDb(collection));
+    const client = fakeClient({
+      get: jest.fn().mockResolvedValue({ status: 200, ok: true, body: { results: [GB_RACE] } }),
+    });
+
+    await service.captureTodayResults(client);
+
+    const [winner, second] = collection.bulkWrite.mock.calls[0][0][0].replaceOne.replacement.runners;
+    expect(winner.modelWinProbability).toBe(62.5);
+    expect(winner.modelVersionId).toBe("xgb-live-1");
+    expect(second.modelWinProbability).toBe(37.5);
+    expect(second.modelVersionId).toBe("xgb-live-1");
+  });
+
+  it("leaves modelWinProbability/modelVersionId null when no matching daily_racecards doc exists", async () => {
+    const collection = fakeCollection(); // findOne defaults to null
+    const service = new IndustrySpResultsCaptureService(fakeDb(collection));
+    const client = fakeClient({
+      get: jest.fn().mockResolvedValue({ status: 200, ok: true, body: { results: [GB_RACE] } }),
+    });
+
+    await service.captureTodayResults(client);
+
+    const [winner] = collection.bulkWrite.mock.calls[0][0][0].replaceOne.replacement.runners;
+    expect(winner.modelWinProbability).toBeNull();
+    expect(winner.modelVersionId).toBeNull();
   });
 
   it("is idempotent — upserts by a deterministic _id derived from the RacingAPI race id", async () => {

@@ -102,4 +102,16 @@ export class SavedFilterSetDAO {
     if (!ObjectId.isValid(id)) return null;
     return await this.collection.findOne({ _id: new ObjectId(id), createdBy: "agent" });
   }
+
+  // Every real user's own saved filter set, across all users — excludes
+  // agent-generated training-battery rows (createdBy: "agent"), which have
+  // no live/day-by-day tracking of their own (they're a fixed training-run
+  // artifact, not something a user is watching play out). Used by
+  // LiveFilterResultService.captureLiveResultsForDate to know which filter
+  // sets to compute a day's live rollup for — deliberately cross-user
+  // (unlike listByUser), since this cron-driven capture has no single
+  // requesting user to scope to.
+  public async listAllUserOwned(): Promise<SavedFilterSetDocument[]> {
+    return await this.collection.find({ createdBy: { $ne: "agent" } }).toArray();
+  }
 }

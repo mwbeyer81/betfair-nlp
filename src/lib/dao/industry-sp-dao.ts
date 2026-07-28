@@ -644,6 +644,164 @@ export class IndustrySpDAO {
   }
 
   /**
+   * Qualifying-runner P&L for a single date, grouped by meeting — the live
+   * counterpart to getAllRacesByRace's pnlStats, used by
+   * LiveFilterResultService to turn one day's just-captured RacingAPI
+   * results into a per-meeting rollup for a saved filter set. Scoped to one
+   * date at a time (called once/day per filter set from the results-capture
+   * cron), so unlike getAllRacesByRace this has no pagination/row-range
+   * concerns — every matching race for the date is small enough (a UK
+   * racing day is on the order of tens of races) to filter+group in one
+   * pass, no $facet/$lookup-back-to-full-doc optimization needed.
+   *
+   * Matches on `raceTime` (not `raceDate`) to reuse the existing
+   * `{raceTime: 1}` index — `raceDate` itself has no index of its own, and
+   * raceTime's "YYYY-MM-DDTHH:mm:ss" prefix makes a same-day range query
+   * exactly equivalent to a raceDate equality match.
+   */
+  public async getQualifyingResultsByMeetingForDate(p: {
+    raceDate: string;
+    countries: string[];
+    minRunners: number;
+    maxRunners: number;
+    minIsp: number;
+    maxIsp: number;
+    minInIspRange: number;
+    maxInIspRange: number;
+    courses: string[];
+    goings: string[];
+    raceClasses: string[];
+    raceTypes: string[];
+    trainerSearch: string | null;
+    jockeySearch: string | null;
+    trainerFormMinWinRate: number;
+    minTrainerFormRunners: number;
+    maxTrainerFormRunners: number;
+    minModelWinProbability: number;
+    onlyModelBeatsSp: boolean;
+  }): Promise<
+    {
+      meetingId: string;
+      meetingName: string;
+      raceDate: string;
+      modelVersionId: string | null;
+      pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    }[]
+  > {
+    const trainerFormFilterActive = p.minTrainerFormRunners > 0 || p.maxTrainerFormRunners < 100;
+    const modelFilterActive = p.minModelWinProbability > 0;
+    const modelBeatsSpFilterActive = p.onlyModelBeatsSp;
+
+    const pipeline: Record<string, unknown>[] = [
+      { $match: { raceTime: { $gte: `${p.raceDate}T00:00:00`, $lte: `${p.raceDate}T23:59:59` } } },
+      ...this.buildQualifyingRaceStages({
+        countries: p.countries,
+        minRunners: p.minRunners,
+        maxRunners: p.maxRunners,
+        minIsp: p.minIsp,
+        maxIsp: p.maxIsp,
+        minInIspRange: p.minInIspRange,
+        maxInIspRange: p.maxInIspRange,
+        courses: p.courses,
+        goings: p.goings,
+        raceClasses: p.raceClasses,
+        raceTypes: p.raceTypes,
+        trainerSearch: p.trainerSearch,
+        jockeySearch: p.jockeySearch,
+        runnerName: null,
+        trainerFormMinWinRate: p.trainerFormMinWinRate,
+        minTrainerFormRunners: p.minTrainerFormRunners,
+        maxTrainerFormRunners: p.maxTrainerFormRunners,
+        minModelWinProbability: p.minModelWinProbability,
+        onlyModelBeatsSp: p.onlyModelBeatsSp,
+        modelVersionId: null,
+      }),
+      // Same qualifying-runner condition as getAllRacesByRace's pnlStats slow
+      // path (see the comment there) — duplicated for the same reason: this
+      // method scopes to the *qualifying* runner set, distinct from any
+      // isp-range-only runners field a caller elsewhere might reuse.
+      {
+        $addFields: {
+          qualifyingRunners: {
+            $filter: {
+              input: "$runners",
+              as: "r",
+              cond: {
+                $and: [
+                  { $ifNull: ["$$r.isp", false] },
+                  { $gt: ["$$r.isp", 1] },
+                  { $gte: ["$$r.isp", p.minIsp] },
+                  { $lte: ["$$r.isp", p.maxIsp] },
+                  ...(trainerFormFilterActive
+                    ? [
+                        { $ne: ["$$r.trainerFormWinRate", null] },
+                        { $gte: ["$$r.trainerFormWinRate", p.trainerFormMinWinRate] },
+                      ]
+                    : []),
+                  ...(modelFilterActive
+                    ? [
+                        { $ne: ["$$r.modelWinProbability", null] },
+                        { $gte: ["$$r.modelWinProbability", p.minModelWinProbability] },
+                      ]
+                    : []),
+                  ...(modelBeatsSpFilterActive
+                    ? [
+                        { $ne: ["$$r.modelWinProbability", null] },
+                        { $ne: ["$$r.isp", null] },
+                        { $gt: ["$$r.isp", 0] },
+                        { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
+                      ]
+                    : []),
+                ],
+              },
+            },
+          },
+        },
+      },
+      { $unwind: "$qualifyingRunners" },
+      {
+        $group: {
+          _id: "$meetingId",
+          meetingName: { $first: "$meetingName" },
+          raceDate: { $first: "$raceDate" },
+          modelVersionId: { $first: "$qualifyingRunners.modelVersionId" },
+          staked: { $sum: { $divide: [1, { $subtract: ["$qualifyingRunners.isp", 1] }] } },
+          returns: {
+            $sum: {
+              $cond: [
+                { $eq: ["$qualifyingRunners.status", "WINNER"] },
+                { $add: [{ $divide: [1, { $subtract: ["$qualifyingRunners.isp", 1] }] }, 1] },
+                0,
+              ],
+            },
+          },
+          count: { $sum: 1 },
+        },
+      },
+    ];
+
+    const results = await this.collection
+      .aggregate<{
+        _id: string;
+        meetingName: string;
+        raceDate: string;
+        modelVersionId: string | null;
+        staked: number;
+        returns: number;
+        count: number;
+      }>(pipeline, { allowDiskUse: true })
+      .toArray();
+
+    return results.map(r => ({
+      meetingId: r._id,
+      meetingName: r.meetingName,
+      raceDate: r.raceDate,
+      modelVersionId: r.modelVersionId ?? null,
+      pnlStats: { staked: r.staked, returns: r.returns, pnl: r.returns - r.staked, count: r.count },
+    }));
+  }
+
+  /**
    * Cumulative P&L convergence series, one point per race in [fromRow, toRow]
    * (same 1-based "row N of the current sort order" meaning as
    * getAllRacesByRace's fromRow/toRow). Demonstrates how the running ROI% is
