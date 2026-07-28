@@ -852,6 +852,44 @@ export const TappingACollapsedYearWalksForwardAndLoadsIt: Story = {
   },
 };
 
+export const WalkingToADistantYearCollapsesOtherExpandedYearsToAvoidRenderCost: Story = {
+  parameters: { msw: { handlers: lazyYearHandlers } },
+  decorators: [withQueryParams("minDate=2015-01-01&maxDate=2017-12-31")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    try {
+      await canvas.findByTestId("industry-sp-list");
+
+      // 2015 is the default (first, ascending) selection — starts
+      // expanded, its rows actually rendered.
+      await expect(canvas.getByTestId("industry-sp-day-2015-06-01")).toBeInTheDocument();
+
+      // Confirmed live: with ~9500 races in range and no other filters
+      // narrowing them, the doubling walk's fetches alone resolved in
+      // ~9 requests / ~2.4s, but the UI didn't catch up for another ~8s
+      // — the *previously expanded* source year re-rendering thousands
+      // of accumulating rows on every batch, not network. Walking
+      // toward 2017 should collapse the unrelated, already-expanded
+      // 2015 for the duration (and after) so its rows are never part of
+      // that cost.
+      await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2017"));
+
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-year-count-2017")).toHaveTextContent("1 races");
+      }, { timeout: 5000 });
+
+      // The data is still there (2015 shows its real count, not "Tap to
+      // load" or "0 races") — it's specifically not *rendered* anymore.
+      await expect(canvas.getByTestId("industry-sp-year-count-2015")).toHaveTextContent("90 races");
+      await expect(canvas.queryByTestId("industry-sp-day-2015-06-01")).not.toBeInTheDocument();
+      // The year header itself is untouched — collapsed, not removed.
+      await expect(canvas.getByTestId("industry-sp-year-2015")).toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  },
+};
+
 export const ExpandAllChasesTheLastYear: Story = {
   parameters: { msw: { handlers: lazyYearHandlers } },
   decorators: [withQueryParams("minDate=2015-01-01&maxDate=2017-12-31")],

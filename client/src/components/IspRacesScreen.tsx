@@ -239,6 +239,26 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     if (races.some(r => raceYearKey(r.raceTime) === year)) return;
     if (races.length === 0 || races.length >= totalRaces) return;
     setIsJumpingToYear(year);
+    // Collapse every other year while this walks — the doubling batches
+    // (20 -> 40 -> ... -> thousands) almost always land in whichever year
+    // is already expanded (typically the default first year), and with
+    // it expanded, each append forces React to reconcile/lay out its
+    // entire, ever-growing race list. Confirmed live: with ~9500 races in
+    // range and no other filters narrowing them, the fetches alone
+    // resolved in ~9 requests / ~12s, but the last one still took ~8s
+    // *after* its response arrived before the UI reflected it — pure
+    // render cost, not network. Collapsing the source year means
+    // buildRaceHierarchy still processes every loaded race each render
+    // (cheap — plain array grouping), but the expensive part (rendering
+    // thousands of nested race/runner rows) never happens until the user
+    // actually re-expands that year afterward.
+    setCollapsedKeys(prev => {
+      const next = new Set(prev);
+      for (const y of yearKeys) {
+        if (y !== year) next.add(`year:${y}`);
+      }
+      return next;
+    });
     try {
       let loaded = races.length;
       let found = false;
