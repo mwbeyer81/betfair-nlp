@@ -178,6 +178,50 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
     return () => { cancelled = true; };
   }, [date]);
 
+  // "Missing results" prompt (see AGENTS.md's daily-races-reseed-results
+  // entry) — offers to manually re-trigger the results-capture job for a
+  // day where every runner is still unresulted. Reset whenever the viewed
+  // date changes, so a dismissal or a past result doesn't leak across days.
+  const [reseedStatus, setReseedStatus] = useState<"idle" | "loading" | "success" | "plan_required" | "error">("idle");
+  const [reseedMessage, setReseedMessage] = useState<string | null>(null);
+  const [reseedDismissed, setReseedDismissed] = useState(false);
+
+  useEffect(() => {
+    setReseedStatus("idle");
+    setReseedMessage(null);
+    setReseedDismissed(false);
+  }, [date]);
+
+  const missingResults =
+    !isLoading &&
+    !error &&
+    races.length > 0 &&
+    currentDate < todayUtcDateString() &&
+    races.every(race => race.runners.every(runner => runner.result == null));
+
+  async function handleReseedConfirm() {
+    setReseedStatus("loading");
+    setReseedMessage(null);
+    const result = await chatApi.reseedDailyRaceResults(currentDate);
+    if (result.success) {
+      const count = result.data?.racesUpserted ?? 0;
+      setReseedStatus("success");
+      setReseedMessage(count > 0 ? `Found ${count} race${count === 1 ? "" : "s"} — refreshing…` : "Nothing new came back for this day.");
+      try {
+        const data = await chatApi.getDailyRaces(currentDate);
+        setRaces(data);
+      } catch {
+        // Leave the existing races as-is — the success message above still stands.
+      }
+    } else if (result.error === "plan_required") {
+      setReseedStatus("plan_required");
+      setReseedMessage(result.message ?? "Historical results aren't available on our current data plan.");
+    } else {
+      setReseedStatus("error");
+      setReseedMessage(result.message ?? "Something went wrong — please try again later.");
+    }
+  }
+
   const events = groupByEvent(races);
   const racesByTime = useMemo(
     () => [...races].sort((a, b) => new Date(a.offDt).getTime() - new Date(b.offDt).getTime()),
@@ -484,6 +528,54 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
             <Text style={styles.dateNavButtonText}>Next Day ›</Text>
           </TouchableOpacity>
         </View>
+
+        {missingResults && !reseedDismissed && (
+          <View testID="daily-races-missing-results-prompt" style={styles.missingResultsBanner}>
+            {reseedStatus === "idle" && (
+              <>
+                <Text style={styles.missingResultsText}>
+                  We don't seem to have race results for this day yet. Want us to try fetching them from the racing
+                  data provider?
+                </Text>
+                <View style={styles.missingResultsActions}>
+                  <Button
+                    testID="daily-races-reseed-confirm"
+                    mode="contained"
+                    compact
+                    onPress={handleReseedConfirm}
+                    style={styles.reseedButton}
+                  >
+                    Yes, try now
+                  </Button>
+                  <Button
+                    testID="daily-races-reseed-dismiss"
+                    mode="outlined"
+                    compact
+                    onPress={() => setReseedDismissed(true)}
+                    style={styles.reseedButton}
+                  >
+                    No thanks
+                  </Button>
+                </View>
+              </>
+            )}
+            {reseedStatus === "loading" && (
+              <Text testID="daily-races-reseed-loading" style={styles.missingResultsText}>
+                Fetching results, one moment…
+              </Text>
+            )}
+            {reseedStatus === "success" && (
+              <Text testID="daily-races-reseed-success" style={styles.missingResultsText}>
+                {reseedMessage}
+              </Text>
+            )}
+            {(reseedStatus === "plan_required" || reseedStatus === "error") && (
+              <Text testID="daily-races-reseed-error" style={styles.missingResultsText}>
+                {reseedMessage}
+              </Text>
+            )}
+          </View>
+        )}
 
         {isLoading && (
           <View testID="daily-races-loading" style={styles.centered}>
@@ -797,6 +889,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: colors.text,
+  },
+  missingResultsBanner: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.infoLight,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.info,
+  },
+  missingResultsText: {
+    fontSize: 13,
+    color: colors.text,
+  },
+  missingResultsActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  reseedButton: {
+    flex: 0,
   },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl, gap: spacing.md },
   loadingText: { color: colors.textSecondary },

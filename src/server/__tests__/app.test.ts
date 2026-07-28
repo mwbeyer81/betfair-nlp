@@ -4,6 +4,7 @@ import { ObjectId } from "mongodb";
 import app from "../app";
 import { CodebaseSearchService } from "../../lib/service/codebase-search-service";
 import { PredictionApiClient } from "../../lib/service/prediction-api-client";
+import { RacingApiClient } from "../../lib/service/racing-api-client";
 
 let authToken: string;
 
@@ -112,6 +113,13 @@ const mockChat = (CodebaseSearchService as jest.MockedClass<typeof CodebaseSearc
 jest.mock("../../lib/service/prediction-api-client");
 const mockPredict = jest.fn();
 (PredictionApiClient as jest.MockedClass<typeof PredictionApiClient>).prototype.predict = mockPredict;
+
+// Same reasoning as PredictionApiClient above — POST /api/daily-races/reseed-results
+// constructs a fresh RacingApiClient per request.
+jest.mock("../../lib/service/racing-api-client");
+const mockRacingApiGet = jest.fn();
+(RacingApiClient as jest.MockedClass<typeof RacingApiClient>).prototype.get = mockRacingApiGet;
+(RacingApiClient as jest.MockedClass<typeof RacingApiClient>).prototype.hasCredentials = jest.fn().mockReturnValue(true);
 
 // Mock Google's ID token verification — config/test.json sets a non-empty
 // google.clientId so GoogleAuthService actually constructs an OAuth2Client
@@ -453,6 +461,7 @@ jest.mock("../../config/database", () => {
           }),
           countDocuments: jest.fn().mockResolvedValue(42),
           findOne: jest.fn().mockResolvedValue({ id: 1, name: "Test Horse" }),
+          bulkWrite: jest.fn().mockResolvedValue({}),
           aggregate: jest.fn().mockReturnValue({
             toArray: jest.fn().mockResolvedValue([
               {
@@ -1987,6 +1996,62 @@ describe("API Endpoints", () => {
 
     it("returns 401 without auth", async () => {
       await request(app).post("/api/daily-races/predict").send({ date: "2026-06-03" }).expect(401);
+    });
+  });
+
+  describe("POST /api/daily-races/reseed-results", () => {
+    beforeEach(() => {
+      mockRacingApiGet.mockReset();
+    });
+
+    it("fetches and upserts results when RacingAPI returns ok (today)", async () => {
+      mockRacingApiGet.mockResolvedValue({
+        status: 200,
+        ok: true,
+        body: { results: [{ race_id: "rac_1", date: "2026-06-03", region: "GB", course: "Ascot", off: "14:00", race_name: "Test", runners: [] }] },
+      });
+
+      const response = await request(app)
+        .post("/api/daily-races/reseed-results")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({})
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data).toEqual({ racesUpserted: 1, runnersUpserted: 0, nonGbSkipped: 0 });
+      // No date in the body -> defaults to today -> hits the plan-tier-safe
+      // "/results/today" path, not a dated path.
+      expect(mockRacingApiGet).toHaveBeenCalledWith("/results/today");
+    });
+
+    it("targets /results/<date> when a past date is given", async () => {
+      mockRacingApiGet.mockResolvedValue({ status: 200, ok: true, body: { results: [] } });
+      await request(app)
+        .post("/api/daily-races/reseed-results")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ date: "2026-06-02" })
+        .expect(200);
+      expect(mockRacingApiGet).toHaveBeenCalledWith("/results/2026-06-02");
+    });
+
+    it("returns a plain-language plan_required error instead of a 500 when RacingAPI 401s for a past date", async () => {
+      mockRacingApiGet.mockResolvedValue({ status: 401, ok: false, body: { detail: "Standard Plan required" } });
+
+      const response = await request(app)
+        .post("/api/daily-races/reseed-results")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ date: "2026-06-02" })
+        .expect(200);
+
+      expect(response.body).toEqual({
+        success: false,
+        error: "plan_required",
+        message: expect.stringContaining("today's results"),
+      });
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).post("/api/daily-races/reseed-results").send({}).expect(401);
     });
   });
 

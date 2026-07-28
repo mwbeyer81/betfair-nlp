@@ -351,6 +351,109 @@ export const DayNavigationPreservesAppliedFilters: Story = {
   },
 };
 
+// MOCK_RACES carries no `result` on any runner at all — used below as the
+// "no results captured yet" fixture, paired with a fixed past `date` arg
+// (2026-06-03, always behind any real test-run date) to trigger the
+// missing-results prompt's date-in-the-past condition.
+export const MissingResultsPromptShowsForPastDayWithNoResults: Story = {
+  args: { date: "2026-06-03" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await expect(canvas.getByTestId("daily-races-missing-results-prompt")).toBeInTheDocument();
+    await expect(canvas.getByTestId("daily-races-reseed-confirm")).toBeInTheDocument();
+    await expect(canvas.getByTestId("daily-races-reseed-dismiss")).toBeInTheDocument();
+  },
+};
+
+export const MissingResultsPromptHiddenWhenSomeResultsExist: Story = {
+  args: { date: "2026-06-03" },
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/daily-races`, () =>
+          HttpResponse.json({ success: true, data: MOCK_RACES_WITH_RESULTS, count: MOCK_RACES_WITH_RESULTS.length })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await expect(canvas.queryByTestId("daily-races-missing-results-prompt")).not.toBeInTheDocument();
+  },
+};
+
+export const MissingResultsPromptHiddenForToday: Story = {
+  // No `date` arg -> defaults to real "today", not a past day, even though
+  // MOCK_RACES has zero results — the prompt must never fire for a day
+  // that's still in progress.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await expect(canvas.queryByTestId("daily-races-missing-results-prompt")).not.toBeInTheDocument();
+  },
+};
+
+export const DismissHidesMissingResultsPrompt: Story = {
+  args: { date: "2026-06-03" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await expect(canvas.getByTestId("daily-races-missing-results-prompt")).toBeInTheDocument();
+    await userEvent.click(canvas.getByTestId("daily-races-reseed-dismiss"));
+    await expect(canvas.queryByTestId("daily-races-missing-results-prompt")).not.toBeInTheDocument();
+  },
+};
+
+export const ReseedConfirmShowsSuccessMessage: Story = {
+  args: { date: "2026-06-03" },
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/daily-races`, () =>
+          HttpResponse.json({ success: true, data: MOCK_RACES, count: MOCK_RACES.length })
+        ),
+        http.post(`${BASE}/api/daily-races/reseed-results`, () =>
+          HttpResponse.json({ success: true, data: { racesUpserted: 3, runnersUpserted: 21, nonGbSkipped: 1 } })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await userEvent.click(canvas.getByTestId("daily-races-reseed-confirm"));
+    await expect(canvas.findByTestId("daily-races-reseed-success")).resolves.toHaveTextContent("Found 3 races");
+  },
+};
+
+export const ReseedConfirmShowsPlanRequiredMessage: Story = {
+  args: { date: "2026-06-03" },
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/daily-races`, () =>
+          HttpResponse.json({ success: true, data: MOCK_RACES, count: MOCK_RACES.length })
+        ),
+        http.post(`${BASE}/api/daily-races/reseed-results`, () =>
+          HttpResponse.json({
+            success: false,
+            error: "plan_required",
+            message: "Our racing data provider only lets us fetch today's results on our current plan.",
+          })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    await userEvent.click(canvas.getByTestId("daily-races-reseed-confirm"));
+    await expect(canvas.findByTestId("daily-races-reseed-error")).resolves.toHaveTextContent("today's results");
+  },
+};
+
 // Same three races as MOCK_RACES, each now carrying a real captured
 // result: rac_1/hrs_1 (Fixture Star, modelWinProbability 25) WINNER at isp
 // 5 (implied 100/5=20%) -> beats its own SP (25% > 20%) AND £1-to-win stake
