@@ -161,6 +161,19 @@ export function raceMonthLabel(isoTime: string): string {
   }
 }
 
+// Every calendar year a "YYYY-MM-DD" minDate/maxDate range touches, in sort
+// order — lets the ISP races screen render a year header for every year the
+// applied filter *could* contain, even before any race data for that year
+// has actually loaded (see IspRacesScreen's lazy per-year loading).
+export function yearsInRange(minDate: string, maxDate: string, order: "asc" | "desc" = "asc"): string[] {
+  const minYear = parseInt(minDate.slice(0, 4), 10);
+  const maxYear = parseInt(maxDate.slice(0, 4), 10);
+  if (!Number.isFinite(minYear) || !Number.isFinite(maxYear) || maxYear < minYear) return [];
+  const years: string[] = [];
+  for (let y = minYear; y <= maxYear; y++) years.push(String(y));
+  return order === "desc" ? years.reverse() : years;
+}
+
 // Builds the same human-readable filter-summary chips PnlConvergencePanel
 // shows (see IndustrySpScreen.buildConvergenceFilterSummary) from a raw
 // URL-param string map instead of live component state — used by
