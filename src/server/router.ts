@@ -5,6 +5,8 @@ import { CodebaseSearchService, ChatHistoryTurn } from "../lib/service/codebase-
 import { BetfairService } from "../lib/service/betfair-service";
 import { IndustrySpService } from "../lib/service/industry-sp-service";
 import { DailyRaceService } from "../lib/service/daily-race-service";
+import { IndustrySpResultsCaptureService } from "../lib/service/industry-sp-results-capture-service";
+import { RacingApiClient } from "../lib/service/racing-api-client";
 import { TrainerFormService } from "../lib/service/trainer-form-service";
 import { ModelVersionService } from "../lib/service/model-version-service";
 import { SavedFilterSetService, computeSnapshotParamsFromFilters } from "../lib/service/saved-filter-set-service";
@@ -23,6 +25,7 @@ let codebaseSearchService: CodebaseSearchService | null = null;
 let betfairService: BetfairService | null = null;
 let industrySpService: IndustrySpService | null = null;
 let dailyRaceService: DailyRaceService | null = null;
+let industrySpResultsCaptureService: IndustrySpResultsCaptureService | null = null;
 let trainerFormService: TrainerFormService | null = null;
 let modelVersionService: ModelVersionService | null = null;
 let savedFilterSetService: SavedFilterSetService | null = null;
@@ -63,6 +66,7 @@ export const initializeServices = async () => {
     } catch (indexError) {
       console.warn("daily-race createIndexes failed (non-fatal, queries may be slower):", indexError);
     }
+    industrySpResultsCaptureService = new IndustrySpResultsCaptureService();
     trainerFormService = new TrainerFormService();
     try {
       await trainerFormService.createIndexes();
@@ -731,6 +735,40 @@ router.post("/api/daily-races/predict", async (req, res) => {
   } catch (error) {
     console.error("predictDailyRaces error:", error);
     res.status(500).json({ success: false, error: "Failed to predict daily races" });
+  }
+});
+
+// User-triggered "try to fetch results now" for a given date's Today's
+// Picks (see DailyRacesScreen.tsx's missing-results prompt) — a manual
+// on-demand alternative to waiting for the 10-minute results-capture cron.
+// RacingAPI's Basic plan only ever exposes ONE results endpoint,
+// "/results/today" — confirmed live (not inferred) that even the literal
+// current date as a path segment (e.g. "/results/2026-07-28") still 401s
+// "Standard Plan required", so a genuinely past date can never succeed
+// here; only calling the literal "/results/today" path while today is
+// still the date being viewed can ever return real data. That plan-tier
+// failure is expected/routine, not a server error — reported back as
+// success:false with a plain-language message, not a 500.
+router.post("/api/daily-races/reseed-results", async (req, res) => {
+  try {
+    if (!industrySpResultsCaptureService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const today = new Date().toISOString().slice(0, 10);
+    const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : today;
+    const path = date === today ? undefined : `/results/${date}`;
+    const result = await industrySpResultsCaptureService.captureTodayResults(new RacingApiClient(), path);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Standard Plan required")) {
+      return res.status(200).json({
+        success: false,
+        error: "plan_required",
+        message:
+          "Our racing data provider only lets us fetch today's results on our current plan — results for past days can't be pulled in after the fact. This isn't a bug, it's a limit of the data subscription.",
+      });
+    }
+    console.error("reseedResults error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch results" });
   }
 });
 

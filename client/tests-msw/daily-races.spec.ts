@@ -181,4 +181,79 @@ test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
     await expect(page).toHaveURL(/date=2026-06-04/);
     await expect(page).toHaveURL(/minModelWinProbability=20/);
   });
+
+  test("does not show the missing-results prompt when a result already exists (hrs_1)", async ({ page }) => {
+    await page.goto("/daily-races?date=2026-06-03");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-missing-results-prompt")).not.toBeVisible();
+  });
+
+  test("shows the missing-results prompt for a past day with zero results, and a successful reseed refreshes the list", async ({ page }) => {
+    // Override the default fixture for this one test — every runner here
+    // has no `result` at all, unlike the shared fixture (hrs_1 already has
+    // one), so the "all runners unresulted" condition is genuinely met.
+    const noResultsRace = {
+      raceId: "rac_test_0099", eventId: "goodwood-2026-06-01", course: "Goodwood", date: "2026-06-01",
+      offTime: "2:00", offDt: "2026-06-01T14:00:00+01:00", raceName: "No Results Yet Stakes",
+      distanceF: "8.0", region: "GB", raceClass: "Class 4", type: "Flat", ageBand: "4yo+",
+      prize: "£4,000", fieldSize: "1", going: "Good", surface: "Turf",
+      runners: [{
+        runnerId: "hrs_99", horse: "Unresulted Runner", age: "5", sex: "gelding", sexCode: "G", colour: "b",
+        region: "GB", dam: null, damId: null, sire: null, sireId: null, damsire: null, damsireId: null,
+        trainer: "A Trainer", trainerId: "trn_1", owner: null, ownerId: null, number: "1", draw: "0",
+        headgear: "", lbs: "140", officialRating: "80", jockey: "B Jockey", jockeyId: "jky_1",
+        lastRun: "10", form: "1-2", modelWinProbability: 30,
+      }],
+    };
+    await page.route((url) => url.pathname === "/api/daily-races", (route) => {
+      route.fulfill({ json: { success: true, data: [noResultsRace], count: 1 } });
+    });
+
+    await page.goto("/daily-races?date=2026-06-01");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-missing-results-prompt")).toBeVisible();
+
+    await page.route((url) => url.pathname === "/api/daily-races/reseed-results", (route) => {
+      route.fulfill({ json: { success: true, data: { racesUpserted: 1, runnersUpserted: 1, nonGbSkipped: 0 } } });
+    });
+
+    await page.getByTestId("daily-races-reseed-confirm").click();
+    await expect(page.getByTestId("daily-races-reseed-success")).toContainText("Found 1 race");
+  });
+
+  test("shows a plain-language explanation when the racing data provider requires a higher plan", async ({ page }) => {
+    const noResultsRace = {
+      raceId: "rac_test_0098", eventId: "goodwood-2026-05-31", course: "Goodwood", date: "2026-05-31",
+      offTime: "2:00", offDt: "2026-05-31T14:00:00+01:00", raceName: "No Results Yet Stakes 2",
+      distanceF: "8.0", region: "GB", raceClass: "Class 4", type: "Flat", ageBand: "4yo+",
+      prize: "£4,000", fieldSize: "1", going: "Good", surface: "Turf",
+      runners: [{
+        runnerId: "hrs_98", horse: "Another Unresulted Runner", age: "5", sex: "gelding", sexCode: "G", colour: "b",
+        region: "GB", dam: null, damId: null, sire: null, sireId: null, damsire: null, damsireId: null,
+        trainer: "A Trainer", trainerId: "trn_1", owner: null, ownerId: null, number: "1", draw: "0",
+        headgear: "", lbs: "140", officialRating: "80", jockey: "B Jockey", jockeyId: "jky_1",
+        lastRun: "10", form: "1-2", modelWinProbability: 30,
+      }],
+    };
+    await page.route((url) => url.pathname === "/api/daily-races", (route) => {
+      route.fulfill({ json: { success: true, data: [noResultsRace], count: 1 } });
+    });
+    await page.route((url) => url.pathname === "/api/daily-races/reseed-results", (route) => {
+      route.fulfill({
+        json: {
+          success: false,
+          error: "plan_required",
+          message: "Our racing data provider only lets us fetch today's results on our current plan.",
+        },
+      });
+    });
+
+    await page.goto("/daily-races?date=2026-05-31");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+    await page.getByTestId("daily-races-reseed-confirm").click();
+    await expect(page.getByTestId("daily-races-reseed-error")).toContainText("today's results");
+  });
 });

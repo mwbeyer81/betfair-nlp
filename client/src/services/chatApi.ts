@@ -127,6 +127,18 @@ export interface DailyRaceResult {
   ispFraction: string | null;
 }
 
+// Mirrors the backend's POST /api/daily-races/reseed-results response
+// shape (src/server/router.ts). `error: "plan_required"` is the one
+// expected failure mode worth branching on in the UI — the racing-data
+// provider's plan can only ever fetch "today's" results, so this is the
+// routine outcome for any genuinely past date, not a bug.
+export interface ReseedResultsResult {
+  success: boolean;
+  data?: { racesUpserted: number; runnersUpserted: number; nonGbSkipped: number };
+  error?: string;
+  message?: string;
+}
+
 // RacingAPI-backed "Daily Races" feature — a different domain from the ISP
 // types above, now also carrying a model win-probability view. See
 // src/lib/dao/daily-race-dao.ts for the backend document shape this
@@ -987,6 +999,25 @@ class ChatApi {
     if (!response.ok) throw new Error("Failed to fetch daily race");
     const result = await response.json();
     return result.data;
+  }
+
+  // Manual "try to fetch results now" for a given date — see
+  // DailyRacesScreen.tsx's missing-results prompt. Deliberately never
+  // throws on a non-2xx from the endpoint itself: a "plan_required"
+  // outcome (the racing-data provider only allows fetching today's
+  // results on the current plan) is an expected, plain-language result
+  // the caller renders inline, not an exception.
+  async reseedDailyRaceResults(date: string): Promise<ReseedResultsResult> {
+    const response = await fetch(`${this.baseUrl}/api/daily-races/reseed-results`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...this.authHeader() },
+      body: JSON.stringify({ date }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return { success: false, error: "request_failed", message: "Something went wrong — please try again later." };
+    }
+    return result;
   }
 
   async getTrainerForm(trainer: string, formCategory: TrainerFormCategory): Promise<TrainerFormDoc | null> {
