@@ -668,12 +668,25 @@ const styles = StyleSheet.create({
   filterGridRow: {
     flexDirection: "row",
     alignItems: "center",
+    // Same flexbox bug class as IndustrySpScreen.tsx's filterStepper
+    // (a6b2dac): as a wrapped child of filterGrid's own column layout,
+    // this row had no width constraint of its own, so it grew to fit its
+    // unwrapped content (label + input + dash + input) and could overflow
+    // the viewport on narrow phones before its internal wrap ever got a
+    // chance to engage — confirmed at 320px in Chromium, matching how the
+    // same bug only showed up on a real iPhone (wider San Francisco font
+    // metrics) rather than the default 375px Chromium check.
+    flexWrap: "wrap",
+    flexShrink: 1,
+    minWidth: 0,
+    rowGap: 4,
     gap: 8,
   },
   filterGridLabel: {
     width: 120,
     flexDirection: "row",
     alignItems: "center",
+    flexShrink: 1,
     gap: 4,
   },
   filterGridLabelText: {
@@ -706,6 +719,11 @@ const styles = StyleSheet.create({
   },
   textFilterInput: {
     flex: 1,
+    // A flex:1 child's default min-width is "auto" (its own unwrapped
+    // content size), not 0 — without this it won't actually shrink below
+    // that, defeating the row's flexShrink/wrap above. Same fix as
+    // countryBar below.
+    minWidth: 0,
     height: 40,
     fontSize: 14,
     fontWeight: "500",
@@ -719,6 +737,8 @@ const styles = StyleSheet.create({
   chipFilterRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexShrink: 1,
+    minWidth: 0,
     gap: 8,
   },
   chipFilterLabel: {
@@ -729,6 +749,11 @@ const styles = StyleSheet.create({
   },
   countryBar: {
     flex: 1,
+    // See filterGridRow's comment — a flex:1 child otherwise refuses to
+    // shrink below its own unwrapped content width (all chips laid out in
+    // one line), which forced this whole row (and the page around it)
+    // wider than the viewport instead of just scrolling its own content.
+    minWidth: 0,
     ...({ overscrollBehavior: "contain" } as any),
   },
   countryBarContent: {
