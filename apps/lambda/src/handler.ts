@@ -5,6 +5,8 @@ import { router, initializeServices } from "../../../src/server/router";
 import { corsMiddleware, helmetMiddleware } from "../../../src/server/middleware";
 import { DailyRaceService } from "../../../src/lib/service/daily-race-service";
 import { IndustrySpResultsCaptureService } from "../../../src/lib/service/industry-sp-results-capture-service";
+import { computeDailyRaceFeatures } from "../../../src/lib/service/daily-race-feature-service";
+import { DatabaseConnection } from "../../../src/config/database";
 import type { APIGatewayProxyEventV2, Context } from "aws-lambda";
 
 // API-only Express app — no static file serving, no SPA fallback
@@ -67,14 +69,46 @@ export const handler = async (event: APIGatewayProxyEventV2 | ScheduledEvent, co
         throw error;
       }
     }
+    const dailyRaceService = new DailyRaceService();
+    let count: number;
     try {
-      const count = await new DailyRaceService().ingestFromRacingApi();
+      count = await dailyRaceService.ingestFromRacingApi();
       console.log(`Scheduled daily-races ingest: upserted ${count} races.`);
-      return { statusCode: 200 };
     } catch (error) {
       console.error("Scheduled daily-races ingest failed:", error);
       throw error;
     }
+
+    // Feature-compute + predict are chained onto the same scheduled
+    // invocation (no separate EventBridge rule) so today's races always
+    // carry model probabilities without a manual re-run — see AGENTS.md's
+    // dated entry for why this was previously deferred (no Python compute
+    // target existed in this Lambda's runtime) and how apps/ml-api
+    // resolved that. Failures here are logged, not thrown: ingest above
+    // already succeeded and its upsert is real/committed — letting a
+    // downstream failure throw would make EventBridge treat the whole
+    // invocation as failed and retry it, redundantly re-ingesting racecards
+    // that already landed correctly.
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      const db = DatabaseConnection.getInstance().getDb();
+      const featureResult = await computeDailyRaceFeatures(db, today);
+      console.log(
+        `Scheduled daily-race features: ${featureResult.racesUpdated} races, ` +
+          `${featureResult.runnersUpdated} runners (${featureResult.horsesMatched}/${featureResult.horsesTotal} horses matched prior history).`
+      );
+      const predictResult = await dailyRaceService.predictDailyRaces(today);
+      console.log(
+        `Scheduled daily-race predictions: ${predictResult.racesUpdated} races, ` +
+          `${predictResult.runnersUpdated} runners, ${predictResult.errors.length} errors.`
+      );
+      if (predictResult.errors.length > 0) {
+        console.error("Scheduled daily-race prediction errors:", JSON.stringify(predictResult.errors));
+      }
+    } catch (error) {
+      console.error("Scheduled daily-race feature-compute/predict failed (ingest already succeeded):", error);
+    }
+    return { statusCode: 200 };
   }
   return proxy(event as APIGatewayProxyEventV2, context);
 };
