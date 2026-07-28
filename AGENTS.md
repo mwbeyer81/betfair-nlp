@@ -4451,3 +4451,113 @@ formatting).
 
 Deployed: pending — update this entry with the commit hash and
 `app.backbet.co.uk` live-verification once pushed.
+
+## 2026-07-28 (later still) — `~/betfair-nlp-isp-year-walk-error` (branch `fix/isp-year-walk-error`), merged into `develop`
+
+**Task:** user reported (5 screenshots) that the `isp-year-walk-render-
+perf` fix above didn't actually resolve the underlying problem: tapping
+the collapsed "2025" year header on the real Split B / ~9502-race / Date
+Jan 2024 -> Jan 2025 / "Model beats SP" scenario still failed — the
+*other*, currently-expanded year's own race count started updating
+(expected/correct, not a bug — see below) but the walk eventually died
+with a red "Failed to load races" error, stuck at "1280/9502 races".
+User's exact words: "still broken ... eventually whole UI errors", and
+explicitly asked for "a one off script in ./scripts to replicate against
+prod".
+
+**Root cause — a real backend bug, not a frontend one:** `getAllRacesByRace`
+uses a single `$facet` stage to compute the data page, `total`,
+`totalRunners`, and `pnlStats` together — MongoDB requires the *entire*
+result of a `$facet` (all its branches, packed together) to fit in one
+BSON document, capped at 16MB, regardless of collection size or
+`allowDiskUse`. The lazy-year-walk's doubling batch size (`limit` =
+however many races are already loaded, uncapped) grows without bound —
+eventually a single request's "data" page of full, runner-array-attached
+race documents pushes the whole `$facet` result over that 16MB cap.
+
+**Why the existing prod-repro scripts never caught this:** both prior
+`isp-lazy-year-slow-walk`/`isp-year-walk-render-cost` scripts used
+Playwright's `page.route()` to intercept `/api/industry-sp` with a
+*synthetic* dataset — necessary at the time to work around the
+anonymous-caller 100-row cap (`clampRowSpan`), but it means those scripts
+never actually call the real backend at all, only exercise frontend
+request/render logic against a mock that always resolves instantly. A
+real backend query-shape bug like this one was invisible to them by
+construction.
+
+**Reproduction, per the user's explicit request for "a one off script in
+./scripts":** `scripts/prod-repro-isp-year-walk-bson-limit-2026-07-28.ts`
+— not a Playwright/browser script this time, but a direct-to-`IndustrySpDAO`
+Node script against the real production Mongo (`config/local.json`,
+copied from the primary checkout into the worktree — gitignored, not
+committed), replicating the exact walk sequence
+(`getAllRacesByRace(2, loaded, ...)`, doubling `loaded` each round) with
+the user's real reported filters. This sidesteps the anonymous-HTTP-cap
+problem entirely (no auth needed for a direct DAO call) while actually
+exercising the real backend/Mongo behavior the mocked scripts couldn't.
+First run: succeeded through `limit=1280`, failed requesting
+`limit=2560` — `MongoServerError: BSONObj size: 20461144 ... invalid.
+Size must be between 0 and 16793600(16MB)`, i.e. ~20.5MB. A follow-up
+probe (`limit` values 1500/1800/2000/2200/2400, all direct DAO calls)
+confirmed 2400 succeeds and 2560 fails — the real threshold sits between
+them, for this filter combination's average per-race payload size.
+
+**Fix (two layers):**
+1. `IspRacesScreen.tsx`'s `ensureYearLoaded` now caps its batch size at a
+   new `MAX_WALK_BATCH = 1000` constant (roughly 2.5x margin under the
+   measured ~2400-2560 threshold, room for races with larger-than-average
+   runners arrays). Capping the batch decouples `skip=(page-1)*limit`
+   from `loaded` (previously always equal, by construction, when
+   `limit === loaded`) — `page` is now chosen as the largest integer that
+   keeps `skip <= loaded` (so a race can never be silently skipped/missed
+   at a batch boundary), and the small resulting overlap between `skip`
+   and `loaded` is trimmed off the front of each response
+   (`result.data.slice(overlap)`) before appending, rather than relying
+   only on `appendRaces`' by-raceId dedup. For the user's real ~9500-race
+   scenario this settles into clean, non-overlapping 1000-race steps
+   after one short transitional batch — confirmed by hand-tracing the
+   exact sequence and by a capped variant of the same direct-DAO
+   diagnostic script (not committed — a throwaway copy): 15 requests,
+   loaded=9454/9454, zero errors, matching the hand-calculated sequence
+   exactly (20→40→80→160→320→640→1000→1000×7→454).
+2. `router.ts`'s `/api/industry-sp` `limit` query param clamp lowered
+   from `Math.min(10000, ...)` to `Math.min(2000, ...)` as defense in
+   depth — the previous 10000 cap was itself well past the real ~2400-2560
+   BSON-size failure point, so *any* caller (a different frontend bug, a
+   hand-edited URL, a future caller) requesting a large `limit` could
+   trip this independently of the walk logic being fixed here.
+
+**Verified:** `yarn build` clean (both before and after merging
+`origin/develop`, which pulled in unrelated `24hr-race-time`/`runner
+badge` work with no conflicts). New Storybook regression test
+(`WalkingPastTheBatchCapDoesNotDuplicateOrDropRaces` in
+`IspRacesScreen.stories.tsx`, a 1500-filler-race fixture specifically
+sized to cross `MAX_WALK_BATCH` mid-walk, unlike the existing 90-race
+`LAZY_YEAR_RACES` fixture which never reaches the cap) asserts the
+target year resolves AND the source year's count lands on exactly 1500
+— not more (would mean the overlap-trim double-counted) and not fewer
+(would mean it dropped races at the boundary). **Could not actually run
+the Storybook test-runner** — confirmed this is the same repo-wide
+tooling breakage the `header-wide-single-line` entry above already
+flagged (`ReferenceError: Cannot access 'StorybookTestRunnerError' before
+initialization`), reproduced identically against an untouched
+`Message.stories.tsx` story in this same worktree, so not something this
+change caused or could fix. Full Supertest suite for `industry-sp`
+routes: 50/50 pass (no test asserted the old 10000 clamp value, nothing
+to update). `industry-sp-dao.integration.test.ts` against local test
+Mongo: 35/35 pass.
+
+**Deployed — both halves, since this touches backend code:**
+`develop@89f4210` → `app.backbet.co.uk` (`apps/web/deploy.sh`,
+`build-commit` meta tag confirmed) AND `hello-api` Lambda
+(`apps/lambda/build.sh` — function code + runtime config updated,
+confirmed via `LastModified` timestamp matching the deploy time). Live
+`limit` clamp verified directly: `curl .../api/industry-sp?limit=3000`
+against the real API Gateway URL now reports back `"limit":2000`, not
+the old 10000. **Same `config/local.json` secrets-refresh crash as the
+`live-filter-performance` entry earlier in this file** (missing
+`openai`/`jwt` sections in this checkout) — `set -e` aborted before
+`aws lambda update-function-configuration`, confirmed live env vars
+(`JWT_SECRET`, `OPENAI_API_KEY`, etc.) are all still present and
+untouched via `aws lambda get-function-configuration`. Worktree removed,
+branch deleted.
