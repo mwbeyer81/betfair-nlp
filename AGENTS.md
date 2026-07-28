@@ -3998,3 +3998,91 @@ Deployed: `develop@6c4a3b8` → app.backbet.co.uk, verified live both via
 the `build-commit` meta tag and by re-running the prod-repro script
 against the live site post-deploy. Worktree removed after merge+deploy
 per this file's own convention.
+
+## 2026-07-28 (later still) — `~/betfair-nlp-isp-races-lazy-year-loading` (branch `feat/isp-races-lazy-year-loading`), merged into `develop`
+
+**Task:** user filtered Industry SP results to a 2-year date range
+(Jan 2024 → Jan 2025), saw only "2024" in the collapsible year list
+with "12/4924 races" loaded and a "Load more (4904 remaining)" button
+— reported it as "my filter spans 2 years but only one year visible".
+Not a bug: `IspRacesScreen` paginates 20 races at a time, oldest-first,
+so 2025 (a single day at the very end of the range) hadn't been reached
+yet — but the year-level grouping (shipped earlier this session) made
+that partial-load state far more visually salient/confusing than it
+was as a flat meeting list. Asked what to do about it; user's answer:
+"you know the range of years from the filter, show collapsed years and
+download filtered results for the expanded selection and default
+selection, still keep pagination."
+
+**Design — lazy per-year loading, not a data-model change:**
+- `yearsInRange(minDate, maxDate, order)` (new, `ispFormat.ts`) computes
+  every calendar year a date range touches. `IspRacesScreen` now always
+  renders a year header for every year the filter could contain
+  (falling back to `ABSOLUTE_MIN_DATE`/`ABSOLUTE_MAX_DATE` — 2015-2026 —
+  when minDate/maxDate are absent/unbounded), merged with whatever
+  hierarchy data has actually loaded via a new `mergeYearPlaceholders`
+  (empty `YearNode` for any year not yet represented).
+- **Row-range splits (Split A/B, `fromRow`/`toRow`) rule out a
+  per-year-scoped query.** `fromRow`/`toRow` is a row-index slice of one
+  specific date-ordered sequence — the backend's `dateMatchStage` runs
+  *before* the `$skip`/`$limit` stage (`industry-sp-dao.ts`), so
+  independently narrowing the date range further changes what the row
+  numbers mean; "row 1 of Split A ∩ year 2025" isn't expressible via
+  independent params without a dedicated backend endpoint (out of
+  scope). So expanding a not-yet-loaded year (`ensureYearLoaded`)
+  doesn't fetch a differently-scoped query — it keeps paging the exact
+  same global cursor `loadMore()` already advances, just automatically
+  and repeatedly, until a race actually in that year appears (or pages
+  run out, confirming the year is genuinely empty). This also means any
+  *intervening* year loads as a side effect of walking through it —
+  `toggleCollapseAll`'s "Expand All" only ever needs to chase the
+  *last* year in range, not loop over every one.
+- Only whichever year(s) page 1 actually lands in start expanded —
+  **computed after that fetch resolves, from the real loaded data, not
+  statically from `yearKeys[0]`.** First attempt got this wrong: with
+  an unbounded filter, `yearKeys[0]` is `ABSOLUTE_MIN_DATE`'s year
+  (2015) — but almost all real mock/prod data is recent (2026), so
+  defaulting to "earliest possible year expanded" collapsed away
+  literally every pre-existing story's actual content, breaking 13 of
+  33 tests in one run. Fixed by moving the expand-default computation
+  into the fetch effect, keyed on `raceYearKey` of the races that
+  actually came back.
+- Each year header shows one of `"N races"` / `"Loading…"` / `"0
+  races"` / `"Tap to load"` (`yearCountLabel`) — a year with 0 loaded
+  races is ambiguous (confirmed-empty vs. not-yet-reached) without this
+  distinction, which is the whole point of pre-rendering placeholders.
+
+**Concurrent conflict, again:** `~/betfair-nlp-live-filter-performance`
+(a *different* sibling worktree, unrelated task — live day-by-day P&L
+for saved filters) merged to `develop` (`796b1e1`) mid-task and
+extracted this exact hierarchy-building code
+(`buildRaceHierarchy`/`YearNode`/etc., previously local to
+`IspRacesScreen.tsx`) into a new shared, generic
+`client/src/utils/raceHierarchy.ts` (`buildHierarchy<T>`,
+`YearNode<T>` with `.items` instead of `.races`), so
+`SavedResultDetailScreen`'s new Live Performance panel could reuse it.
+Real merge conflict on `IspRacesScreen.tsx`. Resolved by **adapting to
+the new shared module** (dropped the now-redundant local
+`MeetingNode`/`DayNode`/`MonthNode`/`YearNode`/`getOrCreate`, imported
+`YearNode<IspRace>` from `raceHierarchy.ts`, renamed `.races` → `.items`
+throughout `mergeYearPlaceholders`/`yearCountLabel`) rather than keeping
+a parallel local copy — git's 3-way merge had already auto-applied most
+of the rename for lines this branch hadn't touched; only 3 explicit
+conflict regions needed manual resolution. Verified
+`SavedResultDetailScreen`'s full Storybook suite (their side of the
+shared module) still green after resolving.
+
+**Verified:** `yarn build` clean throughout, including post-merge.
+`IspRacesScreen` Storybook suite 32/33 green (the 1 failure,
+`ScreenLoaded`, is the same pre-existing unrelated flake noted
+repeatedly above). Live-verified against real `app.backbet.co.uk` post-
+deploy with the user's exact filter (Jan 2024 → Jan 2025, Model Win %
+20 + Model beats SP): both "2024" and "2025" year headers render
+immediately, 2024 shows its real loaded count, 2025 correctly shows
+"Tap to load" rather than a misleading "0 races", and tapping it
+successfully walks forward (an honest ~246-page, real-network-latency
+walk against production's actual ~4900-race Split A) to resolve to a
+confirmed count.
+
+Deployed: `develop@0e6ac1f` → app.backbet.co.uk, verified live via the
+`build-commit` meta tag and the manual walk-forward check above.
