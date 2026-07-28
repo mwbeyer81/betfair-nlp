@@ -918,6 +918,115 @@ export const ExpandAllChasesTheLastYear: Story = {
   },
 };
 
+// A far larger filler set (1500, vs. LAZY_YEAR_RACES' 90) specifically to
+// cross MAX_WALK_BATCH (1000) mid-walk — proves the batch-cap/overlap-trim
+// logic itself, not just the doubling growth the smaller fixture above
+// already covers. Distinct raceId range (700000+) to avoid colliding with
+// any other fixture in this file (see LAZY_YEAR_RACES' own comment on why
+// that matters — a collision silently discards real races via the
+// by-raceId dedup, reading exactly like a broken walk).
+function capBoundaryFillerRace(index: number) {
+  const day = (index % 27) + 1;
+  return {
+    raceId: 700000 + index,
+    meetingId: `Ascot|2015-06-${String(day).padStart(2, "0")}`,
+    meetingName: `Ascot — ${day} June 2015`,
+    course: "Ascot",
+    countryCode: "GB",
+    raceTime: `2015-06-${String(day).padStart(2, "0")}T13:00:00`,
+    raceName: "Ascot 13:00",
+    raceType: "Flat",
+    ran: 1,
+    runners: [
+      { id: 70100 + index, name: `Filler ${index}`, num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false },
+    ],
+  };
+}
+
+const LARGE_WALK_RACES = [
+  ...Array.from({ length: 1500 }, (_, i) => capBoundaryFillerRace(i)),
+  {
+    raceId: 790000,
+    meetingId: "Ascot|2018-06-01",
+    meetingName: "Ascot — 1 June 2018",
+    course: "Ascot",
+    countryCode: "GB",
+    raceTime: "2018-06-01T13:00:00",
+    raceName: "Ascot 13:00",
+    raceType: "Flat",
+    ran: 1,
+    runners: [
+      { id: 79001, name: "Twenty Eighteen", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 3, ispFraction: "2/1", isFavourite: false },
+    ],
+  },
+];
+
+let largeWalkRequestCount = 0;
+
+const largeWalkHandlers = [
+  http.get(`${BASE}/api/industry-sp`, ({ request }) => {
+    largeWalkRequestCount++;
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get("page") || "1", 10);
+    const limit = parseInt(url.searchParams.get("limit") || "20", 10);
+    const skip = (page - 1) * limit;
+    const data = LARGE_WALK_RACES.slice(skip, skip + limit);
+    return HttpResponse.json({
+      success: true,
+      data,
+      count: data.length,
+      total: LARGE_WALK_RACES.length,
+      page,
+      limit,
+      totalPages: Math.ceil(LARGE_WALK_RACES.length / limit),
+      totalRunners: LARGE_WALK_RACES.length,
+      pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
+    });
+  }),
+];
+
+export const WalkingPastTheBatchCapDoesNotDuplicateOrDropRaces: Story = {
+  parameters: { msw: { handlers: largeWalkHandlers } },
+  decorators: [withQueryParams("minDate=2015-01-01&maxDate=2018-12-31")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    try {
+      await canvas.findByTestId("industry-sp-list");
+      await expect(canvas.getByTestId("industry-sp-year-count-2018")).toHaveTextContent("Tap to load");
+
+      // 1500 filler races in 2015 push the walk's doubling batch size
+      // (20 -> 40 -> ... -> 640 -> capped at 1000) past MAX_WALK_BATCH
+      // mid-walk — this is the regression proof for the
+      // isp-year-walk-error fix: a real ~9500-race walk with an uncapped
+      // doubling batch crashed the backend with `BSONObjectTooLarge` once
+      // a single request's batch reached ~2560 races (a $facet-packed
+      // aggregation result exceeding MongoDB's 16MB single-document
+      // limit). Capping the batch size means some requests' skip lands
+      // partway through already-loaded races (the overlap-trim logic) —
+      // this dataset's size specifically exercises that path, not just
+      // the exponential-growth-while-small path LAZY_YEAR_RACES covers.
+      largeWalkRequestCount = 0;
+      await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2018"));
+
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-year-count-2018")).toHaveTextContent("1 races");
+      }, { timeout: 5000 });
+
+      // The real regression check: exactly 1500, not more (a bug in the
+      // overlap-trim math could double-count the overlapping slice) and
+      // not fewer (it could instead skip/drop races at the batch
+      // boundary).
+      await expect(canvas.getByTestId("industry-sp-year-count-2015")).toHaveTextContent("1500 races");
+
+      // 7 requests for 1501 races: 20 -> 40 -> 80 -> 160 -> 320 -> 640 ->
+      // (capped) 1000 -> 1501. Generously bounded rather than pinned exactly.
+      expect(largeWalkRequestCount).toBeLessThanOrEqual(10);
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  },
+};
+
 export const RendersAtIphone12: Story = {
   parameters: { viewport: { defaultViewport: "iphone12" } },
   play: async ({ canvasElement }) => {

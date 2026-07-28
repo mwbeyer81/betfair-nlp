@@ -36,6 +36,13 @@ import { buildHierarchy, collectHierarchyNodeKeys, YearNode } from "../utils/rac
 
 const PAGE_SIZE = 20;
 
+// The largest single batch ensureYearLoaded's doubling walk will ever
+// request — see its own comment for why: past this, a single request's
+// $facet-packed result risks exceeding MongoDB's 16MB document limit.
+// Comfortably under the ~2400-2560 failure threshold measured live, and
+// under the router's own defensive 2000 clamp on `limit`.
+const MAX_WALK_BATCH = 1000;
+
 // Same values as IndustrySpScreen's own ABSOLUTE_MIN_DATE/ABSOLUTE_MAX_DATE —
 // duplicated rather than imported to avoid adding a dependency on that
 // screen's internals; both represent "the real dataset's earliest/latest
@@ -264,24 +271,38 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       let found = false;
       while (loaded < totalRaces && !found) {
         // getIndustrySp(page, limit, ...) skips (page-1)*limit rows —
-        // requesting page=2 at limit=`loaded` therefore skips exactly the
-        // rows already loaded and takes that many more, doubling the
-        // loaded set each round trip (there's no dedicated "fetch from
-        // offset N" endpoint, so this repurposes the existing page/limit
-        // pair rather than adding one). Turns an O(totalRaces / 20) walk
-        // — one request per 20 races, confirmed to need ~250 requests
-        // and still not finish within 90s on a ~4900-race gap in the
+        // requesting page=2 at limit=`loaded` skips exactly the rows
+        // already loaded and takes that many more, doubling the loaded set
+        // each round trip (there's no dedicated "fetch from offset N"
+        // endpoint, so this repurposes the existing page/limit pair rather
+        // than adding one). Turns an O(totalRaces / 20) walk — one request
+        // per 20 races, confirmed to need ~250 requests and still not
+        // finish within 90s on a ~4900-race gap in the
         // isp-lazy-year-slow-walk prod-repro script — into an
         // O(log2(totalRaces / 20)) one, ~8-12 requests for the same gap.
-        // (Doesn't scale past the backend's own 10000-row limit cap —
-        // fine for any realistically filtered range; a range whose
-        // *loaded* count alone exceeds 10000 would need a different
-        // approach, not attempted here.)
-        const result = await chatApi.getIndustrySp(2, loaded, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
-        if (result.data.length === 0) break;
-        setRaces(prev => appendRaces(prev, result.data));
-        loaded += result.data.length;
-        found = result.data.some(r => raceYearKey(r.raceTime) === year);
+        //
+        // Capped at MAX_WALK_BATCH: getAllRacesByRace's $facet packs the
+        // "data" page plus total/totalRunners/pnlStats into a single BSON
+        // document, so an uncapped doubling limit eventually exceeds
+        // MongoDB's 16MB single-document limit — confirmed live against
+        // production data, a ~2560-race batch failed with
+        // `BSONObjectTooLarge` (~20.5MB), 2400 succeeded. Once the desired
+        // batch size would exceed the cap, `limit` pins at MAX_WALK_BATCH
+        // instead of `loaded`, which decouples skip=(page-1)*limit from
+        // `loaded` — `page` is chosen as the largest integer that keeps
+        // skip <= loaded (never skipping/missing a race), and the small
+        // resulting overlap with already-loaded races is trimmed off the
+        // front of the response before appending.
+        const batchLimit = Math.min(loaded, MAX_WALK_BATCH);
+        const page = Math.floor(loaded / batchLimit) + 1;
+        const skip = (page - 1) * batchLimit;
+        const overlap = loaded - skip;
+        const result = await chatApi.getIndustrySp(page, batchLimit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
+        const newRaces = result.data.slice(overlap);
+        if (newRaces.length === 0) break;
+        setRaces(prev => appendRaces(prev, newRaces));
+        loaded += newRaces.length;
+        found = newRaces.some(r => raceYearKey(r.raceTime) === year);
       }
       // result.totalPages (above) is relative to whatever `limit` that
       // specific request used, which changes every iteration here — not
