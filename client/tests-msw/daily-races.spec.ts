@@ -124,5 +124,10 @@ test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
     await expect(page.getByTestId("daily-races-pick-fair-odds-hrs_1")).toHaveText("Fair 3/1 (4.00)");
     await expect(page.getByTestId("daily-races-pick-result-hrs_1")).toHaveText("Won");
     await expect(page.getByTestId("daily-races-pick-pnl-hrs_1")).toHaveText("+£1.00");
+
+    // Day P&L totals every resulted pick — only hrs_1 has a captured
+    // result here, so the day total equals its own +£1.00, "1 resulted".
+    await expect(page.getByTestId("daily-races-picks-day-pnl")).toContainText("Day P&L: +£1.00");
+    await expect(page.getByTestId("daily-races-picks-day-pnl")).toContainText("1 resulted");
   });
 });
