@@ -550,6 +550,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   liveYearLabel: { fontSize: 15, fontWeight: "700", color: colors.text },
   liveMonthHeader: {
@@ -557,6 +559,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: spacing.xs,
     paddingLeft: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   liveMonthLabel: { fontSize: 14, fontWeight: "600", color: colors.text },
   liveDayHeader: {
@@ -564,6 +568,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: spacing.xs,
     paddingLeft: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   liveDayLabel: { fontSize: 13, color: colors.textSecondary },
   liveMeetingRow: {
@@ -572,8 +578,12 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.xs,
     paddingLeft: spacing.xl,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
-  liveMeetingLabel: { fontSize: 13, fontWeight: "600", color: colors.text, textDecorationLine: "underline" },
+  // Same convention as IspRacesScreen.tsx's meeting-name link (eventName) —
+  // bold + accent color signals "tappable", no underline.
+  liveMeetingLabel: { fontSize: 13, fontWeight: "700", color: colors.accent },
   liveMeetingEmptyText: { fontSize: 12, color: colors.textSecondary, marginLeft: "auto" },
   liveRaceRow: {
     flexDirection: "row",
@@ -582,6 +592,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     paddingLeft: spacing.xl + spacing.md,
     paddingRight: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   liveRaceTime: { fontSize: 12, color: colors.textSecondary, width: 44 },
   liveRaceName: { fontSize: 12, color: colors.text, flex: 1 },
