@@ -115,6 +115,52 @@ export function formatRaceDate(isoTime: string): string {
   }
 }
 
+// Sortable Year/Year-Month/Year-Month-Day grouping keys for the ISP races
+// screen's collapsible hierarchy — derived via Intl.DateTimeFormat parts
+// (not Date.getFullYear()/getMonth(), which read the browser's local
+// timezone) so a race just before/after midnight groups by its actual
+// Europe/London race day, consistent with formatRaceTime/formatRaceDate.
+function londonDateParts(isoTime: string): { year: string; month: string; day: string } {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/London",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date(isoTime));
+    const get = (type: string) => parts.find(p => p.type === type)?.value ?? "";
+    return { year: get("year"), month: get("month"), day: get("day") };
+  } catch {
+    return { year: "", month: "", day: "" };
+  }
+}
+
+export function raceYearKey(isoTime: string): string {
+  return londonDateParts(isoTime).year;
+}
+
+export function raceMonthKey(isoTime: string): string {
+  const { year, month } = londonDateParts(isoTime);
+  return `${year}-${month}`;
+}
+
+export function raceDayKey(isoTime: string): string {
+  const { year, month, day } = londonDateParts(isoTime);
+  return `${year}-${month}-${day}`;
+}
+
+export function raceMonthLabel(isoTime: string): string {
+  try {
+    return new Date(isoTime).toLocaleDateString("en-GB", {
+      month: "long",
+      year: "numeric",
+      timeZone: "Europe/London",
+    });
+  } catch {
+    return "";
+  }
+}
+
 // Builds the same human-readable filter-summary chips PnlConvergencePanel
 // shows (see IndustrySpScreen.buildConvergenceFilterSummary) from a raw
 // URL-param string map instead of live component state — used by

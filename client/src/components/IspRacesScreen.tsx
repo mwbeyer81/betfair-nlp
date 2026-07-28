@@ -16,6 +16,10 @@ import {
   runnerPnl,
   formatRaceTime,
   formatRaceDate,
+  raceYearKey,
+  raceMonthKey,
+  raceMonthLabel,
+  raceDayKey,
   toFormCategory,
   OddsMode,
   modelBeatsSp,
@@ -33,6 +37,97 @@ import {
 } from "../utils/ispUrlParams";
 
 const PAGE_SIZE = 20;
+
+interface MeetingNode {
+  meetingId: string;
+  course: string;
+  races: IspRace[];
+}
+interface DayNode {
+  key: string;
+  label: string;
+  races: IspRace[];
+  meetings: MeetingNode[];
+}
+interface MonthNode {
+  key: string;
+  label: string;
+  races: IspRace[];
+  days: DayNode[];
+}
+interface YearNode {
+  key: string;
+  races: IspRace[];
+  months: MonthNode[];
+}
+
+function getOrCreate<K, V>(map: Map<K, V>, key: K, create: () => V): V {
+  const existing = map.get(key);
+  if (existing) return existing;
+  const created = create();
+  map.set(key, created);
+  return created;
+}
+
+// Groups races into a Year → Month → Day → Meeting tree for the collapsible
+// results list. Uses Map (not plain objects) at every level — year keys
+// like "2015" are numeric-looking strings, and JS reorders integer-like
+// object keys ascending regardless of insertion order, which would silently
+// break the "Last → First" sort toggle at the year level.
+function buildRaceHierarchy(races: IspRace[]): YearNode[] {
+  const years = new Map<string, { races: IspRace[]; months: Map<string, { label: string; races: IspRace[]; days: Map<string, { label: string; races: IspRace[]; meetings: Map<string, MeetingNode> }> }> }>();
+
+  for (const race of races) {
+    const yearKey = raceYearKey(race.raceTime);
+    const monthKey = raceMonthKey(race.raceTime);
+    const dayKey = raceDayKey(race.raceTime);
+
+    const year = getOrCreate(years, yearKey, () => ({ races: [], months: new Map() }));
+    year.races.push(race);
+
+    const month = getOrCreate(year.months, monthKey, () => ({ label: raceMonthLabel(race.raceTime), races: [], days: new Map() }));
+    month.races.push(race);
+
+    const day = getOrCreate(month.days, dayKey, () => ({ label: formatRaceDate(race.raceTime), races: [], meetings: new Map() }));
+    day.races.push(race);
+
+    const meeting = getOrCreate(day.meetings, race.meetingId, () => ({ meetingId: race.meetingId, course: race.course, races: [] }));
+    meeting.races.push(race);
+  }
+
+  return Array.from(years.entries()).map(([yearKey, year]) => ({
+    key: yearKey,
+    races: year.races,
+    months: Array.from(year.months.entries()).map(([monthKey, month]) => ({
+      key: monthKey,
+      label: month.label,
+      races: month.races,
+      days: Array.from(month.days.entries()).map(([dayKey, day]) => ({
+        key: dayKey,
+        label: day.label,
+        races: day.races,
+        meetings: Array.from(day.meetings.values()),
+      })),
+    })),
+  }));
+}
+
+function collectHierarchyNodeKeys(years: YearNode[]): string[] {
+  const keys: string[] = [];
+  for (const year of years) {
+    keys.push(`year:${year.key}`);
+    for (const month of year.months) {
+      keys.push(`month:${month.key}`);
+      for (const day of month.days) {
+        keys.push(`day:${day.key}`);
+        for (const meeting of day.meetings) {
+          keys.push(`meeting:${meeting.meetingId}`);
+        }
+      }
+    }
+  }
+  return keys;
+}
 
 interface IspRacesScreenProps {
   navigate: (to: Route, query?: string) => void;
@@ -69,6 +164,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const [totalRaces, setTotalRaces] = useState(0);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">(() => urlSortParam());
   const [oddsMode, setOddsMode] = useState<OddsMode>("fraction");
+  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
 
   const minRunners = urlIntParam("minRunners", 1);
   const maxRunners = urlIntParam("maxRunners", 20);
@@ -176,16 +272,29 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const visibleRaces = races.filter(race => qualifyingRunners(race).length > 0);
   const visibleRunners = visibleRaces.reduce((sum, r) => sum + qualifyingRunners(r).length, 0);
 
-  const byMeeting = visibleRaces.reduce<Record<string, { meetingName: string; races: IspRace[] }>>(
-    (acc, race) => {
-      if (!acc[race.meetingId]) {
-        acc[race.meetingId] = { meetingName: race.meetingName, races: [] };
-      }
-      acc[race.meetingId].races.push(race);
-      return acc;
-    },
-    {}
-  );
+  const hierarchy = buildRaceHierarchy(visibleRaces);
+  const allNodeKeys = collectHierarchyNodeKeys(hierarchy);
+  const isAllCollapsed = allNodeKeys.length > 0 && allNodeKeys.every(k => collapsedKeys.has(k));
+
+  function toggleNode(key: string) {
+    setCollapsedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleCollapseAll() {
+    setCollapsedKeys(isAllCollapsed ? new Set() : new Set(allNodeKeys));
+  }
+
+  // Same staking math as the per-race P&L badge (ispFormat.computeRangePnl),
+  // rolled up over every qualifying runner across a whole year/month/day/
+  // meeting's races — reuses qualifyingRunners so a group total always
+  // matches the sum of the individual race/runner rows rendered under it.
+  function groupPnl(races: IspRace[]) {
+    return computeRangePnl(races.map(race => ({ ...race, runners: qualifyingRunners(race) })));
+  }
 
   return (
     <SafeAreaView testID="industry-sp-races-screen" style={styles.screen}>
@@ -224,6 +333,16 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         >
           {oddsMode === "fraction" ? "Odds: Fraction" : "Odds: Decimal"}
         </Button>
+        <Button
+          testID="industry-sp-collapse-all-toggle"
+          mode="outlined"
+          compact
+          onPress={toggleCollapseAll}
+          style={styles.toolbarButtonOutlined}
+          labelStyle={styles.toolbarButtonOutlinedLabel}
+        >
+          {isAllCollapsed ? "Expand All" : "Collapse All"}
+        </Button>
       </View>
 
       <View style={styles.body}>
@@ -248,118 +367,215 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
             {visibleRaces.length === 0 && (
               <Text style={styles.emptyText}>No races found.</Text>
             )}
-            {Object.entries(byMeeting).map(([meetingId, { meetingName, races: meetingRaces }]) => (
-              <View key={meetingId} testID={`industry-sp-meeting-${meetingId}`}>
-                <TouchableOpacity
-                  testID={`industry-sp-meeting-link-${meetingId}`}
-                  style={styles.eventHeader}
-                  onPress={() => onNavigateToMeeting(meetingId)}
-                >
-                  <Text style={styles.eventName}>{meetingName}</Text>
-                </TouchableOpacity>
-                {meetingRaces.map(race => (
-                  <View key={race.raceId}>
-                    <TouchableOpacity
-                      testID={`industry-sp-race-${race.raceId}`}
-                      style={styles.raceHeader}
-                      onPress={() => onNavigateToRace(race.raceId)}
-                    >
-                      <Text style={styles.raceTime}>{formatRaceTime(race.raceTime)}</Text>
-                      <Text style={styles.raceDate}>{formatRaceDate(race.raceTime)}</Text>
-                      <Text style={styles.raceType}>{race.raceType}</Text>
-                      <Text style={styles.raceCount}>{qualifyingRunners(race).length} runners</Text>
-                      {(() => {
-                        const rp = computeRangePnl([{ ...race, runners: qualifyingRunners(race) }]);
-                        if (rp.staked === 0) return null;
-                        return (
-                          <Text style={[styles.racePnl, rp.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
-                            {formatPnl(rp.pnl)} ({formatPct(rp.pnl, rp.staked)})
-                          </Text>
-                        );
-                      })()}
-                    </TouchableOpacity>
-                    {qualifyingRunners(race).map((runner: IspRunner) => (
-                      <TouchableOpacity
-                        key={runner.id}
-                        testID={`industry-sp-item-${runner.id}`}
-                        style={styles.runnerRow}
-                        onPress={() => onNavigateToRunner(race.raceId, runner.id)}
-                      >
-                        <Text style={styles.priority}>{runner.sortPriority}.</Text>
-                        <Text testID={`industry-sp-item-name-${runner.id}`} style={styles.runnerName} numberOfLines={1}>
-                          {runner.name}
-                        </Text>
-                        {runner.isp != null && (
-                          <Text testID={`industry-sp-isp-${runner.id}`} style={styles.bspBadge}>
-                            ISP {formatIsp(runner, oddsMode)}
-                          </Text>
-                        )}
-                        {runner.isp != null && (
-                          <Text testID={`industry-sp-stake-${runner.id}`} style={styles.stakeBadge}>
-                            Bet {formatGbp(stakeToWin1(runner.isp))}
-                          </Text>
-                        )}
-                        {runnerPnl(runner) != null && (
-                          <Text
-                            testID={`industry-sp-pnl-item-${runner.id}`}
-                            style={[styles.runnerPnl, runnerPnl(runner)! >= 0 ? styles.pnlPos : styles.pnlNeg]}
-                          >
-                            {formatPnl(runnerPnl(runner)!)}
-                          </Text>
-                        )}
-                        {runner.trainer && (
-                          <TouchableOpacity
-                            onPress={(e) => { e.stopPropagation(); onNavigateToTrainer(runner.trainer!, toFormCategory(race.raceType)); }}
-                          >
-                            <Text testID={`industry-sp-item-trainer-${runner.id}`} style={styles.trainerBadge} numberOfLines={1}>
-                              {runner.trainer}
-                              {runner.trainerFormRuns != null && runner.trainerFormRuns > 0 && runner.trainerFormWinRate != null && (
-                                <Text testID={`industry-sp-item-trainer-form-${runner.id}`} style={styles.trainerFormBadge}>
-                                  {` · ${runner.trainerFormWins}/${runner.trainerFormRuns} · ${runner.trainerFormWinRate.toFixed(0)}%`}
-                                </Text>
-                              )}
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-                        {runner.modelWinProbability != null && (
-                          <Text testID={`industry-sp-item-model-${runner.id}`} style={styles.modelBadge}>
-                            Model {runner.modelWinProbability.toFixed(0)}%
-                            {runner.isp != null && runner.isp > 0 && (
-                              <Text testID={`industry-sp-item-implied-sp-${runner.id}`} style={styles.impliedSpBadge}>
-                                {` · SP ${impliedProbabilityPct(runner.isp).toFixed(0)}%`}
-                              </Text>
-                            )}
-                          </Text>
-                        )}
-                        {modelBeatsSp(runner) && (
-                          <Text testID={`industry-sp-item-value-${runner.id}`} style={styles.valueBadge}>
-                            Value
-                          </Text>
-                        )}
-                        <View
-                          style={[
-                            styles.statusBadge,
-                            {
-                              backgroundColor:
-                                (statusPill[runner.status] ?? statusPill.HIDDEN).bg,
-                            },
-                          ]}
+            {hierarchy.map(year => {
+              const yearKey = `year:${year.key}`;
+              const yearCollapsed = collapsedKeys.has(yearKey);
+              const yearPnl = groupPnl(year.races);
+              return (
+                <View key={year.key} testID={`industry-sp-year-${year.key}`}>
+                  <TouchableOpacity
+                    testID={`industry-sp-year-toggle-${year.key}`}
+                    style={styles.yearHeader}
+                    onPress={() => toggleNode(yearKey)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: !yearCollapsed }}
+                  >
+                    <Text style={[styles.groupChevron, styles.groupChevronLight]}>{yearCollapsed ? "▸" : "▾"}</Text>
+                    <Text style={styles.yearLabel}>{year.key}</Text>
+                    <Text style={[styles.groupCount, styles.groupCountLight]}>{year.races.length} races</Text>
+                    {yearPnl.staked > 0 && (
+                      <Text testID={`industry-sp-year-pnl-${year.key}`} style={[styles.groupPnl, yearPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                        {formatPnl(yearPnl.pnl)} ({formatPct(yearPnl.pnl, yearPnl.staked)})
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+
+                  {!yearCollapsed && year.months.map(month => {
+                    const monthKey = `month:${month.key}`;
+                    const monthCollapsed = collapsedKeys.has(monthKey);
+                    const monthPnl = groupPnl(month.races);
+                    return (
+                      <View key={month.key} testID={`industry-sp-month-${month.key}`}>
+                        <TouchableOpacity
+                          testID={`industry-sp-month-toggle-${month.key}`}
+                          style={styles.monthHeader}
+                          onPress={() => toggleNode(monthKey)}
+                          accessibilityRole="button"
+                          accessibilityState={{ expanded: !monthCollapsed }}
                         >
-                          <Text
-                            style={[
-                              styles.statusText,
-                              { color: (statusPill[runner.status] ?? statusPill.HIDDEN).fg },
-                            ]}
-                          >
-                            {runner.status}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                ))}
-              </View>
-            ))}
+                          <Text style={[styles.groupChevron, styles.groupChevronLight]}>{monthCollapsed ? "▸" : "▾"}</Text>
+                          <Text style={styles.monthLabel}>{month.label}</Text>
+                          <Text style={[styles.groupCount, styles.groupCountLight]}>{month.races.length} races</Text>
+                          {monthPnl.staked > 0 && (
+                            <Text testID={`industry-sp-month-pnl-${month.key}`} style={[styles.groupPnl, monthPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                              {formatPnl(monthPnl.pnl)} ({formatPct(monthPnl.pnl, monthPnl.staked)})
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+
+                        {!monthCollapsed && month.days.map(day => {
+                          const dayKey = `day:${day.key}`;
+                          const dayCollapsed = collapsedKeys.has(dayKey);
+                          const dayPnl = groupPnl(day.races);
+                          return (
+                            <View key={day.key} testID={`industry-sp-day-${day.key}`}>
+                              <TouchableOpacity
+                                testID={`industry-sp-day-toggle-${day.key}`}
+                                style={styles.dayHeader}
+                                onPress={() => toggleNode(dayKey)}
+                                accessibilityRole="button"
+                                accessibilityState={{ expanded: !dayCollapsed }}
+                              >
+                                <Text style={styles.groupChevron}>{dayCollapsed ? "▸" : "▾"}</Text>
+                                <Text style={styles.dayLabel}>{day.label}</Text>
+                                <Text style={styles.groupCount}>{day.races.length} races</Text>
+                                {dayPnl.staked > 0 && (
+                                  <Text testID={`industry-sp-day-pnl-${day.key}`} style={[styles.groupPnl, dayPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                                    {formatPnl(dayPnl.pnl)} ({formatPct(dayPnl.pnl, dayPnl.staked)})
+                                  </Text>
+                                )}
+                              </TouchableOpacity>
+
+                              {!dayCollapsed && day.meetings.map(meeting => {
+                                const meetingKey = `meeting:${meeting.meetingId}`;
+                                const meetingCollapsed = collapsedKeys.has(meetingKey);
+                                const meetingPnl = groupPnl(meeting.races);
+                                return (
+                                  <View key={meeting.meetingId} testID={`industry-sp-meeting-${meeting.meetingId}`}>
+                                    <View style={styles.eventHeader}>
+                                      <TouchableOpacity
+                                        testID={`industry-sp-meeting-toggle-${meeting.meetingId}`}
+                                        onPress={() => toggleNode(meetingKey)}
+                                        accessibilityRole="button"
+                                        accessibilityState={{ expanded: !meetingCollapsed }}
+                                      >
+                                        <Text style={styles.groupChevron}>{meetingCollapsed ? "▸" : "▾"}</Text>
+                                      </TouchableOpacity>
+                                      <TouchableOpacity
+                                        testID={`industry-sp-meeting-link-${meeting.meetingId}`}
+                                        onPress={() => onNavigateToMeeting(meeting.meetingId)}
+                                      >
+                                        <Text style={styles.eventName}>{meeting.course}</Text>
+                                      </TouchableOpacity>
+                                      <Text style={styles.groupCount}>{meeting.races.length} races</Text>
+                                      {meetingPnl.staked > 0 && (
+                                        <Text testID={`industry-sp-meeting-pnl-${meeting.meetingId}`} style={[styles.groupPnl, meetingPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                                          {formatPnl(meetingPnl.pnl)} ({formatPct(meetingPnl.pnl, meetingPnl.staked)})
+                                        </Text>
+                                      )}
+                                    </View>
+                                    {!meetingCollapsed && meeting.races.map(race => (
+                                      <View key={race.raceId}>
+                                        <TouchableOpacity
+                                          testID={`industry-sp-race-${race.raceId}`}
+                                          style={styles.raceHeader}
+                                          onPress={() => onNavigateToRace(race.raceId)}
+                                        >
+                                          <Text style={styles.raceTime}>{formatRaceTime(race.raceTime)}</Text>
+                                          <Text style={styles.raceType}>{race.raceType}</Text>
+                                          <Text style={styles.raceCount}>{qualifyingRunners(race).length} runners</Text>
+                                          {(() => {
+                                            const rp = computeRangePnl([{ ...race, runners: qualifyingRunners(race) }]);
+                                            if (rp.staked === 0) return null;
+                                            return (
+                                              <Text style={[styles.racePnl, rp.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
+                                                {formatPnl(rp.pnl)} ({formatPct(rp.pnl, rp.staked)})
+                                              </Text>
+                                            );
+                                          })()}
+                                        </TouchableOpacity>
+                                        {qualifyingRunners(race).map((runner: IspRunner) => (
+                                          <TouchableOpacity
+                                            key={runner.id}
+                                            testID={`industry-sp-item-${runner.id}`}
+                                            style={styles.runnerRow}
+                                            onPress={() => onNavigateToRunner(race.raceId, runner.id)}
+                                          >
+                                            <Text style={styles.priority}>{runner.sortPriority}.</Text>
+                                            <Text testID={`industry-sp-item-name-${runner.id}`} style={styles.runnerName} numberOfLines={1}>
+                                              {runner.name}
+                                            </Text>
+                                            {runner.isp != null && (
+                                              <Text testID={`industry-sp-isp-${runner.id}`} style={styles.bspBadge}>
+                                                ISP {formatIsp(runner, oddsMode)}
+                                              </Text>
+                                            )}
+                                            {runner.isp != null && (
+                                              <Text testID={`industry-sp-stake-${runner.id}`} style={styles.stakeBadge}>
+                                                Bet {formatGbp(stakeToWin1(runner.isp))}
+                                              </Text>
+                                            )}
+                                            {runnerPnl(runner) != null && (
+                                              <Text
+                                                testID={`industry-sp-pnl-item-${runner.id}`}
+                                                style={[styles.runnerPnl, runnerPnl(runner)! >= 0 ? styles.pnlPos : styles.pnlNeg]}
+                                              >
+                                                {formatPnl(runnerPnl(runner)!)}
+                                              </Text>
+                                            )}
+                                            {runner.trainer && (
+                                              <TouchableOpacity
+                                                onPress={(e) => { e.stopPropagation(); onNavigateToTrainer(runner.trainer!, toFormCategory(race.raceType)); }}
+                                              >
+                                                <Text testID={`industry-sp-item-trainer-${runner.id}`} style={styles.trainerBadge} numberOfLines={1}>
+                                                  {runner.trainer}
+                                                  {runner.trainerFormRuns != null && runner.trainerFormRuns > 0 && runner.trainerFormWinRate != null && (
+                                                    <Text testID={`industry-sp-item-trainer-form-${runner.id}`} style={styles.trainerFormBadge}>
+                                                      {` · ${runner.trainerFormWins}/${runner.trainerFormRuns} · ${runner.trainerFormWinRate.toFixed(0)}%`}
+                                                    </Text>
+                                                  )}
+                                                </Text>
+                                              </TouchableOpacity>
+                                            )}
+                                            {runner.modelWinProbability != null && (
+                                              <Text testID={`industry-sp-item-model-${runner.id}`} style={styles.modelBadge}>
+                                                Model {runner.modelWinProbability.toFixed(0)}%
+                                                {runner.isp != null && runner.isp > 0 && (
+                                                  <Text testID={`industry-sp-item-implied-sp-${runner.id}`} style={styles.impliedSpBadge}>
+                                                    {` · SP ${impliedProbabilityPct(runner.isp).toFixed(0)}%`}
+                                                  </Text>
+                                                )}
+                                              </Text>
+                                            )}
+                                            {modelBeatsSp(runner) && (
+                                              <Text testID={`industry-sp-item-value-${runner.id}`} style={styles.valueBadge}>
+                                                Value
+                                              </Text>
+                                            )}
+                                            <View
+                                              style={[
+                                                styles.statusBadge,
+                                                {
+                                                  backgroundColor:
+                                                    (statusPill[runner.status] ?? statusPill.HIDDEN).bg,
+                                                },
+                                              ]}
+                                            >
+                                              <Text
+                                                style={[
+                                                  styles.statusText,
+                                                  { color: (statusPill[runner.status] ?? statusPill.HIDDEN).fg },
+                                                ]}
+                                              >
+                                                {runner.status}
+                                              </Text>
+                                            </View>
+                                          </TouchableOpacity>
+                                        ))}
+                                      </View>
+                                    ))}
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            })}
             {page < totalPages && (
               <Button
                 testID="industry-sp-load-more"
@@ -439,12 +655,81 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: "center",
   },
+  yearHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.text,
+    gap: spacing.sm,
+  },
+  yearLabel: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  monthHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md - 2,
+    backgroundColor: colors.accent,
+    gap: spacing.sm,
+  },
+  monthLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  dayHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: spacing.sm,
+  },
+  dayLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  groupChevron: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    width: 14,
+  },
+  groupChevronLight: {
+    color: "rgba(255,255,255,0.8)",
+  },
+  groupCount: {
+    fontSize: 11,
+    color: colors.textTertiary,
+    marginLeft: "auto",
+  },
+  groupCountLight: {
+    color: "rgba(255,255,255,0.7)",
+  },
+  groupPnl: {
+    fontSize: 11,
+    fontWeight: "700",
+    marginLeft: spacing.sm,
+  },
   eventHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md - 2,
     backgroundColor: colors.primaryLight,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    gap: spacing.sm,
   },
   eventName: {
     fontSize: 15,
@@ -466,11 +751,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: colors.text,
-  },
-  raceDate: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginLeft: 4,
   },
   raceType: {
     fontSize: 11,
