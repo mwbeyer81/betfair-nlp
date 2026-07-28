@@ -20,7 +20,10 @@ import {
   OddsMode,
   modelBeatsSp,
   impliedProbabilityPct,
+  runnerQualifies,
+  hasActiveQualifyingFilter,
 } from "../utils/ispFormat";
+import { urlQualifyingFilterParams } from "../utils/ispUrlParams";
 
 interface IndustryRaceScreenProps {
   navigate: (to: Route, query?: string) => void;
@@ -65,7 +68,15 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
     })();
   }, [raceId]);
 
-  const racePnl = race ? computeRangePnl([race]) : { staked: 0, returns: 0, pnl: 0, count: 0 };
+  // Present only when reached with a saved filter's own criteria in the URL
+  // (see App.tsx's onNavigateToMeeting/onNavigateToRace, threaded from
+  // SavedResultDetailScreen's Live Performance section) — a plain browse-in
+  // from the Races list carries none of these params, so filterActive is
+  // false and every runner shows, unchanged from before this existed.
+  const filterParams = urlQualifyingFilterParams();
+  const filterActive = hasActiveQualifyingFilter(filterParams);
+  const displayedRunners = race ? (filterActive ? race.runners.filter(r => runnerQualifies(r, filterParams)) : race.runners) : [];
+  const racePnl = race ? computeRangePnl([{ ...race, runners: displayedRunners }]) : { staked: 0, returns: 0, pnl: 0, count: 0 };
 
   return (
     <SafeAreaView testID="industry-race-screen" style={styles.screen}>
@@ -99,7 +110,11 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
       {!isLoading && race && (
         <View testID="industry-race-header" style={styles.raceInfoBar}>
           <Text style={styles.raceInfoName}>{race.raceName}</Text>
-          <Text style={styles.raceInfoMeta}>{race.ran} runners</Text>
+          <Text style={styles.raceInfoMeta}>
+            {filterActive
+              ? `${displayedRunners.length} of ${race.ran} runners qualify`
+              : `${race.ran} runners`}
+          </Text>
         </View>
       )}
 
@@ -145,10 +160,12 @@ export const IndustryRaceScreen: React.FC<IndustryRaceScreenProps> = ({
         {!isLoading && !error && race && (
           <ScrollView testID="industry-race-list" style={styles.list}>
           <PageContainer>
-            {race.runners.length === 0 && (
-              <Text style={styles.emptyText}>No runners found.</Text>
+            {displayedRunners.length === 0 && (
+              <Text testID="industry-race-empty" style={styles.emptyText}>
+                {filterActive ? "No runners qualify under this filter." : "No runners found."}
+              </Text>
             )}
-            {race.runners.map((runner: IspRunner) => (
+            {displayedRunners.map((runner: IspRunner) => (
               <TouchableOpacity
                 key={runner.id}
                 testID={`industry-race-item-${runner.id}`}

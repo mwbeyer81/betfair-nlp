@@ -3,6 +3,8 @@
 // view can be bookmarked, shared, or survive a refresh/navigation between
 // the filters screen and the races screen.
 
+import type { QualifyingFilterParams } from "./ispFormat";
+
 export function getUrlSearchParams(): URLSearchParams | null {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search);
@@ -77,6 +79,43 @@ export function urlSetParam(name: string): Set<string> {
 
 export function urlSortParam(): "asc" | "desc" {
   return getUrlSearchParams()?.get("sort") === "desc" ? "desc" : "asc";
+}
+
+// The subset of ISP_FILTER_PARAM_NAMES that determine "does this runner
+// qualify" (see ispFormat.ts's runnerQualifies/hasActiveQualifyingFilter) —
+// used by IndustryMeetingScreen/IndustryRaceScreen when reached from a
+// saved filter's Live Performance section (see SavedResultDetailScreen.tsx,
+// App.tsx's onNavigateToMeeting/onNavigateToRace), so the runner list shown
+// there matches exactly what that filter actually selected, rather than
+// showing the whole field.
+export function urlQualifyingFilterParams(): QualifyingFilterParams {
+  return {
+    minIsp: urlFloatParam("minIsp", 1),
+    maxIsp: urlFloatParam("maxIsp", 1000),
+    hasTrainerForm: urlStringParam("hasTrainerForm", "") === "true",
+    trainerFormMinWinRate: urlFloatParam("trainerFormMinWinRate", 0),
+    minModelWinProbability: urlFloatParam("minModelWinProbability", 0),
+    onlyModelBeatsSp: urlStringParam("onlyModelBeatsSp", "") === "true",
+  };
+}
+
+// Just the param names urlQualifyingFilterParams() reads — used to carry a
+// filter's own qualifying criteria along when navigating from a filtered
+// context (the Races list's current URL, or a saved filter's own `filters`
+// map) into a specific meeting/race, without also dragging along unrelated
+// params (fromRow/toRow/page/sort/...) that don't apply to a single
+// already-identified meeting/race.
+const QUALIFYING_FILTER_PARAM_NAMES = [
+  "minIsp", "maxIsp", "hasTrainerForm", "trainerFormMinWinRate", "minModelWinProbability", "onlyModelBeatsSp",
+];
+
+export function qualifyingFilterQueryFromParams(params: URLSearchParams): string {
+  const out = new URLSearchParams();
+  for (const name of QUALIFYING_FILTER_PARAM_NAMES) {
+    const value = params.get(name);
+    if (value != null) out.set(name, value);
+  }
+  return out.toString();
 }
 
 export function updateUrlParams(params: Record<string, string | undefined>): void {

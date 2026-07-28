@@ -8,6 +8,7 @@ import { AppHeader } from "./AppHeader";
 import { PageContainer } from "./PageContainer";
 import { buildFilterSummaryFromParams, formatPnl, formatPct, formatRaceTime } from "../utils/ispFormat";
 import { buildHierarchy, collectHierarchyNodeKeys } from "../utils/raceHierarchy";
+import { qualifyingFilterQueryFromParams } from "../utils/ispUrlParams";
 import { colors, radii, spacing } from "../theme";
 import type { Route } from "../hooks/useRouter";
 
@@ -41,14 +42,23 @@ function sumPnlStats(items: LiveFilterResult[]): LivePnlStats {
 // historical Races view already uses.
 function LivePerformanceSection({
   results,
+  filters,
   onNavigateToMeeting,
   onNavigateToRace,
 }: {
   results: LiveFilterResult[];
-  onNavigateToMeeting: (meetingId: string) => void;
-  onNavigateToRace: (raceId: number) => void;
+  filters: Record<string, string>;
+  onNavigateToMeeting: (meetingId: string, filterQuery: string) => void;
+  onNavigateToRace: (raceId: number, filterQuery: string) => void;
 }) {
   const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+  // This filter's own qualifying criteria, threaded through to the meeting/
+  // race screens so the runner list shown there matches exactly what this
+  // filter actually selected — same fields IspRacesScreen.tsx itself reads
+  // from the URL (minIsp/maxIsp/hasTrainerForm/trainerFormMinWinRate/
+  // minModelWinProbability/onlyModelBeatsSp), see ispFormat.ts's
+  // runnerQualifies/hasActiveQualifyingFilter.
+  const filterQuery = qualifyingFilterQueryFromParams(new URLSearchParams(filters));
 
   if (results.length === 0) {
     return (
@@ -172,7 +182,7 @@ function LivePerformanceSection({
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                   testID={`saved-result-live-meeting-link-${meeting.meetingId}`}
-                                  onPress={() => onNavigateToMeeting(meeting.meetingId)}
+                                  onPress={() => onNavigateToMeeting(meeting.meetingId, filterQuery)}
                                 >
                                   <Text style={styles.liveMeetingLabel}>{meeting.label}</Text>
                                 </TouchableOpacity>
@@ -189,7 +199,7 @@ function LivePerformanceSection({
                                   key={race.raceId}
                                   testID={`saved-result-live-race-${race.raceId}`}
                                   style={styles.liveRaceRow}
-                                  onPress={() => onNavigateToRace(race.raceId)}
+                                  onPress={() => onNavigateToRace(race.raceId, filterQuery)}
                                 >
                                   <Text style={styles.liveRaceTime}>{formatRaceTime(race.raceTime)}</Text>
                                   <Text style={styles.liveRaceName} numberOfLines={1}>{race.raceName}</Text>
@@ -224,8 +234,8 @@ interface SavedResultDetailScreenProps {
   id: string;
   onBack: () => void;
   onRestore: (filters: Record<string, string>) => void;
-  onNavigateToMeeting: (meetingId: string) => void;
-  onNavigateToRace: (raceId: number) => void;
+  onNavigateToMeeting: (meetingId: string, filterQuery: string) => void;
+  onNavigateToRace: (raceId: number, filterQuery: string) => void;
 }
 
 // The live Filters screen's own Split A/Split B card look (see
@@ -456,6 +466,7 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
               {!liveLoading && !liveError && (
                 <LivePerformanceSection
                   results={liveResults}
+                  filters={result.filters}
                   onNavigateToMeeting={onNavigateToMeeting}
                   onNavigateToRace={onNavigateToRace}
                 />

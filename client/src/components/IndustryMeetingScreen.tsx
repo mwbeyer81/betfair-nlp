@@ -20,7 +20,10 @@ import {
   OddsMode,
   modelBeatsSp,
   impliedProbabilityPct,
+  runnerQualifies,
+  hasActiveQualifyingFilter,
 } from "../utils/ispFormat";
+import { urlQualifyingFilterParams } from "../utils/ispUrlParams";
 
 interface IndustryMeetingScreenProps {
   navigate: (to: Route, query?: string) => void;
@@ -65,9 +68,24 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
     })();
   }, [meetingId]);
 
+  // Present only when reached with a saved filter's own criteria in the URL
+  // (see App.tsx's onNavigateToMeeting/onNavigateToRace, threaded from
+  // SavedResultDetailScreen's Live Performance section) — a plain browse-in
+  // from the Races list carries none of these params, so filterActive is
+  // false and every race/runner shows, unchanged from before this existed.
+  // A race with zero qualifying runners is dropped entirely rather than
+  // shown empty, matching Live Performance's own "absence means no match".
+  const filterParams = urlQualifyingFilterParams();
+  const filterActive = hasActiveQualifyingFilter(filterParams);
+  const displayedRaces = filterActive
+    ? races
+        .map(race => ({ ...race, runners: race.runners.filter(r => runnerQualifies(r, filterParams)) }))
+        .filter(race => race.runners.length > 0)
+    : races;
+
   const meetingName = races[0]?.meetingName ?? "";
-  const meetingPnl = computeRangePnl(races);
-  const totalRunners = races.reduce((sum, r) => sum + r.runners.length, 0);
+  const meetingPnl = computeRangePnl(displayedRaces);
+  const totalRunners = displayedRaces.reduce((sum, r) => sum + r.runners.length, 0);
 
   return (
     <SafeAreaView testID="industry-meeting-screen" style={styles.screen}>
@@ -79,7 +97,7 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
         onBack={onBack}
         subtitle={
           !isLoading
-            ? `${meetingName || "Meeting"} · ${races.length} races · ${totalRunners} runners`
+            ? `${meetingName || "Meeting"} · ${displayedRaces.length} races · ${totalRunners}${filterActive ? " qualifying" : ""} runners`
             : meetingName || "Meeting"
         }
         testIdPrefix="industry-meeting"
@@ -140,10 +158,12 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
         {!isLoading && !error && (
           <ScrollView testID="industry-meeting-list" style={styles.list}>
           <PageContainer>
-            {races.length === 0 && (
-              <Text style={styles.emptyText}>No races found.</Text>
+            {displayedRaces.length === 0 && (
+              <Text testID="industry-meeting-empty" style={styles.emptyText}>
+                {filterActive ? "No races qualify under this filter." : "No races found."}
+              </Text>
             )}
-            {races.map(race => (
+            {displayedRaces.map(race => (
               <View key={race.raceId}>
                 <TouchableOpacity
                   testID={`industry-meeting-race-${race.raceId}`}

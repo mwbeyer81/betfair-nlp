@@ -30,6 +30,33 @@ const defaultHandlers = [
   ),
 ];
 
+// Same decorator pattern IspRacesScreen.stories.tsx uses to simulate
+// arriving with filter query params already in the URL (see App.tsx's
+// onNavigateToMeeting/onNavigateToRace, threaded from SavedResultDetailScreen's
+// Live Performance section) — this screen reads them directly via
+// ispUrlParams.ts's urlQualifyingFilterParams(), not via props.
+const withQueryParams = (search: string) => {
+  const Decorator = (Story: React.ComponentType) => {
+    window.history.pushState({}, "", `${window.location.pathname}?${search}`);
+    return <Story />;
+  };
+  return Decorator;
+};
+
+// Regression coverage for a real prod bug (reported live with a screenshot):
+// tapping through from a saved filter's Live Performance section into a
+// race showed every runner in the field, not just the one(s) that actually
+// qualified. Red Stripes/Aqlette both beat their own SP; Filtered Favourite
+// has no modelWinProbability at all, so modelBeatsSp is false for it.
+const FILTERED_MOCK_RACE = {
+  ...MOCK_RACE,
+  runners: [
+    { id: 31001, name: "Red Stripes", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbability: 26 },
+    { id: 31002, name: "Aqlette", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 17, ispFraction: "16/1", isFavourite: false, modelWinProbability: 21 },
+    { id: 31003, name: "Filtered Favourite", num: 3, draw: null, status: "LOSER", sortPriority: 3, isp: 2, ispFraction: "1/1", isFavourite: true },
+  ],
+};
+
 const meta: Meta<typeof IndustryRaceScreen> = {
   title: "Components/IndustryRaceScreen",
   component: IndustryRaceScreen,
@@ -172,5 +199,64 @@ export const RendersAtLaptop: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-race-list");
     await expect(canvas.getByTestId("industry-race-screen")).toBeInTheDocument();
+  },
+};
+
+export const FilterActiveShowsOnlyQualifyingRunners: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp/race/:raceId`, () =>
+          HttpResponse.json({ success: true, data: FILTERED_MOCK_RACE })
+        ),
+      ],
+    },
+  },
+  decorators: [withQueryParams("onlyModelBeatsSp=true&minModelWinProbability=20")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    try {
+      await canvas.findByTestId("industry-race-list");
+
+      // Only the two runners that beat their own SP AND clear the 20%
+      // confidence threshold are shown...
+      await expect(canvas.getByTestId("industry-race-item-31001")).toBeInTheDocument();
+      await expect(canvas.getByTestId("industry-race-item-31002")).toBeInTheDocument();
+      // ...the third (no modelWinProbability at all) is not.
+      await expect(canvas.queryByTestId("industry-race-item-31003")).not.toBeInTheDocument();
+      await expect(canvas.getByTestId("industry-race-header")).toHaveTextContent("2 of 3 runners qualify");
+
+      // The PnL bar reflects only the two qualifying runners' stakes —
+      // Red Stripes 1/(5-1)=0.25 staked, WINNER returns 0.25+1=1.25;
+      // Aqlette 1/(17-1)=0.0625 staked, LOSER returns 0. Staked 0.3125,
+      // returns 1.25, net +£0.94 (excludes the filtered-out third
+      // runner's own -£1.00 loser stake entirely).
+      await expect(canvas.getByTestId("industry-race-pnl-count")).toHaveTextContent("2");
+      await expect(canvas.getByTestId("industry-race-pnl")).toHaveTextContent("+£0.94");
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  },
+};
+
+export const NoFilterInUrlShowsEveryRunner: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp/race/:raceId`, () =>
+          HttpResponse.json({ success: true, data: FILTERED_MOCK_RACE })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-race-list");
+    // A plain browse-in (no filter query params at all) shows the whole
+    // field, unchanged from before filter-awareness existed.
+    await expect(canvas.getByTestId("industry-race-item-31001")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-race-item-31002")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-race-item-31003")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-race-header")).toHaveTextContent("3 runners");
   },
 };

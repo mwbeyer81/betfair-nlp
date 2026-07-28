@@ -71,6 +71,48 @@ export function computeModelFilteredPnl(races: IspRace[], minModelWinProbability
   return { staked, returns, pnl: returns - staked, count };
 }
 
+// The same qualifying-runner filter dimensions IspRacesScreen.tsx's own
+// filter form exposes (minus row-range/date/course-type fields, which don't
+// apply to a single already-identified race/meeting).
+export interface QualifyingFilterParams {
+  minIsp: number;
+  maxIsp: number;
+  hasTrainerForm: boolean;
+  trainerFormMinWinRate: number;
+  minModelWinProbability: number;
+  onlyModelBeatsSp: boolean;
+}
+
+// True when at least one qualifying condition is actually active — lets a
+// caller distinguish "no filter context, show everything" (e.g. an
+// IndustryMeetingScreen/IndustryRaceScreen reached by plain browsing) from
+// "narrow to just what this filter selected" (reached from a saved filter's
+// Live Performance section).
+export function hasActiveQualifyingFilter(p: QualifyingFilterParams): boolean {
+  return p.minIsp > 1 || p.maxIsp < 1000 || p.hasTrainerForm || p.minModelWinProbability > 0 || p.onlyModelBeatsSp;
+}
+
+// Same per-runner condition as IspRacesScreen.tsx's own local
+// qualifyingRunners() closure (duplicated rather than imported — that
+// closure captures component state directly, this is the pure equivalent
+// for screens that don't have that state). Checks minIsp/maxIsp directly
+// (IspRacesScreen doesn't need to — the /api/industry-sp endpoint it calls
+// already pre-filters each race's runners array to the requested isp
+// range), since IndustryMeetingScreen/IndustryRaceScreen fetch a specific
+// meeting/race by id with no such server-side narrowing.
+export function runnerQualifies(r: IspRunner, p: QualifyingFilterParams): boolean {
+  if (r.isp == null || r.isp <= 1) return false;
+  if (r.isp < p.minIsp || r.isp > p.maxIsp) return false;
+  if (p.hasTrainerForm && !(r.trainerFormWinRate != null && r.trainerFormWinRate >= p.trainerFormMinWinRate)) {
+    return false;
+  }
+  if (p.minModelWinProbability > 0 && !(r.modelWinProbability != null && r.modelWinProbability >= p.minModelWinProbability)) {
+    return false;
+  }
+  if (p.onlyModelBeatsSp && !modelBeatsSp(r)) return false;
+  return true;
+}
+
 export function runnerPnl(runner: IspRunner): number | null {
   if (runner.isp == null) return null;
   return runner.status === "WINNER" ? 1 : -stakeToWin1(runner.isp);

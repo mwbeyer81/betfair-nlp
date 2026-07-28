@@ -25,6 +25,7 @@ import { DailyRunnerDetailScreen } from "./src/components/DailyRunnerDetailScree
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
 import { buildReturnParams, resolveReturn } from "./src/utils/returnNav";
+import { qualifyingFilterQueryFromParams } from "./src/utils/ispUrlParams";
 import { theme, colors } from "./src/theme";
 
 const TOKEN_KEY = "auth_token";
@@ -143,9 +144,14 @@ export default function App() {
           onRequestAuth={onRequestAuth}
           onBack={() => navigate("/isp", window.location.search.slice(1))}
           onNavigateToMeeting={(meetingId) =>
-            navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}&${buildReturnParams(route)}`)
+            navigate(
+              "/isp/meeting",
+              `id=${encodeURIComponent(meetingId)}&${qualifyingFilterQueryFromParams(queryParams)}&${buildReturnParams(route)}`
+            )
           }
-          onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}&${buildReturnParams(route)}`)}
+          onNavigateToRace={(raceId) =>
+            navigate("/isp/race", `id=${raceId}&${qualifyingFilterQueryFromParams(queryParams)}&${buildReturnParams(route)}`)
+          }
           onNavigateToRunner={(raceId, runnerId) =>
             navigate("/isp/runner", `raceId=${raceId}&runnerId=${runnerId}&${buildReturnParams(route)}`)
           }
@@ -170,7 +176,9 @@ export default function App() {
           onRequestAuth={onRequestAuth}
           meetingId={meetingId}
           onBack={() => navigate(back.route, back.query)}
-          onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}&${buildReturnParams(route)}`)}
+          onNavigateToRace={(raceId) =>
+            navigate("/isp/race", `id=${raceId}&${qualifyingFilterQueryFromParams(queryParams)}&${buildReturnParams(route)}`)
+          }
           onNavigateToRunner={(raceId, runnerId) =>
             navigate("/isp/runner", `raceId=${raceId}&runnerId=${runnerId}&${buildReturnParams(route)}`)
           }
@@ -206,7 +214,7 @@ export default function App() {
           onNavigateToMeeting={(meetingId) =>
             navigate(
               "/isp/meeting",
-              `id=${encodeURIComponent(meetingId)}&returnRoute=${encodeURIComponent(back.route)}&returnQuery=${encodeURIComponent(back.query)}`
+              `id=${encodeURIComponent(meetingId)}&${qualifyingFilterQueryFromParams(queryParams)}&returnRoute=${encodeURIComponent(back.route)}&returnQuery=${encodeURIComponent(back.query)}`
             )
           }
           onNavigateToIsp={() => navigate(back.route, back.query)}
@@ -353,10 +361,12 @@ export default function App() {
           id={id}
           onBack={() => navigate("/results")}
           onRestore={(filters) => navigate("/isp", new URLSearchParams(filters).toString())}
-          onNavigateToMeeting={(meetingId) =>
-            navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}&${buildReturnParams(route)}`)
+          onNavigateToMeeting={(meetingId, filterQuery) =>
+            navigate("/isp/meeting", `id=${encodeURIComponent(meetingId)}&${filterQuery}&${buildReturnParams(route)}`)
           }
-          onNavigateToRace={(raceId) => navigate("/isp/race", `id=${raceId}&${buildReturnParams(route)}`)}
+          onNavigateToRace={(raceId, filterQuery) =>
+            navigate("/isp/race", `id=${raceId}&${filterQuery}&${buildReturnParams(route)}`)
+          }
         />
       );
     }

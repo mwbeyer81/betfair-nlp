@@ -310,7 +310,11 @@ export const LiveMeetingLinkNavigatesToMeeting: Story = {
     const canvas = within(canvasElement);
     const meetingLink = await canvas.findByTestId("saved-result-live-meeting-link-Ascot|2026-07-27");
     await userEvent.click(meetingLink);
-    await expect(args.onNavigateToMeeting).toHaveBeenCalledWith("Ascot|2026-07-27");
+    // MOCK_RESULT.filters carries no qualifying-filter params (courses/
+    // minDate/maxDate only), so the forwarded filter query is empty here —
+    // see FilterAwareLiveMeetingLinkForwardsFilterQuery below for a filter
+    // set that actually carries minModelWinProbability/onlyModelBeatsSp.
+    await expect(args.onNavigateToMeeting).toHaveBeenCalledWith("Ascot|2026-07-27", "");
   },
 };
 
@@ -329,7 +333,52 @@ export const LiveRaceRowNavigatesToRace: Story = {
     const canvas = within(canvasElement);
     const raceRow = await canvas.findByTestId("saved-result-live-race-914592");
     await userEvent.click(raceRow);
-    await expect(args.onNavigateToRace).toHaveBeenCalledWith(914592);
+    await expect(args.onNavigateToRace).toHaveBeenCalledWith(914592, "");
+  },
+};
+
+// Regression coverage for a real prod bug (reported live with a screenshot):
+// tapping through from Live Performance into a race showed every runner in
+// the field, not just the one(s) that actually qualified under this saved
+// filter — the navigation never carried the filter's own criteria along at
+// all. This mock result's filters DO carry qualifying params, unlike
+// MOCK_RESULT above, so the forwarded query string is non-empty.
+const MOCK_RESULT_WITH_QUALIFYING_FILTER = {
+  ...MOCK_RESULT,
+  id: "result-2",
+  filters: { courses: "Ascot", minModelWinProbability: "20", onlyModelBeatsSp: "true" },
+};
+
+export const FilterAwareLiveMeetingLinkForwardsFilterQuery: Story = {
+  args: { id: "result-2" },
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/saved-filter-sets/:id`, () =>
+          HttpResponse.json({ success: true, data: MOCK_RESULT_WITH_QUALIFYING_FILTER })
+        ),
+        http.get(`${BASE}/api/saved-filter-sets/:id/live-performance`, () =>
+          HttpResponse.json({ success: true, data: MOCK_LIVE_RESULTS, count: MOCK_LIVE_RESULTS.length })
+        ),
+        ...defaultHandlers,
+      ],
+    },
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    const meetingLink = await canvas.findByTestId("saved-result-live-meeting-link-Ascot|2026-07-27");
+    await userEvent.click(meetingLink);
+    await expect(args.onNavigateToMeeting).toHaveBeenCalledWith(
+      "Ascot|2026-07-27",
+      "minModelWinProbability=20&onlyModelBeatsSp=true"
+    );
+
+    const raceRow = await canvas.findByTestId("saved-result-live-race-914592");
+    await userEvent.click(raceRow);
+    await expect(args.onNavigateToRace).toHaveBeenCalledWith(
+      914592,
+      "minModelWinProbability=20&onlyModelBeatsSp=true"
+    );
   },
 };
 
