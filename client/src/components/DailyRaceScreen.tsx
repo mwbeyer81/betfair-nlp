@@ -5,15 +5,15 @@ import { chatApi, DailyRace } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
+import { fairDecimalOdds, toFractionalOdds } from "../utils/oddsFormat";
 import type { Route } from "../hooks/useRouter";
-import { formatMinValueOdds } from "../utils/dailyRaceFormat";
 
 const FORM_TOOLTIP =
   "Recent finishing positions, oldest to newest (left to right). A dash marks the start of a new season. 0 means finished outside the top 9.";
 const MODEL_TOOLTIP =
   "Our model's estimated chance this horse wins the race, based on its recent form. Percentages across all runners in a race add up to about 100%.";
-const VALUE_ODDS_TOOLTIP =
-  "The minimum odds you'd need to back this horse for it to be a value bet, based purely on the model's own win probability (100 ÷ probability) — no live market price is used. Anything offered at or above this price is worth backing by the model's view.";
+const FAIR_ODDS_TOOLTIP =
+  "The odds at which backing this horse would break even long-run, based on the model's chance. If a bookmaker offers higher odds than this, it may be worth backing; lower, and it likely isn't.";
 
 interface DailyRaceScreenProps {
   navigate: (to: Route, query?: string) => void;
@@ -128,7 +128,7 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                     <Text style={styles.drawBadge}>Draw {runner.draw}</Text>
                   )}
                   {runner.form && (
-                    <>
+                    <View style={styles.pillGroup}>
                       <TouchableOpacity
                         testID={`daily-race-item-form-${runner.runnerId}`}
                         onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(`${runner.runnerId}:form`); }}
@@ -136,10 +136,10 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                         <Text style={styles.formBadge}>{runner.form}</Text>
                       </TouchableOpacity>
                       {renderTooltipToggle(`${runner.runnerId}:form`, `daily-race-item-form-tooltip-toggle-${runner.runnerId}`)}
-                    </>
+                    </View>
                   )}
                   {runner.modelWinProbability != null && (
-                    <>
+                    <View style={styles.pillGroup}>
                       <TouchableOpacity
                         onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(`${runner.runnerId}:model`); }}
                       >
@@ -148,19 +148,19 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                         </Text>
                       </TouchableOpacity>
                       {renderTooltipToggle(`${runner.runnerId}:model`, `daily-race-item-model-tooltip-toggle-${runner.runnerId}`)}
-                    </>
+                    </View>
                   )}
-                  {runner.modelWinProbability != null && (
-                    <>
+                  {runner.modelWinProbability != null && fairDecimalOdds(runner.modelWinProbability) != null && (
+                    <View style={styles.pillGroup}>
                       <TouchableOpacity
-                        onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(`${runner.runnerId}:value-odds`); }}
+                        onPress={(e: any) => { e?.stopPropagation?.(); toggleTooltip(`${runner.runnerId}:fairOdds`); }}
                       >
-                        <Text testID={`daily-race-item-value-odds-${runner.runnerId}`} style={styles.valueOddsBadge}>
-                          Value ≥ {formatMinValueOdds(runner.modelWinProbability)}
+                        <Text testID={`daily-race-item-fair-odds-${runner.runnerId}`} style={styles.fairOddsBadge}>
+                          Fair {toFractionalOdds(fairDecimalOdds(runner.modelWinProbability)!)} ({fairDecimalOdds(runner.modelWinProbability)!.toFixed(2)})
                         </Text>
                       </TouchableOpacity>
-                      {renderTooltipToggle(`${runner.runnerId}:value-odds`, `daily-race-item-value-odds-tooltip-toggle-${runner.runnerId}`)}
-                    </>
+                      {renderTooltipToggle(`${runner.runnerId}:fairOdds`, `daily-race-item-fair-odds-tooltip-toggle-${runner.runnerId}`)}
+                    </View>
                   )}
                   {openTooltip === `${runner.runnerId}:form` && (
                     <Text testID={`daily-race-item-form-tooltip-${runner.runnerId}`} style={styles.tooltipText}>
@@ -172,9 +172,9 @@ export const DailyRaceScreen: React.FC<DailyRaceScreenProps> = ({
                       {MODEL_TOOLTIP}
                     </Text>
                   )}
-                  {openTooltip === `${runner.runnerId}:value-odds` && (
-                    <Text testID={`daily-race-item-value-odds-tooltip-${runner.runnerId}`} style={styles.tooltipText}>
-                      {VALUE_ODDS_TOOLTIP}
+                  {openTooltip === `${runner.runnerId}:fairOdds` && (
+                    <Text testID={`daily-race-item-fair-odds-tooltip-${runner.runnerId}`} style={styles.tooltipText}>
+                      {FAIR_ODDS_TOOLTIP}
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -209,6 +209,11 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     gap: spacing.sm,
   },
+  // Groups a pill with its "?" tooltip-toggle icon into one flex item, so
+  // flexWrap on runnerRow breaks the line between groups, never between a
+  // pill and its own icon (that used to happen — the icon would wrap onto
+  // its own line, orphaned from the pill it belonged to).
+  pillGroup: { flexDirection: "row", alignItems: "center", gap: 4 },
   number: { fontSize: 12, color: colors.textTertiary, width: 22 },
   horseName: { fontSize: 13, fontWeight: "600", color: colors.text, maxWidth: 160 },
   badge: { fontSize: 11, color: colors.textSecondary, maxWidth: 140 },
@@ -225,11 +230,11 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     borderRadius: radii.sm,
   },
-  valueOddsBadge: {
+  fairOddsBadge: {
     fontSize: 11,
-    fontWeight: "700",
-    color: colors.success,
-    backgroundColor: colors.successLight,
+    fontWeight: "600",
+    color: colors.info,
+    backgroundColor: colors.infoLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,

@@ -180,7 +180,7 @@ export const ApplyModelFilterShowsPicks: Story = {
     await expect(canvas.getByTestId("daily-races-pick-hrs_3")).toBeInTheDocument();
     await expect(canvas.queryByTestId("daily-races-pick-hrs_2")).not.toBeInTheDocument();
     // 25 -> breakeven decimal odds 100/25 = 4.00, nearest simple fraction 3/1.
-    await expect(canvas.getByTestId("daily-races-pick-value-odds-hrs_1")).toHaveTextContent("Value ≥ 4.00 (3/1)");
+    await expect(canvas.getByTestId("daily-races-pick-fair-odds-hrs_1")).toHaveTextContent("Fair 3/1 (4.00)");
   },
 };
 

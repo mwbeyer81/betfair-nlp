@@ -36,7 +36,12 @@ test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
     await expect(page.getByTestId("daily-race-item-hrs_1")).toBeVisible();
     await expect(page.getByTestId("daily-race-item-hrs_2")).toBeVisible();
 
-    await page.getByTestId("daily-race-item-hrs_1").click();
+    // Click the horse name specifically, not the row's own testID — with
+    // three tap-to-reveal pills now present (form/model/fair-odds), the
+    // row's bounding-box center (Playwright's default click point for a
+    // whole-row locator) can land on a pill instead, which by design opens
+    // its tooltip and stops the row's own navigation from firing.
+    await page.getByTestId("daily-race-item-horse-hrs_1").click();
     await expect(page.getByTestId("daily-runner-detail-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("/daily-races/runner");
     await expect(page.getByTestId("daily-runner-detail-course")).toHaveText("Newton Abbot");
@@ -67,7 +72,7 @@ test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
     await expect(page.getByTestId("daily-race-list")).not.toBeVisible();
   });
 
-  test("applying a model win% filter narrows Today's Picks and shows the value-odds badge, and a pick navigates to its race", async ({ page }) => {
+  test("applying a model win% filter narrows Today's Picks and shows the fair-odds badge, and a pick navigates to its race", async ({ page }) => {
     await page.goto("/daily-races");
     await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
@@ -80,13 +85,13 @@ test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
 
     await expect(page.getByTestId("daily-races-picks-list")).toBeVisible();
     await expect(page.getByTestId("daily-races-pick-hrs_1")).toBeVisible();
-    await expect(page.getByTestId("daily-races-pick-value-odds-hrs_1")).toHaveText("Value ≥ 4.00 (3/1)");
+    await expect(page.getByTestId("daily-races-pick-fair-odds-hrs_1")).toHaveText("Fair 3/1 (4.00)");
     await expect(page.getByTestId("daily-races-pick-hrs_2")).not.toBeVisible();
 
     await page.getByTestId("daily-races-pick-hrs_1").click();
     await expect(page.getByTestId("daily-race-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("/daily-races/race");
     await expect(page.getByTestId("daily-race-item-hrs_1")).toBeVisible();
-    await expect(page.getByTestId("daily-race-item-value-odds-hrs_1")).toHaveText("Value ≥ 4.00 (3/1)");
+    await expect(page.getByTestId("daily-race-item-fair-odds-hrs_1")).toHaveText("Fair 3/1 (4.00)");
   });
 });

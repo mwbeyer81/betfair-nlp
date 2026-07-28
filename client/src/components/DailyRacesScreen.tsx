@@ -14,7 +14,8 @@ import { colors, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
 import type { Route } from "../hooks/useRouter";
-import { formatMinValueOdds, buildDailyRacesPicks, DailyRacesFilters } from "../utils/dailyRaceFormat";
+import { buildDailyRacesPicks, DailyRacesFilters } from "../utils/dailyRaceFormat";
+import { fairDecimalOdds, toFractionalOdds } from "../utils/oddsFormat";
 import {
   urlIntParam,
   urlFloatParam,
@@ -576,9 +577,11 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
                       <Text testID={`daily-races-pick-model-${runner.runnerId}`} style={styles.pickModelBadge}>
                         Model {runner.modelWinProbability?.toFixed(0)}%
                       </Text>
-                      <Text testID={`daily-races-pick-value-odds-${runner.runnerId}`} style={styles.pickValueOddsBadge}>
-                        Value ≥ {formatMinValueOdds(runner.modelWinProbability)}
-                      </Text>
+                      {runner.modelWinProbability != null && fairDecimalOdds(runner.modelWinProbability) != null && (
+                        <Text testID={`daily-races-pick-fair-odds-${runner.runnerId}`} style={styles.pickFairOddsBadge}>
+                          Fair {toFractionalOdds(fairDecimalOdds(runner.modelWinProbability)!)} ({fairDecimalOdds(runner.modelWinProbability)!.toFixed(2)})
+                        </Text>
+                      )}
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -817,11 +820,11 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     borderRadius: radii.sm,
   },
-  pickValueOddsBadge: {
+  pickFairOddsBadge: {
     fontSize: 11,
-    fontWeight: "700",
-    color: colors.success,
-    backgroundColor: colors.successLight,
+    fontWeight: "600",
+    color: colors.info,
+    backgroundColor: colors.infoLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,
