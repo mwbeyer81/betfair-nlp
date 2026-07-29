@@ -54,6 +54,7 @@
     "identityHost": "https://identitysso.betfair.com",
     "exchangeHost": "https://api.betfair.com/exchange",
     "appKey": "",
+    "sessionId": "",
     "username": "",
     "password": "",
     "dryRun": true

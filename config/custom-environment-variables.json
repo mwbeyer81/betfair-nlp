@@ -47,6 +47,7 @@
     "identityHost": "BETFAIR_IDENTITY_HOST",
     "exchangeHost": "BETFAIR_EXCHANGE_HOST",
     "appKey": "BETFAIR_APP_KEY",
+    "sessionId": "BETFAIR_SESSION_ID",
     "username": "BETFAIR_USERNAME",
     "password": "BETFAIR_PASSWORD",
     "dryRun": "BETFAIR_DRY_RUN"

@@ -1,13 +1,15 @@
 import config from "config";
 
-// Thin wrapper over Betfair's Exchange API-NG (the stable, long-documented
-// JSON-RPC interface — https://developer.betfair.com). Written from a
-// confident recollection of that interface's shape (identity login,
-// SportsAPING/v1.0 JSON-RPC methods), NOT verified against a live account
-// this session (no credentials exist yet — see AGENTS.md's
-// daily-races-bet-button entry). Confirm current field/enum names against
-// Betfair's own Developer Program docs before ever setting
-// betfair.dryRun=false against a real account.
+// Thin wrapper over Betfair's Exchange API-NG. Wire format confirmed live
+// (2026-07-29, see AGENTS.md's "primary checkout, directly on develop,
+// docs-only" dated entry — a different agent's session, pure connectivity
+// exploration, no feature code written there) — NOT the JSON-RPC-style
+// interface this file originally guessed at, but individual REST-style
+// operation endpoints: `POST {exchangeHost}/betting/rest/v1.0/<operation>/`
+// with the params object as the raw JSON body, plain JSON result back (no
+// jsonrpc envelope). Errors come back as HTTP 400 with a SOAP-fault-shaped
+// body (`{faultcode, faultstring, detail: {APINGException: {errorCode}}}`),
+// not a network-level failure — see readApingErrorCode below.
 //
 // Safety: this client is not the safety boundary by itself — placeOrders()
 // below refuses to make a real network call whenever dryRun is on,
@@ -31,6 +33,11 @@ function readConfigBoolean(key: string, fallback: boolean): boolean {
   } catch {
     return fallback;
   }
+}
+
+export interface BetfairEventType {
+  eventType: { id: string; name: string };
+  marketCount: number;
 }
 
 export interface BetfairRunnerCatalog {
@@ -71,15 +78,22 @@ export type BetfairPlaceOrderResult =
   | { outcome: "SUCCESS"; betId: string; matchedPrice: number }
   | { outcome: "FAILURE"; error: string };
 
-interface JsonRpcResponse<T> {
-  result?: T;
-  error?: { message?: string; data?: unknown };
+// Best-effort extraction across the couple of shapes Betfair's API-NG
+// errors are documented/observed to take — defensive rather than a single
+// assumed path, since the exact nesting wasn't independently re-verified
+// this session (only that "it's a JSON APINGException body" was confirmed
+// live, not the precise field path).
+function readApingErrorCode(body: unknown): string | null {
+  const b = body as Record<string, unknown> | null;
+  if (!b) return null;
+  const detail = b.detail as Record<string, unknown> | undefined;
+  const aping = detail?.APINGException as Record<string, unknown> | undefined;
+  if (typeof aping?.errorCode === "string") return aping.errorCode;
+  if (typeof b.errorCode === "string") return b.errorCode as string;
+  if (typeof b.faultstring === "string") return b.faultstring as string;
+  return null;
 }
 
-// Betfair session tokens are interactive-login tokens that stay valid for
-// hours, not seconds — cached in memory per client instance rather than
-// re-logging in on every call, with re-login only on an explicit session
-// error from a real API call (no fixed TTL guess baked in).
 export class BetfairApiClient {
   private identityHost: string;
   private exchangeHost: string;
@@ -87,22 +101,38 @@ export class BetfairApiClient {
   private username: string;
   private password: string;
   private dryRun: boolean;
+  // A session token obtained outside this process (e.g. copied from
+  // Betfair's own API-NG visualiser) — when present, used as-is and never
+  // refreshed automatically, since there's no username/password on file to
+  // re-login with. See the AGENTS.md entry referenced above: the current
+  // real-world setup is exactly this (a manually-obtained SSOID), not
+  // server-driven login, so this takes priority over username/password.
+  private fixedSessionId: string;
   private sessionToken: string | null = null;
 
   constructor() {
     this.identityHost = readConfigString("betfair.identityHost") || "https://identitysso.betfair.com";
     this.exchangeHost = readConfigString("betfair.exchangeHost") || "https://api.betfair.com/exchange";
-    this.appKey = readConfigString("betfair.appKey");
+    // delayAppKey is the field name already sitting in config/local.json
+    // from the connectivity exploration referenced above (a free "Delay"
+    // app key, ~1min delayed market data — the account's only application)
+    // — accepted as a fallback so this reads real, already-configured
+    // local credentials without requiring them to be renamed/duplicated.
+    this.appKey = readConfigString("betfair.appKey") || readConfigString("betfair.delayAppKey");
     this.username = readConfigString("betfair.username");
     this.password = readConfigString("betfair.password");
+    this.fixedSessionId = readConfigString("betfair.sessionId");
     // Defaults to true (the safe state) whenever the config value is
     // missing/malformed — a misconfigured deploy must fail safe into
     // "never actually bets", not the other way around.
     this.dryRun = readConfigBoolean("betfair.dryRun", true);
   }
 
+  // A fixed sessionId is itself enough to make calls (no login needed);
+  // otherwise a username+password pair is required for the interactive
+  // login flow.
   public hasCredentials(): boolean {
-    return Boolean(this.appKey && this.username && this.password);
+    return Boolean(this.appKey) && Boolean(this.fixedSessionId || (this.username && this.password));
   }
 
   public isDryRun(): boolean {
@@ -128,41 +158,45 @@ export class BetfairApiClient {
   }
 
   private async ensureSession(): Promise<string> {
+    if (this.fixedSessionId) return this.fixedSessionId;
     if (this.sessionToken) return this.sessionToken;
     return this.login();
   }
 
-  // Betfair's Sports AP-ING is a JSON-RPC 2.0 interface — one endpoint,
-  // method name in the body (e.g. "SportsAPING/v1.0/listMarketCatalogue").
-  private async jsonRpc<T>(method: string, params: unknown, retryOnSessionError = true): Promise<T> {
+  private async restCall<T>(operation: string, params: unknown, retryOnSessionError = true): Promise<T> {
     const token = await this.ensureSession();
-    const response = await fetch(`${this.exchangeHost}/betting/json-rpc/v1`, {
+    const response = await fetch(`${this.exchangeHost}/betting/rest/v1.0/${operation}/`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Accept: "application/json",
         "X-Application": this.appKey,
         "X-Authentication": token,
       },
-      body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
+      body: JSON.stringify(params),
     });
-    const body = (await response.json().catch(() => ({}))) as JsonRpcResponse<T>;
-    if (body.error) {
-      const message = body.error.message ?? JSON.stringify(body.error.data ?? body.error);
-      // INVALID_SESSION_INFORMATION (or a plain 401) means the cached
-      // token expired/was revoked — log in exactly once more before
-      // giving up, so a stale session doesn't fail every call until the
-      // process restarts.
-      if (retryOnSessionError && message.includes("INVALID_SESSION_INFORMATION")) {
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const errorCode = readApingErrorCode(body) ?? response.statusText ?? "unknown error";
+      if (retryOnSessionError && errorCode === "INVALID_SESSION_INFORMATION" && !this.fixedSessionId && this.username && this.password) {
         this.sessionToken = null;
-        return this.jsonRpc<T>(method, params, false);
+        return this.restCall<T>(operation, params, false);
       }
-      throw new Error(`Betfair API error (${method}): ${message}`);
+      throw new Error(`Betfair API error (${operation}): ${errorCode}`);
     }
-    return body.result as T;
+    return body as T;
+  }
+
+  // Read-only, side-effect-free — the confirmed-live connectivity check
+  // referenced in this file's header comment (`{"filter":{}}` returns the
+  // real sport/market-count list). Safe to call at any time, purely to
+  // prove the round trip works.
+  public async listEventTypes(): Promise<BetfairEventType[]> {
+    return this.restCall<BetfairEventType[]>("listEventTypes", { filter: {} });
   }
 
   public async listMarketCatalogue(filter: BetfairMarketCatalogueFilter): Promise<BetfairMarketCatalogueEntry[]> {
-    return this.jsonRpc<BetfairMarketCatalogueEntry[]>("SportsAPING/v1.0/listMarketCatalogue", {
+    return this.restCall<BetfairMarketCatalogueEntry[]>("listMarketCatalogue", {
       filter,
       marketProjection: ["EVENT", "MARKET_START_TIME", "RUNNER_DESCRIPTION"],
       sort: "FIRST_TO_START",
@@ -171,7 +205,7 @@ export class BetfairApiClient {
   }
 
   public async listMarketBook(marketIds: string[]): Promise<BetfairMarketBook[]> {
-    return this.jsonRpc<BetfairMarketBook[]>("SportsAPING/v1.0/listMarketBook", {
+    return this.restCall<BetfairMarketBook[]>("listMarketBook", {
       marketIds,
       priceProjection: { priceData: ["EX_BEST_OFFERS"] },
     });
@@ -187,10 +221,10 @@ export class BetfairApiClient {
       return { outcome: "DRY_RUN", simulatedPrice: price, simulatedSize: size };
     }
     try {
-      const result = await this.jsonRpc<{
+      const result = await this.restCall<{
         status: string;
         instructionReports?: { status: string; betId?: string; averagePriceMatched?: number; errorCode?: string }[];
-      }>("SportsAPING/v1.0/placeOrders", {
+      }>("placeOrders", {
         marketId,
         instructions: [
           {
