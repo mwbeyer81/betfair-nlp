@@ -4901,3 +4901,28 @@ name/testID match.
 
 Deployed: `develop@4ff3b51` → app.backbet.co.uk (web only, no backend
 change). `build-commit` meta tag confirmed live.
+
+## 2026-07-29 (later) — primary checkout, directly on `develop`
+
+**Task:** user asked for naming alternatives to the "Industry SP" nav
+button/view (it filters historical runners and shows resulting P&L —
+a backtesting tool, not obviously named as one). Suggested a few
+options; user picked "Backtest". Confirmed scope: visible text only —
+no route (`/isp` stays as-is), no internal file/component rename
+(`IndustrySpScreen.tsx`, `IspRacesScreen.tsx`, `ispFormat.ts`, etc.
+untouched), no testID changes.
+
+**Change:** `AppHeader.tsx`'s shared nav button label "Industry SP" →
+"Backtest" (2 lines: the button text + a comment listing the menu
+item set). The in-filter "ISP"/"# in ISP" labels (the real Industry
+Starting Price odds field) were deliberately left alone — those name
+actual bet data, not this feature.
+
+Trivial enough (one file, 2-line diff, no logic change) that this was
+done directly on `develop` in the primary checkout rather than a
+worktree/branch — confirmed via this file's Active Worktrees table
+that no other worktree is currently touching `AppHeader.tsx`.
+Verified: `yarn build` clean; live screenshot via a throwaway Expo
+dev server on a `worktree-ports`-claimed port (8103) showed the
+button rendering "Backtest" with no console errors, rest of the
+filters screen unaffected.
