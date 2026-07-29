@@ -16,7 +16,7 @@
     "storybook:test": "STORYBOOK_HEADLESS=true CI=true storybook dev --port \"${STORYBOOK_HEADLESS_PORT:-6007}\" --ci",
     "storybook:test-runner": "test-storybook --url \"http://localhost:${STORYBOOK_PORT:-6006}\"",
     "build:web": "expo export --platform web --dev --output-dir dist",
-    "build:web:production": "expo export --platform web --output-dir dist",
+    "build:web:production": "expo export --platform web --output-dir dist --clear",
     "test:cf-live": "playwright test --config playwright.cf-live.config.ts",
     "test:cf-live:runners": "playwright test --config playwright.cf-live.config.ts --grep \"runners\"",
     "test:live": "playwright test --config playwright.live.config.ts",
