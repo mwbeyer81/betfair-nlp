@@ -27,6 +27,8 @@ import {
 } from "../utils/dailyRaceFormat";
 import { fairDecimalOdds, toFractionalOdds } from "../utils/oddsFormat";
 import { formatPct, formatPnl } from "../utils/ispFormat";
+import { BetOrder, minQualifyingPrice } from "../utils/betOrderFormat";
+import { PlaceBetDialog } from "./PlaceBetDialog";
 import {
   urlIntParam,
   urlFloatParam,
@@ -42,6 +44,10 @@ interface DailyRacesScreenProps {
   onLogout?: () => void;
   onNavigateToEvent: (eventId: string) => void;
   onNavigateToRace: (raceId: string) => void;
+  // Mocked UI only for now — see betOrderFormat.ts and AGENTS.md's
+  // daily-races-bet-button entry. No real Betfair price feed or
+  // bet-placement backend exists yet; App.tsx just holds this in memory.
+  onPlaceBet: (order: BetOrder) => void;
   // "YYYY-MM-DD" — omit to let the backend default to its own current date.
   date?: string;
 }
@@ -88,6 +94,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
   onLogout,
   onNavigateToEvent,
   onNavigateToRace,
+  onPlaceBet,
   date,
 }) => {
   // The date actually being viewed — falls back to "today" (UTC, matching
@@ -109,6 +116,9 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
   const [races, setRaces] = useState<DailyRace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Mocked "Bet" dialog — see onPlaceBet prop doc above.
+  const [betDialogRunnerId, setBetDialogRunnerId] = useState<string | null>(null);
 
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [hasAppliedOnce, setHasAppliedOnce] = useState(() => dailyRacesUrlHasAnyParams());
@@ -791,6 +801,12 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
                           {beatsSp ? "Beat SP" : "Below SP"}
                         </Text>
                       )}
+                      <TouchableOpacity
+                        testID={`daily-races-pick-bet-${runner.runnerId}`}
+                        onPress={(e: any) => { e?.stopPropagation?.(); setBetDialogRunnerId(runner.runnerId); }}
+                      >
+                        <Text style={styles.betBadge}>Bet</Text>
+                      </TouchableOpacity>
                     </TouchableOpacity>
                     );
                   })}
@@ -861,6 +877,37 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
           </ScrollView>
         )}
       </View>
+      {betDialogRunnerId != null && (() => {
+        const selected = picks.find(p => p.runner.runnerId === betDialogRunnerId);
+        if (!selected) return null;
+        return (
+          <PlaceBetDialog
+            visible
+            horseName={selected.runner.horse}
+            raceSummary={`${selected.race.course} · ${selected.race.offTime}`}
+            saving={false}
+            error={null}
+            onCancel={() => setBetDialogRunnerId(null)}
+            onSave={({ targetProfit, maxStake }) => {
+              const minPrice = minQualifyingPrice(targetProfit, maxStake);
+              if (minPrice == null) return;
+              onPlaceBet({
+                id: `bet_${selected.runner.runnerId}_${Date.now()}`,
+                runnerId: selected.runner.runnerId,
+                horse: selected.runner.horse,
+                course: selected.race.course,
+                offTime: selected.race.offTime,
+                targetProfit,
+                maxStake,
+                minQualifyingPrice: minPrice,
+                status: "pending",
+                createdAt: new Date().toISOString(),
+              });
+              setBetDialogRunnerId(null);
+            }}
+          />
+        );
+      })()}
     </SafeAreaView>
   );
 };
@@ -1240,6 +1287,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+  },
+  betBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.surface,
+    backgroundColor: colors.accent,
+    paddingHorizontal: 7,
     paddingVertical: 1,
     borderRadius: radii.sm,
   },

@@ -4,6 +4,7 @@ import { within, userEvent, expect, fn, waitFor } from "@storybook/test";
 import { http, HttpResponse } from "msw";
 import { DailyRacesScreen } from "./DailyRacesScreen";
 import { formatDailyRacesDateLabel, shiftDateString, todayUtcDateString } from "../utils/dailyRaceFormat";
+import { BetOrder } from "../utils/betOrderFormat";
 
 const BASE = "http://localhost:3000";
 
@@ -67,6 +68,7 @@ const meta: Meta<typeof DailyRacesScreen> = {
     onLogout: fn(),
     onNavigateToEvent: fn(),
     onNavigateToRace: fn(),
+    onPlaceBet: fn(),
   },
 };
 
@@ -295,6 +297,47 @@ export const PickNavigatesToRace: Story = {
 
     await userEvent.click(canvas.getByTestId("daily-races-pick-hrs_1"));
     await expect(args.onNavigateToRace).toHaveBeenCalledWith("rac_1");
+  },
+};
+
+export const BetBadgeOpensDialog: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+
+    const minModelInput = canvas.getByTestId("daily-races-min-model-win-probability");
+    await userEvent.clear(minModelInput);
+    await userEvent.type(minModelInput, "20");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    // args.onNavigateToRace is one shared mock instance across every story
+    // in this file (Storybook doesn't reset it between stories), so earlier
+    // stories' own navigations already sit in its call history — compare
+    // the count before/after this click rather than asserting "never
+    // called", which would be a false failure once any prior story navigates.
+    const navigateCallsBefore = (args.onNavigateToRace as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    await userEvent.click(canvas.getByTestId("daily-races-pick-bet-hrs_1"));
+    // Proves the badge's own stopPropagation worked — clicking it must not
+    // also trigger the row's navigate-to-race handler.
+    await expect((args.onNavigateToRace as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(
+      navigateCallsBefore
+    );
+    await expect(canvas.getByTestId("place-bet-dialog")).toBeInTheDocument();
+    await expect(canvas.getByTestId("place-bet-dialog")).toHaveTextContent("Fixture Star");
+
+    await userEvent.type(canvas.getByTestId("place-bet-dialog-target-profit-input"), "20");
+    await userEvent.type(canvas.getByTestId("place-bet-dialog-max-stake-input"), "10");
+    await userEvent.click(canvas.getByTestId("place-bet-dialog-confirm"));
+
+    await expect(args.onPlaceBet).toHaveBeenCalledTimes(1);
+    const [order] = (args.onPlaceBet as unknown as { mock: { calls: [BetOrder][] } }).mock.calls[0];
+    await expect(order.runnerId).toBe("hrs_1");
+    await expect(order.horse).toBe("Fixture Star");
+    await expect(order.targetProfit).toBe(20);
+    await expect(order.maxStake).toBe(10);
+    await expect(order.minQualifyingPrice).toBe(3);
+    await expect(order.status).toBe("pending");
+    await expect(canvas.queryByTestId("place-bet-dialog")).not.toBeInTheDocument();
   },
 };
 

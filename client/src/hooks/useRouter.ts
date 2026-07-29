@@ -13,6 +13,7 @@ export type Route =
   | "/isp/trainer"
   | "/results"
   | "/results/detail"
+  | "/bets"
   | "/daily-races"
   | "/daily-races/event"
   | "/daily-races/race"
@@ -31,6 +32,7 @@ const STATIC_ROUTES = [
   "/isp/trainer",
   "/results",
   "/results/detail",
+  "/bets",
   "/daily-races",
   "/daily-races/event",
   "/daily-races/race",

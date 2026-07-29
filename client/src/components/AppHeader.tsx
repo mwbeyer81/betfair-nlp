@@ -32,7 +32,7 @@ export interface AppHeaderProps {
 
 // One header — brand, title/subtitle, back action, and burger nav menu —
 // shared by every screen so "BackBet" branding and the menu's item set
-// (Backtest / Chat / Daily Races / Account / Results / Log Out or
+// (Backtest / Chat / Daily Races / Account / Results / Bets / Log Out or
 // Log In+Sign Up) are identical everywhere instead of each screen
 // reimplementing its own subset.
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -134,6 +134,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             labelStyle={styles.headerButtonLabel}
           >
             Results →
+          </Button>
+          <Button
+            testID={`${testIdPrefix}-menu-bets-link`}
+            mode="outlined"
+            compact
+            onPress={wrap(() => navigate("/bets"))}
+            style={styles.toggleButton}
+            labelStyle={styles.toggleButtonLabel}
+          >
+            Bets
           </Button>
           {onLogout && (
             <Button

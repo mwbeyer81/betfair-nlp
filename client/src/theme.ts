@@ -31,6 +31,11 @@ export const statusPill: Record<string, { bg: string; fg: string }> = {
   OPEN: { bg: colors.successLight, fg: colors.success },
   SUSPENDED: { bg: "#FEF3C7", fg: colors.warning },
   CLOSED: { bg: "#F1F5F9", fg: colors.textSecondary },
+  // Scheduled bet order statuses (Daily Races "Bet" button, mocked UI only).
+  PENDING: { bg: colors.infoLight, fg: colors.info },
+  TRIGGERED: { bg: colors.successLight, fg: colors.success },
+  EXPIRED: { bg: "#F1F5F9", fg: colors.textSecondary },
+  CANCELLED: { bg: "#FEE2E2", fg: colors.danger },
 };
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
