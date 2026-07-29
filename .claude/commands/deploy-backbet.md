@@ -27,7 +27,7 @@ cd /home/ubuntu/betfair-nlp && CLOUDFLARE_API_TOKEN=<token> bash apps/web-cf/dep
 | Production branch | `main` |
 | Custom domains | `backbet.co.uk`, `cf.backbet.co.uk` |
 | Preview domain | `dev.backbet.co.uk` (see `apps/web-cf/deploy-dev.sh`, deploys the `dev` git branch as a CF Pages preview, not part of this main/develop split) |
-| Lambda API | `https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com` |
+| Lambda API | `https://6fj7nh9mw6.execute-api.eu-west-2.amazonaws.com` |
 
 Requires `CLOUDFLARE_API_TOKEN` in the environment.
 

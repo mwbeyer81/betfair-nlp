@@ -48,9 +48,9 @@ live prices.
 ## Verify it's wired up
 
 ```bash
-aws events describe-rule --name daily-races-fetch-schedule --region eu-north-1
-aws events list-targets-by-rule --rule daily-races-fetch-schedule --region eu-north-1
-aws lambda get-policy --function-name hello-api --region eu-north-1
+aws events describe-rule --name daily-races-fetch-schedule --region eu-west-2
+aws events list-targets-by-rule --rule daily-races-fetch-schedule --region eu-west-2
+aws lambda get-policy --function-name hello-api --region eu-west-2
 # expect a statement with Sid "daily-races-eventbridge", Principal events.amazonaws.com
 ```
 
@@ -59,7 +59,7 @@ aws lambda get-policy --function-name hello-api --region eu-north-1
 ```bash
 aws lambda invoke \
   --function-name hello-api \
-  --region eu-north-1 \
+  --region eu-west-2 \
   --payload '{"source":"aws.events","detail-type":"Scheduled Event"}' \
   --cli-binary-format raw-in-base64-out \
   /tmp/daily-races-invoke-out.json
@@ -82,6 +82,6 @@ warm container.
 ```bash
 # mint a token, then:
 curl -H "Authorization: Bearer <token>" \
-  "https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com/api/daily-races"
+  "https://6fj7nh9mw6.execute-api.eu-west-2.amazonaws.com/api/daily-races"
 # expect non-empty data for today
 ```

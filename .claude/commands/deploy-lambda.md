@@ -1,7 +1,7 @@
 # Deploy Lambda
 
-Build and deploy the API to AWS Lambda (`hello-api`, eu-north-1).
-Live at: `https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com`
+Build and deploy the API to AWS Lambda (`hello-api`, eu-west-2).
+Live at: `https://6fj7nh9mw6.execute-api.eu-west-2.amazonaws.com`
 
 ## Command
 
@@ -36,7 +36,7 @@ setting the schedule up for the first time.
 
 ```bash
 curl -s -H "Authorization: Basic bWF0dGhldzpiZXllcg==" \
-  https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com/api/stats
+  https://6fj7nh9mw6.execute-api.eu-west-2.amazonaws.com/api/stats
 # Expect: {"success":true,"data":{...}}
 ```
 

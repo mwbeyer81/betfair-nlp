@@ -8,7 +8,7 @@
 # duplicate statement id, so that step checks first via `get-policy`.
 set -e
 
-REGION="eu-north-1"
+REGION="eu-west-2"
 FUNCTION_NAME="hello-api"
 RULE_NAME="daily-races-fetch-schedule"
 # Daily at 06:00 UTC — racecards are schedule/card data, not live odds, so a

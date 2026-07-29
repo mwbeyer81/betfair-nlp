@@ -80,7 +80,7 @@ limits.
 ```bash
 aws lambda invoke \
   --function-name hello-api \
-  --region eu-north-1 \
+  --region eu-west-2 \
   --payload '{"source":"aws.events","action":"evaluate-bet-orders"}' \
   --cli-binary-format raw-in-base64-out \
   /tmp/bet-orders-evaluate-invoke-out.json

@@ -85,9 +85,9 @@ it — `put-rule` is upsert-safe.
 ## Verify it's wired up
 
 ```bash
-aws events describe-rule --name industry-sp-results-capture-schedule --region eu-north-1
-aws events list-targets-by-rule --rule industry-sp-results-capture-schedule --region eu-north-1
-aws lambda get-policy --function-name hello-api --region eu-north-1
+aws events describe-rule --name industry-sp-results-capture-schedule --region eu-west-2
+aws events list-targets-by-rule --rule industry-sp-results-capture-schedule --region eu-west-2
+aws lambda get-policy --function-name hello-api --region eu-west-2
 # expect a statement with Sid "industry-sp-results-eventbridge", Principal events.amazonaws.com
 # expect the target's Input to be {"source":"aws.events","action":"capture-results"}
 ```
@@ -97,7 +97,7 @@ aws lambda get-policy --function-name hello-api --region eu-north-1
 ```bash
 aws lambda invoke \
   --function-name hello-api \
-  --region eu-north-1 \
+  --region eu-west-2 \
   --payload '{"source":"aws.events","action":"capture-results"}' \
   --cli-binary-format raw-in-base64-out \
   /tmp/industry-sp-results-invoke-out.json

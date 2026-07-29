@@ -34,14 +34,14 @@ echo "Deploying code..."
 aws lambda update-function-code \
   --function-name hello-api \
   --zip-file fileb://function.zip \
-  --region eu-north-1 \
+  --region eu-west-2 \
   --output text --query FunctionName
 
 # update-function-code leaves the function in an async "in progress" state
 # briefly — update-function-configuration right after it can hit
 # ResourceConflictException if it lands before that settles. Wait it out
 # rather than let the next call race it.
-aws lambda wait function-updated --function-name hello-api --region eu-north-1
+aws lambda wait function-updated --function-name hello-api --region eu-west-2
 
 echo "Configuring Lambda runtime..."
 # timeout/memory bumped from the original 30s/512MB — the scheduled
@@ -56,16 +56,16 @@ aws lambda update-function-configuration \
   --timeout 300 \
   --memory-size 1536 \
   --handler handler.handler \
-  --region eu-north-1 \
+  --region eu-west-2 \
   --output text --query FunctionName
 
-aws lambda wait function-updated --function-name hello-api --region eu-north-1
+aws lambda wait function-updated --function-name hello-api --region eu-west-2
 
 echo "Configuring API Gateway throttling..."
 aws apigatewayv2 update-stage \
-  --api-id fd0xrhcmj0 \
+  --api-id 6fj7nh9mw6 \
   --stage-name '$default' \
-  --region eu-north-1 \
+  --region eu-west-2 \
   --default-route-settings '{"ThrottlingBurstLimit":50,"ThrottlingRateLimit":10}' \
   --output text --query StageName
 
@@ -82,7 +82,7 @@ if [ -f "$LOCAL_CONFIG" ]; then
   # than erroring when config/local.json predates this section.
   RESEND_API_KEY=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.email && c.email.apiKey) || '')")
   EMAIL_FROM_ADDRESS=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.email && c.email.fromAddress) || '')")
-  API_URL=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.app && c.app.apiUrl) || 'https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com')")
+  API_URL=$(node -e "const c=require('$LOCAL_CONFIG'); console.log((c.app && c.app.apiUrl) || 'https://6fj7nh9mw6.execute-api.eu-west-2.amazonaws.com')")
   # google.*/twilio.* are optional too — Google/SMS sign-in return a clear
   # 503 ("not configured") rather than crashing if these are blank, same
   # non-fatal-by-default pattern as email.*. Same footgun as email.* also
@@ -103,7 +103,7 @@ if [ -f "$LOCAL_CONFIG" ]; then
   aws lambda update-function-configuration \
     --function-name hello-api \
     --environment "Variables={MONGODB_URI=$MONGODB_URI,MONGODB_DB_NAME=$MONGODB_DB_NAME,OPENAI_API_KEY=$OPENAI_API_KEY,JWT_SECRET=$JWT_SECRET,RESEND_API_KEY=$RESEND_API_KEY,EMAIL_FROM_ADDRESS=$EMAIL_FROM_ADDRESS,API_URL=$API_URL,GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID,TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID,TWILIO_AUTH_TOKEN=$TWILIO_AUTH_TOKEN,TWILIO_VERIFY_SERVICE_SID=$TWILIO_VERIFY_SERVICE_SID,RACINGAPI_USERNAME=$RACINGAPI_USERNAME,RACINGAPI_PASSWORD=$RACINGAPI_PASSWORD,RACINGAPI_BASE_URL=$RACINGAPI_BASE_URL}" \
-    --region eu-north-1 \
+    --region eu-west-2 \
     --output text --query FunctionName
 else
   echo "Skipping secrets update (config/local.json not found — existing Lambda env vars unchanged)"
