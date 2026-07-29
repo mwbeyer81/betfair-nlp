@@ -11,31 +11,35 @@ import { test, expect } from "@playwright/test";
 // COST NOTE, unlike every other prod-repro/live-verify script in this
 // repo: this one is NOT free to re-run for no reason. Every run attempts
 // one real (currently-rejected, but genuinely attempted) order against the
-// real Betfair account, capped at £1 by MAX_LIVE_STAKE_GBP
-// (bet-order-service.ts). Re-run deliberately, not as part of any loop.
+// real Betfair account, capped at £2 by MAX_LIVE_STAKE_GBP
+// (bet-order-service.ts — raised from an initial £1 once Betfair's own
+// £2 minimum stake was confirmed; a cap below Betfair's minimum meant no
+// real bet could ever succeed regardless of funds). Re-run deliberately,
+// not as part of any loop.
 //
 // CURRENT KNOWN STATE (2026-07-29, fully diagnosed — see AGENTS.md's
-// betfair-error-code-fix entry, which corrects an earlier wrong guess in
-// the config-boolean-fix entry): the account's Betfair application key
-// (the free "Delay" tier) DOES authorize real order placement — Delay vs
-// Live only affects market DATA timing, confirmed via Betfair's own
-// developer docs/forum, not betting permission. The real, current blocker
-// is simply that the real Betfair account has insufficient real funds to
-// cover even a £1 stake. Every real attempt currently comes back
-// status:"error", note "Your Betfair account doesn't have enough funds to
-// cover this stake." (bet-order-service.ts's humanizeBetfairError
-// INSUFFICIENT_FUNDS mapping, now correctly surfaced — betfair-api-client.ts
-// previously only read a cascading per-instruction placeholder code,
-// ERROR_IN_ORDER, instead of Betfair's real top-level errorCode). This is
-// NOT a bug in this codebase — the full pipeline (login -> real market
-// resolution -> real price check -> real placeOrders call reaching
-// Betfair -> real account-level rejection) is confirmed working end to
-// end; only real money in the account is missing.
+// betfair-error-code-fix / min-stake-cap entries, which correct an
+// earlier wrong guess in the config-boolean-fix entry): the account's
+// Betfair application key (the free "Delay" tier) DOES authorize real
+// order placement — Delay vs Live only affects market DATA timing,
+// confirmed via Betfair's own developer docs/forum, not betting
+// permission. The real, current blocker is simply that the real Betfair
+// account has insufficient real funds to cover even a £2 stake. Every
+// real attempt currently comes back status:"error", note "Your Betfair
+// account doesn't have enough funds to cover this stake."
+// (bet-order-service.ts's humanizeBetfairError INSUFFICIENT_FUNDS
+// mapping, now correctly surfaced — betfair-api-client.ts previously only
+// read a cascading per-instruction placeholder code, ERROR_IN_ORDER,
+// instead of Betfair's real top-level errorCode). This is NOT a bug in
+// this codebase — the full pipeline (login -> real market resolution ->
+// real price check -> real placeOrders call reaching Betfair -> real
+// account-level rejection) is confirmed working end to end; only real
+// money in the account is missing.
 //
 // TO RE-VERIFY AFTER DEPOSITING REAL FUNDS: once the real Betfair account
-// has at least £1 available, change the expectation below from the
-// INSUFFICIENT_FUNDS case to the real success case (status "Triggered",
-// condition text starting with "Backed now at").
+// has at least £2 available (Betfair's own minimum stake), change the
+// expectation below from the INSUFFICIENT_FUNDS case to the real success
+// case (status "Triggered", condition text starting with "Backed now at").
 //
 // Credentials via env vars only — never hardcoded, this file is committed:
 //   PROD_REPRO_EMAIL=matthewbeyer@hotmail.com PROD_REPRO_PASSWORD=... \
@@ -44,7 +48,7 @@ import { test, expect } from "@playwright/test";
 const EMAIL = process.env.PROD_REPRO_EMAIL;
 const PASSWORD = process.env.PROD_REPRO_PASSWORD;
 
-test("REPRO/VERIFY (2026-07-29): a real instant £1 bet, placed through the real UI on the real deployed app", async ({ page }) => {
+test("REPRO/VERIFY (2026-07-29): a real instant £2 bet, placed through the real UI on the real deployed app", async ({ page }) => {
   // Trying several real picks in turn (see the retry loop below) can
   // legitimately take a while against real, live-changing racing data —
   // the default 60s is too tight for that, not a sign of something hung.
@@ -88,11 +92,11 @@ test("REPRO/VERIFY (2026-07-29): a real instant £1 bet, placed through the real
     // Toggle to "Bet now" (instant) — the whole point of this test, as
     // opposed to the existing scheduled-flow e2e coverage.
     await page.getByTestId("place-bet-dialog-order-type-instant").click();
-    // £0.20 target profit / £1 max stake -> minQualifyingPrice £1.20, low
+    // £0.20 target profit / £2 max stake -> minQualifyingPrice £1.10, low
     // enough to qualify against almost any real market price, while
     // staying at MAX_LIVE_STAKE_GBP's exact cap.
     await page.getByTestId("place-bet-dialog-target-profit-input").fill("0.20");
-    await page.getByTestId("place-bet-dialog-max-stake-input").fill("1");
+    await page.getByTestId("place-bet-dialog-max-stake-input").fill("2");
     await expect(page.getByTestId("place-bet-dialog-confirm")).toHaveText("Place Bet Now");
     await page.getByTestId("place-bet-dialog-confirm").click();
 

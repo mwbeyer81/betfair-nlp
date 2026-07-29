@@ -213,7 +213,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
       { marketId: "1.123", status: "OPEN", inplay: false, runners: [{ selectionId: 555, status: "ACTIVE", ex: { availableToBack: [{ price: 4, size: 100 }] } }] },
     ];
     const input = { runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
-      raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 2, maxStake: 1, orderType: "instant" as const }; // minQualifyingPrice = 3, maxStake at the cap
+      raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 4, maxStake: 2, orderType: "instant" as const }; // minQualifyingPrice = 3, maxStake at the cap
 
     // Allowed: exact email, different case.
     const allowedClient = fakeClient({
@@ -223,7 +223,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
     });
     const allowedDao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
     await new BetOrderService(allowedDao, allowedClient).createForUser("user1", input, "MatthewBeyer@Hotmail.com");
-    expect(allowedClient.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 1, { forceDryRun: false });
+    expect(allowedClient.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 2, { forceDryRun: false });
     expect(allowedDao.create).toHaveBeenCalledWith(expect.objectContaining({ liveBettingAllowed: true }));
 
     // Not allowed: a different real email.
@@ -234,7 +234,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
     });
     const otherDao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
     await new BetOrderService(otherDao, otherClient).createForUser("user2", input, "someoneelse@example.com");
-    expect(otherClient.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 1, { forceDryRun: true });
+    expect(otherClient.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 2, { forceDryRun: true });
     expect(otherDao.create).toHaveBeenCalledWith(expect.objectContaining({ liveBettingAllowed: false }));
 
     // Not allowed: allow-list itself is empty (fail-safe default) — even
@@ -245,7 +245,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
     });
     const noAllowListDao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
     await new BetOrderService(noAllowListDao, noAllowListClient).createForUser("user3", input, ALLOWED_EMAIL);
-    expect(noAllowListClient.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 1, { forceDryRun: true });
+    expect(noAllowListClient.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 2, { forceDryRun: true });
     expect(noAllowListDao.create).toHaveBeenCalledWith(expect.objectContaining({ liveBettingAllowed: false }));
   });
 
@@ -263,7 +263,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
     await service.createForUser(
       "user1",
       { runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
-        raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 2, maxStake: 1, orderType: "scheduled" },
+        raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 2, maxStake: 2, orderType: "scheduled" },
       ALLOWED_EMAIL
     );
 
@@ -282,7 +282,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
           raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 20, maxStake: 10, orderType: "instant" },
         ALLOWED_EMAIL
       )
-    ).rejects.toThrow(/maxStake cannot exceed £1/);
+    ).rejects.toThrow(/maxStake cannot exceed £2/);
 
     expect(mockResolveMarketForRace).not.toHaveBeenCalled();
     expect(client.listMarketBook).not.toHaveBeenCalled();
@@ -330,7 +330,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
         service.createForUser(
           "user1",
           { runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
-            raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 2, maxStake: 1, orderType: "instant" },
+            raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 2, maxStake: 2, orderType: "instant" },
           ALLOWED_EMAIL
         )
       ).rejects.toThrow(/INSTANT_BET_PERSISTENCE_FAILED.*real bet may have just been placed/);
@@ -352,7 +352,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
       // phase — isolates this test to exactly the scenario under test
       // (persistence failing only on the final, post-placeOrders write),
       // not an earlier, unrelated updateFields call.
-      const order = makeOrder({ liveBettingAllowed: true, maxStake: 1, minQualifyingPrice: 3, betfairMarketId: "1.123", betfairSelectionId: 555 });
+      const order = makeOrder({ liveBettingAllowed: true, maxStake: 2, minQualifyingPrice: 3, betfairMarketId: "1.123", betfairSelectionId: 555 });
       const client = fakeClient({
         isDryRun: jest.fn().mockReturnValue(false),
         listMarketBook: jest.fn().mockResolvedValue([

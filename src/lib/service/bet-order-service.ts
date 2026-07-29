@@ -9,7 +9,12 @@ import { resolveMarketForRace } from "./betfair-market-resolver";
 // can't expose more than this much real money on any single bet. Changing
 // this is a deliberate code change + redeploy, not a runtime config value,
 // since it's meant to be inconvenient to raise.
-export const MAX_LIVE_STAKE_GBP = 1;
+// £2, not £1 (the originally-requested figure) — Betfair's own real
+// minimum stake for UK/Irish accounts is £2 (confirmed 2026-07-29, see
+// AGENTS.md's min-stake-cap entry); a cap below Betfair's own minimum
+// would mean no real bet could ever succeed regardless of funds, since
+// every real attempt would fail on INVALID_BET_SIZE first.
+export const MAX_LIVE_STAKE_GBP = 2;
 
 // Best-effort translation of raw Betfair API-NG error codes (see
 // betfair-api-client.ts's readApingErrorCode) into plain-English notes —
