@@ -16,6 +16,7 @@ import {
   runnerPnl,
   formatRaceTime,
   raceYearKey,
+  raceMonthKey,
   raceMonthLabel,
   yearsInRange,
   monthsInRange,
@@ -72,12 +73,23 @@ function mergeYearPlaceholders(hierarchy: YearNode<IspRace>[], yearKeys: string[
 // Same idea, one level down: a year whose own data hasn't all loaded yet
 // (its "Load more" hasn't reached every month within it) still gets a
 // header for every month it *could* contain, not just the ones its
-// currently-loaded races happen to fall in — e.g. July 2024's races
-// loading in first shouldn't mean August/September/... 2024 simply don't
-// exist on screen until "Load more" happens to reach them.
-function mergeMonthPlaceholders(year: YearNode<IspRace>, effectiveMinDate: string, effectiveMaxDate: string, order: "asc" | "desc"): MonthNode<IspRace>[] {
+// currently-loaded races happen to fall in — e.g. a month's races loading
+// in first shouldn't mean the next one simply doesn't exist on screen
+// until "Load more" happens to reach it.
+//
+// `knownStartMonth` (set once expandYearDefaultMonth's probe resolves —
+// see yearDataStartMonth) clips the *lower* bound further still: a row
+// range (Split A/B) doesn't necessarily start at a year's own January —
+// it starts wherever its own fromRow lands chronologically, so a month
+// strictly before the confirmed real start isn't "not loaded yet", it's
+// provably impossible for this filter and shouldn't render a header
+// implying otherwise. Absent (year not yet probed) falls back to the
+// year's own full calendar span, the generous default until that's known.
+function mergeMonthPlaceholders(year: YearNode<IspRace>, effectiveMinDate: string, effectiveMaxDate: string, order: "asc" | "desc", knownStartMonth?: string): MonthNode<IspRace>[] {
   const { from, to } = yearBounds(year.key, effectiveMinDate, effectiveMaxDate);
-  const monthKeys = monthsInRange(from, to, order);
+  const knownStartDate = knownStartMonth ? `${knownStartMonth}-01` : null;
+  const clippedFrom = knownStartDate && knownStartDate > from ? knownStartDate : from;
+  const monthKeys = monthsInRange(clippedFrom, to, order);
   const byKey = new Map(year.months.map(m => [m.key, m]));
   return monthKeys.map(key => byKey.get(key) ?? { key, label: raceMonthLabel(`${key}-01T00:00:00`), items: [], days: [] });
 }
@@ -189,6 +201,15 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // year the user has already interacted with doesn't reset which
   // month(s) they'd already opened or refire that first fetch.
   const [initializedYears, setInitializedYears] = useState<Set<string>>(new Set());
+  // Earliest month key ("YYYY-MM") each year's own row-ranged data has
+  // actually been confirmed to start in, once expandYearDefaultMonth's
+  // probe resolves — a row range (Split A/B) doesn't necessarily start
+  // at a year's own January, so every month strictly before this one is
+  // provably impossible for the current filter, not just unloaded (see
+  // mergeMonthPlaceholders). Absent until the year has been probed at
+  // least once, during which every month in the year still renders as a
+  // placeholder — the generous default until the real bound is known.
+  const [yearDataStartMonth, setYearDataStartMonth] = useState<Record<string, string>>({});
 
   const minRunners = urlIntParam("minRunners", 1);
   const maxRunners = urlIntParam("maxRunners", 20);
@@ -239,6 +260,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       setError(null);
       setMonthStates({});
       setInitializedYears(new Set());
+      setYearDataStartMonth({});
       try {
         // A small, unscoped probe — page 1 of the row-ranged sequence with
         // no sub-date range — purely to learn the grand total (for the
@@ -321,30 +343,55 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     }
   }
 
-  // Expands+loads a year's own literal first month within its (filter-
-  // clipped) effective range, and collapses every other month in that
-  // year — "default to the first month in the filter", not wherever the
-  // year's earliest *matching* race happens to be. Used both by the mount
-  // effect (for whichever year the initial probe lands in) and by
-  // toggleNode (the first time a user expands any other year). Idempotent
-  // via initializedYears — re-collapsing/re-expanding a year already
-  // interacted with doesn't reset its months or refire this fetch.
-  function expandYearDefaultMonth(year: string) {
+  // Expands+loads whichever month(s) a year's own row-ranged data
+  // actually starts in, and collapses every other month in that year.
+  // Deliberately data-driven, NOT "always the calendar's own January" —
+  // a row range (Split A/B) doesn't necessarily start at a year's own
+  // Jan 1st; it starts wherever its own fromRow lands chronologically,
+  // which could genuinely be July (or later) with zero possible races
+  // before that point for *this* split specifically. Probes this year's
+  // row-ranged window with no sub-month restriction — the real backend
+  // returns whichever races are chronologically first within it, telling
+  // us where to land, the same way the outer mount effect's own probe
+  // finds which year to land in. Used both by the mount effect (for
+  // whichever year the initial probe lands in) and by toggleNode (the
+  // first time a user expands any other year). Idempotent via
+  // initializedYears — re-collapsing/re-expanding a year already
+  // interacted with doesn't reset its months or refire this probe.
+  async function expandYearDefaultMonth(year: string) {
     if (initializedYears.has(year)) return;
     setInitializedYears(prev => new Set(prev).add(year));
     const { from, to } = yearBounds(year, effectiveMinDate, effectiveMaxDate);
-    const months = monthsInRange(from, to, sortOrder);
-    if (months.length === 0) return;
-    const firstMonth = months[0];
-    setCollapsedKeys(prev => {
-      const next = new Set(prev);
-      for (const m of months) {
-        if (m === firstMonth) next.delete(`month:${m}`);
-        else next.add(`month:${m}`);
-      }
-      return next;
-    });
-    loadMonthPage(firstMonth);
+    try {
+      const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to);
+      if (probe.data.length === 0) return;
+      const startMonths = new Set(probe.data.map(r => raceMonthKey(r.raceTime)));
+      // Every month strictly before the earliest one actually present is
+      // provably impossible for this row range, not just "not loaded
+      // yet" — records this so mergeMonthPlaceholders can stop rendering
+      // a header for it at all (see its own comment).
+      const earliestStartMonth = [...startMonths].sort()[0];
+      setYearDataStartMonth(prev => ({ ...prev, [year]: earliestStartMonth }));
+      const months = monthsInRange(from, to, sortOrder);
+      setCollapsedKeys(prev => {
+        const next = new Set(prev);
+        for (const m of months) {
+          if (startMonths.has(m)) next.delete(`month:${m}`);
+          else next.add(`month:${m}`);
+        }
+        return next;
+      });
+      for (const m of startMonths) loadMonthPage(m);
+    } catch {
+      // Allow a retry on the next tap rather than leaving this year
+      // permanently stuck showing every month as unloaded.
+      setInitializedYears(prev => {
+        const next = new Set(prev);
+        next.delete(year);
+        return next;
+      });
+      setError("Failed to load races");
+    }
   }
 
   // With "Has trainer form" (or the model win-probability threshold) active,
@@ -405,7 +452,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // it silently not existing until the pagination cursor happens to reach it.
   const hierarchy = mergeYearPlaceholders(buildRaceHierarchy(visibleRaces), yearKeys).map(year => ({
     ...year,
-    months: mergeMonthPlaceholders(year, effectiveMinDate, effectiveMaxDate, sortOrder),
+    months: mergeMonthPlaceholders(year, effectiveMinDate, effectiveMaxDate, sortOrder, yearDataStartMonth[year.key]),
   }));
   const allNodeKeys = collectHierarchyNodeKeys(hierarchy);
   const isAllCollapsed = allNodeKeys.length > 0 && allNodeKeys.every(k => collapsedKeys.has(k));

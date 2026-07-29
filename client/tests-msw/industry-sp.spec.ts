@@ -1328,12 +1328,6 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     // model 20% -> doesn't). Fixture race 914592's three runners (12345/
     // 12346/12347) all fall short of their own implied SP%, so none show
     // the badge.
-    // 556677 is dated 2022-06-01 — a different month from 2022's own
-    // default-expanded first month (January, per isp-month-direct-load),
-    // so June needs an explicit tap to reveal it (2022 itself is already
-    // auto-expanded, being one of the years the bare-navigation beforeEach's
-    // unscoped mock data spans).
-    await page.getByTestId("industry-sp-month-toggle-2022-06").click();
     await expect(page.getByTestId("industry-sp-item-value-55501")).toBeVisible();
     await expect(page.getByTestId("industry-sp-item-value-55502")).not.toBeVisible();
     await expect(page.getByTestId("industry-sp-item-value-12345")).not.toBeVisible();
@@ -1350,9 +1344,6 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("industry-sp-race-914592")).not.toBeVisible();
-    // 556677 is dated 2022-06-01, a different month from 2022's own
-    // default-expanded first month (January) — needs an explicit tap.
-    await page.getByTestId("industry-sp-month-toggle-2022-06").click();
     await expect(page.getByTestId("industry-sp-race-556677")).toBeVisible();
     await expect(page.getByTestId("industry-sp-item-55501")).toBeVisible();
     await expect(page.getByTestId("industry-sp-item-55502")).not.toBeVisible();
@@ -1373,10 +1364,6 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     // manifests on a narrow (mobile) viewport — a wide desktop row has room
     // for every badge without ever needing to shrink the name.
     await page.setViewportSize({ width: 375, height: 812 });
-    // 55501's race (556677) is dated 2022-06-01, a different month from
-    // 2022's own default-expanded first month (January) — needs an
-    // explicit tap to reveal it.
-    await page.getByTestId("industry-sp-month-toggle-2022-06").click();
     const name = page.getByTestId("industry-sp-item-name-55501");
     await expect(name).toBeVisible();
     await expect(name).toHaveText("Value Bet Horse With A Longer Name");
