@@ -5006,5 +5006,19 @@ shared `src/` import — confirmed unrelated to this change, and harmless
 since the real deploy bundles via esbuild in `build.sh`, not raw `tsc`);
 `yarn build` clean (client). Supertest: 19/19 daily-races cases still
 pass (the HTTP route never calls `ingestFromRacingApi` directly, cron/CLI
--only). Deployed Lambda + web, merged to `develop` — see commit for
-exact hashes.
+-only).
+
+**Deployed** (`398b0af`, committed directly to `develop` in the primary
+checkout — small, well-understood fix mirroring an existing pattern,
+no other active worktree touching these files per this table): Lambda
+via `apps/lambda/build.sh` from `~/betfair-nlp-deploy-develop`, web via
+`apps/web/deploy.sh`. **Live-verified**: a manual
+`aws lambda invoke {"source":"aws.events","detail-type":"Scheduled
+Event"}` right after deploying logged `Scheduled daily-races ingest:
+upserted 25 races, skipped 15 non-GB races.` — the new filter/logging is
+live; direct-to-Mongo recheck confirmed all remaining `daily_racecards`
+docs are GB-only afterward. `app.backbet.co.uk`'s `build-commit` meta
+tag confirmed `398b0af`; the copy-fix prod-repro script
+(`daily-races-empty-today-2026-07-29.spec.ts`) failed against prod
+before this deploy with the exact reported string and passes against it
+after.
