@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   toolbarButton: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     borderColor: colors.primary,
   },
   toolbarButtonLabel: {

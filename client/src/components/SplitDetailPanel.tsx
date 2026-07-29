@@ -141,7 +141,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   filtersButton: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
   },
   filtersButtonLabel: {
     fontSize: 11,
@@ -191,6 +191,6 @@ const styles = StyleSheet.create({
   viewRacesButton: {
     marginHorizontal: spacing.lg,
     marginBottom: spacing.lg,
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
   },
 });

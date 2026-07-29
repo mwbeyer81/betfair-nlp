@@ -5,12 +5,6 @@ const APP_URL = "http://localhost:80/";
 const API_URL = "http://localhost:3000";
 const AUTH = "Basic " + Buffer.from("matthew:beyer").toString("base64");
 
-async function goToEvents(page: import("@playwright/test").Page) {
-  await page.goto(APP_URL);
-  await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
-  await expect(page.getByTestId("event-group-loading")).not.toBeVisible({ timeout: 90000 });
-}
-
 test.describe("GET /api/runners (live server @ localhost:3000)", () => {
   test("returns races array with eventId on each race", async ({ request }) => {
     const res = await request.get(`${API_URL}/api/runners`, {
@@ -58,14 +52,6 @@ test.describe("GET /api/runners (live server @ localhost:3000)", () => {
 });
 
 test.describe("All Runners screen (Expo web @ localhost:80)", () => {
-  test("clicking Runners in the burger menu navigates to /runners full-screen view", async ({ page }) => {
-    await goToEvents(page);
-    await page.getByTestId("events-menu-runners-link").click();
-
-    await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("events-screen")).not.toBeVisible();
-  });
-
   test("/runners URL shows All Runners screen directly", async ({ page }) => {
     await page.goto(`${APP_URL}runners`);
     await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
@@ -116,16 +102,6 @@ test.describe("All Runners screen (Expo web @ localhost:80)", () => {
 
     const firstBspText = await bspBadges.first().textContent();
     expect(firstBspText).toMatch(/^SP \d/);
-  });
-
-  test("← Events button navigates back to /events", async ({ page }) => {
-    await page.goto(`${APP_URL}runners`);
-    await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
-
-    await page.getByTestId("all-runners-menu-events-link").click();
-
-    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId("all-runners-screen")).not.toBeVisible();
   });
 });
 

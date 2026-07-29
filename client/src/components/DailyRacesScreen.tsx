@@ -910,6 +910,7 @@ const styles = StyleSheet.create({
   },
   reseedButton: {
     flex: 0,
+    borderRadius: radii.button,
   },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl, gap: spacing.md },
   loadingText: { color: colors.textSecondary },
@@ -941,7 +942,7 @@ const styles = StyleSheet.create({
   groupModeBtn: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: radii.sm - 2,
+    borderRadius: radii.button,
   },
   groupModeBtnActive: {
     backgroundColor: colors.primary,
@@ -986,7 +987,7 @@ const styles = StyleSheet.create({
 
   headerToggleButton: {
     marginHorizontal: 3,
-    borderRadius: radii.md,
+    borderRadius: radii.button,
     borderColor: "rgba(255,255,255,0.6)",
   },
   headerToggleButtonLabel: {
@@ -1130,7 +1131,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   applyBtn: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     flex: 1,
   },
   applyBtnLabel: {
@@ -1138,7 +1139,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   resetBtn: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     borderColor: colors.primary,
   },
   resetBtnLabel: {

@@ -850,14 +850,14 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   toolbarButton: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
   },
   toolbarButtonLabel: {
     fontSize: 12,
     fontWeight: "700",
   },
   toolbarButtonOutlined: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     borderColor: colors.primary,
   },
   toolbarButtonOutlinedLabel: {
@@ -1049,7 +1049,7 @@ const styles = StyleSheet.create({
   },
   loadMoreButton: {
     margin: spacing.lg,
-    borderRadius: radii.md,
+    borderRadius: radii.button,
   },
   bspBadge: {
     fontSize: 11,

@@ -35,7 +35,9 @@ export const statusPill: Record<string, { bg: string; fg: string }> = {
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 
-export const radii = { sm: 6, md: 10, lg: 16, pill: 999 };
+// `button: 0` is for larger tappable buttons (squared-off corners); `pill`
+// remains for small pill-shaped chips/badges, which stay fully rounded.
+export const radii = { sm: 6, md: 10, lg: 16, pill: 999, button: 0 };
 
 // MD3's own typescale splits variants between a "regular" (400) and "medium"
 // (500) weight — a flat single-weight config would force the medium variants

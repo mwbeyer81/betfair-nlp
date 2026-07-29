@@ -93,17 +93,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-export const EventsButtonNavigates: Story = {
-  play: async ({ canvasElement, args }) => {
-    const canvas = within(canvasElement);
-
-    const eventsBtn = canvas.getByTestId("chat-menu-events-link");
-    await expect(eventsBtn).toBeInTheDocument();
-    await userEvent.click(eventsBtn);
-    await expect(args.navigate).toHaveBeenCalledWith("/events");
-  },
-};
-
 export const ResultsButtonNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);

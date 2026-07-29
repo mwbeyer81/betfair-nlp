@@ -396,8 +396,8 @@ const styles = StyleSheet.create({
   },
   dash: { color: colors.textTertiary },
   filterActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
-  applyBtn: { borderRadius: radii.sm },
-  resetBtn: { borderRadius: radii.sm },
+  applyBtn: { borderRadius: radii.button },
+  resetBtn: { borderRadius: radii.button },
   body: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl, gap: spacing.md },
   loadingText: { color: colors.textSecondary },
@@ -439,5 +439,5 @@ const styles = StyleSheet.create({
   racePnl: { fontSize: 12, fontWeight: "700", marginLeft: "auto" },
   pnlPos: { color: colors.pnlPositive },
   pnlNeg: { color: colors.pnlNegative },
-  loadMoreButton: { margin: spacing.lg, borderRadius: radii.md },
+  loadMoreButton: { margin: spacing.lg, borderRadius: radii.button },
 });

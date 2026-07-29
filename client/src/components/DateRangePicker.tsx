@@ -231,14 +231,15 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
               testID={`${testID}-clear`}
               mode="text"
               onPress={() => { setPendingFrom(minDate); setPendingTo(null); }}
+              style={{ borderRadius: radii.button }}
             >
               Clear
             </Button>
             <View style={styles.modalActionsRight}>
-              <Button testID={`${testID}-cancel`} mode="text" onPress={() => setVisible(false)}>
+              <Button testID={`${testID}-cancel`} mode="text" onPress={() => setVisible(false)} style={{ borderRadius: radii.button }}>
                 Cancel
               </Button>
-              <Button testID={`${testID}-apply`} mode="contained" onPress={handleApply}>
+              <Button testID={`${testID}-apply`} mode="contained" onPress={handleApply} style={{ borderRadius: radii.button }}>
                 Apply
               </Button>
             </View>
@@ -257,7 +258,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1.5,
     borderColor: colors.border,
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     paddingHorizontal: spacing.sm,
     paddingVertical: 8,
   },

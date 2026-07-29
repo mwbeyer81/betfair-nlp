@@ -502,7 +502,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.md },
   errorText: { color: colors.danger },
-  backButton: { marginTop: spacing.md },
+  backButton: { marginTop: spacing.md, borderRadius: radii.button },
   legacyNoticeText: { fontSize: 14, color: colors.textSecondary, textAlign: "center" },
   detailContainer: { flex: 1, position: "relative" },
   scrollContent: { padding: spacing.md, gap: spacing.md, paddingBottom: spacing.xl * 3 },
@@ -542,7 +542,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   splitDetailsButton: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     borderColor: "rgba(255,255,255,0.4)",
   },
   splitDetailsButtonLabel: {
@@ -631,5 +631,5 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.lg,
   },
-  actionButton: { flexGrow: 1, minWidth: 160 },
+  actionButton: { flexGrow: 1, minWidth: 160, borderRadius: radii.button },
 });

@@ -662,7 +662,12 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
             </View>
 
             <View style={styles.filterActionsRow}>
-              <Button testID="model-performance-dashboard-reset-button" mode="text" onPress={resetFilters}>
+              <Button
+                testID="model-performance-dashboard-reset-button"
+                mode="text"
+                onPress={resetFilters}
+                style={{ borderRadius: radii.button }}
+              >
                 Reset
               </Button>
               <Button
@@ -670,6 +675,7 @@ export const ModelPerformanceDashboard: React.FC<ModelPerformanceDashboardProps>
                 mode="contained"
                 buttonColor={colors.accent}
                 onPress={applyFilters}
+                style={{ borderRadius: radii.button }}
               >
                 Apply
               </Button>
@@ -736,7 +742,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   closeButton: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
   },
   closeButtonLabel: {
     fontSize: 11,
@@ -881,6 +887,7 @@ const styles = StyleSheet.create({
   },
   backButton: {
     alignSelf: "flex-start",
+    borderRadius: radii.button,
   },
   panelCard: {
     borderRadius: radii.md,

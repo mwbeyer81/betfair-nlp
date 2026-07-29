@@ -261,7 +261,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   toggleButton: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     marginRight: spacing.xs,
   },
   toggleButtonLabel: {

@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
   },
   headerButton: {
     marginHorizontal: 3,
-    borderRadius: radii.md,
+    borderRadius: radii.button,
   },
   headerButtonLabel: {
     fontSize: 12,
@@ -337,6 +337,6 @@ const styles = StyleSheet.create({
   },
   loadMoreButton: {
     margin: spacing.lg,
-    borderRadius: radii.md,
+    borderRadius: radii.button,
   },
 });

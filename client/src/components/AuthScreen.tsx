@@ -374,6 +374,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   onPress={toggleMode}
                   disabled={isLoading}
                   compact
+                  style={{ borderRadius: radii.button }}
                 >
                   {mode === "login"
                     ? "Need an account? Sign up"
@@ -481,6 +482,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     onPress={handleSendCode}
                     disabled={isLoading}
                     compact
+                    style={{ borderRadius: radii.button }}
                   >
                     Resend code
                   </Button>
@@ -497,6 +499,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 onPress={backToEmailLogin}
                 disabled={isLoading}
                 compact
+                style={{ borderRadius: radii.button }}
               >
                 ← Back to email login
               </Button>
@@ -548,6 +551,7 @@ const styles = StyleSheet.create({
   cancelButton: {
     alignSelf: "flex-start",
     marginBottom: spacing.md,
+    borderRadius: radii.button,
   },
   header: {
     alignItems: "center",
@@ -582,7 +586,7 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     marginTop: 4,
-    borderRadius: radii.md,
+    borderRadius: radii.button,
   },
   loginButtonContent: {
     paddingVertical: 6,
@@ -605,7 +609,7 @@ const styles = StyleSheet.create({
   },
   altSignInButton: {
     width: "100%",
-    borderRadius: radii.md,
+    borderRadius: radii.button,
   },
   googleButtonContainer: {
     minHeight: 44,

@@ -51,7 +51,13 @@ export const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
           )}
         </Dialog.Content>
         <Dialog.Actions>
-          <Button testID="save-result-dialog-cancel" mode="text" onPress={onCancel} disabled={saving}>
+          <Button
+            testID="save-result-dialog-cancel"
+            mode="text"
+            onPress={onCancel}
+            disabled={saving}
+            style={styles.dialogButton}
+          >
             Cancel
           </Button>
           <Button
@@ -60,6 +66,7 @@ export const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
             loading={saving}
             disabled={saving}
             onPress={() => onSave(name.trim())}
+            style={styles.dialogButton}
           >
             Save
           </Button>
@@ -86,5 +93,8 @@ const styles = StyleSheet.create({
   errorText: {
     marginTop: spacing.xs,
     color: colors.danger,
+  },
+  dialogButton: {
+    borderRadius: radii.button,
   },
 });

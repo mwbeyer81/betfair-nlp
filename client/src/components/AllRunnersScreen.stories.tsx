@@ -176,17 +176,6 @@ export const RaceAndRunnerRows: Story = {
   },
 };
 
-export const EventsButtonNavigates: Story = {
-  play: async ({ canvasElement, args }) => {
-    const canvas = within(canvasElement);
-
-    const btn = canvas.getByTestId("all-runners-menu-events-link");
-    await expect(btn).toBeInTheDocument();
-    await userEvent.click(btn);
-    await expect(args.navigate).toHaveBeenCalledWith("/events");
-  },
-};
-
 export const ResultsButtonNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
@@ -577,15 +566,11 @@ export const MobileHeaderButtonsVisible: Story = {
     // rather than behind the burger (matches every other viewport story in
     // this file).
     const sortBtn = canvas.getByTestId("all-runners-sort-toggle");
-    const eventsBtn = canvas.getByTestId("all-runners-menu-events-link");
 
     await expect(sortBtn).toBeInTheDocument();
-    await expect(eventsBtn).toBeInTheDocument();
 
     const sortRect = sortBtn.getBoundingClientRect();
-    const eventsRect = eventsBtn.getBoundingClientRect();
     await expect(sortRect.right).toBeLessThanOrEqual(window.innerWidth + 1);
-    await expect(eventsRect.right).toBeLessThanOrEqual(window.innerWidth + 1);
   },
 };
 
