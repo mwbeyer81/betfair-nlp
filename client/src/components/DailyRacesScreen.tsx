@@ -117,7 +117,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
   const [betSaving, setBetSaving] = useState(false);
   const [betError, setBetError] = useState<string | null>(null);
 
-  async function handlePlaceBet(pick: DailyRacePick, orderType: BetOrderType, targetProfit: number, maxStake: number) {
+  async function handlePlaceBet(pick: DailyRacePick, orderType: BetOrderType, targetProfit: number, maxStake: number, sandbox: boolean) {
     setBetSaving(true);
     setBetError(null);
     try {
@@ -132,6 +132,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
         targetProfit,
         maxStake,
         orderType,
+        sandbox,
       });
       setBetDialogRunnerId(null);
     } catch (err) {
@@ -953,7 +954,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
             saving={betSaving}
             error={betError}
             onCancel={() => { setBetDialogRunnerId(null); setBetError(null); }}
-            onSave={({ orderType, targetProfit, maxStake }) => handlePlaceBet(selected, orderType, targetProfit, maxStake)}
+            onSave={({ orderType, targetProfit, maxStake, sandbox }) => handlePlaceBet(selected, orderType, targetProfit, maxStake, sandbox)}
           />
         );
       })()}

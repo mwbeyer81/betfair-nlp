@@ -2,6 +2,7 @@ import { ObjectId } from "mongodb";
 import { BetOrderService } from "../bet-order-service";
 import { BetOrderDAO, BetOrderDocument } from "../../dao/bet-order-dao";
 import { BetfairApiClient } from "../betfair-api-client";
+import { DailyRaceService } from "../daily-race-service";
 import { resolveMarketForRace } from "../betfair-market-resolver";
 
 jest.mock("../betfair-market-resolver");
@@ -39,6 +40,20 @@ function fakeClient(overrides: Partial<jest.Mocked<BetfairApiClient>> = {}): jes
   } as unknown as jest.Mocked<BetfairApiClient>;
 }
 
+// Explicitly injected in every test below, same convention as fakeDAO/
+// fakeClient — BetOrderService's constructor eagerly constructs a real
+// DailyRaceService() (which itself eagerly calls
+// DatabaseConnection.getInstance().getDb()) whenever this third arg is
+// omitted, which throws "Database not connected" outside a real server
+// process. Never rely on the constructor default in a test.
+function fakeDailyRaceService(overrides: Partial<jest.Mocked<DailyRaceService>> = {}): jest.Mocked<DailyRaceService> {
+  return {
+    createIndexes: jest.fn(),
+    getDailyRaceById: jest.fn().mockResolvedValue(null),
+    ...overrides,
+  } as unknown as jest.Mocked<DailyRaceService>;
+}
+
 const FUTURE_OFF_DT = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour from now
 const PAST_OFF_DT = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 1 hour ago (well past grace)
 
@@ -67,7 +82,7 @@ function makeOrder(overrides: Partial<BetOrderDocument> = {}): BetOrderDocument 
 describe("BetOrderService.createForUser", () => {
   it("computes minQualifyingPrice and persists a pending scheduled order", async () => {
     const dao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
-    const service = new BetOrderService(dao, fakeClient());
+    const service = new BetOrderService(dao, fakeClient(), fakeDailyRaceService());
 
     const result = await service.createForUser(
       "user1",
@@ -85,7 +100,7 @@ describe("BetOrderService.createForUser", () => {
   });
 
   it("rejects a non-positive targetProfit", async () => {
-    const service = new BetOrderService(fakeDAO(), fakeClient());
+    const service = new BetOrderService(fakeDAO(), fakeClient(), fakeDailyRaceService());
     await expect(
       service.createForUser(
         "user1",
@@ -99,7 +114,7 @@ describe("BetOrderService.createForUser", () => {
   });
 
   it("rejects a non-positive maxStake", async () => {
-    const service = new BetOrderService(fakeDAO(), fakeClient());
+    const service = new BetOrderService(fakeDAO(), fakeClient(), fakeDailyRaceService());
     await expect(
       service.createForUser(
         "user1",
@@ -132,7 +147,7 @@ describe("BetOrderService.createForUser — instant orders", () => {
       placeOrders: jest.fn().mockResolvedValue({ outcome: "DRY_RUN", simulatedPrice: 4, simulatedSize: 10 }),
     });
     const dao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     const result = await service.createForUser("user1", INSTANT_INPUT, null);
 
@@ -159,7 +174,7 @@ describe("BetOrderService.createForUser — instant orders", () => {
       ]),
     });
     const dao = fakeDAO();
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     await expect(service.createForUser("user1", INSTANT_INPUT, null)).rejects.toThrow(/INSTANT_BET_REJECTED.*below your minimum qualifying price/);
 
@@ -171,7 +186,7 @@ describe("BetOrderService.createForUser — instant orders", () => {
     mockResolveMarketForRace.mockResolvedValue({ ok: false, failure: { reason: "ambiguous_market", detail: "2 candidate markets matched" } });
     const client = fakeClient();
     const dao = fakeDAO();
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     await expect(service.createForUser("user1", INSTANT_INPUT, null)).rejects.toThrow(/INSTANT_BET_REJECTED.*2 candidate markets matched/);
 
@@ -189,7 +204,7 @@ describe("BetOrderService.createForUser — instant orders", () => {
       placeOrders: jest.fn().mockResolvedValue({ outcome: "FAILURE", error: "INSUFFICIENT_FUNDS" }),
     });
     const dao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     const result = await service.createForUser("user1", INSTANT_INPUT, null);
 
@@ -223,7 +238,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
       placeOrders: jest.fn().mockResolvedValue({ outcome: "DRY_RUN", simulatedPrice: 4, simulatedSize: 1 }),
     });
     const allowedDao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
-    await new BetOrderService(allowedDao, allowedClient).createForUser("user1", input, "MatthewBeyer@Hotmail.com");
+    await new BetOrderService(allowedDao, allowedClient, fakeDailyRaceService()).createForUser("user1", input, "MatthewBeyer@Hotmail.com");
     expect(allowedClient.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 2, { forceDryRun: false });
     expect(allowedDao.create).toHaveBeenCalledWith(expect.objectContaining({ liveBettingAllowed: true }));
 
@@ -234,7 +249,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
       placeOrders: jest.fn().mockResolvedValue({ outcome: "DRY_RUN", simulatedPrice: 4, simulatedSize: 1 }),
     });
     const otherDao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
-    await new BetOrderService(otherDao, otherClient).createForUser("user2", input, "someoneelse@example.com");
+    await new BetOrderService(otherDao, otherClient, fakeDailyRaceService()).createForUser("user2", input, "someoneelse@example.com");
     expect(otherClient.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 2, { forceDryRun: true });
     expect(otherDao.create).toHaveBeenCalledWith(expect.objectContaining({ liveBettingAllowed: false }));
 
@@ -245,7 +260,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
       placeOrders: jest.fn().mockResolvedValue({ outcome: "DRY_RUN", simulatedPrice: 4, simulatedSize: 1 }),
     });
     const noAllowListDao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
-    await new BetOrderService(noAllowListDao, noAllowListClient).createForUser("user3", input, ALLOWED_EMAIL);
+    await new BetOrderService(noAllowListDao, noAllowListClient, fakeDailyRaceService()).createForUser("user3", input, ALLOWED_EMAIL);
     expect(noAllowListClient.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 2, { forceDryRun: true });
     expect(noAllowListDao.create).toHaveBeenCalledWith(expect.objectContaining({ liveBettingAllowed: false }));
   });
@@ -259,7 +274,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
     // the client's live isDryRun() state.
     const dao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
     const client = fakeClient({ getLiveBettingAllowedEmail: jest.fn().mockReturnValue(ALLOWED_EMAIL) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     await service.createForUser(
       "user1",
@@ -274,7 +289,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
   it("rejects a maxStake above the cap for the allow-listed requester, before any network call", async () => {
     const dao = fakeDAO();
     const client = fakeClient({ getLiveBettingAllowedEmail: jest.fn().mockReturnValue(ALLOWED_EMAIL) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     await expect(
       service.createForUser(
@@ -299,7 +314,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
       placeOrders: jest.fn().mockResolvedValue({ outcome: "DRY_RUN", simulatedPrice: 4, simulatedSize: 10 }),
     });
     const dao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     const result = await service.createForUser(
       "user1",
@@ -325,7 +340,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
         placeOrders: jest.fn().mockResolvedValue({ outcome: "SUCCESS", betId: "bet_real_123", matchedPrice: 4 }),
       });
       const dao = fakeDAO({ create: jest.fn().mockRejectedValue(new Error("Mongo connection dropped")) });
-      const service = new BetOrderService(dao, client);
+      const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
       await expect(
         service.createForUser(
@@ -365,7 +380,7 @@ describe("BetOrderService.createForUser — live-betting safety gates", () => {
         listAllOpen: jest.fn().mockResolvedValue([order]),
         updateFields: jest.fn().mockRejectedValue(new Error("Mongo connection dropped")),
       });
-      const service = new BetOrderService(dao, client);
+      const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
       const summary = await service.evaluatePendingOrders();
 
@@ -393,7 +408,7 @@ describe("BetOrderService.evaluatePendingOrders", () => {
     const order = makeOrder();
     mockResolveMarketForRace.mockResolvedValue({ ok: false, failure: { reason: "no_market_candidates", detail: "no market" } });
     const dao = fakeDAO({ listAllOpen: jest.fn().mockResolvedValue([order]) });
-    const service = new BetOrderService(dao, fakeClient());
+    const service = new BetOrderService(dao, fakeClient(), fakeDailyRaceService());
 
     const summary = await service.evaluatePendingOrders();
 
@@ -405,7 +420,7 @@ describe("BetOrderService.evaluatePendingOrders", () => {
     const order = makeOrder({ offDt: PAST_OFF_DT });
     mockResolveMarketForRace.mockResolvedValue({ ok: false, failure: { reason: "no_market_candidates", detail: "no market" } });
     const dao = fakeDAO({ listAllOpen: jest.fn().mockResolvedValue([order]) });
-    const service = new BetOrderService(dao, fakeClient());
+    const service = new BetOrderService(dao, fakeClient(), fakeDailyRaceService());
 
     const summary = await service.evaluatePendingOrders();
 
@@ -422,7 +437,7 @@ describe("BetOrderService.evaluatePendingOrders", () => {
       ]),
     });
     const dao = fakeDAO({ listAllOpen: jest.fn().mockResolvedValue([order]) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     const summary = await service.evaluatePendingOrders();
 
@@ -441,7 +456,7 @@ describe("BetOrderService.evaluatePendingOrders", () => {
       placeOrders: jest.fn().mockResolvedValue({ outcome: "DRY_RUN", simulatedPrice: 3.5, simulatedSize: 10 }),
     });
     const dao = fakeDAO({ listAllOpen: jest.fn().mockResolvedValue([order]) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     const summary = await service.evaluatePendingOrders();
 
@@ -467,7 +482,7 @@ describe("BetOrderService.evaluatePendingOrders", () => {
       ]),
     });
     const dao = fakeDAO({ listAllOpen: jest.fn().mockResolvedValue([order]), tryTransition: jest.fn().mockResolvedValue(false) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     await service.evaluatePendingOrders();
 
@@ -484,7 +499,7 @@ describe("BetOrderService.evaluatePendingOrders", () => {
       placeOrders: jest.fn().mockResolvedValue({ outcome: "FAILURE", error: "INSUFFICIENT_FUNDS" }),
     });
     const dao = fakeDAO({ listAllOpen: jest.fn().mockResolvedValue([order]) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     const summary = await service.evaluatePendingOrders();
 
@@ -504,7 +519,7 @@ describe("BetOrderService.evaluatePendingOrders", () => {
       ]),
     });
     const dao = fakeDAO({ listAllOpen: jest.fn().mockResolvedValue([order]) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     const summary = await service.evaluatePendingOrders();
 
@@ -520,7 +535,7 @@ describe("BetOrderService.evaluatePendingOrders", () => {
       .mockRejectedValueOnce(new Error("network blew up"))
       .mockResolvedValueOnce({ ok: false, failure: { reason: "no_market_candidates", detail: "no market" } });
     const dao = fakeDAO({ listAllOpen: jest.fn().mockResolvedValue([badOrder, goodOrder]) });
-    const service = new BetOrderService(dao, fakeClient());
+    const service = new BetOrderService(dao, fakeClient(), fakeDailyRaceService());
 
     const summary = await service.evaluatePendingOrders();
 
@@ -556,7 +571,7 @@ describe("BetOrderService.listForUser — real settled results", () => {
       return Promise.resolve();
     });
     const dao = fakeDAO({ listByUser: jest.fn().mockImplementation(() => Promise.resolve([realOrder])), updateFields });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     const result = await service.listForUser("user1");
 
@@ -573,7 +588,7 @@ describe("BetOrderService.listForUser — real settled results", () => {
     const simulatedOrder = makeOrder({ orderType: "instant", status: "triggered", dryRun: true, matchedPrice: 4 });
     const client = fakeClient();
     const dao = fakeDAO({ listByUser: jest.fn().mockResolvedValue([simulatedOrder]) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     await service.listForUser("user1");
 
@@ -585,7 +600,7 @@ describe("BetOrderService.listForUser — real settled results", () => {
     const realOrder = makeOrder({ orderType: "instant", status: "triggered", dryRun: false, betfairBetId: "bet_456" });
     const client = fakeClient({ listClearedOrders: jest.fn().mockResolvedValue([]) });
     const dao = fakeDAO({ listByUser: jest.fn().mockResolvedValue([realOrder]) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     await service.listForUser("user1");
 
@@ -596,11 +611,144 @@ describe("BetOrderService.listForUser — real settled results", () => {
     const realOrder = makeOrder({ orderType: "instant", status: "triggered", dryRun: false, betfairBetId: "bet_789" });
     const client = fakeClient({ listClearedOrders: jest.fn().mockRejectedValue(new Error("Betfair API down")) });
     const dao = fakeDAO({ listByUser: jest.fn().mockResolvedValue([realOrder]) });
-    const service = new BetOrderService(dao, client);
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
 
     const result = await service.listForUser("user1");
 
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe(realOrder._id!.toString());
+  });
+});
+
+describe("BetOrderService — sandbox bets", () => {
+  beforeEach(() => {
+    mockResolveMarketForRace.mockReset();
+  });
+
+  it("always forces a simulated placement for a sandbox order, even when the requester is allowed and dryRun is off", async () => {
+    mockResolveMarketForRace.mockResolvedValue({ ok: true, resolved: { marketId: "1.123", marketStartTime: FUTURE_OFF_DT, selectionId: 555 } });
+    const client = fakeClient({
+      getLiveBettingAllowedEmail: jest.fn().mockReturnValue(ALLOWED_EMAIL),
+      isDryRun: jest.fn().mockReturnValue(false), // account-wide switch off too
+      listMarketBook: jest.fn().mockResolvedValue([
+        { marketId: "1.123", status: "OPEN", inplay: false, runners: [{ selectionId: 555, status: "ACTIVE", ex: { availableToBack: [{ price: 4, size: 100 }] } }] },
+      ]),
+      placeOrders: jest.fn().mockResolvedValue({ outcome: "DRY_RUN", simulatedPrice: 4, simulatedSize: 50 }),
+    });
+    const dao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
+
+    const result = await service.createForUser(
+      "user1",
+      { runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
+        raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 5, maxStake: 50, orderType: "instant", sandbox: true },
+      ALLOWED_EMAIL
+    );
+
+    expect(client.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 50, { forceDryRun: true });
+    expect(result.status).toBe("triggered");
+    expect(result.dryRun).toBe(true);
+    expect(result.sandbox).toBe(true);
+    expect(dao.create).toHaveBeenCalledWith(expect.objectContaining({ sandbox: true }));
+  });
+
+  it("does NOT cap the stake for a sandbox order, unlike a real allow-listed request — sandbox can never spend real money regardless of size", async () => {
+    mockResolveMarketForRace.mockResolvedValue({ ok: true, resolved: { marketId: "1.123", marketStartTime: FUTURE_OFF_DT, selectionId: 555 } });
+    const client = fakeClient({
+      getLiveBettingAllowedEmail: jest.fn().mockReturnValue(ALLOWED_EMAIL),
+      listMarketBook: jest.fn().mockResolvedValue([
+        { marketId: "1.123", status: "OPEN", inplay: false, runners: [{ selectionId: 555, status: "ACTIVE", ex: { availableToBack: [{ price: 4, size: 1000 }] } }] },
+      ]),
+      placeOrders: jest.fn().mockResolvedValue({ outcome: "DRY_RUN", simulatedPrice: 4, simulatedSize: 500 }),
+    });
+    const dao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
+    const service = new BetOrderService(dao, client, fakeDailyRaceService());
+
+    // Well above MAX_LIVE_STAKE_GBP (£2) — would be rejected outright for
+    // a real (non-sandbox) allow-listed request, per the earlier
+    // "live-betting safety gates" describe block.
+    const result = await service.createForUser(
+      "user1",
+      { runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
+        raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 50, maxStake: 500, orderType: "instant", sandbox: true },
+      ALLOWED_EMAIL
+    );
+
+    expect(result.status).toBe("triggered");
+  });
+
+  it("settles a WON sandbox bet from the real race result, computing profit from the real matchedPrice and stake", async () => {
+    const sandboxOrder = makeOrder({
+      orderType: "instant",
+      status: "triggered",
+      sandbox: true,
+      matchedPrice: 4,
+      maxStake: 10,
+      raceId: "rac_1",
+      runnerId: "hrs_1",
+    });
+    const dailyRaceService = fakeDailyRaceService({
+      getDailyRaceById: jest.fn().mockResolvedValue({
+        raceId: "rac_1",
+        runners: [{ runnerId: "hrs_1", result: { status: "WINNER", pos: "1", isp: 4.2, ispFraction: "16/5" } }],
+      }),
+    });
+    const dao = fakeDAO({ listByUser: jest.fn().mockResolvedValue([sandboxOrder]) });
+    const service = new BetOrderService(dao, fakeClient(), dailyRaceService);
+
+    await service.listForUser("user1");
+
+    expect(dailyRaceService.getDailyRaceById).toHaveBeenCalledWith("rac_1");
+    expect(dao.updateFields).toHaveBeenCalledWith(
+      sandboxOrder._id,
+      expect.objectContaining({ betOutcome: "WON", settledProfit: 30 }) // (4 - 1) * 10
+    );
+  });
+
+  it("settles a LOST sandbox bet as -stake when the runner didn't win", async () => {
+    const sandboxOrder = makeOrder({
+      orderType: "instant", status: "triggered", sandbox: true, matchedPrice: 4, maxStake: 10, raceId: "rac_1", runnerId: "hrs_1",
+    });
+    const dailyRaceService = fakeDailyRaceService({
+      getDailyRaceById: jest.fn().mockResolvedValue({
+        raceId: "rac_1",
+        runners: [{ runnerId: "hrs_1", result: { status: "LOSER", pos: "4", isp: 4.2, ispFraction: "16/5" } }],
+      }),
+    });
+    const dao = fakeDAO({ listByUser: jest.fn().mockResolvedValue([sandboxOrder]) });
+    const service = new BetOrderService(dao, fakeClient(), dailyRaceService);
+
+    await service.listForUser("user1");
+
+    expect(dao.updateFields).toHaveBeenCalledWith(sandboxOrder._id, expect.objectContaining({ betOutcome: "LOST", settledProfit: -10 }));
+  });
+
+  it("leaves a sandbox bet untouched when the race hasn't been run/captured yet (result still null)", async () => {
+    const sandboxOrder = makeOrder({
+      orderType: "instant", status: "triggered", sandbox: true, matchedPrice: 4, maxStake: 10, raceId: "rac_1", runnerId: "hrs_1",
+    });
+    const dailyRaceService = fakeDailyRaceService({
+      getDailyRaceById: jest.fn().mockResolvedValue({
+        raceId: "rac_1",
+        runners: [{ runnerId: "hrs_1", result: null }],
+      }),
+    });
+    const dao = fakeDAO({ listByUser: jest.fn().mockResolvedValue([sandboxOrder]) });
+    const service = new BetOrderService(dao, fakeClient(), dailyRaceService);
+
+    await service.listForUser("user1");
+
+    expect(dao.updateFields).not.toHaveBeenCalled();
+  });
+
+  it("never calls getDailyRaceById when there are no sandbox bets to settle (the common case)", async () => {
+    const realOrder = makeOrder({ orderType: "instant", status: "triggered", sandbox: false, dryRun: true });
+    const dailyRaceService = fakeDailyRaceService();
+    const dao = fakeDAO({ listByUser: jest.fn().mockResolvedValue([realOrder]) });
+    const service = new BetOrderService(dao, fakeClient(), dailyRaceService);
+
+    await service.listForUser("user1");
+
+    expect(dailyRaceService.getDailyRaceById).not.toHaveBeenCalled();
   });
 });

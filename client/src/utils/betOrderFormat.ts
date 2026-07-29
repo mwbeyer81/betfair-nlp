@@ -61,3 +61,29 @@ export function formatBetOrderResult(order: BetOrder): string | null {
   if (order.betOutcome === "VOID") return "Void — stake returned";
   return `${order.betOutcome} (${sign}£${amount})`;
 }
+
+export interface SandboxPnlSummary {
+  staked: number;
+  pnl: number;
+  settledCount: number;
+  pendingCount: number;
+}
+
+// Aggregate PnL across a list of sandbox bets — same staked/pnl shape as
+// the existing Industry SP PnL screens (client/src/utils/ispFormat.ts's
+// computeRangePnl), but driven by each bet's own real stake/settledProfit
+// rather than an implied stake-to-win-£1 model, since a sandbox bet has an
+// actual user-chosen stake. Only settled bets contribute to staked/pnl —
+// pendingCount tells the caller how many sandbox bets are still awaiting
+// their race result, so a "3 bets not yet settled" note can be shown
+// alongside the totals rather than silently under-counting them.
+export function computeSandboxPnl(orders: BetOrder[]): SandboxPnlSummary {
+  const sandboxBets = orders.filter(o => o.sandbox === true && o.status === "triggered");
+  const settled = sandboxBets.filter(o => o.settledProfit != null);
+  return {
+    staked: settled.reduce((sum, o) => sum + o.maxStake, 0),
+    pnl: settled.reduce((sum, o) => sum + (o.settledProfit ?? 0), 0),
+    settledCount: settled.length,
+    pendingCount: sandboxBets.length - settled.length,
+  };
+}

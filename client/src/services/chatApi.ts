@@ -173,6 +173,11 @@ export interface BetOrder {
   betOutcome?: "WON" | "LOST" | "VOID" | string;
   settledProfit?: number;
   settledAt?: string;
+  // User-controlled — when true, this bet always simulates (never places
+  // real money) regardless of any other setting, and its result/PnL is
+  // settled against this app's own real race-result data rather than a
+  // real Betfair settlement. See PlaceBetDialog's sandbox toggle.
+  sandbox?: boolean;
 }
 
 export interface CreateBetOrderInput {
@@ -186,6 +191,7 @@ export interface CreateBetOrderInput {
   targetProfit: number;
   maxStake: number;
   orderType: BetOrderType;
+  sandbox?: boolean;
 }
 
 // Mirrors src/lib/service/live-price-service.ts's LivePriceResult.

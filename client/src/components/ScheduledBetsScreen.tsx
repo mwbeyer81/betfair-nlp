@@ -1,12 +1,14 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, ScrollView, StyleSheet, SafeAreaView } from "react-native";
-import { Text, Button, ActivityIndicator, Surface } from "react-native-paper";
+import { Text, Button, ActivityIndicator, Surface, SegmentedButtons } from "react-native-paper";
 import { chatApi, BetOrder } from "../services/chatApi";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
 import { colors, radii, spacing, statusPill } from "../theme";
-import { BET_ORDER_STATUS_LABEL, formatBetOrderCondition, formatBetOrderResult } from "../utils/betOrderFormat";
+import { BET_ORDER_STATUS_LABEL, formatBetOrderCondition, formatBetOrderResult, computeSandboxPnl } from "../utils/betOrderFormat";
 import type { Route } from "../hooks/useRouter";
+
+type BetsFilter = "all" | "real" | "sandbox";
 
 interface ScheduledBetsScreenProps {
   navigate: (to: Route, query?: string) => void;
@@ -25,6 +27,16 @@ export const ScheduledBetsScreen: React.FC<ScheduledBetsScreenProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<BetsFilter>("all");
+
+  const filteredBets = useMemo(() => {
+    if (filter === "sandbox") return bets.filter(b => b.sandbox === true);
+    if (filter === "real") return bets.filter(b => b.sandbox !== true);
+    return bets;
+  }, [bets, filter]);
+
+  const sandboxPnl = useMemo(() => computeSandboxPnl(bets), [bets]);
+  const hasSandboxBets = bets.some(b => b.sandbox === true);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,9 +99,42 @@ export const ScheduledBetsScreen: React.FC<ScheduledBetsScreenProps> = ({
               </Text>
             </View>
           )}
-          {!loading && !error && bets.length > 0 && (
+          {!loading && !error && bets.length > 0 && hasSandboxBets && (
+            <View testID="scheduled-bets-filter" style={styles.filterRow}>
+              <SegmentedButtons
+                value={filter}
+                onValueChange={value => setFilter(value as BetsFilter)}
+                buttons={[
+                  { value: "all", label: "All", testID: "scheduled-bets-filter-all" },
+                  { value: "real", label: "Real", testID: "scheduled-bets-filter-real" },
+                  { value: "sandbox", label: "Sandbox", testID: "scheduled-bets-filter-sandbox" },
+                ]}
+              />
+            </View>
+          )}
+          {!loading && !error && bets.length > 0 && filter === "sandbox" && (
+            <Surface testID="scheduled-bets-sandbox-pnl" style={styles.pnlCard} elevation={1}>
+              <Text style={styles.pnlTitle}>Sandbox P&amp;L</Text>
+              <Text style={[styles.pnlValue, { color: sandboxPnl.pnl >= 0 ? colors.success : colors.danger }]}>
+                {sandboxPnl.pnl >= 0 ? "+" : "-"}£{Math.abs(sandboxPnl.pnl).toFixed(2)}
+              </Text>
+              <Text style={styles.pnlMeta}>
+                Staked £{sandboxPnl.staked.toFixed(2)} across {sandboxPnl.settledCount} settled bet
+                {sandboxPnl.settledCount === 1 ? "" : "s"}
+                {sandboxPnl.pendingCount > 0
+                  ? ` (${sandboxPnl.pendingCount} more not settled yet — race hasn't run or result not captured)`
+                  : ""}
+              </Text>
+            </Surface>
+          )}
+          {!loading && !error && bets.length > 0 && filteredBets.length === 0 && (
+            <View testID="scheduled-bets-filter-empty" style={styles.centered}>
+              <Text style={styles.emptyText}>No {filter} bets to show.</Text>
+            </View>
+          )}
+          {!loading && !error && filteredBets.length > 0 && (
             <View testID="scheduled-bets-list" style={styles.list}>
-              {bets.map(bet => {
+              {filteredBets.map(bet => {
                 const pill = statusPill[bet.status.toUpperCase()] ?? statusPill.HIDDEN;
                 return (
                   <Surface key={bet.id} testID={`scheduled-bet-item-${bet.id}`} style={styles.card} elevation={1}>
@@ -103,6 +148,11 @@ export const ScheduledBetsScreen: React.FC<ScheduledBetsScreenProps> = ({
                       >
                         {bet.orderType === "instant" ? "Instant" : "Scheduled"}
                       </Text>
+                      {bet.sandbox && (
+                        <Text testID={`scheduled-bet-sandbox-badge-${bet.id}`} style={styles.sandboxBadge}>
+                          Sandbox
+                        </Text>
+                      )}
                       <Text
                         testID={`scheduled-bet-status-${bet.id}`}
                         style={[styles.statusBadge, { backgroundColor: pill.bg, color: pill.fg }]}
@@ -186,10 +236,32 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     overflow: "hidden",
   },
+  sandboxBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.warning,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.warning,
+    overflow: "hidden",
+  },
   meta: { fontSize: 12, color: colors.textSecondary },
   condition: { fontSize: 13, color: colors.text },
   result: { fontSize: 13, fontWeight: "700" },
   note: { fontSize: 12, color: colors.textSecondary, fontStyle: "italic" },
+  filterRow: { paddingHorizontal: spacing.md, paddingTop: spacing.md },
+  pnlCard: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: 2,
+  },
+  pnlTitle: { fontSize: 12, fontWeight: "600", color: colors.textSecondary },
+  pnlValue: { fontSize: 22, fontWeight: "800" },
+  pnlMeta: { fontSize: 12, color: colors.textSecondary },
   cancelButton: {
     alignSelf: "flex-start",
     borderRadius: radii.button,

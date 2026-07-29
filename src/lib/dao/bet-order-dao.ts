@@ -53,6 +53,16 @@ export interface BetOrderDocument {
   // field existed — always treat that absence as `false` (never allowed),
   // not `true`, at every read site — same fail-safe direction as dryRun.
   liveBettingAllowed?: boolean;
+  // User-controlled (unlike liveBettingAllowed, which is identity-derived)
+  // — when true, this order ALWAYS forces a simulated placement regardless
+  // of liveBettingAllowed or the account-wide dryRun switch (see
+  // bet-order-service.ts's placeInstant), independent of and in addition
+  // to those other gates. A user explicitly marking a bet "sandbox" must
+  // never accidentally place real money — that property has to hold even
+  // if every other gate were somehow misconfigured. Absent/false means a
+  // normal (potentially real) bet — same fail-safe-on-absence direction as
+  // every other boolean flag on this document.
+  sandbox?: boolean;
   createdAt: string;
   updatedAt: string;
   // Populated once resolveMarketForRace succeeds — absent while status is

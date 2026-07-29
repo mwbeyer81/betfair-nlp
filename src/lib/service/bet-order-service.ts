@@ -2,6 +2,7 @@ import { BetOrderDAO, BetOrderDocument, BetOrderStatus, BetOrderType } from "../
 import { DatabaseConnection } from "../../config/database";
 import { BetfairApiClient } from "./betfair-api-client";
 import { resolveMarketForRace } from "./betfair-market-resolver";
+import { DailyRaceService } from "./daily-race-service";
 
 // Hard cap on every order in this system, regardless of who's placing it
 // or which orderType — independent of (and in addition to) the
@@ -64,6 +65,11 @@ export interface CreateBetOrderInput {
   targetProfit: number;
   maxStake: number;
   orderType: BetOrderType;
+  // User-controlled — see BetOrderDocument.sandbox's doc comment. Only
+  // meaningful for orderType "instant" today (the only path with a UI
+  // toggle for it); harmless if ever set on a scheduled order too, since
+  // the same forced-simulation logic applies wherever it's read.
+  sandbox?: boolean;
 }
 
 export interface BetOrderApiResponse {
@@ -89,6 +95,7 @@ export interface BetOrderApiResponse {
   betOutcome?: "WON" | "LOST" | "VOID" | string;
   settledProfit?: number;
   settledAt?: string;
+  sandbox?: boolean;
 }
 
 function toApiResponse(doc: BetOrderDocument): BetOrderApiResponse {
@@ -114,6 +121,9 @@ function toApiResponse(doc: BetOrderDocument): BetOrderApiResponse {
     betOutcome: doc.betOutcome,
     settledProfit: doc.settledProfit,
     settledAt: doc.settledAt,
+    // Absent on pre-sandbox-feature docs — always false, same direction as
+    // the underlying document field.
+    sandbox: doc.sandbox === true,
   };
 }
 
@@ -135,8 +145,9 @@ const EXPIRE_GRACE_MINUTES = 15;
 export class BetOrderService {
   private dao: BetOrderDAO;
   private client: BetfairApiClient;
+  private dailyRaceService: DailyRaceService;
 
-  constructor(dao?: BetOrderDAO, client?: BetfairApiClient) {
+  constructor(dao?: BetOrderDAO, client?: BetfairApiClient, dailyRaceService?: DailyRaceService) {
     if (dao) {
       this.dao = dao;
     } else {
@@ -144,6 +155,7 @@ export class BetOrderService {
       this.dao = new BetOrderDAO(db);
     }
     this.client = client ?? new BetfairApiClient();
+    this.dailyRaceService = dailyRaceService ?? new DailyRaceService();
   }
 
   public async createIndexes(): Promise<void> {
@@ -167,16 +179,21 @@ export class BetOrderService {
     }
     const allowedEmail = this.client.getLiveBettingAllowedEmail();
     const liveBettingAllowed = Boolean(allowedEmail) && requestingUserEmail?.toLowerCase() === allowedEmail;
+    const sandbox = input.sandbox === true;
     // The cap only applies to requests that could ever actually go real —
     // everyone else's placeOrders call is always forced to simulate (see
     // forceDryRun below), so a large maxStake from them poses no real
-    // financial risk and shouldn't be blocked. Checked here rather than
-    // only inside BetfairApiClient because a scheduled order's
-    // liveBettingAllowed is fixed at creation time but its real/simulated
-    // outcome isn't decided until the cron evaluates it later — this cap
-    // must hold regardless of what the global dryRun switch is at that
-    // later point.
-    if (liveBettingAllowed && input.maxStake > MAX_LIVE_STAKE_GBP) {
+    // financial risk and shouldn't be blocked. Sandbox orders are exempt
+    // for the same reason: sandbox unconditionally forces a simulated
+    // placement (see placeInstant), so they can never spend real money no
+    // matter who's placing them — letting a sandbox stake exceed the real
+    // cap is what makes it useful for realistically testing PnL tracking.
+    // Checked here rather than only inside BetfairApiClient because a
+    // scheduled order's liveBettingAllowed is fixed at creation time but
+    // its real/simulated outcome isn't decided until the cron evaluates it
+    // later — this cap must hold regardless of what the global dryRun
+    // switch is at that later point.
+    if (liveBettingAllowed && !sandbox && input.maxStake > MAX_LIVE_STAKE_GBP) {
       throw new Error(`maxStake cannot exceed £${MAX_LIVE_STAKE_GBP} while live-betting safety limits are in effect`);
     }
 
@@ -195,6 +212,7 @@ export class BetOrderService {
       minQualifyingPrice: 1 + input.targetProfit / input.maxStake,
       orderType: input.orderType,
       liveBettingAllowed,
+      sandbox,
       createdAt: now,
       updatedAt: now,
     };
@@ -257,14 +275,19 @@ export class BetOrderService {
       );
     }
 
+    // Sandbox unconditionally forces simulation, on top of (not instead
+    // of) the identity gate — a bet the user explicitly marked "sandbox"
+    // must never place real money even if liveBettingAllowed is somehow
+    // true, so this can't be expressed as "only check one or the other".
     const result = await this.client.placeOrders(marketId, selectionId, bestBackPrice, base.maxStake, {
-      forceDryRun: !base.liveBettingAllowed,
+      forceDryRun: !base.liveBettingAllowed || base.sandbox === true,
     });
-    // Real money only actually moved if this specific request was both
-    // allowed AND the account-wide dryRun switch was off — result.outcome
-    // alone can't distinguish "forced dry run" from "the master switch was
-    // already off", so this is the one place that knows for sure.
-    const wasRealAttempt = base.liveBettingAllowed === true && !this.client.isDryRun();
+    // Real money only actually moved if this specific request was
+    // allowed, NOT marked sandbox, AND the account-wide dryRun switch was
+    // off — result.outcome alone can't distinguish "forced dry run" from
+    // "the master switch was already off", so this is the one place that
+    // knows for sure.
+    const wasRealAttempt = base.liveBettingAllowed === true && base.sandbox !== true && !this.client.isDryRun();
 
     if (result.outcome === "FAILURE") {
       // A real attempt was made against the live API and rejected —
@@ -325,13 +348,18 @@ export class BetOrderService {
   }
 
   public async listForUser(userId: string): Promise<BetOrderApiResponse[]> {
-    // Best-effort — a Betfair hiccup here must never break the list itself,
-    // since the user still needs to see their orders even if we can't
-    // confirm a settled result on this particular request.
+    // Best-effort — a Betfair/daily-race hiccup here must never break the
+    // list itself, since the user still needs to see their orders even if
+    // we can't confirm a settled result on this particular request.
     try {
       await this.refreshSettledResults(userId);
     } catch (error) {
       console.error("refreshSettledResults failed (non-fatal, list still returned):", error);
+    }
+    try {
+      await this.refreshSandboxResults(userId);
+    } catch (error) {
+      console.error("refreshSandboxResults failed (non-fatal, list still returned):", error);
     }
     const docs = await this.dao.listByUser(userId);
     return docs.map(toApiResponse);
@@ -364,6 +392,55 @@ export class BetOrderService {
         betOutcome: result.betOutcome,
         settledProfit: result.profit,
         settledAt: result.settledDate,
+      });
+    }
+  }
+
+  // Sandbox counterpart to refreshSettledResults above — a sandbox order
+  // never reaches Betfair for real (see placeInstant's forceDryRun), so
+  // there's no real betfairBetId to check listClearedOrders against.
+  // Instead, settles against this app's own real race-result data (the
+  // same DailyRaceService.getDailyRaceById(...).runners[].result the
+  // Industry SP / Saved Results PnL screens already use), reusing a real
+  // market price (matchedPrice, captured at placement time from the same
+  // real order book an allowed user's bet would have used) — so sandbox
+  // PnL reflects what would genuinely have happened, not a fabricated
+  // number. A no-op (no DB lookups beyond the initial list) whenever
+  // there's nothing sandboxed and unsettled — the common case for most
+  // users, who have never touched the sandbox toggle at all.
+  private async refreshSandboxResults(userId: string): Promise<void> {
+    const docs = await this.dao.listByUser(userId);
+    const unsettled = docs.filter(
+      d => d.sandbox === true && d.status === "triggered" && d.matchedPrice != null && d.betOutcome === undefined
+    );
+    if (unsettled.length === 0) return;
+
+    // One getDailyRaceById call per distinct race, not per order — several
+    // sandbox orders can share the same race (e.g. testing multiple
+    // runners), and this mirrors refreshSettledResults' own "batch, don't
+    // n+1" shape even though the underlying call here is per-race rather
+    // than a single multi-id batch endpoint (DailyRaceService has no
+    // batch-by-raceId-list method exposed at this granularity — see
+    // AGENTS.md's sandbox-bets entry for why per-race was chosen over
+    // building one).
+    const raceIds = Array.from(new Set(unsettled.map(d => d.raceId)));
+    const raceById = new Map(
+      await Promise.all(raceIds.map(async raceId => [raceId, await this.dailyRaceService.getDailyRaceById(raceId)] as const))
+    );
+
+    for (const doc of unsettled) {
+      const race = raceById.get(doc.raceId);
+      const runner = race?.runners.find(r => r.runnerId === doc.runnerId);
+      if (!runner?.result) continue; // race not run yet, or not yet captured — check again next time
+      // WIN-market betting only, same simplification the existing Industry
+      // SP PnL screens already make (computeRangePnl in ispFormat.ts):
+      // only "WINNER" pays out; PLACED/LOSER/NON_FINISHER are all a full
+      // loss of stake for a straight back bet, no each-way handling.
+      const won = runner.result.status === "WINNER";
+      await this.dao.updateFields(doc._id!, {
+        betOutcome: won ? "WON" : "LOST",
+        settledProfit: won ? (doc.matchedPrice! - 1) * doc.maxStake : -doc.maxStake,
+        settledAt: new Date().toISOString(),
       });
     }
   }

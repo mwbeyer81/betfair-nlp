@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { TextInput as RNTextInput, StyleSheet, View } from "react-native";
-import { Text, Button, Portal, Dialog, SegmentedButtons } from "react-native-paper";
+import { Text, Button, Portal, Dialog, SegmentedButtons, Switch } from "react-native-paper";
 import { colors, radii, spacing } from "../theme";
 import { minQualifyingPrice } from "../utils/betOrderFormat";
 import { toFractionalOdds } from "../utils/oddsFormat";
@@ -12,7 +12,7 @@ interface PlaceBetDialogProps {
   raceSummary: string;
   saving: boolean;
   error: string | null;
-  onSave: (values: { orderType: BetOrderType; targetProfit: number; maxStake: number }) => void;
+  onSave: (values: { orderType: BetOrderType; targetProfit: number; maxStake: number; sandbox: boolean }) => void;
   onCancel: () => void;
 }
 
@@ -26,16 +26,19 @@ export const PlaceBetDialog: React.FC<PlaceBetDialogProps> = ({
   onCancel,
 }) => {
   const [orderType, setOrderType] = useState<BetOrderType>("scheduled");
+  const [sandbox, setSandbox] = useState(false);
   const [targetProfit, setTargetProfit] = useState("");
   const [maxStake, setMaxStake] = useState("");
 
   // Reset the typed values each time the dialog reopens, same pattern as
   // SaveResultDialog — a previous bet's leftover figures shouldn't bleed
-  // into the next one. Defaulting orderType back to "scheduled" preserves
-  // today's behavior for anyone who never touches the new toggle.
+  // into the next one. Defaulting orderType back to "scheduled" and
+  // sandbox back to off preserves today's behavior for anyone who never
+  // touches either toggle.
   useEffect(() => {
     if (visible) {
       setOrderType("scheduled");
+      setSandbox(false);
       setTargetProfit("");
       setMaxStake("");
     }
@@ -52,7 +55,7 @@ export const PlaceBetDialog: React.FC<PlaceBetDialogProps> = ({
 
   function handleSave() {
     if (minPrice == null) return;
-    onSave({ orderType, targetProfit: targetProfitNum, maxStake: maxStakeNum });
+    onSave({ orderType, targetProfit: targetProfitNum, maxStake: maxStakeNum, sandbox: orderType === "instant" && sandbox });
   }
 
   return (
@@ -71,6 +74,18 @@ export const PlaceBetDialog: React.FC<PlaceBetDialogProps> = ({
               ]}
             />
           </View>
+          {orderType === "instant" && (
+            <View testID="place-bet-dialog-sandbox-row" style={styles.sandboxRow}>
+              <View style={styles.sandboxLabelGroup}>
+                <Text style={styles.sandboxLabel}>Sandbox (fake) bet</Text>
+                <Text style={styles.sandboxHint}>
+                  Never places real money, even if real betting is enabled for your account. Result and P&amp;L are
+                  tracked from the real race outcome once it's run.
+                </Text>
+              </View>
+              <Switch testID="place-bet-dialog-sandbox-switch" value={sandbox} onValueChange={setSandbox} />
+            </View>
+          )}
           <Text variant="bodyMedium" style={styles.helperText}>
             {orderType === "instant"
               ? `${raceSummary} — this places the bet immediately at whatever price Betfair currently offers. It will fail with an error if the current price doesn't already meet your target — there's no waiting for an instant bet.`
@@ -125,7 +140,7 @@ export const PlaceBetDialog: React.FC<PlaceBetDialogProps> = ({
             onPress={handleSave}
             style={styles.dialogButton}
           >
-            {orderType === "instant" ? "Place Bet Now" : "Schedule Bet"}
+            {orderType === "instant" ? (sandbox ? "Place Sandbox Bet" : "Place Bet Now") : "Schedule Bet"}
           </Button>
         </Dialog.Actions>
       </Dialog>
@@ -136,6 +151,30 @@ export const PlaceBetDialog: React.FC<PlaceBetDialogProps> = ({
 const styles = StyleSheet.create({
   orderTypeToggle: {
     marginBottom: spacing.sm,
+  },
+  sandboxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sandboxLabelGroup: {
+    flex: 1,
+  },
+  sandboxLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  sandboxHint: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   helperText: {
     marginBottom: spacing.sm,

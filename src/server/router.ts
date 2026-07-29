@@ -932,6 +932,9 @@ router.post("/api/bet-orders", async (req, res) => {
     // Old cached client bundles won't send orderType at all — default to
     // "scheduled" so they keep today's behavior unchanged.
     const orderType: BetOrderType = body.orderType === "instant" ? "instant" : "scheduled";
+    // Absent/anything-but-literal-true -> false, same fail-safe direction
+    // as every other boolean this route parses.
+    const sandbox = body.sandbox === true;
     const me = await authService.getMe(userId);
     const data = await betOrderService.createForUser(
       userId,
@@ -946,6 +949,7 @@ router.post("/api/bet-orders", async (req, res) => {
         targetProfit,
         maxStake,
         orderType,
+        sandbox,
       },
       me?.email ?? null
     );
