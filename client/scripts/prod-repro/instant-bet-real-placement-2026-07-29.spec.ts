@@ -38,6 +38,10 @@ const EMAIL = process.env.PROD_REPRO_EMAIL;
 const PASSWORD = process.env.PROD_REPRO_PASSWORD;
 
 test("REPRO/VERIFY (2026-07-29): a real instant £1 bet, placed through the real UI on the real deployed app", async ({ page }) => {
+  // Trying several real picks in turn (see the retry loop below) can
+  // legitimately take a while against real, live-changing racing data —
+  // the default 60s is too tight for that, not a sign of something hung.
+  test.setTimeout(180000);
   test.skip(!EMAIL || !PASSWORD, "Set PROD_REPRO_EMAIL/PROD_REPRO_PASSWORD (the real allow-listed account) to run this — never hardcoded here.");
 
   // Same URL-param auto-login technique as client/tests/bet-orders-e2e.spec.ts,
@@ -56,28 +60,54 @@ test("REPRO/VERIFY (2026-07-29): a real instant £1 bet, placed through the real
 
   const betBadges = page.locator('[data-testid^="daily-races-pick-bet-"]');
   await expect(betBadges.first()).toBeVisible({ timeout: 10000 });
-  await betBadges.first().click();
-  await expect(page.getByTestId("place-bet-dialog")).toBeVisible();
+  // Today's real data can have hundreds of runners with a Bet badge —
+  // capped so this test has a predictable upper bound on wall-clock time
+  // and real attempts, not because more picks wouldn't also be valid.
+  const attemptCount = Math.min(await betBadges.count(), 15);
 
-  // Toggle to "Bet now" (instant) — the whole point of this test, as
-  // opposed to the existing scheduled-flow e2e coverage.
-  await page.getByTestId("place-bet-dialog-order-type-instant").click();
-  // £0.20 target profit / £1 max stake -> minQualifyingPrice £1.20, low
-  // enough to qualify against almost any real market price, while staying
-  // at MAX_LIVE_STAKE_GBP's exact cap.
-  await page.getByTestId("place-bet-dialog-target-profit-input").fill("0.20");
-  await page.getByTestId("place-bet-dialog-max-stake-input").fill("1");
-  await expect(page.getByTestId("place-bet-dialog-confirm")).toHaveText("Place Bet Now");
-  await page.getByTestId("place-bet-dialog-confirm").click();
+  // Real racing data changes underneath us between page load and the
+  // moment this test actually submits — a pick that was upcoming when the
+  // list loaded can go off-time (or in-play) by the time we get to it,
+  // which is a genuine pre-flight INSTANT_BET_REJECTED, not the
+  // account-level issue this test exists to verify. Try picks in order
+  // until one gets far enough to reach Betfair for real (dialog closes),
+  // rather than failing on the first unlucky timing collision.
+  let dialogClosed = false;
+  let lastInlineError: string | null = null;
+  for (let i = 0; i < attemptCount; i++) {
+    await betBadges.nth(i).click();
+    await expect(page.getByTestId("place-bet-dialog")).toBeVisible();
 
-  // Instant placement resolves synchronously — either the dialog closes
-  // (persisted, success or a real-attempt error, see My Bets below) or an
-  // inline pre-flight rejection (INSTANT_BET_REJECTED — price/market
-  // couldn't even be checked) shows in the dialog itself, never both.
-  const dialogClosed = await page.getByTestId("place-bet-dialog").waitFor({ state: "hidden", timeout: 15000 }).then(() => true).catch(() => false);
+    // Toggle to "Bet now" (instant) — the whole point of this test, as
+    // opposed to the existing scheduled-flow e2e coverage.
+    await page.getByTestId("place-bet-dialog-order-type-instant").click();
+    // £0.20 target profit / £1 max stake -> minQualifyingPrice £1.20, low
+    // enough to qualify against almost any real market price, while
+    // staying at MAX_LIVE_STAKE_GBP's exact cap.
+    await page.getByTestId("place-bet-dialog-target-profit-input").fill("0.20");
+    await page.getByTestId("place-bet-dialog-max-stake-input").fill("1");
+    await expect(page.getByTestId("place-bet-dialog-confirm")).toHaveText("Place Bet Now");
+    await page.getByTestId("place-bet-dialog-confirm").click();
+
+    // Instant placement resolves synchronously — either the dialog closes
+    // (persisted, success or a real-attempt error, see My Bets below) or
+    // an inline pre-flight rejection (INSTANT_BET_REJECTED — price/market
+    // couldn't even be checked) shows in the dialog itself, never both.
+    // Racing against both outcomes rather than waiting on one then
+    // checking the other, since either can legitimately take a moment.
+    dialogClosed = await Promise.race([
+      page.getByTestId("place-bet-dialog").waitFor({ state: "hidden", timeout: 20000 }).then(() => true),
+      page.getByTestId("place-bet-dialog-error").waitFor({ state: "visible", timeout: 20000 }).then(() => false),
+    ]).catch(() => false);
+    if (dialogClosed) break;
+
+    lastInlineError = await page.getByTestId("place-bet-dialog-error").textContent().catch(() => null);
+    console.log(`Pick ${i + 1}/${attemptCount} pre-flight rejected (${lastInlineError}) — trying the next one.`);
+    await page.getByTestId("place-bet-dialog-cancel").click();
+    await expect(page.getByTestId("place-bet-dialog")).not.toBeVisible();
+  }
   if (!dialogClosed) {
-    const inlineError = await page.getByTestId("place-bet-dialog-error").textContent().catch(() => null);
-    throw new Error(`Instant bet was pre-flight rejected before reaching Betfair at all (not the account-level issue this test expects): ${inlineError}`);
+    throw new Error(`All ${attemptCount} picks tried were pre-flight rejected before reaching Betfair at all — last error: ${lastInlineError}`);
   }
 
   await page.getByTestId("daily-races-menu-bets-link").click();
