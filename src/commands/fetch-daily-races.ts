@@ -18,8 +18,8 @@ async function run(): Promise<void> {
   const dbConnection = DatabaseConnection.getInstance();
   await dbConnection.connect();
 
-  const count = await new DailyRaceService().ingestFromRacingApi();
-  console.log(`Upserted ${count} daily racecards.`);
+  const result = await new DailyRaceService().ingestFromRacingApi();
+  console.log(`Upserted ${result.racesUpserted} daily racecards, skipped ${result.nonGbSkipped} non-GB races.`);
 
   await dbConnection.disconnect();
 }

@@ -826,7 +826,9 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
               </View>
 
               {races.length === 0 && (
-                <Text testID="daily-races-empty" style={styles.emptyText}>No races found for today.</Text>
+                <Text testID="daily-races-empty" style={styles.emptyText}>
+                  No races found for {formatDailyRacesDateLabel(currentDate)}.
+                </Text>
               )}
 
               {races.length > 0 && groupMode === "meeting" && events.map(event => (

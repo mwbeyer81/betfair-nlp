@@ -100,10 +100,12 @@ export const handler = async (event: APIGatewayProxyEventV2 | ScheduledEvent, co
       return { statusCode: 200 };
     }
     const dailyRaceService = new DailyRaceService();
-    let count: number;
     try {
-      count = await dailyRaceService.ingestFromRacingApi();
-      console.log(`Scheduled daily-races ingest: upserted ${count} races.`);
+      const ingestResult = await dailyRaceService.ingestFromRacingApi();
+      console.log(
+        `Scheduled daily-races ingest: upserted ${ingestResult.racesUpserted} races, ` +
+          `skipped ${ingestResult.nonGbSkipped} non-GB races.`
+      );
     } catch (error) {
       console.error("Scheduled daily-races ingest failed:", error);
       throw error;

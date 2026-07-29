@@ -4926,3 +4926,85 @@ Verified: `yarn build` clean; live screenshot via a throwaway Expo
 dev server on a `worktree-ports`-claimed port (8103) showed the
 button rendering "Backtest" with no console errors, rest of the
 filters screen unaffected.
+
+---
+
+## 2026-07-29 (later still) — primary checkout, directly on `develop`
+
+**Task:** user reported (screenshot) Daily Races showing "0 events, 0
+races" / "No races found for today." and asked for a `./scripts` repro
+against prod plus a fix.
+
+**Investigation, not a cron bug:** `aws logs filter-log-events` on
+`/aws/lambda/hello-api` confirmed the 06:00 UTC scheduled ingest ran
+cleanly (`Scheduled daily-races ingest: upserted 40 races`), and a
+direct-to-Mongo check (`scripts/prod-repro-daily-races-empty-
+today-2026-07-29.ts`, same technique as the isp-year-walk prod-repro
+script — bypasses HTTP/auth via `config/local.json`) confirmed 40 real
+races landed in `daily_racecards` for the real today (2026-07-29); 0 for
+2026-07-30 is correct, RacingAPI's free racecards endpoint only ever
+returns *today's* card (confirmed previously in the `daily-races-day-
+nav` entry above — no `date` query param is accepted at all). The
+deployed `build-commit` meta tag (`767e9b1`) matched local `develop`
+HEAD exactly, ruling out a stale deploy too.
+
+**Real root cause:** `DailyRacesScreen.tsx`'s empty-state text was
+hardcoded `"No races found for today."` regardless of which date is
+actually selected (`currentDate`) — landing on/navigating to any other
+date with no card (tomorrow, before its own cron run; any date entirely
+without a card) shows the same "today" wording. The user's screenshot
+was on tomorrow's date (30 Jul), correctly empty, but the message
+claimed it was "today" — this is what generated the report. **Fix:**
+empty state now reads `No races found for {formatDailyRacesDateLabel(
+currentDate)}.`, naming the actual selected date instead of always
+"today".
+
+**Second report, same session (screenshot):** user immediately followed
+up — "Mont de Marsan is in France. Daily Races should only ever fetch
+and show UK races." The live screenshot showed 6 meetings/40 races for
+today including Mont-De-Marsan (FR) and Galway (IRE) alongside 4 real GB
+meetings, plus an existing Region filter (FR/GB/IRE chips, from the
+already-merged `daily-races-filters` work) that derives its options from
+whatever's actually in the data — confirming Daily Races' RacingAPI free
+feed was never GB-filtered at ingest time, unlike its results-capture
+sibling.
+
+**Fix:** `DailyRaceService.ingestFromRacingApi` (`daily-race-service.ts`)
+now filters `rawRacecard.region !== "GB"` before mapping/upserting —
+identical convention to `IndustrySpResultsCaptureService.
+captureTodayResults`'s existing GB-only filter for the same feed's
+results side. Return type changed from a plain `count: number` to
+`{racesUpserted, nonGbSkipped}` (mirrors the sibling method's return
+shape); both callers (`apps/lambda/src/handler.ts`'s scheduled-ingest
+branch, `src/commands/fetch-daily-races.ts`) updated to log both counts.
+**Existing non-GB data cleanup:** 55 non-GB docs (22 IRE/Galway, 33 FR
+across Clairefontaine/Mont-De-Marsan/Compiegne/Vittel) had already
+accumulated in prod `daily_racecards` across every ingest day since the
+collection started — `bulkUpsertRaces` only upserts, never deletes, so
+the code fix alone wouldn't remove them. User confirmed via an explicit
+question before running it; `scripts/cleanup-daily-races-non-gb-
+2026-07-29.ts` ran a one-off `deleteMany({region: {$ne: "GB"}})` against
+prod, confirmed 0 non-GB / 79 GB remaining afterward.
+
+**Coverage:** `scripts/prod-repro-daily-races-empty-today-2026-07-29.ts`
+(direct-to-Mongo cron/data health check, not a regression test — the
+"cron is fine" negative result); `client/scripts/prod-repro/daily-races-
+empty-today-2026-07-29.spec.ts` (real deployed-bundle repro for the
+"today" copy bug — same fake-JWT + `page.route()` technique as
+`results-white-screen-2026-07-27.spec.ts`, since Daily Races sits behind
+the login wall and this agent has no real credentials; failed against
+live prod before the fix with the exact reported string, re-run after
+deploy to confirm). New Jest case in `daily-race-service.test.ts`
+("filters out non-GB racecards via the region field") plus `region:
+"GB"` added to the two pre-existing fixtures (previously unset, which
+would have made a strict `!== "GB"` check reject them).
+
+**Verified:** root `yarn jest src/lib/service/__tests__/daily-race-
+service.test.ts` 9/9; root `npx tsc --noEmit` clean (note: `apps/lambda`'s
+own `tsc --noEmit` reports pre-existing `rootDir` errors for every
+shared `src/` import — confirmed unrelated to this change, and harmless
+since the real deploy bundles via esbuild in `build.sh`, not raw `tsc`);
+`yarn build` clean (client). Supertest: 19/19 daily-races cases still
+pass (the HTTP route never calls `ingestFromRacingApi` directly, cron/CLI
+-only). Deployed Lambda + web, merged to `develop` — see commit for
+exact hashes.

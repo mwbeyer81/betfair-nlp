@@ -50,16 +50,16 @@ describe("DailyRaceService.ingestFromRacingApi", () => {
         ok: true,
         body: {
           racecards: [
-            { race_id: "rac_1", course: "Newton Abbot", date: "2026-06-03", runners: [{ horse_id: "hrs_1", horse: "Fixture Star" }] },
-            { race_id: "rac_2", course: "Ascot", date: "2026-06-03", runners: [] },
+            { race_id: "rac_1", course: "Newton Abbot", date: "2026-06-03", region: "GB", runners: [{ horse_id: "hrs_1", horse: "Fixture Star" }] },
+            { race_id: "rac_2", course: "Ascot", date: "2026-06-03", region: "GB", runners: [] },
           ],
         },
       }),
     });
 
-    const count = await service.ingestFromRacingApi(client);
+    const result = await service.ingestFromRacingApi(client);
 
-    expect(count).toBe(2);
+    expect(result).toEqual({ racesUpserted: 2, nonGbSkipped: 0 });
     expect(mockDAO.bulkUpsertRaces).toHaveBeenCalledTimes(1);
     const docs = mockDAO.bulkUpsertRaces.mock.calls[0][0];
     expect(docs).toHaveLength(2);
@@ -68,9 +68,32 @@ describe("DailyRaceService.ingestFromRacingApi", () => {
 
   it("treats a missing/empty racecards array as zero results, not an error", async () => {
     const client = fakeClient({ get: jest.fn().mockResolvedValue({ status: 200, ok: true, body: {} }) });
-    const count = await service.ingestFromRacingApi(client);
-    expect(count).toBe(0);
+    const result = await service.ingestFromRacingApi(client);
+    expect(result).toEqual({ racesUpserted: 0, nonGbSkipped: 0 });
     expect(mockDAO.bulkUpsertRaces).toHaveBeenCalledWith([]);
+  });
+
+  it("filters out non-GB racecards via the region field — Daily Races is UK-only", async () => {
+    const client = fakeClient({
+      get: jest.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        body: {
+          racecards: [
+            { race_id: "rac_1", course: "Newton Abbot", date: "2026-06-03", region: "GB", runners: [] },
+            { race_id: "rac_2", course: "Mont-De-Marsan", date: "2026-06-03", region: "FR", runners: [] },
+            { race_id: "rac_3", course: "Galway", date: "2026-06-03", region: "IRE", runners: [] },
+          ],
+        },
+      }),
+    });
+
+    const result = await service.ingestFromRacingApi(client);
+
+    expect(result).toEqual({ racesUpserted: 1, nonGbSkipped: 2 });
+    const docs = mockDAO.bulkUpsertRaces.mock.calls[0][0];
+    expect(docs).toHaveLength(1);
+    expect(docs[0].course).toBe("Newton Abbot");
   });
 });
 

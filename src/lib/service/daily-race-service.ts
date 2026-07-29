@@ -154,6 +154,12 @@ export class DailyRaceService {
    * fetch/map/upsert. Throws on missing credentials or a non-ok RacingAPI
    * response — callers decide how to log/handle.
    *
+   * Daily Races is a UK-only feature — non-GB racecards (RacingAPI's free
+   * feed returns France/Ireland/etc. alongside GB) are filtered out before
+   * upserting, same `region !== "GB"` convention already used by
+   * IndustrySpResultsCaptureService.captureTodayResults for the results
+   * side of this same feed.
+   *
    * `path` defaults to config `racingApi.racecardsPath` (empty ->
    * "/racecards/free") — flip that one env var once a higher plan is
    * confirmed live (e.g. "/racecards/basic") and both the CLI and the
@@ -161,7 +167,7 @@ export class DailyRaceService {
   public async ingestFromRacingApi(
     client: RacingApiClient = new RacingApiClient(),
     path: string = readConfigString("racingApi.racecardsPath") || "/racecards/free"
-  ): Promise<number> {
+  ): Promise<{ racesUpserted: number; nonGbSkipped: number }> {
     if (!client.hasCredentials()) {
       throw new Error("RacingAPI credentials not configured (racingApi.username/password)");
     }
@@ -169,9 +175,18 @@ export class DailyRaceService {
     if (!res.ok) {
       throw new Error(`RacingAPI returned ${res.status}: ${JSON.stringify(res.body)}`);
     }
-    const docs = (res.body.racecards || []).map(mapRacecardToDoc);
+    const rawRacecards = res.body.racecards || [];
+    let nonGbSkipped = 0;
+    const docs: DailyRaceDoc[] = [];
+    for (const rawRacecard of rawRacecards) {
+      if (rawRacecard.region !== "GB") {
+        nonGbSkipped++;
+        continue;
+      }
+      docs.push(mapRacecardToDoc(rawRacecard));
+    }
     await this.dailyRaceDAO.bulkUpsertRaces(docs);
-    return docs.length;
+    return { racesUpserted: docs.length, nonGbSkipped };
   }
 
   /** Scores a date's already-ingested, already-feature-computed races via
