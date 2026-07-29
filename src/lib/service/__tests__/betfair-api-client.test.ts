@@ -59,3 +59,76 @@ describe("BetfairApiClient — config boolean coercion", () => {
     expect(new BetfairApiClient().getLiveBettingAllowedEmail()).toBe("");
   });
 });
+
+describe("BetfairApiClient.placeOrders — real Betfair error code priority", () => {
+  const fetchSpy = jest.spyOn(global, "fetch");
+
+  beforeEach(() => {
+    fetchSpy.mockReset();
+    mockGet.mockReset();
+    // dryRun: false, forceDryRun: false, and a fixed sessionId so
+    // ensureSession() never tries a real login() network call — isolates
+    // these tests to exactly placeOrders' own response-parsing logic.
+    mockGet.mockImplementation((key: string) => {
+      if (key === "betfair.dryRun") return false;
+      if (key === "betfair.sessionId") return "fake-session-id";
+      if (key === "betfair.appKey") return "fake-app-key";
+      return "";
+    });
+  });
+
+  afterAll(() => fetchSpy.mockRestore());
+
+  // Real bug this locks in: Betfair's PlaceExecutionReport has its own
+  // top-level errorCode (ExecutionReportErrorCode), separate from each
+  // instructionReports[].errorCode (InstructionReportErrorCode). Betfair's
+  // own developer forum documents ERROR_IN_ORDER at the instruction level
+  // as a cascading placeholder ("the action failed because the parent
+  // order failed") that commonly co-occurs with a more specific top-level
+  // code — the top-level one must win. See AGENTS.md's
+  // betfair-error-code-fix entry for how this was found (a prior fix
+  // guessed ERROR_IN_ORDER meant an app-key permission issue; that guess
+  // was wrong, and this is the actual fix).
+  it("surfaces the top-level errorCode ahead of the per-instruction ERROR_IN_ORDER placeholder", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "FAILURE",
+        errorCode: "INSUFFICIENT_FUNDS",
+        instructionReports: [{ status: "FAILURE", errorCode: "ERROR_IN_ORDER" }],
+      }),
+    } as Response);
+
+    const result = await new BetfairApiClient().placeOrders("1.123", 555, 3.5, 1);
+
+    expect(result).toEqual({ outcome: "FAILURE", error: "INSUFFICIENT_FUNDS" });
+  });
+
+  it("falls back to the per-instruction errorCode when no top-level errorCode is present", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "FAILURE",
+        instructionReports: [{ status: "FAILURE", errorCode: "MARKET_SUSPENDED" }],
+      }),
+    } as Response);
+
+    const result = await new BetfairApiClient().placeOrders("1.123", 555, 3.5, 1);
+
+    expect(result).toEqual({ outcome: "FAILURE", error: "MARKET_SUSPENDED" });
+  });
+
+  it("still reports SUCCESS correctly (top-level errorCode field simply absent on a real success)", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "SUCCESS",
+        instructionReports: [{ status: "SUCCESS", betId: "12345", averagePriceMatched: 3.6 }],
+      }),
+    } as Response);
+
+    const result = await new BetfairApiClient().placeOrders("1.123", 555, 3.5, 1);
+
+    expect(result).toEqual({ outcome: "SUCCESS", betId: "12345", matchedPrice: 3.6 });
+  });
+});

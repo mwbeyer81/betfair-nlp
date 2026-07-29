@@ -24,14 +24,24 @@ const BETFAIR_ERROR_MESSAGES: Record<string, string> = {
   BET_ACTION_ERROR: "Betfair rejected this bet without a specific reason — check your account and try again.",
   INVALID_BET_SIZE: "The stake was outside the size Betfair allows for this market.",
   BET_IN_PROGRESS: "Another bet was already in progress on this account — try again shortly.",
-  // Confirmed live 2026-07-29 (see AGENTS.md's config-boolean-fix entry):
-  // the account's only registered Betfair application key is the free
-  // "Delay" tier, which isn't authorized to place real orders — this is
-  // the top-level status Betfair returns for that, not a per-selection
-  // error. Fixable only on Betfair's own site (a paid Live/full-access
-  // application key), never by retrying or by anything in this codebase.
-  ERROR_IN_ORDER:
-    'Betfair rejected this order at the account level — your application key may not be authorized for real order placement (a free "Delay" key can\'t place bets; a Live application key is needed). This won\'t be fixed by retrying.',
+  // Below: top-level PlaceExecutionReport.errorCode values (Betfair's
+  // ExecutionReportErrorCode) — see betfair-api-client.ts's placeOrders
+  // comment for why these are now surfaced ahead of the per-instruction
+  // codes. 2026-07-29 correction (see AGENTS.md's betfair-error-code-fix
+  // entry): an EARLIER version of this map guessed that ERROR_IN_ORDER
+  // meant the account's free "Delay" application key couldn't place real
+  // orders — that guess was never actually verified and real research
+  // (Betfair's own developer forum + docs) contradicts it: Delay keys CAN
+  // place real orders, and ERROR_IN_ORDER is documented as a cascading
+  // per-instruction placeholder ("the action failed because the parent
+  // order failed"), not an account-permission signal by itself — the
+  // REAL cause is whatever this top-level errorCode says.
+  PERMISSION_DENIED: "Betfair denied this account permission to place real orders — this may need resolving directly on Betfair's site (e.g. account verification, or the application key's access level).",
+  INVALID_ACCOUNT_STATE: "Betfair reports this account is not in a state that allows betting right now — check your account status on Betfair's site.",
+  INVALID_WALLET_STATUS: "Betfair reports a problem with this account's wallet — check your account on Betfair's site.",
+  LOSS_LIMIT_EXCEEDED: "This bet would exceed a loss limit set on the Betfair account.",
+  MARKET_NOT_OPEN_FOR_BETTING: "This market isn't open for betting right now (e.g. not yet released, or already closed).",
+  ERROR_IN_ORDER: "Betfair rejected this order, but without a more specific reason available — check your account on Betfair's site.",
 };
 
 function humanizeBetfairError(rawError: string): string {

@@ -277,8 +277,25 @@ export class BetfairApiClient {
       return { outcome: "DRY_RUN", simulatedPrice: price, simulatedSize: size };
     }
     try {
+      // REAL BUG FOUND AND FIXED 2026-07-29 (see AGENTS.md's
+      // betfair-error-code-fix entry): Betfair's real `PlaceExecutionReport`
+      // response has its OWN top-level `errorCode` field (Betfair's
+      // `ExecutionReportErrorCode` — e.g. PERMISSION_DENIED,
+      // INSUFFICIENT_FUNDS, INVALID_ACCOUNT_STATE, INVALID_WALLET_STATUS),
+      // completely separate from each per-instruction report's own
+      // `errorCode` (`InstructionReportErrorCode`). This code previously
+      // read ONLY the per-instruction one and never looked at the
+      // top-level field at all. Per Betfair's own developer forum,
+      // `ERROR_IN_ORDER` at the instruction level is a CASCADING
+      // placeholder — "the action failed because the parent order failed"
+      // — and real reports show it commonly appears together with a much
+      // more specific top-level errorCode that explains the actual root
+      // cause. Surfacing the top-level one first, since it's the
+      // informative one; falling back to the per-instruction code only
+      // when the top-level field is absent.
       const result = await this.restCall<{
         status: string;
+        errorCode?: string;
         instructionReports?: { status: string; betId?: string; averagePriceMatched?: number; errorCode?: string }[];
       }>("placeOrders", {
         marketId,
@@ -293,7 +310,7 @@ export class BetfairApiClient {
       });
       const report = result.instructionReports?.[0];
       if (result.status !== "SUCCESS" || !report || report.status !== "SUCCESS" || !report.betId) {
-        return { outcome: "FAILURE", error: report?.errorCode ?? result.status ?? "unknown placeOrders failure" };
+        return { outcome: "FAILURE", error: result.errorCode ?? report?.errorCode ?? result.status ?? "unknown placeOrders failure" };
       }
       return { outcome: "SUCCESS", betId: report.betId, matchedPrice: report.averagePriceMatched ?? price };
     } catch (error) {
