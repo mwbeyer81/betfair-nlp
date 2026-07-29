@@ -264,6 +264,56 @@ async function setupApiMocks(page: Page) {
     route.fulfill({ json: { success: true, data, count: data.length } });
   });
 
+  // Conditional "Bet" orders — stateful per-test in-memory list, same
+  // per-call-freshness as every other mutable fixture in this function
+  // (setupApiMocks runs once per test via the test/anonTest fixtures
+  // below). Creating an order never touches Betfair at all in the real
+  // backend (only the scheduled evaluator does) — so this mock never
+  // needs to simulate any Betfair-side behavior, only bet_orders CRUD.
+  let mockBetOrderIdCounter = 1;
+  const mockBetOrders: Record<string, unknown>[] = [];
+
+  await page.route((url) => url.pathname === "/api/bet-orders", (route) => {
+    if (route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      const targetProfit = Number(body.targetProfit);
+      const maxStake = Number(body.maxStake);
+      if (!(targetProfit > 0) || !(maxStake > 0)) {
+        route.fulfill({ status: 400, json: { success: false, error: "targetProfit must be a positive number" } });
+        return;
+      }
+      const order = {
+        id: `bet_${mockBetOrderIdCounter++}`,
+        runnerId: body.runnerId,
+        horse: body.horse,
+        course: body.course,
+        offTime: body.offTime,
+        raceId: body.raceId,
+        eventId: body.eventId,
+        targetProfit,
+        maxStake,
+        minQualifyingPrice: 1 + targetProfit / maxStake,
+        status: "pending",
+        createdAt: "2026-07-29T08:00:00.000Z",
+      };
+      mockBetOrders.push(order);
+      route.fulfill({ status: 201, json: { success: true, data: order } });
+      return;
+    }
+    route.fulfill({ json: { success: true, data: mockBetOrders, count: mockBetOrders.length } });
+  });
+
+  await page.route((url) => url.pathname.startsWith("/api/bet-orders/"), (route) => {
+    const id = decodeURIComponent(route.request().url().split("/api/bet-orders/")[1]);
+    const order = mockBetOrders.find((o) => o.id === id);
+    if (!order || (order.status !== "pending" && order.status !== "unmatched")) {
+      route.fulfill({ status: 404, json: { success: false, error: "Not found or no longer cancellable" } });
+      return;
+    }
+    order.status = "cancelled";
+    route.fulfill({ json: { success: true } });
+  });
+
   await page.route((url) => url.pathname.startsWith("/api/daily-races/race/"), (route) => {
     const raceId = decodeURIComponent(route.request().url().split("/api/daily-races/race/")[1]);
     const race = MOCK_DAILY_RACES.find((r) => r.raceId === raceId);
