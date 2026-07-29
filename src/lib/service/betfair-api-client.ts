@@ -30,10 +30,32 @@ function readConfigString(key: string): string {
   }
 }
 
+// REAL BUG FOUND AND FIXED 2026-07-29 (see AGENTS.md's config-boolean-fix
+// entry): the `config` npm package does NOT auto-cast env-var-sourced
+// values to match the type already at that path in default.json — that's
+// a common but false assumption. A `custom-environment-variables.json`
+// substitution always produces a raw string, so `config.get("betfair.dryRun")`
+// returned the STRING "false" (not the boolean false) once
+// BETFAIR_DRY_RUN was ever actually set as a real env var — silently
+// failing the old `typeof value === "boolean"` check and falling back to
+// `fallback` (true) every single time, regardless of what the env var
+// said. This went undetected until this session because BETFAIR_DRY_RUN
+// had never previously been set on the deployed Lambda at all — only ever
+// exercised via config/local.json, which stores real JSON booleans, not
+// strings, so local runs never hit this path. Confirmed via a direct
+// local repro loading the exact same config/default.json +
+// custom-environment-variables.json with BETFAIR_DRY_RUN=false set as a
+// real process env var, before this fix: `config.get('betfair.dryRun')`
+// -> `"false"` (string). Handles both shapes now: a real boolean (from a
+// JSON config file's own literal value, no substitution involved) and the
+// "true"/"false" strings a substituted env var always produces.
 function readConfigBoolean(key: string, fallback: boolean): boolean {
   try {
-    const value = config.get<boolean>(key);
-    return typeof value === "boolean" ? value : fallback;
+    const value: unknown = config.get(key);
+    if (typeof value === "boolean") return value;
+    if (value === "true") return true;
+    if (value === "false") return false;
+    return fallback;
   } catch {
     return fallback;
   }
