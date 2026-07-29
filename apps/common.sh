@@ -1,4 +1,4 @@
-LAMBDA_URL="https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com"
+LAMBDA_URL="https://6fj7nh9mw6.execute-api.eu-west-2.amazonaws.com"
 LAMBDA_URL_DEV="https://mnd0m0x86h.execute-api.eu-north-1.amazonaws.com"
 # Google's OAuth Client ID is not secret (identifies the app, not a
 # credential — safe to commit, unlike the Twilio/Resend keys which stay
