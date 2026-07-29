@@ -139,6 +139,42 @@ export interface ReseedResultsResult {
   message?: string;
 }
 
+// Mirrors src/lib/service/bet-order-service.ts's BetOrderApiResponse
+// field-for-field. "placing"/"unmatched"/"error" are real, distinct states
+// (not folded into "pending") — see src/lib/dao/bet-order-dao.ts's
+// BetOrderStatus doc comment for why each needs its own honest label.
+export type BetOrderStatus = "pending" | "unmatched" | "placing" | "triggered" | "expired" | "cancelled" | "error";
+
+export interface BetOrder {
+  id: string;
+  runnerId: string;
+  horse: string;
+  course: string;
+  offTime: string;
+  raceId: string;
+  eventId: string;
+  targetProfit: number;
+  maxStake: number;
+  minQualifyingPrice: number;
+  status: BetOrderStatus;
+  createdAt: string;
+  matchedPrice?: number;
+  dryRun?: boolean;
+  note?: string;
+}
+
+export interface CreateBetOrderInput {
+  runnerId: string;
+  horse: string;
+  course: string;
+  offTime: string;
+  offDt: string;
+  raceId: string;
+  eventId: string;
+  targetProfit: number;
+  maxStake: number;
+}
+
 // RacingAPI-backed "Daily Races" feature — a different domain from the ISP
 // types above, now also carrying a model win-probability view. See
 // src/lib/dao/daily-race-dao.ts for the backend document shape this
@@ -1018,6 +1054,40 @@ class ChatApi {
       return { success: false, error: "request_failed", message: "Something went wrong — please try again later." };
     }
     return result;
+  }
+
+  // Creates a mocked-no-more, real conditional bet order — see AGENTS.md's
+  // daily-races-bet-button entry. Placing this order never itself bets
+  // real money: it's only watched (and, once real credentials + dryRun:false
+  // are both configured on the backend, potentially acted on) by a
+  // scheduled evaluator, not this call.
+  async createBetOrder(input: CreateBetOrderInput): Promise<BetOrder> {
+    const response = await fetch(`${this.baseUrl}/api/bet-orders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...this.authHeader() },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Failed to schedule bet");
+    }
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getBetOrders(): Promise<BetOrder[]> {
+    const response = await fetch(`${this.baseUrl}/api/bet-orders`, { headers: this.authHeader() });
+    if (!response.ok) throw new Error("Failed to fetch scheduled bets");
+    const result = await response.json();
+    return result.data;
+  }
+
+  async cancelBetOrder(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/bet-orders/${id}`, {
+      method: "DELETE",
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to cancel bet");
   }
 
   async getTrainerForm(trainer: string, formCategory: TrainerFormCategory): Promise<TrainerFormDoc | null> {

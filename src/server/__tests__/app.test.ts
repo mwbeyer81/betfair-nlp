@@ -83,6 +83,28 @@ interface MockLiveFilterResultDoc {
 }
 const mockLiveFilterResults: MockLiveFilterResultDoc[] = [];
 
+// In-memory "bet_orders" table backing the mocked collection below — same
+// stateful-across-tests pattern as mockSavedFilterSets.
+interface MockBetOrderDoc {
+  _id: InstanceType<typeof ObjectId>;
+  userId: string;
+  runnerId: string;
+  horse: string;
+  course: string;
+  offTime: string;
+  offDt: string;
+  raceId: string;
+  eventId: string;
+  targetProfit: number;
+  maxStake: number;
+  minQualifyingPrice: number;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  note?: string;
+}
+const mockBetOrders: MockBetOrderDoc[] = [];
+
 beforeAll(async () => {
   const res = await request(app)
     .post("/api/auth/login")
@@ -373,6 +395,53 @@ jest.mock("../../config/database", () => {
                 return query?._id === mockDailyRace._id ? mockDailyRace : null;
               }),
               bulkWrite: jest.fn().mockResolvedValue({}),
+            };
+          }
+          if (name === "bet_orders") {
+            return {
+              createIndex: jest.fn().mockResolvedValue(undefined),
+              insertOne: jest.fn().mockImplementation(async (doc: Omit<MockBetOrderDoc, "_id">) => {
+                const _id = new ObjectId();
+                mockBetOrders.push({ ...doc, _id } as MockBetOrderDoc);
+                return { insertedId: _id };
+              }),
+              find: jest.fn().mockImplementation((query: { userId?: string; status?: { $in?: string[] } }) => ({
+                sort: jest.fn().mockReturnThis(),
+                toArray: jest.fn().mockResolvedValue(
+                  mockBetOrders
+                    .filter(d =>
+                      query?.status?.$in ? query.status.$in.includes(d.status) : d.userId === query?.userId
+                    )
+                    .slice()
+                    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+                ),
+              })),
+              findOne: jest.fn().mockImplementation(async (query: { _id?: unknown; userId?: string }) => {
+                return mockBetOrders.find(d => String(d._id) === String(query?._id) && d.userId === query?.userId) ?? null;
+              }),
+              // Backs BOTH BetOrderDAO.cancelByIdForUser (filter has userId +
+              // status:{$in:[...]}) and .tryTransition (filter has an exact
+              // status, no userId) — matched generically by checking every
+              // present filter key against the in-memory doc, same
+              // compare-and-swap semantics the real driver gives: the update
+              // only applies if every filter condition is still true right now.
+              updateOne: jest.fn().mockImplementation(
+                async (filter: { _id?: unknown; userId?: string; status?: string | { $in?: string[] } }, update: { $set?: Partial<MockBetOrderDoc>; $unset?: Record<string, unknown> }) => {
+                  const doc = mockBetOrders.find(d => String(d._id) === String(filter?._id));
+                  if (!doc) return { modifiedCount: 0 };
+                  if (filter.userId != null && doc.userId !== filter.userId) return { modifiedCount: 0 };
+                  if (filter.status != null) {
+                    const statusMatches =
+                      typeof filter.status === "string"
+                        ? doc.status === filter.status
+                        : (filter.status.$in?.includes(doc.status) ?? false);
+                    if (!statusMatches) return { modifiedCount: 0 };
+                  }
+                  if (update.$set) Object.assign(doc, update.$set);
+                  if (update.$unset) for (const key of Object.keys(update.$unset)) delete (doc as unknown as Record<string, unknown>)[key];
+                  return { modifiedCount: 1 };
+                }
+              ),
             };
           }
           // A captured result for mockDailyRace above (raceId "rac_test_0001",
@@ -2052,6 +2121,133 @@ describe("API Endpoints", () => {
 
     it("returns 401 without auth", async () => {
       await request(app).post("/api/daily-races/reseed-results").send({}).expect(401);
+    });
+  });
+
+  describe("/api/bet-orders", () => {
+    const VALID_BODY = {
+      runnerId: "hrs_1",
+      horse: "Artagnan",
+      course: "Redcar",
+      offTime: "2:05",
+      offDt: "2026-07-29T14:05:00.000Z",
+      raceId: "rac_1",
+      eventId: "redcar-2026-07-29",
+      targetProfit: 20,
+      maxStake: 10,
+    };
+    const SECOND_USER_EMAIL = "bet.orders.second.user@backbet.co.uk";
+    const SECOND_USER_PASSWORD = "secondpass";
+    let secondUserToken: string;
+
+    beforeAll(async () => {
+      mockUsers.push({
+        _id: new ObjectId(),
+        email: SECOND_USER_EMAIL,
+        passwordHash: bcrypt.hashSync(SECOND_USER_PASSWORD, 10),
+        createdAt: new Date(),
+        emailVerified: true,
+        verificationToken: null,
+        verificationTokenExpiresAt: null,
+      });
+      const res = await request(app)
+        .post("/api/auth/login")
+        .send({ email: SECOND_USER_EMAIL, password: SECOND_USER_PASSWORD });
+      secondUserToken = res.body.token;
+    });
+
+    it("POST rejects without auth", async () => {
+      await request(app).post("/api/bet-orders").send(VALID_BODY).expect(401);
+    });
+    it("GET list rejects without auth", async () => {
+      await request(app).get("/api/bet-orders").expect(401);
+    });
+    it("DELETE rejects without auth", async () => {
+      await request(app).delete("/api/bet-orders/000000000000000000000000").expect(401);
+    });
+
+    it("POST without a required field returns 400", async () => {
+      const { horse, ...withoutHorse } = VALID_BODY;
+      await request(app)
+        .post("/api/bet-orders")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send(withoutHorse)
+        .expect(400);
+    });
+
+    it("POST with a non-positive targetProfit returns 400", async () => {
+      await request(app)
+        .post("/api/bet-orders")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ ...VALID_BODY, targetProfit: 0 })
+        .expect(400);
+    });
+
+    let orderId: string;
+
+    it("POST creates a pending order with the computed minQualifyingPrice", async () => {
+      const response = await request(app)
+        .post("/api/bet-orders")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send(VALID_BODY)
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.status).toBe("pending");
+      // 1 + 20/10 = 3
+      expect(response.body.data.minQualifyingPrice).toBe(3);
+      orderId = response.body.data.id;
+    });
+
+    it("GET list returns the created order with count matching data.length", async () => {
+      const response = await request(app)
+        .get("/api/bet-orders")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.count).toBe(response.body.data.length);
+      expect(response.body.data.some((o: { id: string }) => o.id === orderId)).toBe(true);
+    });
+
+    it("second user's list does not include the first user's order", async () => {
+      const response = await request(app)
+        .get("/api/bet-orders")
+        .set("Authorization", `Bearer ${secondUserToken}`)
+        .expect(200);
+
+      expect(response.body.data).toEqual([]);
+    });
+
+    it("DELETE (cancel) by another user's id returns 404 and leaves the order intact", async () => {
+      await request(app)
+        .delete(`/api/bet-orders/${orderId}`)
+        .set("Authorization", `Bearer ${secondUserToken}`)
+        .expect(404);
+
+      const response = await request(app)
+        .get("/api/bet-orders")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+      expect(response.body.data.find((o: { id: string }) => o.id === orderId).status).toBe("pending");
+    });
+
+    it("DELETE cancels a pending order, and a second cancel returns 404", async () => {
+      await request(app)
+        .delete(`/api/bet-orders/${orderId}`)
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const response = await request(app)
+        .get("/api/bet-orders")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+      expect(response.body.data.find((o: { id: string }) => o.id === orderId).status).toBe("cancelled");
+
+      await request(app)
+        .delete(`/api/bet-orders/${orderId}`)
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(404);
     });
   });
 

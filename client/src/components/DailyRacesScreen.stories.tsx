@@ -4,7 +4,6 @@ import { within, userEvent, expect, fn, waitFor } from "@storybook/test";
 import { http, HttpResponse } from "msw";
 import { DailyRacesScreen } from "./DailyRacesScreen";
 import { formatDailyRacesDateLabel, shiftDateString, todayUtcDateString } from "../utils/dailyRaceFormat";
-import { BetOrder } from "../utils/betOrderFormat";
 
 const BASE = "http://localhost:3000";
 
@@ -68,7 +67,6 @@ const meta: Meta<typeof DailyRacesScreen> = {
     onLogout: fn(),
     onNavigateToEvent: fn(),
     onNavigateToRace: fn(),
-    onPlaceBet: fn(),
   },
 };
 
@@ -300,8 +298,29 @@ export const PickNavigatesToRace: Story = {
   },
 };
 
+// Captures the real POST /api/bet-orders body so the assertions below can
+// check exactly what DailyRacesScreen sent, without needing a prop the
+// screen no longer has (see chatApi.createBetOrder — the screen calls the
+// real API directly now, not an onPlaceBet callback).
+let lastCreateBetOrderBody: Record<string, unknown> | null = null;
+
 export const BetBadgeOpensDialog: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        ...defaultHandlers,
+        http.post(`${BASE}/api/bet-orders`, async ({ request }) => {
+          lastCreateBetOrderBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            { success: true, data: { id: "bet_new_1", ...lastCreateBetOrderBody, minQualifyingPrice: 3, status: "pending", createdAt: "2026-06-03T00:00:00.000Z" } },
+            { status: 201 }
+          );
+        }),
+      ],
+    },
+  },
   play: async ({ canvasElement, args }) => {
+    lastCreateBetOrderBody = null;
     const canvas = within(canvasElement);
     await canvas.findByTestId("daily-races-list");
 
@@ -329,15 +348,46 @@ export const BetBadgeOpensDialog: Story = {
     await userEvent.type(canvas.getByTestId("place-bet-dialog-max-stake-input"), "10");
     await userEvent.click(canvas.getByTestId("place-bet-dialog-confirm"));
 
-    await expect(args.onPlaceBet).toHaveBeenCalledTimes(1);
-    const [order] = (args.onPlaceBet as unknown as { mock: { calls: [BetOrder][] } }).mock.calls[0];
-    await expect(order.runnerId).toBe("hrs_1");
-    await expect(order.horse).toBe("Fixture Star");
-    await expect(order.targetProfit).toBe(20);
-    await expect(order.maxStake).toBe(10);
-    await expect(order.minQualifyingPrice).toBe(3);
-    await expect(order.status).toBe("pending");
-    await expect(canvas.queryByTestId("place-bet-dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(canvas.queryByTestId("place-bet-dialog")).not.toBeInTheDocument());
+    await expect(lastCreateBetOrderBody).toMatchObject({
+      runnerId: "hrs_1",
+      horse: "Fixture Star",
+      course: "Newton Abbot",
+      raceId: "rac_1",
+      eventId: "newton-abbot-2026-06-03",
+      targetProfit: 20,
+      maxStake: 10,
+    });
+  },
+};
+
+export const BetBadgeShowsErrorOnFailedCreate: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        ...defaultHandlers,
+        http.post(`${BASE}/api/bet-orders`, () => HttpResponse.json({ success: false, error: "targetProfit must be a positive number" }, { status: 400 })),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    const minModelInput = canvas.getByTestId("daily-races-min-model-win-probability");
+    await userEvent.clear(minModelInput);
+    await userEvent.type(minModelInput, "20");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    await userEvent.click(canvas.getByTestId("daily-races-pick-bet-hrs_1"));
+    await userEvent.type(canvas.getByTestId("place-bet-dialog-target-profit-input"), "20");
+    await userEvent.type(canvas.getByTestId("place-bet-dialog-max-stake-input"), "10");
+    await userEvent.click(canvas.getByTestId("place-bet-dialog-confirm"));
+
+    await waitFor(() =>
+      expect(canvas.getByTestId("place-bet-dialog-error")).toHaveTextContent("targetProfit must be a positive number")
+    );
+    // The dialog stays open on failure — the user's typed values aren't lost.
+    await expect(canvas.getByTestId("place-bet-dialog")).toBeInTheDocument();
   },
 };
 

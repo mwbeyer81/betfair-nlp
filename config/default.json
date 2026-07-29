@@ -49,5 +49,13 @@
     "apiKey": "",
     "functionName": "ml-prediction-api",
     "region": "eu-north-1"
+  },
+  "betfair": {
+    "identityHost": "https://identitysso.betfair.com",
+    "exchangeHost": "https://api.betfair.com/exchange",
+    "appKey": "",
+    "username": "",
+    "password": "",
+    "dryRun": true
   }
 }

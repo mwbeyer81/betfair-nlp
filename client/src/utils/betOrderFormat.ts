@@ -1,34 +1,31 @@
 import { toFractionalOdds } from "./oddsFormat";
+import { BetOrder, BetOrderStatus } from "../services/chatApi";
 
-export type BetOrderStatus = "pending" | "triggered" | "expired" | "cancelled";
+export type { BetOrder, BetOrderStatus };
 
+// "placing" is a brief transient state (see BetOrderDAO.tryTransition on
+// the backend) that a GET could theoretically observe mid-evaluation;
+// "unmatched"/"error" are real, distinct failure states — see
+// bet-order-dao.ts's BetOrderStatus doc comment for why none of these are
+// folded into "pending".
 export const BET_ORDER_STATUS_LABEL: Record<BetOrderStatus, string> = {
   pending: "Pending",
+  unmatched: "Unmatched",
+  placing: "Placing…",
   triggered: "Triggered",
   expired: "Expired",
   cancelled: "Cancelled",
+  error: "Error",
 };
-
-export interface BetOrder {
-  id: string;
-  runnerId: string;
-  horse: string;
-  course: string;
-  offTime: string;
-  targetProfit: number;
-  maxStake: number;
-  minQualifyingPrice: number;
-  status: BetOrderStatus;
-  createdAt: string;
-}
 
 // The Betfair back price that would return exactly the requested target
 // profit while staking exactly maxStake — anything at or above this price
 // nets at least that much profit for the same stake, so it's the threshold
 // a conditional bet order actually watches for. Mirrors oddsFormat.ts's
-// "unknown input -> null, never a fabricated number" convention: this repo
-// has no live Betfair price feed at all yet (see AGENTS.md), so this value
-// is purely a derived condition to watch for later, not a live quote.
+// "unknown input -> null, never a fabricated number" convention. Used
+// client-side for the Place Bet dialog's live preview before the order is
+// even created — the backend (bet-order-service.ts) computes and persists
+// the authoritative value using this exact same formula.
 export function minQualifyingPrice(targetProfit: number, maxStake: number): number | null {
   if (!Number.isFinite(targetProfit) || !Number.isFinite(maxStake)) return null;
   if (targetProfit <= 0 || maxStake <= 0) return null;

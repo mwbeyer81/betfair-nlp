@@ -20,6 +20,7 @@ import {
   dailyRacePickBeatsSp,
   dailyRacePickPnl,
   dailyRacePickResultLabel,
+  DailyRacePick,
   DailyRacesFilters,
   formatDailyRacesDateLabel,
   shiftDateString,
@@ -27,7 +28,6 @@ import {
 } from "../utils/dailyRaceFormat";
 import { fairDecimalOdds, toFractionalOdds } from "../utils/oddsFormat";
 import { formatPct, formatPnl } from "../utils/ispFormat";
-import { BetOrder, minQualifyingPrice } from "../utils/betOrderFormat";
 import { PlaceBetDialog } from "./PlaceBetDialog";
 import {
   urlIntParam,
@@ -44,10 +44,6 @@ interface DailyRacesScreenProps {
   onLogout?: () => void;
   onNavigateToEvent: (eventId: string) => void;
   onNavigateToRace: (raceId: string) => void;
-  // Mocked UI only for now — see betOrderFormat.ts and AGENTS.md's
-  // daily-races-bet-button entry. No real Betfair price feed or
-  // bet-placement backend exists yet; App.tsx just holds this in memory.
-  onPlaceBet: (order: BetOrder) => void;
   // "YYYY-MM-DD" — omit to let the backend default to its own current date.
   date?: string;
 }
@@ -94,7 +90,6 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
   onLogout,
   onNavigateToEvent,
   onNavigateToRace,
-  onPlaceBet,
   date,
 }) => {
   // The date actually being viewed — falls back to "today" (UTC, matching
@@ -117,8 +112,33 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Mocked "Bet" dialog — see onPlaceBet prop doc above.
+  // "Bet" dialog — see PlaceBetDialog.tsx / chatApi.createBetOrder.
   const [betDialogRunnerId, setBetDialogRunnerId] = useState<string | null>(null);
+  const [betSaving, setBetSaving] = useState(false);
+  const [betError, setBetError] = useState<string | null>(null);
+
+  async function handlePlaceBet(pick: DailyRacePick, targetProfit: number, maxStake: number) {
+    setBetSaving(true);
+    setBetError(null);
+    try {
+      await chatApi.createBetOrder({
+        runnerId: pick.runner.runnerId,
+        horse: pick.runner.horse,
+        course: pick.race.course,
+        offTime: pick.race.offTime,
+        offDt: pick.race.offDt,
+        raceId: pick.race.raceId,
+        eventId: pick.race.eventId,
+        targetProfit,
+        maxStake,
+      });
+      setBetDialogRunnerId(null);
+    } catch (err) {
+      setBetError(err instanceof Error ? err.message : "Failed to schedule bet");
+    } finally {
+      setBetSaving(false);
+    }
+  }
 
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [hasAppliedOnce, setHasAppliedOnce] = useState(() => dailyRacesUrlHasAnyParams());
@@ -803,7 +823,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
                       )}
                       <TouchableOpacity
                         testID={`daily-races-pick-bet-${runner.runnerId}`}
-                        onPress={(e: any) => { e?.stopPropagation?.(); setBetDialogRunnerId(runner.runnerId); }}
+                        onPress={(e: any) => { e?.stopPropagation?.(); setBetError(null); setBetDialogRunnerId(runner.runnerId); }}
                       >
                         <Text style={styles.betBadge}>Bet</Text>
                       </TouchableOpacity>
@@ -885,26 +905,10 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
             visible
             horseName={selected.runner.horse}
             raceSummary={`${selected.race.course} · ${selected.race.offTime}`}
-            saving={false}
-            error={null}
-            onCancel={() => setBetDialogRunnerId(null)}
-            onSave={({ targetProfit, maxStake }) => {
-              const minPrice = minQualifyingPrice(targetProfit, maxStake);
-              if (minPrice == null) return;
-              onPlaceBet({
-                id: `bet_${selected.runner.runnerId}_${Date.now()}`,
-                runnerId: selected.runner.runnerId,
-                horse: selected.runner.horse,
-                course: selected.race.course,
-                offTime: selected.race.offTime,
-                targetProfit,
-                maxStake,
-                minQualifyingPrice: minPrice,
-                status: "pending",
-                createdAt: new Date().toISOString(),
-              });
-              setBetDialogRunnerId(null);
-            }}
+            saving={betSaving}
+            error={betError}
+            onCancel={() => { setBetDialogRunnerId(null); setBetError(null); }}
+            onSave={({ targetProfit, maxStake }) => handlePlaceBet(selected, targetProfit, maxStake)}
           />
         );
       })()}

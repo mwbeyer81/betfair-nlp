@@ -42,5 +42,13 @@
     "apiKey": "PREDICTION_API_KEY",
     "functionName": "PREDICTION_API_FUNCTION_NAME",
     "region": "PREDICTION_API_REGION"
+  },
+  "betfair": {
+    "identityHost": "BETFAIR_IDENTITY_HOST",
+    "exchangeHost": "BETFAIR_EXCHANGE_HOST",
+    "appKey": "BETFAIR_APP_KEY",
+    "username": "BETFAIR_USERNAME",
+    "password": "BETFAIR_PASSWORD",
+    "dryRun": "BETFAIR_DRY_RUN"
   }
 }

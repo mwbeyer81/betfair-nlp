@@ -11,6 +11,7 @@ import { TrainerFormService } from "../lib/service/trainer-form-service";
 import { ModelVersionService } from "../lib/service/model-version-service";
 import { SavedFilterSetService, computeSnapshotParamsFromFilters } from "../lib/service/saved-filter-set-service";
 import { LiveFilterResultService } from "../lib/service/live-filter-result-service";
+import { BetOrderService } from "../lib/service/bet-order-service";
 import { parseDateRangeParams, parseCsvListParam } from "../lib/service/filter-params-util";
 import { AuthService, AuthError } from "../lib/service/auth-service";
 import { DatabaseConnection } from "../config/database";
@@ -31,6 +32,7 @@ let modelVersionService: ModelVersionService | null = null;
 let savedFilterSetService: SavedFilterSetService | null = null;
 let liveFilterResultService: LiveFilterResultService | null = null;
 let authService: AuthService | null = null;
+let betOrderService: BetOrderService | null = null;
 
 export const initializeServices = async () => {
   // Independent of the DB connection below — the chat feature no longer
@@ -86,6 +88,12 @@ export const initializeServices = async () => {
       await authService.createIndexes();
     } catch (indexError) {
       console.warn("auth createIndexes failed (non-fatal, unique email check may hit the DB):", indexError);
+    }
+    betOrderService = new BetOrderService();
+    try {
+      await betOrderService.createIndexes();
+    } catch (indexError) {
+      console.warn("bet-order createIndexes failed (non-fatal, queries may be slower):", indexError);
     }
     console.log("Services initialized successfully");
   } catch (error) {
@@ -861,6 +869,83 @@ router.delete("/api/saved-filter-sets/:id", async (req, res) => {
   } catch (error) {
     console.error("deleteSavedFilterSet error:", error);
     res.status(500).json({ success: false, error: "Failed to delete saved result" });
+  }
+});
+
+// Conditional Betfair bet orders — mirrors /api/saved-filter-sets' shape
+// as the second user-owned MongoDB resource in this codebase (see
+// bet-order-dao.ts). Real money implications: BetOrderService's own
+// evaluatePendingOrders (run on a schedule, see apps/lambda/src/handler.ts)
+// is the only thing that ever calls Betfair's real placeOrders, and only
+// while config betfair.dryRun=false (default true, see
+// betfair-api-client.ts) — creating an order here never itself places a
+// bet, it only schedules one to be watched for.
+router.post("/api/bet-orders", async (req, res) => {
+  const userId = userIdFromAuthHeader(req);
+  if (!userId) return res.status(401).json({ success: false, error: "Invalid or expired token" });
+  try {
+    if (!betOrderService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const body = req.body ?? {};
+    const requiredStrings = ["runnerId", "horse", "course", "offTime", "offDt", "raceId", "eventId"];
+    for (const field of requiredStrings) {
+      if (typeof body[field] !== "string" || !body[field].trim()) {
+        return res.status(400).json({ success: false, error: `${field} is required` });
+      }
+    }
+    const targetProfit = Number(body.targetProfit);
+    const maxStake = Number(body.maxStake);
+    const data = await betOrderService.createForUser(userId, {
+      runnerId: body.runnerId,
+      horse: body.horse,
+      course: body.course,
+      offTime: body.offTime,
+      offDt: body.offDt,
+      raceId: body.raceId,
+      eventId: body.eventId,
+      targetProfit,
+      maxStake,
+    });
+    res.status(201).json({ success: true, data });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to create bet order";
+    // targetProfit/maxStake validation errors are the caller's mistake
+    // (bad input), not a server fault.
+    if (message.includes("must be a positive number")) {
+      return res.status(400).json({ success: false, error: message });
+    }
+    console.error("createBetOrder error:", error);
+    res.status(500).json({ success: false, error: "Failed to create bet order" });
+  }
+});
+
+router.get("/api/bet-orders", async (req, res) => {
+  const userId = userIdFromAuthHeader(req);
+  if (!userId) return res.status(401).json({ success: false, error: "Invalid or expired token" });
+  try {
+    if (!betOrderService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const data = await betOrderService.listForUser(userId);
+    res.status(200).json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error("listBetOrders error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch bet orders" });
+  }
+});
+
+router.delete("/api/bet-orders/:id", async (req, res) => {
+  const userId = userIdFromAuthHeader(req);
+  if (!userId) return res.status(401).json({ success: false, error: "Invalid or expired token" });
+  try {
+    if (!betOrderService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    // 404 whether the doc doesn't exist, belongs to another user, or is no
+    // longer cancellable (already triggered/expired) — cancelForUser's
+    // filter can't distinguish these, same reasoning as
+    // DELETE /api/saved-filter-sets/:id above.
+    const cancelled = await betOrderService.cancelForUser(req.params.id, userId);
+    if (!cancelled) return res.status(404).json({ success: false, error: "Not found or no longer cancellable" });
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("cancelBetOrder error:", error);
+    res.status(500).json({ success: false, error: "Failed to cancel bet order" });
   }
 });
 

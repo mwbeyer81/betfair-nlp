@@ -8,6 +8,7 @@ import { DailyRaceService } from "../../../src/lib/service/daily-race-service";
 import { IndustrySpResultsCaptureService } from "../../../src/lib/service/industry-sp-results-capture-service";
 import { LiveFilterResultService } from "../../../src/lib/service/live-filter-result-service";
 import { computeDailyRaceFeatures } from "../../../src/lib/service/daily-race-feature-service";
+import { BetOrderService } from "../../../src/lib/service/bet-order-service";
 import { DatabaseConnection } from "../../../src/config/database";
 import type { APIGatewayProxyEventV2, Context } from "aws-lambda";
 
@@ -97,6 +98,27 @@ export const handler = async (event: APIGatewayProxyEventV2 | ScheduledEvent, co
         console.error("Scheduled live filter-result capture failed (results capture already succeeded):", error);
       }
 
+      return { statusCode: 200 };
+    }
+    // Conditional Betfair bet orders — see bet-order-service.ts and
+    // .claude/commands/bet-orders-cron.md. NOT yet wired to a real
+    // EventBridge rule (see that doc's setup script, written but not run) —
+    // this branch only fires if/when that rule is actually created.
+    // BetfairApiClient.placeOrders defaults to dryRun=true regardless, so
+    // even a live-firing rule can't place a real bet until that's
+    // deliberately flipped off in config once real credentials are in.
+    if (event.action === "evaluate-bet-orders") {
+      try {
+        const summary = await new BetOrderService().evaluatePendingOrders();
+        console.log(
+          `Scheduled bet-order evaluation: ${summary.evaluated} evaluated, ${summary.resolved} newly ` +
+            `market-resolved, ${summary.triggered} triggered, ${summary.unmatched} unmatched, ` +
+            `${summary.expired} expired, ${summary.errors} errors.`
+        );
+      } catch (error) {
+        console.error("Scheduled bet-order evaluation failed:", error);
+        throw error;
+      }
       return { statusCode: 200 };
     }
     const dailyRaceService = new DailyRaceService();

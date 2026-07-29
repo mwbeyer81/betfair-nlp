@@ -27,7 +27,6 @@ import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
 import { buildReturnParams, resolveReturn } from "./src/utils/returnNav";
 import { qualifyingFilterQueryFromParams } from "./src/utils/ispUrlParams";
-import { BetOrder } from "./src/utils/betOrderFormat";
 import { theme, colors } from "./src/theme";
 
 const TOKEN_KEY = "auth_token";
@@ -97,14 +96,6 @@ export default function App() {
 
   const onLogout = () => { localStorage.removeItem(TOKEN_KEY); setIsAuthenticated(false); };
   const onRequestAuth = () => setShowAuthOverlay(true);
-
-  // Mocked "conditional Betfair bet" orders (Daily Races' new "Bet" button)
-  // — in-memory only for this phase, no backend/chatApi yet. See
-  // betOrderFormat.ts and AGENTS.md's daily-races-bet-button entry for why.
-  const [scheduledBets, setScheduledBets] = useState<BetOrder[]>([]);
-  const onPlaceBet = (order: BetOrder) => setScheduledBets(prev => [order, ...prev]);
-  const onCancelBet = (id: string) =>
-    setScheduledBets(prev => prev.map(bet => (bet.id === id ? { ...bet, status: "cancelled" } : bet)));
 
   const content = (() => {
     // Events/Chat/Runners stay behind the login wall exactly as before.
@@ -304,7 +295,6 @@ export default function App() {
           date={queryParams.get("date") ?? undefined}
           onNavigateToEvent={(eventId) => navigate("/daily-races/event", `id=${encodeURIComponent(eventId)}`)}
           onNavigateToRace={(raceId) => navigate("/daily-races/race", `id=${encodeURIComponent(raceId)}`)}
-          onPlaceBet={onPlaceBet}
         />
       );
     }
@@ -369,8 +359,6 @@ export default function App() {
           isAuthenticated={isAuthenticated}
           onLogout={onLogout}
           onBack={() => navigate("/daily-races")}
-          bets={scheduledBets}
-          onCancelBet={onCancelBet}
         />
       );
     }
