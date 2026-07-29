@@ -5042,6 +5042,64 @@ after.
 
 ---
 
+## 2026-07-29 (later still) — primary checkout, directly on `develop`, docs-only
+
+**Task:** user was exploring whether they could use a Betfair API-NG session
+ID (SSOID, copied from the `apps.betfair.com/visualisers/api-ng-account-
+operations/` tool) to make real Betfair Exchange API calls. No existing
+code in this repo talks to the Betfair betting/account API (only historical
+market-data ingest exists) — this was pure credential/connectivity
+exploration, no feature code written.
+
+**Findings for whoever builds real Betfair-API integration next:**
+
+- **Credentials now live in `config/local.json`** (gitignored, confirmed
+  via `.gitignore:27`) under a new `betfair` key: `sessionId` and
+  `delayAppKey`. No entry was added to `default.json` or `custom-
+  environment-variables.json` since no code reads this yet — add those
+  when real integration code lands, following the existing `racingApi`
+  pattern in the same file.
+- **Every API-NG call needs two headers**: `X-Application` (the app key,
+  effectively static) and `X-Authentication` (the session token, short-
+  lived). Missing/wrong app key → `INVALID_APP_KEY`; dead/wrong session →
+  `INVALID_SESSION_INFORMATION`. Both surface as HTTP 400 with a JSON
+  `APINGException` body, not as a network-level failure.
+- **Session tokens are short-lived**: ~4h inactivity timeout, plus a hard
+  ~24h forced invalidation regardless of activity (Betfair resets all
+  sessions once daily). `identitysso.betfair.com/api/keepAlive` (token +
+  app key only) prevents the *idle* timeout but does **not** survive the
+  daily hard reset — that needs a real re-login (username/password, or a
+  registered client cert for headless/cert-login), which this repo has
+  no code or stored credentials for. **Assume any `sessionId` currently
+  sitting in `config/local.json` is already expired** — don't try to
+  reuse it, ask the user for a fresh one from the visualiser first.
+- **The account already has exactly one Betfair application** (delay key
+  `5qriKLIoI5ZWNKbO`, confirmed working live against
+  `listEventTypes`). Betfair only allows one application per account by
+  default — calling `AccountAPING/v1.0/createDeveloperAppKeys` again (e.g.
+  via the visualiser's "account" endpoint) fails with
+  `APP_KEY_CREATION_FAILED`, not because of a bad request but because an
+  app already exists. Use `getDeveloperAppKeys` to look it up instead of
+  trying to create a new one.
+- **Verified working call** (read-only, safe to reuse as a connectivity
+  check): `POST https://api.betfair.com/exchange/betting/rest/v1.0/
+  listEventTypes/` with `{"filter":{}}` body — returned the real live
+  sport/market-count list, confirming the delay key + a valid session
+  token round-trip end-to-end.
+- **Security note**: over the course of this exploration the user pasted
+  a raw session token, an app key, and at one point a full browser
+  request capture (Cloudflare `cf_clearance`, `ssoid`, `wsid`, and other
+  login cookies) directly into chat. None of that is committed anywhere
+  in the repo, but if you're picking up Betfair-integration work, don't
+  assume any credential value referenced in past chat/session logs is
+  still valid or safe to reuse — get fresh ones from the user.
+
+No code changes, no build/test run needed — `config/local.json` is
+gitignored and untracked, so there's nothing to commit from this entry
+beyond this log itself.
+
+---
+
 ## 2026-07-29 (later still) — primary checkout, real Betfair credentials wired to production; major finding, not a code bug
 
 **Task:** user reported (via `app.backbet.co.uk/daily-races?minModelWinProbability=20`) seeing no live Betfair prices next to "Bet" despite expecting them now. New worktree `~/betfair-nlp-live-price-config` (branch `fix/live-price-not-configured`) created per the user's request to write a `./scripts` repro.
