@@ -59,11 +59,85 @@ export async function resolveMarketForRace(
   const catalogue = await client.listMarketCatalogue({
     eventTypeIds: [HORSE_RACING_EVENT_TYPE_ID],
     marketCountries: ["GB"],
+    marketTypeCodes: ["WIN"],
     marketStartTime: { from, to },
   });
 
+  return matchMarketAndRunner(catalogue, race, horseName);
+}
+
+export interface PickToResolve {
+  runnerId: string;
+  horse: string;
+  course: string;
+  offDt: string;
+}
+
+// Highest maxResults this session confirmed live against the real API —
+// see AGENTS.md's daily-races-live-price entry. A single UK racing day's
+// GB WIN markets comfortably fits well under this.
+const BATCH_MAX_RESULTS = "200";
+
+// Batch counterpart to resolveMarketForRace — ONE listMarketCatalogue call
+// covering every pick's race, instead of one call per pick, then the exact
+// same conservative per-pick venue+time-window+runner-name matching
+// applied against that single shared catalogue. Exists so showing a live
+// price next to every Today's Picks row doesn't turn one page load into N
+// separate Betfair API calls. Returns a result for every pick passed in
+// (never a partial map), keyed by runnerId.
+export async function resolveMarketsForPicks(
+  client: BetfairApiClient,
+  picks: PickToResolve[]
+): Promise<Map<string, MarketResolutionResult>> {
+  const results = new Map<string, MarketResolutionResult>();
+  if (picks.length === 0) return results;
+
+  const validTimes = picks.map(p => new Date(p.offDt).getTime()).filter(t => !Number.isNaN(t));
+  if (validTimes.length === 0) {
+    for (const pick of picks) {
+      results.set(pick.runnerId, { ok: false, failure: { reason: "no_market_candidates", detail: `Invalid offDt: ${pick.offDt}` } });
+    }
+    return results;
+  }
+
+  const from = new Date(Math.min(...validTimes) - START_TIME_WINDOW_MINUTES * 60_000).toISOString();
+  const to = new Date(Math.max(...validTimes) + START_TIME_WINDOW_MINUTES * 60_000).toISOString();
+  const catalogue = await client.listMarketCatalogue(
+    { eventTypeIds: [HORSE_RACING_EVENT_TYPE_ID], marketCountries: ["GB"], marketTypeCodes: ["WIN"], marketStartTime: { from, to } },
+    BATCH_MAX_RESULTS
+  );
+
+  for (const pick of picks) {
+    if (Number.isNaN(new Date(pick.offDt).getTime())) {
+      results.set(pick.runnerId, { ok: false, failure: { reason: "no_market_candidates", detail: `Invalid offDt: ${pick.offDt}` } });
+      continue;
+    }
+    results.set(pick.runnerId, matchMarketAndRunner(catalogue, pick, pick.horse));
+  }
+  return results;
+}
+
+// Shared by both single (resolveMarketForRace, whose own query already
+// narrows by this race's time window server-side) and batch
+// (resolveMarketsForPicks, whose query spans a whole day so every
+// candidate must be re-narrowed to THIS race's own window here) — the
+// time-window check below is a no-op for the single-race path (every
+// candidate it receives is already inside that window) and the real
+// disambiguator for the batch path (two races at the same course on
+// different days' — or the same day's different times — races otherwise
+// look identical by venue alone, e.g. "Redcar 2:05" vs "Redcar 4:50").
+function matchMarketAndRunner(
+  catalogue: BetfairMarketCatalogueEntry[],
+  race: { course: string; offDt: string },
+  horseName: string
+): MarketResolutionResult {
+  const offTime = new Date(race.offDt).getTime();
   const targetCourse = normalizeName(race.course);
-  const candidates = catalogue.filter(entry => matchesVenue(entry, targetCourse));
+  const candidates = catalogue.filter(entry => {
+    if (!matchesVenue(entry, targetCourse)) return false;
+    const entryTime = new Date(entry.marketStartTime).getTime();
+    return !Number.isNaN(entryTime) && Math.abs(entryTime - offTime) <= START_TIME_WINDOW_MINUTES * 60_000;
+  });
 
   if (candidates.length === 0) {
     return {

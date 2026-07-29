@@ -12,6 +12,8 @@ import { ModelVersionService } from "../lib/service/model-version-service";
 import { SavedFilterSetService, computeSnapshotParamsFromFilters } from "../lib/service/saved-filter-set-service";
 import { LiveFilterResultService } from "../lib/service/live-filter-result-service";
 import { BetOrderService } from "../lib/service/bet-order-service";
+import { LivePriceService } from "../lib/service/live-price-service";
+import type { PickToResolve } from "../lib/service/betfair-market-resolver";
 import { parseDateRangeParams, parseCsvListParam } from "../lib/service/filter-params-util";
 import { AuthService, AuthError } from "../lib/service/auth-service";
 import { DatabaseConnection } from "../config/database";
@@ -946,6 +948,38 @@ router.delete("/api/bet-orders/:id", async (req, res) => {
   } catch (error) {
     console.error("cancelBetOrder error:", error);
     res.status(500).json({ success: false, error: "Failed to cancel bet order" });
+  }
+});
+
+// Live Betfair prices for whatever picks the caller is currently showing —
+// the client sends exactly the runners on screen (same reasoning as POST
+// /api/bet-orders taking the full race/runner context directly) rather
+// than this route recomputing "today's qualifying picks" itself, which
+// would duplicate DailyRacesScreen.tsx's own filter logic as a second
+// source of truth. Read-only: never calls placeOrders, no persistence.
+// Degrades to {price: null, note: "..."} per pick (never a 500) whenever
+// Betfair credentials aren't configured or a market can't be confidently
+// identified — see live-price-service.ts.
+router.post("/api/daily-races/live-prices", async (req, res) => {
+  try {
+    const body = req.body ?? {};
+    const rawPicks = Array.isArray(body.picks) ? body.picks : [];
+    const picks: PickToResolve[] = [];
+    for (const p of rawPicks) {
+      if (
+        typeof p?.runnerId === "string" &&
+        typeof p?.horse === "string" &&
+        typeof p?.course === "string" &&
+        typeof p?.offDt === "string"
+      ) {
+        picks.push({ runnerId: p.runnerId, horse: p.horse, course: p.course, offDt: p.offDt });
+      }
+    }
+    const data = await new LivePriceService().getLivePricesForPicks(picks);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error("getLivePrices error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch live prices" });
   }
 });
 

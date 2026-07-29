@@ -9,7 +9,7 @@ import {
   KeyboardTypeOptions,
 } from "react-native";
 import { Text, Button, Chip, Checkbox, ActivityIndicator } from "react-native-paper";
-import { chatApi, DailyRace } from "../services/chatApi";
+import { chatApi, DailyRace, LivePrice } from "../services/chatApi";
 import { colors, radii, spacing, statusPill } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
@@ -294,6 +294,34 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
 
   const picksPnl = useMemo(() => computeDailyPicksPnl(picks), [picks]);
   const picksResultedCount = picksPnl.count ?? 0;
+
+  // Live Betfair prices for the currently-displayed picks — one batched
+  // request per picks change (see chatApi.getLivePrices/live-price-
+  // service.ts), not one request per row. Degrades to "No live price"
+  // per pick rather than erroring when Betfair credentials aren't
+  // configured or a market can't be confidently identified.
+  const [livePrices, setLivePrices] = useState<Record<string, LivePrice>>({});
+  const [livePricesLoading, setLivePricesLoading] = useState(false);
+
+  useEffect(() => {
+    if (picks.length === 0) {
+      setLivePrices({});
+      return;
+    }
+    let cancelled = false;
+    setLivePricesLoading(true);
+    chatApi
+      .getLivePrices(picks.map(({ race, runner }) => ({
+        runnerId: runner.runnerId,
+        horse: runner.horse,
+        course: race.course,
+        offDt: race.offDt,
+      })))
+      .then(data => { if (!cancelled) setLivePrices(data); })
+      .catch(() => { if (!cancelled) setLivePrices({}); })
+      .finally(() => { if (!cancelled) setLivePricesLoading(false); });
+    return () => { cancelled = true; };
+  }, [picks]);
 
   function applyFilter() {
     const nextMinModelWinProbability = parseFloat(draftMinModelWinProbability);
@@ -771,6 +799,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
                   )}
                   {picks.map(({ race, runner }) => {
                     const beatsSp = dailyRacePickBeatsSp(runner);
+                    const live = livePrices[runner.runnerId];
                     return (
                     <TouchableOpacity
                       key={runner.runnerId}
@@ -819,6 +848,21 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
                           style={beatsSp ? styles.beatsSpBadge : styles.belowSpBadge}
                         >
                           {beatsSp ? "Beat SP" : "Below SP"}
+                        </Text>
+                      )}
+                      {livePricesLoading && !live && (
+                        <Text testID={`daily-races-pick-live-price-loading-${runner.runnerId}`} style={styles.livePriceLoadingBadge}>
+                          Live…
+                        </Text>
+                      )}
+                      {live && live.price == null && (
+                        <Text testID={`daily-races-pick-live-price-${runner.runnerId}`} style={styles.livePriceUnavailableBadge}>
+                          No live price
+                        </Text>
+                      )}
+                      {live && live.price != null && (
+                        <Text testID={`daily-races-pick-live-price-${runner.runnerId}`} style={styles.livePriceBadge}>
+                          Live {toFractionalOdds(live.price)} ({live.price.toFixed(2)})
                         </Text>
                       )}
                       <TouchableOpacity
@@ -1302,5 +1346,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 1,
     borderRadius: radii.sm,
+  },
+  livePriceBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.success,
+    backgroundColor: colors.successLight,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+  },
+  livePriceUnavailableBadge: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textTertiary,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+  },
+  livePriceLoadingBadge: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textTertiary,
   },
 });

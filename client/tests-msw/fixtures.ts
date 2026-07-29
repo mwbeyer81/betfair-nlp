@@ -324,6 +324,20 @@ async function setupApiMocks(page: Page) {
     route.fulfill({ json: { success: true, data: race } });
   });
 
+  // hrs_1 has a real live price; every other runner reports "not
+  // configured" (a real, expected state — see live-price-service.ts) so
+  // existing tests that don't specifically cover this feature see
+  // consistent, harmless output rather than an unmocked network request.
+  await page.route((url) => url.pathname === "/api/daily-races/live-prices", async (route) => {
+    const body = route.request().postDataJSON() as { picks: { runnerId: string }[] };
+    const data: Record<string, { price: number | null; note?: string }> = {};
+    for (const pick of body.picks) {
+      data[pick.runnerId] =
+        pick.runnerId === "hrs_1" ? { price: 4.0 } : { price: null, note: "Live prices aren't configured yet." };
+    }
+    route.fulfill({ json: { success: true, data } });
+  });
+
   const MOCK_INDUSTRY_SP_RACE = {
     raceId: 914592,
     meetingId: "Cheltenham|2025-01-01",

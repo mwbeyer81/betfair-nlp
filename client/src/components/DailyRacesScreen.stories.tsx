@@ -48,10 +48,29 @@ const MOCK_RACES = [
   },
 ];
 
+// hrs_1 (Fixture Star) has a real live price; hrs_3 (Ascot Fixture)
+// qualifies for Today's Picks too but has none right now — both are
+// genuine, expected states (see live-price-service.ts's LivePriceResult),
+// not a mocked-vs-real difference. hrs_2 never appears in Today's Picks at
+// the usual 20% threshold (used for exclusion tests elsewhere in this
+// file), so it's left out here.
+const MOCK_LIVE_PRICES: Record<string, { price: number | null; note?: string }> = {
+  hrs_1: { price: 4.0 },
+  hrs_3: { price: null, note: "No live back price currently available." },
+};
+
 const defaultHandlers = [
   http.get(`${BASE}/api/daily-races`, () =>
     HttpResponse.json({ success: true, data: MOCK_RACES, count: MOCK_RACES.length })
   ),
+  http.post(`${BASE}/api/daily-races/live-prices`, async ({ request }) => {
+    const body = (await request.json()) as { picks: { runnerId: string }[] };
+    const data: Record<string, { price: number | null; note?: string }> = {};
+    for (const pick of body.picks) {
+      data[pick.runnerId] = MOCK_LIVE_PRICES[pick.runnerId] ?? { price: null, note: "Live prices aren't configured yet." };
+    }
+    return HttpResponse.json({ success: true, data });
+  }),
 ];
 
 const meta: Meta<typeof DailyRacesScreen> = {
@@ -220,6 +239,70 @@ export const ApplyModelFilterShowsPicks: Story = {
     await expect(canvas.queryByTestId("daily-races-pick-hrs_2")).not.toBeInTheDocument();
     // 25 -> breakeven decimal odds 100/25 = 4.00, nearest simple fraction 3/1.
     await expect(canvas.getByTestId("daily-races-pick-fair-odds-hrs_1")).toHaveTextContent("Fair 3/1 (4.00)");
+  },
+};
+
+export const LivePriceShowsOnPick: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    const minModelInput = canvas.getByTestId("daily-races-min-model-win-probability");
+    await userEvent.clear(minModelInput);
+    await userEvent.type(minModelInput, "20");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    await waitFor(() =>
+      expect(canvas.getByTestId("daily-races-pick-live-price-hrs_1")).toHaveTextContent("Live 3/1 (4.00)")
+    );
+  },
+};
+
+export const LivePriceUnavailableState: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    const minModelInput = canvas.getByTestId("daily-races-min-model-win-probability");
+    await userEvent.clear(minModelInput);
+    await userEvent.type(minModelInput, "20");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    await waitFor(() =>
+      expect(canvas.getByTestId("daily-races-pick-live-price-hrs_3")).toHaveTextContent("No live price")
+    );
+  },
+};
+
+export const LivePriceLoadingState: Story = {
+  parameters: {
+    msw: {
+      // Override listed BEFORE ...defaultHandlers — MSW resolves
+      // first-match, not last, and defaultHandlers already has its own
+      // (immediately-responding) live-prices handler, which would
+      // otherwise silently win over this one (see the AGENTS.md
+      // handler-ordering bug this exact mistake caused previously).
+      handlers: [
+        http.post(`${BASE}/api/daily-races/live-prices`, async () => {
+          await new Promise(r => setTimeout(r, 60000));
+          return HttpResponse.json({ success: true, data: {} });
+        }),
+        ...defaultHandlers,
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("daily-races-list");
+    const minModelInput = canvas.getByTestId("daily-races-min-model-win-probability");
+    await userEvent.clear(minModelInput);
+    await userEvent.type(minModelInput, "20");
+    await userEvent.click(canvas.getByTestId("daily-races-filter-apply"));
+
+    // findByTestId (waits/polls), not a synchronous getByTestId — the
+    // loading badge only appears once the picks-changed effect has
+    // actually fired and set loading state, one render tick after the
+    // picks list itself first appears.
+    await expect(canvas.findByTestId("daily-races-pick-live-price-loading-hrs_1")).resolves.toBeInTheDocument();
+    await expect(canvas.queryByTestId("daily-races-pick-live-price-hrs_1")).not.toBeInTheDocument();
   },
 };
 

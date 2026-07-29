@@ -175,6 +175,22 @@ export interface CreateBetOrderInput {
   maxStake: number;
 }
 
+// Mirrors src/lib/service/live-price-service.ts's LivePriceResult.
+// price is null whenever a real live price can't be shown right now (no
+// credentials configured, market unresolved, race in-play, etc.) — never a
+// fabricated number — with `note` explaining why.
+export interface LivePrice {
+  price: number | null;
+  note?: string;
+}
+
+export interface LivePriceRequestPick {
+  runnerId: string;
+  horse: string;
+  course: string;
+  offDt: string;
+}
+
 // RacingAPI-backed "Daily Races" feature — a different domain from the ISP
 // types above, now also carrying a model win-probability view. See
 // src/lib/dao/daily-race-dao.ts for the backend document shape this
@@ -1088,6 +1104,22 @@ class ChatApi {
       headers: this.authHeader(),
     });
     if (!response.ok) throw new Error("Failed to cancel bet");
+  }
+
+  // Never throws on a per-pick failure — the backend always returns
+  // {price: null, note} for a pick it can't get a live price for (no
+  // credentials configured, market unresolved, etc.), so a partial/empty
+  // result is a normal, expected response here, not an error.
+  async getLivePrices(picks: LivePriceRequestPick[]): Promise<Record<string, LivePrice>> {
+    if (picks.length === 0) return {};
+    const response = await fetch(`${this.baseUrl}/api/daily-races/live-prices`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...this.authHeader() },
+      body: JSON.stringify({ picks }),
+    });
+    if (!response.ok) throw new Error("Failed to fetch live prices");
+    const result = await response.json();
+    return result.data;
   }
 
   async getTrainerForm(trainer: string, formCategory: TrainerFormCategory): Promise<TrainerFormDoc | null> {

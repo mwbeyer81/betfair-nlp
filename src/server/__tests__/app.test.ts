@@ -2251,6 +2251,62 @@ describe("API Endpoints", () => {
     });
   });
 
+  describe("POST /api/daily-races/live-prices", () => {
+    const PICK = { runnerId: "hrs_live_test", horse: "Live Test Runner", course: "Test Course", offDt: "2026-07-29T14:05:00.000Z" };
+
+    it("returns 401 without auth", async () => {
+      await request(app).post("/api/daily-races/live-prices").send({ picks: [PICK] }).expect(401);
+    });
+
+    // config/test.json has no betfair credentials (inherits default.json's
+    // empty placeholders) — this exercises the REAL "not configured"
+    // degrade path in live-price-service.ts, not a mock of it.
+    it("degrades to price: null with a plain-language note when Betfair isn't configured, rather than erroring", async () => {
+      const response = await request(app)
+        .post("/api/daily-races/live-prices")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ picks: [PICK] })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.hrs_live_test).toEqual({
+        price: null,
+        note: "Live prices aren't configured yet.",
+      });
+    });
+
+    it("returns an empty object for an empty picks array", async () => {
+      const response = await request(app)
+        .post("/api/daily-races/live-prices")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ picks: [] })
+        .expect(200);
+
+      expect(response.body.data).toEqual({});
+    });
+
+    it("silently drops a malformed pick (missing required fields) rather than erroring", async () => {
+      const response = await request(app)
+        .post("/api/daily-races/live-prices")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ picks: [{ runnerId: "hrs_bad" }, PICK] })
+        .expect(200);
+
+      expect(response.body.data.hrs_bad).toBeUndefined();
+      expect(response.body.data.hrs_live_test).toBeDefined();
+    });
+
+    it("returns 200 with an empty object when picks is missing from the body entirely", async () => {
+      const response = await request(app)
+        .post("/api/daily-races/live-prices")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({})
+        .expect(200);
+
+      expect(response.body.data).toEqual({});
+    });
+  });
+
   describe("GET /api/industry-sp/filter-bounds", () => {
     it("returns success with maxRunnersPerRace, minIsp, maxIsp", async () => {
       const response = await request(app)

@@ -57,6 +57,7 @@ export interface BetfairMarketCatalogueFilter {
   eventTypeIds: string[];
   marketCountries: string[];
   marketStartTime: { from: string; to: string };
+  marketTypeCodes?: string[];
   textQuery?: string;
 }
 
@@ -195,12 +196,16 @@ export class BetfairApiClient {
     return this.restCall<BetfairEventType[]>("listEventTypes", { filter: {} });
   }
 
-  public async listMarketCatalogue(filter: BetfairMarketCatalogueFilter): Promise<BetfairMarketCatalogueEntry[]> {
+  // maxResults defaults to "50" (the original single-race lookup's own
+  // narrow time window never needs more) — batch callers resolving a whole
+  // day's picks in one call (see betfair-market-resolver.ts's
+  // resolveMarketsForPicks) pass a larger value explicitly.
+  public async listMarketCatalogue(filter: BetfairMarketCatalogueFilter, maxResults = "50"): Promise<BetfairMarketCatalogueEntry[]> {
     return this.restCall<BetfairMarketCatalogueEntry[]>("listMarketCatalogue", {
       filter,
       marketProjection: ["EVENT", "MARKET_START_TIME", "RUNNER_DESCRIPTION"],
       sort: "FIRST_TO_START",
-      maxResults: "50",
+      maxResults,
     });
   }
 

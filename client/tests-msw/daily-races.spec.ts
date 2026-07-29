@@ -112,6 +112,41 @@ test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
     await expect(page.getByTestId("daily-race-item-fair-odds-hrs_1")).toHaveText("Fair 3/1 (4.00)");
   });
 
+  test("Today's Picks shows a live Betfair price next to Bet when available", async ({ page }) => {
+    await page.goto("/daily-races");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("daily-races-min-model-win-probability").fill("20");
+    await page.getByTestId("daily-races-filter-apply").click();
+    await expect(page.getByTestId("daily-races-picks-list")).toBeVisible();
+
+    // fixtures.ts's live-prices mock: hrs_1 (the only runner with a
+    // modelWinProbability set, so the only one that ever qualifies for
+    // Today's Picks in this fixture) has a real price.
+    await expect(page.getByTestId("daily-races-pick-live-price-hrs_1")).toHaveText("Live 3/1 (4.00)");
+  });
+
+  test("Today's Picks shows a plain 'No live price' badge when Betfair has none for a pick", async ({ page }) => {
+    // Registered after setupApiMocks's own route for the same path — a
+    // route added later wins first (Playwright resolves in reverse
+    // registration order), so this overrides the default fixture's price
+    // for this test only.
+    await page.route((url) => url.pathname === "/api/daily-races/live-prices", (route) =>
+      route.fulfill({ json: { success: true, data: { hrs_1: { price: null, note: "Live prices aren't configured yet." } } } })
+    );
+
+    await page.goto("/daily-races");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("daily-races-min-model-win-probability").fill("20");
+    await page.getByTestId("daily-races-filter-apply").click();
+    await expect(page.getByTestId("daily-races-picks-list")).toBeVisible();
+
+    await expect(page.getByTestId("daily-races-pick-live-price-hrs_1")).toHaveText("No live price");
+  });
+
   test("a pick with a captured result shows Won + PnL alongside its pre-race Model/Fair-odds badges", async ({ page }) => {
     await page.goto("/daily-races");
     await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
