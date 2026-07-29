@@ -5,7 +5,7 @@ import { chatApi, BetOrder } from "../services/chatApi";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
 import { colors, radii, spacing, statusPill } from "../theme";
-import { BET_ORDER_STATUS_LABEL, formatBetOrderCondition } from "../utils/betOrderFormat";
+import { BET_ORDER_STATUS_LABEL, formatBetOrderCondition, formatBetOrderResult } from "../utils/betOrderFormat";
 import type { Route } from "../hooks/useRouter";
 
 interface ScheduledBetsScreenProps {
@@ -114,6 +114,17 @@ export const ScheduledBetsScreen: React.FC<ScheduledBetsScreenProps> = ({
                     <Text testID={`scheduled-bet-condition-${bet.id}`} style={styles.condition}>
                       {formatBetOrderCondition(bet)}
                     </Text>
+                    {formatBetOrderResult(bet) && (
+                      <Text
+                        testID={`scheduled-bet-result-${bet.id}`}
+                        style={[
+                          styles.result,
+                          { color: bet.betOutcome === "WON" ? colors.success : bet.betOutcome === "LOST" ? colors.danger : colors.textSecondary },
+                        ]}
+                      >
+                        {formatBetOrderResult(bet)}
+                      </Text>
+                    )}
                     {bet.note && (
                       <Text testID={`scheduled-bet-note-${bet.id}`} style={styles.note}>
                         {bet.note}
@@ -177,6 +188,7 @@ const styles = StyleSheet.create({
   },
   meta: { fontSize: 12, color: colors.textSecondary },
   condition: { fontSize: 13, color: colors.text },
+  result: { fontSize: 13, fontWeight: "700" },
   note: { fontSize: 12, color: colors.textSecondary, fontStyle: "italic" },
   cancelButton: {
     alignSelf: "flex-start",

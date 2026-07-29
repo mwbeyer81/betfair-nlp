@@ -46,3 +46,18 @@ export function formatBetOrderCondition(order: BetOrder): string {
   const price = order.minQualifyingPrice;
   return `Back at ${toFractionalOdds(price)} (${price.toFixed(2)})+ to win £${order.targetProfit.toFixed(2)} (stake up to £${order.maxStake.toFixed(2)})`;
 }
+
+// The real, settled outcome — only ever set for a real (non-simulated) bet
+// once Betfair itself confirms the race has settled (see
+// BetOrderService.refreshSettledResults). null means "not settled yet",
+// never inferred — a bet with no result shown here just hasn't finished
+// yet, not "assumed lost".
+export function formatBetOrderResult(order: BetOrder): string | null {
+  if (order.betOutcome == null || order.settledProfit == null) return null;
+  const sign = order.settledProfit > 0 ? "+" : order.settledProfit < 0 ? "-" : "";
+  const amount = Math.abs(order.settledProfit).toFixed(2);
+  if (order.betOutcome === "WON") return `Won ${sign}£${amount}`;
+  if (order.betOutcome === "LOST") return `Lost ${sign}£${amount}`;
+  if (order.betOutcome === "VOID") return "Void — stake returned";
+  return `${order.betOutcome} (${sign}£${amount})`;
+}

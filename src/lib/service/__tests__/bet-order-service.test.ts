@@ -34,6 +34,7 @@ function fakeClient(overrides: Partial<jest.Mocked<BetfairApiClient>> = {}): jes
     listMarketCatalogue: jest.fn(),
     listMarketBook: jest.fn(),
     placeOrders: jest.fn(),
+    listClearedOrders: jest.fn().mockResolvedValue([]),
     ...overrides,
   } as unknown as jest.Mocked<BetfairApiClient>;
 }
@@ -528,5 +529,78 @@ describe("BetOrderService.evaluatePendingOrders", () => {
     expect(summary.expired).toBe(1);
     expect(dao.updateFields).toHaveBeenCalledWith(badOrder._id, expect.objectContaining({ status: "error", note: "network blew up" }));
     expect(dao.updateFields).toHaveBeenCalledWith(goodOrder._id, expect.objectContaining({ status: "expired" }));
+  });
+});
+
+describe("BetOrderService.listForUser — real settled results", () => {
+  it("fetches and persists the settled result for a real, triggered, unsettled bet", async () => {
+    const realOrder = makeOrder({
+      orderType: "instant",
+      status: "triggered",
+      dryRun: false,
+      betfairBetId: "bet_123",
+      matchedPrice: 3.8,
+    });
+    const client = fakeClient({
+      listClearedOrders: jest.fn().mockResolvedValue([
+        { betId: "bet_123", betOutcome: "LOST", priceMatched: 3.8, sizeSettled: 2, profit: -2, settledDate: "2026-07-29T17:30:24.000Z" },
+      ]),
+    });
+    // Stateful, like a real DB: listByUser reflects whatever updateFields
+    // has (or hasn't) applied so far — refreshSettledResults' own internal
+    // listByUser call (to find candidates) and listForUser's final
+    // listByUser call (to build the response) must see consistent state,
+    // the same as two sequential real Mongo reads would.
+    const updateFields = jest.fn().mockImplementation((_id: unknown, patch: Partial<BetOrderDocument>) => {
+      Object.assign(realOrder, patch);
+      return Promise.resolve();
+    });
+    const dao = fakeDAO({ listByUser: jest.fn().mockImplementation(() => Promise.resolve([realOrder])), updateFields });
+    const service = new BetOrderService(dao, client);
+
+    const result = await service.listForUser("user1");
+
+    expect(client.listClearedOrders).toHaveBeenCalledWith(["bet_123"]);
+    expect(dao.updateFields).toHaveBeenCalledWith(
+      realOrder._id,
+      expect.objectContaining({ betOutcome: "LOST", settledProfit: -2, settledAt: "2026-07-29T17:30:24.000Z" })
+    );
+    expect(result[0].betOutcome).toBe("LOST");
+    expect(result[0].settledProfit).toBe(-2);
+  });
+
+  it("never calls listClearedOrders when there are no real unsettled bets (the common case)", async () => {
+    const simulatedOrder = makeOrder({ orderType: "instant", status: "triggered", dryRun: true, matchedPrice: 4 });
+    const client = fakeClient();
+    const dao = fakeDAO({ listByUser: jest.fn().mockResolvedValue([simulatedOrder]) });
+    const service = new BetOrderService(dao, client);
+
+    await service.listForUser("user1");
+
+    expect(client.listClearedOrders).not.toHaveBeenCalled();
+    expect(dao.updateFields).not.toHaveBeenCalled();
+  });
+
+  it("leaves an order untouched when Betfair hasn't settled it yet (no betId in the response)", async () => {
+    const realOrder = makeOrder({ orderType: "instant", status: "triggered", dryRun: false, betfairBetId: "bet_456" });
+    const client = fakeClient({ listClearedOrders: jest.fn().mockResolvedValue([]) });
+    const dao = fakeDAO({ listByUser: jest.fn().mockResolvedValue([realOrder]) });
+    const service = new BetOrderService(dao, client);
+
+    await service.listForUser("user1");
+
+    expect(dao.updateFields).not.toHaveBeenCalled();
+  });
+
+  it("does not fail the whole list when refreshing settled results throws (best-effort, non-fatal)", async () => {
+    const realOrder = makeOrder({ orderType: "instant", status: "triggered", dryRun: false, betfairBetId: "bet_789" });
+    const client = fakeClient({ listClearedOrders: jest.fn().mockRejectedValue(new Error("Betfair API down")) });
+    const dao = fakeDAO({ listByUser: jest.fn().mockResolvedValue([realOrder]) });
+    const service = new BetOrderService(dao, client);
+
+    const result = await service.listForUser("user1");
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(realOrder._id!.toString());
   });
 });

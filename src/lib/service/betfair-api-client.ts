@@ -105,6 +105,18 @@ export type BetfairPlaceOrderResult =
   | { outcome: "SUCCESS"; betId: string; matchedPrice: number }
   | { outcome: "FAILURE"; error: string };
 
+// The real, settled outcome of a real bet — see listClearedOrders below.
+// profit is already signed (negative for a loss) and in the account's own
+// currency (GBP here) — no further sign-flipping needed by callers.
+export interface BetfairClearedOrder {
+  betId: string;
+  betOutcome: "WON" | "LOST" | "VOID" | string;
+  priceMatched?: number;
+  sizeSettled?: number;
+  profit?: number;
+  settledDate?: string;
+}
+
 // Best-effort extraction across the couple of shapes Betfair's API-NG
 // errors are documented/observed to take — defensive rather than a single
 // assumed path, since the exact nesting wasn't independently re-verified
@@ -253,6 +265,21 @@ export class BetfairApiClient {
       marketIds,
       priceProjection: { priceData: ["EX_BEST_OFFERS"] },
     });
+  }
+
+  // Real, settled results for real bets already placed — read-only,
+  // side-effect-free (never places/cancels anything), safe to call
+  // regardless of dryRun. Betfair only returns a betId in
+  // clearedOrders once that specific order has actually settled (i.e.
+  // the race has been paid out) — an omitted betId means "not settled
+  // yet", not an error; callers should treat that as "check again later".
+  public async listClearedOrders(betIds: string[]): Promise<BetfairClearedOrder[]> {
+    if (betIds.length === 0) return [];
+    const result = await this.restCall<{ clearedOrders?: BetfairClearedOrder[] }>("listClearedOrders", {
+      betStatus: "SETTLED",
+      betIds,
+    });
+    return result.clearedOrders ?? [];
   }
 
   // The dry-run gate: whenever dryRun is on, OR the caller passes

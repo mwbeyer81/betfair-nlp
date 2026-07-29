@@ -83,6 +83,12 @@ export interface BetOrderApiResponse {
   matchedPrice?: number;
   dryRun?: boolean;
   note?: string;
+  // The real, settled result — see BetOrderService.refreshSettledResults.
+  // Absent means "not settled yet" (or this was never a real bet), never
+  // inferred client-side.
+  betOutcome?: "WON" | "LOST" | "VOID" | string;
+  settledProfit?: number;
+  settledAt?: string;
 }
 
 function toApiResponse(doc: BetOrderDocument): BetOrderApiResponse {
@@ -105,6 +111,9 @@ function toApiResponse(doc: BetOrderDocument): BetOrderApiResponse {
     matchedPrice: doc.matchedPrice,
     dryRun: doc.dryRun,
     note: doc.note,
+    betOutcome: doc.betOutcome,
+    settledProfit: doc.settledProfit,
+    settledAt: doc.settledAt,
   };
 }
 
@@ -316,8 +325,47 @@ export class BetOrderService {
   }
 
   public async listForUser(userId: string): Promise<BetOrderApiResponse[]> {
+    // Best-effort — a Betfair hiccup here must never break the list itself,
+    // since the user still needs to see their orders even if we can't
+    // confirm a settled result on this particular request.
+    try {
+      await this.refreshSettledResults(userId);
+    } catch (error) {
+      console.error("refreshSettledResults failed (non-fatal, list still returned):", error);
+    }
     const docs = await this.dao.listByUser(userId);
     return docs.map(toApiResponse);
+  }
+
+  // Pulls the real, settled result for any of this user's real bets that
+  // are triggered, actually placed on Betfair (have a betfairBetId), and
+  // not yet known to be settled. A no-op (no network call) whenever there
+  // are none — the common case, since only the allow-listed user's bets
+  // ever have a real betfairBetId at all. Betfair's own listClearedOrders
+  // simply omits a betId from the response until that specific order has
+  // actually settled — an order not coming back in the response means
+  // "still not settled", not an error, and is silently left alone to be
+  // checked again on the next call.
+  private async refreshSettledResults(userId: string): Promise<void> {
+    const docs = await this.dao.listByUser(userId);
+    const unsettled = docs.filter(
+      d => d.dryRun === false && d.status === "triggered" && d.betfairBetId && d.betOutcome === undefined
+    );
+    if (unsettled.length === 0) return;
+
+    const betIds = unsettled.map(d => d.betfairBetId!);
+    const cleared = await this.client.listClearedOrders(betIds);
+    const clearedByBetId = new Map(cleared.map(c => [c.betId, c]));
+
+    for (const doc of unsettled) {
+      const result = clearedByBetId.get(doc.betfairBetId!);
+      if (!result) continue; // not settled yet — check again next time
+      await this.dao.updateFields(doc._id!, {
+        betOutcome: result.betOutcome,
+        settledProfit: result.profit,
+        settledAt: result.settledDate,
+      });
+    }
   }
 
   public async cancelForUser(id: string, userId: string): Promise<boolean> {

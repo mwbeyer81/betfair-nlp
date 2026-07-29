@@ -65,6 +65,14 @@ export interface BetOrderDocument {
   matchedPrice?: number;
   betfairBetId?: string;
   dryRun?: boolean;
+  // The real, settled result — only ever populated for a real
+  // (dryRun:false) triggered order once BetOrderService.refreshSettledResults
+  // finds it in Betfair's own listClearedOrders. Absent means "not settled
+  // yet" (or never checked), not "lost" — never inferred, only ever set
+  // from what Betfair itself reports.
+  betOutcome?: "WON" | "LOST" | "VOID" | string;
+  settledProfit?: number;
+  settledAt?: string;
   // Human-readable explanation for "unmatched"/"error"/"expired" — surfaced
   // directly to the user rather than a bare status code, since each of
   // those states needs a different real-world action from them.

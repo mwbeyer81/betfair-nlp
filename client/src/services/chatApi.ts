@@ -167,6 +167,12 @@ export interface BetOrder {
   matchedPrice?: number;
   dryRun?: boolean;
   note?: string;
+  // The real, settled result — only ever populated for a real (dryRun:
+  // false) triggered bet once Betfair itself confirms the race settled.
+  // Absent means "not settled yet", never inferred client-side.
+  betOutcome?: "WON" | "LOST" | "VOID" | string;
+  settledProfit?: number;
+  settledAt?: string;
 }
 
 export interface CreateBetOrderInput {
