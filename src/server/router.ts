@@ -883,12 +883,16 @@ router.delete("/api/saved-filter-sets/:id", async (req, res) => {
 // is what later calls Betfair's real placeOrders for it. "instant" calls
 // placeOrders synchronously, right here in this request. Either way,
 // placeOrders itself only reaches Betfair's real endpoint while config
-// betfair.dryRun=false (default true, see betfair-api-client.ts).
+// betfair.dryRun=false (default true, see betfair-api-client.ts) AND the
+// requester's own email matches BetfairApiClient.getLiveBettingAllowedEmail()
+// — the email is looked up server-side via authService.getMe(userId) below,
+// never trusted from the request body, since it's the sole input to that
+// per-request identity gate (bet-order-service.ts's `liveBettingAllowed`).
 router.post("/api/bet-orders", async (req, res) => {
   const userId = userIdFromAuthHeader(req);
   if (!userId) return res.status(401).json({ success: false, error: "Invalid or expired token" });
   try {
-    if (!betOrderService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    if (!betOrderService || !authService) return res.status(503).json({ success: false, error: "Service not initialized" });
     const body = req.body ?? {};
     const requiredStrings = ["runnerId", "horse", "course", "offTime", "offDt", "raceId", "eventId"];
     for (const field of requiredStrings) {
@@ -901,24 +905,29 @@ router.post("/api/bet-orders", async (req, res) => {
     // Old cached client bundles won't send orderType at all — default to
     // "scheduled" so they keep today's behavior unchanged.
     const orderType: BetOrderType = body.orderType === "instant" ? "instant" : "scheduled";
-    const data = await betOrderService.createForUser(userId, {
-      runnerId: body.runnerId,
-      horse: body.horse,
-      course: body.course,
-      offTime: body.offTime,
-      offDt: body.offDt,
-      raceId: body.raceId,
-      eventId: body.eventId,
-      targetProfit,
-      maxStake,
-      orderType,
-    });
+    const me = await authService.getMe(userId);
+    const data = await betOrderService.createForUser(
+      userId,
+      {
+        runnerId: body.runnerId,
+        horse: body.horse,
+        course: body.course,
+        offTime: body.offTime,
+        offDt: body.offDt,
+        raceId: body.raceId,
+        eventId: body.eventId,
+        targetProfit,
+        maxStake,
+        orderType,
+      },
+      me?.email ?? null
+    );
     res.status(201).json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create bet order";
-    // targetProfit/maxStake validation errors are the caller's mistake
-    // (bad input), not a server fault.
-    if (message.includes("must be a positive number")) {
+    // targetProfit/maxStake validation errors, including the maxStake
+    // safety cap, are the caller's mistake (bad input), not a server fault.
+    if (message.includes("must be a positive number") || message.includes("cannot exceed")) {
       return res.status(400).json({ success: false, error: message });
     }
     // An instant bet that couldn't be safely placed (ambiguous market
@@ -926,6 +935,14 @@ router.post("/api/bet-orders", async (req, res) => {
     // caller's request was well-formed, there's just nothing to place.
     if (message.startsWith("INSTANT_BET_REJECTED: ")) {
       return res.status(400).json({ success: false, error: message.replace("INSTANT_BET_REJECTED: ", "") });
+    }
+    // A placeOrders attempt completed but the result couldn't be saved —
+    // genuinely different from "nothing happened", so it gets its own
+    // specific message rather than the generic one below (see
+    // bet-order-service.ts's logPossiblePhantomRealBet).
+    if (message.startsWith("INSTANT_BET_PERSISTENCE_FAILED: ")) {
+      console.error("createBetOrder persistence failure:", error);
+      return res.status(500).json({ success: false, error: message.replace("INSTANT_BET_PERSISTENCE_FAILED: ", "") });
     }
     console.error("createBetOrder error:", error);
     res.status(500).json({ success: false, error: "Failed to create bet order" });

@@ -118,18 +118,26 @@ async function main(): Promise<void> {
     const minQualifyingPricePreview = 1 + targetProfit / maxStake;
     console.log(`Using targetProfit=£${targetProfit.toFixed(2)}, maxStake=£${maxStake} -> minQualifyingPrice=${minQualifyingPricePreview.toFixed(2)} (below ${price}).`);
 
-    const result = await service.createForUser("prod-test-user", {
-      runnerId: `verify-${selectionId}`,
-      horse: horseName,
-      course: market.event.venue as string,
-      offTime: market.marketStartTime,
-      offDt: market.marketStartTime,
-      raceId: `verify-${market.marketId}`,
-      eventId: market.event.id,
-      targetProfit,
-      maxStake,
-      orderType: "instant",
-    });
+    const result = await service.createForUser(
+      "prod-test-user",
+      {
+        runnerId: `verify-${selectionId}`,
+        horse: horseName,
+        course: market.event.venue as string,
+        offTime: market.marketStartTime,
+        offDt: market.marketStartTime,
+        raceId: `verify-${market.marketId}`,
+        eventId: market.event.id,
+        targetProfit,
+        maxStake,
+        orderType: "instant",
+      },
+      // Deliberately not the live-betting-allowed email — this script
+      // proves the DRY_RUN pipeline works, not live-betting-safety's
+      // separate allow-list/cap behavior (see
+      // live-verify-live-betting-safety.ts for that).
+      null
+    );
 
     console.log("\ncreateForUser (orderType: instant) result:");
     console.log(`  status: ${result.status}`);

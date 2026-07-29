@@ -57,6 +57,7 @@
     "sessionId": "",
     "username": "",
     "password": "",
-    "dryRun": true
+    "dryRun": true,
+    "liveBettingAllowedEmail": ""
   }
 }

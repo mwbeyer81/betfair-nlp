@@ -42,6 +42,17 @@ export interface BetOrderDocument {
   // that absence as "scheduled" at the read boundary (toApiResponse), not
   // by backfilling old docs.
   orderType: BetOrderType;
+  // Computed once at creation from the creating user's email vs.
+  // BetfairApiClient.getLiveBettingAllowedEmail(), and never recomputed —
+  // a permanent, auditable record of whether this specific order was ever
+  // eligible for a real placement. Passed as `forceDryRun: !liveBettingAllowed`
+  // into every client.placeOrders call this order ever goes through (both
+  // placeInstant and evaluateOne), so the identity check happens once, at
+  // creation, rather than being re-derived (and potentially inconsistent)
+  // at every later evaluation. Absent on documents created before this
+  // field existed — always treat that absence as `false` (never allowed),
+  // not `true`, at every read site — same fail-safe direction as dryRun.
+  liveBettingAllowed?: boolean;
   createdAt: string;
   updatedAt: string;
   // Populated once resolveMarketForRace succeeds — absent while status is

@@ -16,6 +16,10 @@ import config from "config";
 // regardless of what any caller does. That gate lives here, inside the
 // client, rather than only in the calling service, so there is no code path
 // that can reach Betfair's real order-placement endpoint while dryRun=true.
+// A second, independent gate — the per-request `forceDryRun` option, driven
+// by getLiveBettingAllowedEmail()'s allow-list — means even with dryRun
+// off account-wide, only requests from the one allow-listed identity can
+// ever reach a real placement; see bet-order-service.ts.
 
 function readConfigString(key: string): string {
   try {
@@ -110,6 +114,12 @@ export class BetfairApiClient {
   // server-driven login, so this takes priority over username/password.
   private fixedSessionId: string;
   private sessionToken: string | null = null;
+  // Second, independent safety gate alongside dryRun — see
+  // bet-order-service.ts's use of this via forceDryRun. Empty string (the
+  // default) means "no one" — fail-safe, same reasoning as dryRun
+  // defaulting true: a misconfigured deploy must fail into "nobody can
+  // place a real bet", not the other way around.
+  private liveBettingAllowedEmail: string;
 
   constructor() {
     this.identityHost = readConfigString("betfair.identityHost") || "https://identitysso.betfair.com";
@@ -127,6 +137,13 @@ export class BetfairApiClient {
     // missing/malformed — a misconfigured deploy must fail safe into
     // "never actually bets", not the other way around.
     this.dryRun = readConfigBoolean("betfair.dryRun", true);
+    this.liveBettingAllowedEmail = readConfigString("betfair.liveBettingAllowedEmail").toLowerCase();
+  }
+
+  // Empty string means the allow-list is off — every requester is treated
+  // as not-allowed. Compared case-insensitively by the caller.
+  public getLiveBettingAllowedEmail(): string {
+    return this.liveBettingAllowedEmail;
   }
 
   // A fixed sessionId is itself enough to make calls (no login needed);
@@ -216,13 +233,25 @@ export class BetfairApiClient {
     });
   }
 
-  // The dry-run gate: whenever dryRun is on, this returns a synthetic
-  // result WITHOUT ever calling Betfair's real place-order endpoint — no
-  // network request, no chance of an accidental live bet. size is the
-  // stake in GBP; price is the minimum acceptable back price (a Betfair
-  // "LIMIT" back order at this price or better).
-  public async placeOrders(marketId: string, selectionId: number, price: number, size: number): Promise<BetfairPlaceOrderResult> {
-    if (this.dryRun) {
+  // The dry-run gate: whenever dryRun is on, OR the caller passes
+  // forceDryRun (bet-order-service.ts sets this whenever the requesting
+  // user isn't the live-betting-allowed email — see
+  // getLiveBettingAllowedEmail above), this returns a synthetic result
+  // WITHOUT ever calling Betfair's real place-order endpoint — no network
+  // request, no chance of an accidental live bet. Two independent gates on
+  // purpose: dryRun is the account-wide master switch, forceDryRun is the
+  // per-request identity check — either one alone is enough to keep this
+  // simulated, so a bug in one doesn't undo the other. size is the stake
+  // in GBP; price is the minimum acceptable back price (a Betfair "LIMIT"
+  // back order at this price or better).
+  public async placeOrders(
+    marketId: string,
+    selectionId: number,
+    price: number,
+    size: number,
+    options: { forceDryRun?: boolean } = {}
+  ): Promise<BetfairPlaceOrderResult> {
+    if (this.dryRun || options.forceDryRun) {
       return { outcome: "DRY_RUN", simulatedPrice: price, simulatedSize: size };
     }
     try {

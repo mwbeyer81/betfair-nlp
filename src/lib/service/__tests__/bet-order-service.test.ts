@@ -21,10 +21,16 @@ function fakeDAO(overrides: Partial<jest.Mocked<BetOrderDAO>> = {}): jest.Mocked
   } as unknown as jest.Mocked<BetOrderDAO>;
 }
 
+const ALLOWED_EMAIL = "matthewbeyer@hotmail.com";
+
 function fakeClient(overrides: Partial<jest.Mocked<BetfairApiClient>> = {}): jest.Mocked<BetfairApiClient> {
   return {
     hasCredentials: jest.fn().mockReturnValue(true),
     isDryRun: jest.fn().mockReturnValue(true),
+    // Empty string (allow-list off — nobody is allowed) matches
+    // config/default.json's fail-safe default; tests that care about the
+    // allow-list override this explicitly.
+    getLiveBettingAllowedEmail: jest.fn().mockReturnValue(""),
     listMarketCatalogue: jest.fn(),
     listMarketBook: jest.fn(),
     placeOrders: jest.fn(),
@@ -62,10 +68,14 @@ describe("BetOrderService.createForUser", () => {
     const dao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
     const service = new BetOrderService(dao, fakeClient());
 
-    const result = await service.createForUser("user1", {
-      runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
-      raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 20, maxStake: 10, orderType: "scheduled",
-    });
+    const result = await service.createForUser(
+      "user1",
+      {
+        runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
+        raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 20, maxStake: 10, orderType: "scheduled",
+      },
+      null
+    );
 
     expect(result.minQualifyingPrice).toBe(3);
     expect(result.status).toBe("pending");
@@ -76,20 +86,28 @@ describe("BetOrderService.createForUser", () => {
   it("rejects a non-positive targetProfit", async () => {
     const service = new BetOrderService(fakeDAO(), fakeClient());
     await expect(
-      service.createForUser("user1", {
-        runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
-        raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 0, maxStake: 10, orderType: "scheduled",
-      })
+      service.createForUser(
+        "user1",
+        {
+          runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
+          raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 0, maxStake: 10, orderType: "scheduled",
+        },
+        null
+      )
     ).rejects.toThrow("targetProfit must be a positive number");
   });
 
   it("rejects a non-positive maxStake", async () => {
     const service = new BetOrderService(fakeDAO(), fakeClient());
     await expect(
-      service.createForUser("user1", {
-        runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
-        raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 20, maxStake: -5, orderType: "scheduled",
-      })
+      service.createForUser(
+        "user1",
+        {
+          runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
+          raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 20, maxStake: -5, orderType: "scheduled",
+        },
+        null
+      )
     ).rejects.toThrow("maxStake must be a positive number");
   });
 });
@@ -115,9 +133,11 @@ describe("BetOrderService.createForUser — instant orders", () => {
     const dao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
     const service = new BetOrderService(dao, client);
 
-    const result = await service.createForUser("user1", INSTANT_INPUT);
+    const result = await service.createForUser("user1", INSTANT_INPUT, null);
 
-    expect(client.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 10);
+    // requestingUserEmail null -> liveBettingAllowed false -> forceDryRun true,
+    // regardless of the mocked client's own isDryRun().
+    expect(client.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 10, { forceDryRun: true });
     expect(result.status).toBe("triggered");
     expect(result.orderType).toBe("instant");
     expect(result.dryRun).toBe(true);
@@ -140,7 +160,7 @@ describe("BetOrderService.createForUser — instant orders", () => {
     const dao = fakeDAO();
     const service = new BetOrderService(dao, client);
 
-    await expect(service.createForUser("user1", INSTANT_INPUT)).rejects.toThrow(/INSTANT_BET_REJECTED.*below your minimum qualifying price/);
+    await expect(service.createForUser("user1", INSTANT_INPUT, null)).rejects.toThrow(/INSTANT_BET_REJECTED.*below your minimum qualifying price/);
 
     expect(client.placeOrders).not.toHaveBeenCalled();
     expect(dao.create).not.toHaveBeenCalled();
@@ -152,7 +172,7 @@ describe("BetOrderService.createForUser — instant orders", () => {
     const dao = fakeDAO();
     const service = new BetOrderService(dao, client);
 
-    await expect(service.createForUser("user1", INSTANT_INPUT)).rejects.toThrow(/INSTANT_BET_REJECTED.*2 candidate markets matched/);
+    await expect(service.createForUser("user1", INSTANT_INPUT, null)).rejects.toThrow(/INSTANT_BET_REJECTED.*2 candidate markets matched/);
 
     expect(client.listMarketBook).not.toHaveBeenCalled();
     expect(client.placeOrders).not.toHaveBeenCalled();
@@ -170,11 +190,196 @@ describe("BetOrderService.createForUser — instant orders", () => {
     const dao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
     const service = new BetOrderService(dao, client);
 
-    const result = await service.createForUser("user1", INSTANT_INPUT);
+    const result = await service.createForUser("user1", INSTANT_INPUT, null);
 
     expect(result.status).toBe("error");
-    expect(result.note).toBe("INSUFFICIENT_FUNDS");
-    expect(dao.create).toHaveBeenCalledWith(expect.objectContaining({ status: "error", orderType: "instant", note: "INSUFFICIENT_FUNDS" }));
+    // Raw Betfair error codes are translated to plain English before
+    // being saved — see humanizeBetfairError in bet-order-service.ts.
+    expect(result.note).toBe("Your Betfair account doesn't have enough funds to cover this stake.");
+    expect(dao.create).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "error", orderType: "instant", note: "Your Betfair account doesn't have enough funds to cover this stake." })
+    );
+  });
+});
+
+describe("BetOrderService.createForUser — live-betting safety gates", () => {
+  beforeEach(() => {
+    mockResolveMarketForRace.mockReset();
+  });
+
+  it("computes liveBettingAllowed true only for the exact allow-listed email (case-insensitive), false for anyone else or when the allow-list is empty", async () => {
+    mockResolveMarketForRace.mockResolvedValue({ ok: true, resolved: { marketId: "1.123", marketStartTime: FUTURE_OFF_DT, selectionId: 555 } });
+    const bookWithPrice = [
+      { marketId: "1.123", status: "OPEN", inplay: false, runners: [{ selectionId: 555, status: "ACTIVE", ex: { availableToBack: [{ price: 4, size: 100 }] } }] },
+    ];
+    const input = { runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
+      raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 2, maxStake: 1, orderType: "instant" as const }; // minQualifyingPrice = 3, maxStake at the cap
+
+    // Allowed: exact email, different case.
+    const allowedClient = fakeClient({
+      getLiveBettingAllowedEmail: jest.fn().mockReturnValue(ALLOWED_EMAIL),
+      listMarketBook: jest.fn().mockResolvedValue(bookWithPrice),
+      placeOrders: jest.fn().mockResolvedValue({ outcome: "DRY_RUN", simulatedPrice: 4, simulatedSize: 1 }),
+    });
+    const allowedDao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
+    await new BetOrderService(allowedDao, allowedClient).createForUser("user1", input, "MatthewBeyer@Hotmail.com");
+    expect(allowedClient.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 1, { forceDryRun: false });
+    expect(allowedDao.create).toHaveBeenCalledWith(expect.objectContaining({ liveBettingAllowed: true }));
+
+    // Not allowed: a different real email.
+    const otherClient = fakeClient({
+      getLiveBettingAllowedEmail: jest.fn().mockReturnValue(ALLOWED_EMAIL),
+      listMarketBook: jest.fn().mockResolvedValue(bookWithPrice),
+      placeOrders: jest.fn().mockResolvedValue({ outcome: "DRY_RUN", simulatedPrice: 4, simulatedSize: 1 }),
+    });
+    const otherDao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
+    await new BetOrderService(otherDao, otherClient).createForUser("user2", input, "someoneelse@example.com");
+    expect(otherClient.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 1, { forceDryRun: true });
+    expect(otherDao.create).toHaveBeenCalledWith(expect.objectContaining({ liveBettingAllowed: false }));
+
+    // Not allowed: allow-list itself is empty (fail-safe default) — even
+    // the "right" email doesn't match an empty allow-list.
+    const noAllowListClient = fakeClient({
+      listMarketBook: jest.fn().mockResolvedValue(bookWithPrice),
+      placeOrders: jest.fn().mockResolvedValue({ outcome: "DRY_RUN", simulatedPrice: 4, simulatedSize: 1 }),
+    });
+    const noAllowListDao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
+    await new BetOrderService(noAllowListDao, noAllowListClient).createForUser("user3", input, ALLOWED_EMAIL);
+    expect(noAllowListClient.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 1, { forceDryRun: true });
+    expect(noAllowListDao.create).toHaveBeenCalledWith(expect.objectContaining({ liveBettingAllowed: false }));
+  });
+
+  it("still forces simulation even when the requester is allowed AND the account-wide dryRun switch is off, unless both conditions hold", async () => {
+    // This proves the two gates are independent: forceDryRun is driven
+    // purely by identity, so a scheduled order created by the allowed user
+    // stays correctly tagged liveBettingAllowed:true regardless of the
+    // CURRENT global dryRun value at creation time — the real decision
+    // happens later, at evaluation, via BOTH order.liveBettingAllowed and
+    // the client's live isDryRun() state.
+    const dao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
+    const client = fakeClient({ getLiveBettingAllowedEmail: jest.fn().mockReturnValue(ALLOWED_EMAIL) });
+    const service = new BetOrderService(dao, client);
+
+    await service.createForUser(
+      "user1",
+      { runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
+        raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 2, maxStake: 1, orderType: "scheduled" },
+      ALLOWED_EMAIL
+    );
+
+    expect(dao.create).toHaveBeenCalledWith(expect.objectContaining({ liveBettingAllowed: true, status: "pending" }));
+  });
+
+  it("rejects a maxStake above the cap for the allow-listed requester, before any network call", async () => {
+    const dao = fakeDAO();
+    const client = fakeClient({ getLiveBettingAllowedEmail: jest.fn().mockReturnValue(ALLOWED_EMAIL) });
+    const service = new BetOrderService(dao, client);
+
+    await expect(
+      service.createForUser(
+        "user1",
+        { runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
+          raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 20, maxStake: 10, orderType: "instant" },
+        ALLOWED_EMAIL
+      )
+    ).rejects.toThrow(/maxStake cannot exceed £1/);
+
+    expect(mockResolveMarketForRace).not.toHaveBeenCalled();
+    expect(client.listMarketBook).not.toHaveBeenCalled();
+    expect(dao.create).not.toHaveBeenCalled();
+  });
+
+  it("does NOT cap maxStake for a non-allowed requester, since their placeOrders call is always simulated regardless", async () => {
+    mockResolveMarketForRace.mockResolvedValue({ ok: true, resolved: { marketId: "1.123", marketStartTime: FUTURE_OFF_DT, selectionId: 555 } });
+    const client = fakeClient({
+      listMarketBook: jest.fn().mockResolvedValue([
+        { marketId: "1.123", status: "OPEN", inplay: false, runners: [{ selectionId: 555, status: "ACTIVE", ex: { availableToBack: [{ price: 4, size: 100 }] } }] },
+      ]),
+      placeOrders: jest.fn().mockResolvedValue({ outcome: "DRY_RUN", simulatedPrice: 4, simulatedSize: 10 }),
+    });
+    const dao = fakeDAO({ create: jest.fn().mockImplementation(doc => Promise.resolve({ ...doc, _id: new ObjectId() })) });
+    const service = new BetOrderService(dao, client);
+
+    const result = await service.createForUser(
+      "user1",
+      { runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
+        raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 20, maxStake: 10, orderType: "instant" },
+      null
+    );
+
+    expect(result.status).toBe("triggered");
+    expect(client.placeOrders).toHaveBeenCalledWith("1.123", 555, 4, 10, { forceDryRun: true });
+  });
+
+  it("throws INSTANT_BET_PERSISTENCE_FAILED and logs loudly when a real-attempt result can't be saved (phantom-bet risk)", async () => {
+    const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mockResolveMarketForRace.mockResolvedValue({ ok: true, resolved: { marketId: "1.123", marketStartTime: FUTURE_OFF_DT, selectionId: 555 } });
+      const client = fakeClient({
+        getLiveBettingAllowedEmail: jest.fn().mockReturnValue(ALLOWED_EMAIL),
+        isDryRun: jest.fn().mockReturnValue(false), // account-wide switch off too, so this really would be a live bet
+        listMarketBook: jest.fn().mockResolvedValue([
+          { marketId: "1.123", status: "OPEN", inplay: false, runners: [{ selectionId: 555, status: "ACTIVE", ex: { availableToBack: [{ price: 4, size: 100 }] } }] },
+        ]),
+        placeOrders: jest.fn().mockResolvedValue({ outcome: "SUCCESS", betId: "bet_real_123", matchedPrice: 4 }),
+      });
+      const dao = fakeDAO({ create: jest.fn().mockRejectedValue(new Error("Mongo connection dropped")) });
+      const service = new BetOrderService(dao, client);
+
+      await expect(
+        service.createForUser(
+          "user1",
+          { runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", offDt: FUTURE_OFF_DT,
+            raceId: "rac_1", eventId: "redcar-2026-07-29", targetProfit: 2, maxStake: 1, orderType: "instant" },
+          ALLOWED_EMAIL
+        )
+      ).rejects.toThrow(/INSTANT_BET_PERSISTENCE_FAILED.*real bet may have just been placed/);
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("PHANTOM REAL BET RISK"),
+        expect.any(Error)
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it("does not crash evaluatePendingOrders when a scheduled order's post-placeOrders persistence fails — logs loudly instead", async () => {
+    const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      // betfairMarketId/selectionId pre-set so evaluateOne skips market
+      // resolution entirely and goes straight to the price-check/placeOrders
+      // phase — isolates this test to exactly the scenario under test
+      // (persistence failing only on the final, post-placeOrders write),
+      // not an earlier, unrelated updateFields call.
+      const order = makeOrder({ liveBettingAllowed: true, maxStake: 1, minQualifyingPrice: 3, betfairMarketId: "1.123", betfairSelectionId: 555 });
+      const client = fakeClient({
+        isDryRun: jest.fn().mockReturnValue(false),
+        listMarketBook: jest.fn().mockResolvedValue([
+          { marketId: "1.123", status: "OPEN", inplay: false, runners: [{ selectionId: 555, status: "ACTIVE", ex: { availableToBack: [{ price: 3.5, size: 100 }] } }] },
+        ]),
+        placeOrders: jest.fn().mockResolvedValue({ outcome: "SUCCESS", betId: "bet_real_456", matchedPrice: 3.5 }),
+      });
+      const dao = fakeDAO({
+        listAllOpen: jest.fn().mockResolvedValue([order]),
+        updateFields: jest.fn().mockRejectedValue(new Error("Mongo connection dropped")),
+      });
+      const service = new BetOrderService(dao, client);
+
+      const summary = await service.evaluatePendingOrders();
+
+      // evaluatePendingOrders itself must not throw or blow up the batch —
+      // the failure is logged, not rethrown into the outer per-order catch
+      // (which would attempt a second, likely-also-failing write).
+      expect(summary.evaluated).toBe(1);
+      expect(summary.triggered).toBe(1);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("PHANTOM REAL BET RISK"),
+        expect.any(Error)
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 });
 
@@ -240,7 +445,8 @@ describe("BetOrderService.evaluatePendingOrders", () => {
     const summary = await service.evaluatePendingOrders();
 
     expect(dao.tryTransition).toHaveBeenCalledWith(order._id, "pending", "placing");
-    expect(client.placeOrders).toHaveBeenCalledWith("1.123", 555, 3.5, order.maxStake);
+    // makeOrder() doesn't set liveBettingAllowed -> forceDryRun true.
+    expect(client.placeOrders).toHaveBeenCalledWith("1.123", 555, 3.5, order.maxStake, { forceDryRun: true });
     expect(summary.triggered).toBe(1);
     expect(dao.updateFields).toHaveBeenCalledWith(
       order._id,
@@ -283,7 +489,10 @@ describe("BetOrderService.evaluatePendingOrders", () => {
 
     expect(summary.errors).toBe(1);
     expect(summary.triggered).toBe(0);
-    expect(dao.updateFields).toHaveBeenCalledWith(order._id, expect.objectContaining({ status: "error", note: "INSUFFICIENT_FUNDS" }));
+    expect(dao.updateFields).toHaveBeenCalledWith(
+      order._id,
+      expect.objectContaining({ status: "error", note: "Your Betfair account doesn't have enough funds to cover this stake." })
+    );
   });
 
   it("marks an order expired once in-play/closed and past the grace window, without calling placeOrders", async () => {

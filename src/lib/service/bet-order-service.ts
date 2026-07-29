@@ -3,6 +3,33 @@ import { DatabaseConnection } from "../../config/database";
 import { BetfairApiClient } from "./betfair-api-client";
 import { resolveMarketForRace } from "./betfair-market-resolver";
 
+// Hard cap on every order in this system, regardless of who's placing it
+// or which orderType — independent of (and in addition to) the
+// liveBettingAllowed identity gate below, so a bug in that gate still
+// can't expose more than this much real money on any single bet. Changing
+// this is a deliberate code change + redeploy, not a runtime config value,
+// since it's meant to be inconvenient to raise.
+export const MAX_LIVE_STAKE_GBP = 1;
+
+// Best-effort translation of raw Betfair API-NG error codes (see
+// betfair-api-client.ts's readApingErrorCode) into plain-English notes —
+// surfaced directly to the user in "My Bets", so a bare enum-like code
+// isn't the only thing they see when a real placement attempt fails.
+// Falls back to the raw code/message untouched for anything not
+// recognized here, same "never fabricate" spirit as the rest of this file.
+const BETFAIR_ERROR_MESSAGES: Record<string, string> = {
+  INSUFFICIENT_FUNDS: "Your Betfair account doesn't have enough funds to cover this stake.",
+  INVALID_SESSION_INFORMATION: "The Betfair session has expired — a fresh login is needed before more bets can be placed.",
+  MARKET_SUSPENDED: "The market was suspended right as this bet was being placed — it may reopen shortly.",
+  BET_ACTION_ERROR: "Betfair rejected this bet without a specific reason — check your account and try again.",
+  INVALID_BET_SIZE: "The stake was outside the size Betfair allows for this market.",
+  BET_IN_PROGRESS: "Another bet was already in progress on this account — try again shortly.",
+};
+
+function humanizeBetfairError(rawError: string): string {
+  return BETFAIR_ERROR_MESSAGES[rawError] ?? rawError;
+}
+
 export interface CreateBetOrderInput {
   runnerId: string;
   horse: string;
@@ -91,13 +118,36 @@ export class BetOrderService {
     await this.dao.createIndexes();
   }
 
-  public async createForUser(userId: string, input: CreateBetOrderInput): Promise<BetOrderApiResponse> {
+  // requestingUserEmail comes from a server-side lookup (router.ts calls
+  // authService.getMe(userId)) — NEVER trust an email supplied directly by
+  // the client for this, since it's the sole input to the identity check
+  // below and spoofing it would defeat the allow-list entirely.
+  public async createForUser(
+    userId: string,
+    input: CreateBetOrderInput,
+    requestingUserEmail: string | null
+  ): Promise<BetOrderApiResponse> {
     if (!Number.isFinite(input.targetProfit) || input.targetProfit <= 0) {
       throw new Error("targetProfit must be a positive number");
     }
     if (!Number.isFinite(input.maxStake) || input.maxStake <= 0) {
       throw new Error("maxStake must be a positive number");
     }
+    const allowedEmail = this.client.getLiveBettingAllowedEmail();
+    const liveBettingAllowed = Boolean(allowedEmail) && requestingUserEmail?.toLowerCase() === allowedEmail;
+    // The cap only applies to requests that could ever actually go real —
+    // everyone else's placeOrders call is always forced to simulate (see
+    // forceDryRun below), so a large maxStake from them poses no real
+    // financial risk and shouldn't be blocked. Checked here rather than
+    // only inside BetfairApiClient because a scheduled order's
+    // liveBettingAllowed is fixed at creation time but its real/simulated
+    // outcome isn't decided until the cron evaluates it later — this cap
+    // must hold regardless of what the global dryRun switch is at that
+    // later point.
+    if (liveBettingAllowed && input.maxStake > MAX_LIVE_STAKE_GBP) {
+      throw new Error(`maxStake cannot exceed £${MAX_LIVE_STAKE_GBP} while live-betting safety limits are in effect`);
+    }
+
     const now = new Date().toISOString();
     const base = {
       userId,
@@ -112,6 +162,7 @@ export class BetOrderService {
       maxStake: input.maxStake,
       minQualifyingPrice: 1 + input.targetProfit / input.maxStake,
       orderType: input.orderType,
+      liveBettingAllowed,
       createdAt: now,
       updatedAt: now,
     };
@@ -120,6 +171,25 @@ export class BetOrderService {
       return toApiResponse(await this.dao.create({ ...base, status: "pending" }));
     }
     return toApiResponse(await this.placeInstant(base));
+  }
+
+  // A real (or attempted-real) placeOrders call succeeded/failed, but the
+  // Mongo write recording it then threw — the single most dangerous error
+  // shape in this file once liveBettingAllowed can be true, since a real
+  // bet may already sit on the account with no local record of it. Logs
+  // everything needed to manually reconcile against the real Betfair
+  // account (marketId/selectionId/betId/price/size), loudly, rather than
+  // letting it disappear into a generic 500.
+  private logPossiblePhantomRealBet(
+    context: string,
+    details: Record<string, unknown>,
+    persistError: unknown
+  ): void {
+    console.error(
+      `PHANTOM REAL BET RISK — ${context}: a Betfair placeOrders call completed but the result could not be saved. ` +
+        `Manual reconciliation against the real Betfair account may be required. Details: ${JSON.stringify(details)}`,
+      persistError
+    );
   }
 
   // Synchronous, single-shot counterpart to evaluateOne below: resolves the
@@ -155,29 +225,71 @@ export class BetOrderService {
       );
     }
 
-    const result = await this.client.placeOrders(marketId, selectionId, bestBackPrice, base.maxStake);
+    const result = await this.client.placeOrders(marketId, selectionId, bestBackPrice, base.maxStake, {
+      forceDryRun: !base.liveBettingAllowed,
+    });
+    // Real money only actually moved if this specific request was both
+    // allowed AND the account-wide dryRun switch was off — result.outcome
+    // alone can't distinguish "forced dry run" from "the master switch was
+    // already off", so this is the one place that knows for sure.
+    const wasRealAttempt = base.liveBettingAllowed === true && !this.client.isDryRun();
+
     if (result.outcome === "FAILURE") {
       // A real attempt was made against the live API and rejected —
       // persisted as "error" (not thrown) so the user has a durable record
       // of it, mirroring evaluateOne's FAILURE handling below.
-      return this.dao.create({
+      try {
+        return await this.dao.create({
+          ...base,
+          status: "error",
+          betfairMarketId: marketId,
+          betfairSelectionId: selectionId,
+          note: humanizeBetfairError(result.error),
+        });
+      } catch (persistError) {
+        this.logPossiblePhantomRealBet(
+          "instant bet FAILURE result could not be persisted",
+          { wasRealAttempt, marketId, selectionId, error: result.error, userId: base.userId },
+          persistError
+        );
+        throw new Error(
+          "INSTANT_BET_PERSISTENCE_FAILED: The bet attempt failed and the failure itself couldn't be saved — " +
+            "please check My Bets and try again."
+        );
+      }
+    }
+    try {
+      return await this.dao.create({
         ...base,
-        status: "error",
+        status: "triggered",
         betfairMarketId: marketId,
         betfairSelectionId: selectionId,
-        note: result.error,
+        matchedPrice: result.outcome === "SUCCESS" ? result.matchedPrice : result.simulatedPrice,
+        betfairBetId: result.outcome === "SUCCESS" ? result.betId : undefined,
+        dryRun: result.outcome === "DRY_RUN",
+        note: result.outcome === "DRY_RUN" ? "Dry run — no real bet was placed." : undefined,
       });
+    } catch (persistError) {
+      this.logPossiblePhantomRealBet(
+        "instant bet SUCCESS/DRY_RUN result could not be persisted",
+        {
+          wasRealAttempt,
+          marketId,
+          selectionId,
+          betId: result.outcome === "SUCCESS" ? result.betId : undefined,
+          matchedPrice: result.outcome === "SUCCESS" ? result.matchedPrice : result.simulatedPrice,
+          userId: base.userId,
+        },
+        persistError
+      );
+      throw new Error(
+        wasRealAttempt
+          ? "INSTANT_BET_PERSISTENCE_FAILED: A real bet may have just been placed on your Betfair account, but " +
+            "the record of it could not be saved here — check your real Betfair account directly before placing " +
+            "another bet, and contact support with this timestamp."
+          : "INSTANT_BET_PERSISTENCE_FAILED: The bet result could not be saved — please check My Bets before retrying."
+      );
     }
-    return this.dao.create({
-      ...base,
-      status: "triggered",
-      betfairMarketId: marketId,
-      betfairSelectionId: selectionId,
-      matchedPrice: result.outcome === "SUCCESS" ? result.matchedPrice : result.simulatedPrice,
-      betfairBetId: result.outcome === "SUCCESS" ? result.betId : undefined,
-      dryRun: result.outcome === "DRY_RUN",
-      note: result.outcome === "DRY_RUN" ? "Dry run — no real bet was placed." : undefined,
-    });
   }
 
   public async listForUser(userId: string): Promise<BetOrderApiResponse[]> {
@@ -204,10 +316,20 @@ export class BetOrderService {
         await this.evaluateOne(order, summary);
       } catch (error) {
         summary.errors++;
-        await this.dao.updateFields(order._id!, {
-          status: "error",
-          note: error instanceof Error ? error.message : String(error),
-        });
+        try {
+          await this.dao.updateFields(order._id!, {
+            status: "error",
+            note: error instanceof Error ? error.message : String(error),
+          });
+        } catch (persistError) {
+          // If even this write fails (e.g. a Mongo hiccup), don't let it
+          // propagate — that would abort the whole loop and silently skip
+          // evaluating every remaining order in this batch, defeating the
+          // per-order isolation this method exists for. Logged loudly so
+          // it's not silently lost; this order's true status is just
+          // unknown until the next scheduled run picks it up again.
+          console.error(`Failed to record error status for bet order ${order._id?.toString()} after evaluation failure:`, persistError);
+        }
       }
     }
     return summary;
@@ -286,24 +408,56 @@ export class BetOrderService {
     const won = await this.dao.tryTransition(order._id!, "pending", "placing");
     if (!won) return;
 
-    const result = await this.client.placeOrders(marketId, selectionId, bestBackPrice, order.maxStake);
+    const result = await this.client.placeOrders(marketId, selectionId, bestBackPrice, order.maxStake, {
+      forceDryRun: !order.liveBettingAllowed,
+    });
+    const wasRealAttempt = order.liveBettingAllowed === true && !this.client.isDryRun();
+
     if (result.outcome === "FAILURE") {
       // Deliberately terminal, not auto-retried on the next tick — see
       // BetOrderDAO.listAllOpen's doc comment. Whether the failure was a
       // clean rejection or an ambiguous timeout can't always be told apart
       // here, so a human must look at "error" orders rather than risk a
       // blind duplicate real bet.
-      await this.dao.updateFields(order._id!, { status: "error", note: result.error });
+      try {
+        await this.dao.updateFields(order._id!, { status: "error", note: humanizeBetfairError(result.error) });
+      } catch (persistError) {
+        // Swallow rather than rethrow — evaluatePendingOrders' own catch
+        // would otherwise attempt a second, likely-also-failing
+        // updateFields on the same order. Logging loudly is the important
+        // part; a human reconciling "error" statuses already can't fully
+        // trust a FAILURE note anyway (see the comment above).
+        this.logPossiblePhantomRealBet(
+          "scheduled bet FAILURE result could not be persisted",
+          { wasRealAttempt, orderId: order._id?.toString(), marketId, selectionId, error: result.error },
+          persistError
+        );
+      }
       summary.errors++;
       return;
     }
-    await this.dao.updateFields(order._id!, {
-      status: "triggered",
-      matchedPrice: result.outcome === "SUCCESS" ? result.matchedPrice : result.simulatedPrice,
-      betfairBetId: result.outcome === "SUCCESS" ? result.betId : undefined,
-      dryRun: result.outcome === "DRY_RUN",
-      note: result.outcome === "DRY_RUN" ? "Dry run — no real bet was placed." : undefined,
-    });
+    try {
+      await this.dao.updateFields(order._id!, {
+        status: "triggered",
+        matchedPrice: result.outcome === "SUCCESS" ? result.matchedPrice : result.simulatedPrice,
+        betfairBetId: result.outcome === "SUCCESS" ? result.betId : undefined,
+        dryRun: result.outcome === "DRY_RUN",
+        note: result.outcome === "DRY_RUN" ? "Dry run — no real bet was placed." : undefined,
+      });
+    } catch (persistError) {
+      this.logPossiblePhantomRealBet(
+        "scheduled bet SUCCESS/DRY_RUN result could not be persisted",
+        {
+          wasRealAttempt,
+          orderId: order._id?.toString(),
+          marketId,
+          selectionId,
+          betId: result.outcome === "SUCCESS" ? result.betId : undefined,
+          matchedPrice: result.outcome === "SUCCESS" ? result.matchedPrice : result.simulatedPrice,
+        },
+        persistError
+      );
+    }
     summary.triggered++;
   }
 }

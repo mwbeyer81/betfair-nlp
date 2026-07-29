@@ -50,6 +50,7 @@
     "sessionId": "BETFAIR_SESSION_ID",
     "username": "BETFAIR_USERNAME",
     "password": "BETFAIR_PASSWORD",
-    "dryRun": "BETFAIR_DRY_RUN"
+    "dryRun": "BETFAIR_DRY_RUN",
+    "liveBettingAllowedEmail": "BETFAIR_LIVE_BETTING_ALLOWED_EMAIL"
   }
 }
