@@ -941,7 +941,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       <TouchableOpacity
         testID={`industry-sp-tooltip-toggle-${key}`}
         onPress={() => setOpenTooltip(t => (t === key ? null : key))}
-        hitSlop={{ top: 13, bottom: 13, left: 13, right: 13 }}
+        hitSlop={{ top: 17, bottom: 17, left: 17, right: 17 }}
         style={styles.tooltipToggle}
       >
         <Text style={styles.tooltipToggleText}>?</Text>
@@ -1969,8 +1969,8 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   tooltipToggle: {
-    width: 26,
-    height: 26,
+    width: 18,
+    height: 18,
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.textTertiary,
@@ -1978,8 +1978,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tooltipToggleText: {
-    fontSize: 12,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "700",
     color: colors.textSecondary,
   },
