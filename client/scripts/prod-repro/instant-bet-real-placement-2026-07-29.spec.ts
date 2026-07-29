@@ -14,21 +14,28 @@ import { test, expect } from "@playwright/test";
 // real Betfair account, capped at £1 by MAX_LIVE_STAKE_GBP
 // (bet-order-service.ts). Re-run deliberately, not as part of any loop.
 //
-// CURRENT KNOWN STATE (2026-07-29, fully diagnosed — see AGENTS.md): the
-// account's only Betfair application key is the free "Delay" tier, which
-// Betfair does not authorize for real order placement. Every real attempt
-// currently comes back status:"error", note starting with "Betfair
-// rejected this order at the account level" (see bet-order-service.ts's
-// humanizeBetfairError ERROR_IN_ORDER mapping). This is NOT a bug in this
-// codebase — the full pipeline (login -> real market resolution -> real
-// price check -> real placeOrders call reaching Betfair) is confirmed
-// working; only Betfair's own account-level authorization is missing.
+// CURRENT KNOWN STATE (2026-07-29, fully diagnosed — see AGENTS.md's
+// betfair-error-code-fix entry, which corrects an earlier wrong guess in
+// the config-boolean-fix entry): the account's Betfair application key
+// (the free "Delay" tier) DOES authorize real order placement — Delay vs
+// Live only affects market DATA timing, confirmed via Betfair's own
+// developer docs/forum, not betting permission. The real, current blocker
+// is simply that the real Betfair account has insufficient real funds to
+// cover even a £1 stake. Every real attempt currently comes back
+// status:"error", note "Your Betfair account doesn't have enough funds to
+// cover this stake." (bet-order-service.ts's humanizeBetfairError
+// INSUFFICIENT_FUNDS mapping, now correctly surfaced — betfair-api-client.ts
+// previously only read a cascading per-instruction placeholder code,
+// ERROR_IN_ORDER, instead of Betfair's real top-level errorCode). This is
+// NOT a bug in this codebase — the full pipeline (login -> real market
+// resolution -> real price check -> real placeOrders call reaching
+// Betfair -> real account-level rejection) is confirmed working end to
+// end; only real money in the account is missing.
 //
-// TO RE-VERIFY AFTER OBTAINING A LIVE APPLICATION KEY: once
-// config/local.json's betfair.appKey is updated to a paid Live key (not
-// delayAppKey) and the Lambda secrets are redeployed, change the
-// expectation below from the ERROR_IN_ORDER case to the real success case
-// (status "Triggered", condition text starting with "Backed now at").
+// TO RE-VERIFY AFTER DEPOSITING REAL FUNDS: once the real Betfair account
+// has at least £1 available, change the expectation below from the
+// INSUFFICIENT_FUNDS case to the real success case (status "Triggered",
+// condition text starting with "Backed now at").
 //
 // Credentials via env vars only — never hardcoded, this file is committed:
 //   PROD_REPRO_EMAIL=matthewbeyer@hotmail.com PROD_REPRO_PASSWORD=... \
@@ -121,11 +128,11 @@ test("REPRO/VERIFY (2026-07-29): a real instant £1 bet, placed through the real
 
   console.log(`Real instant bet result — status: "${status}"`);
 
-  // CURRENT expected state (see header comment) — a genuine account-level
-  // rejection, proving the pipeline reaches Betfair for real. If Betfair
-  // ever actually places the bet (status "Triggered"), that means a Live
-  // application key is now configured — update this expectation to match,
-  // don't just widen it to accept both silently.
-  await expect(firstItem.locator('[data-testid^="scheduled-bet-note-"]')).toContainText("Betfair rejected this order at the account level");
+  // CURRENT expected state (see header comment) — a genuine real-account
+  // rejection (insufficient funds), proving the pipeline reaches Betfair
+  // for real. If Betfair ever actually places the bet (status
+  // "Triggered"), that means real funds are now in the account — update
+  // this expectation to match, don't just widen it to accept both silently.
+  await expect(firstItem.locator('[data-testid^="scheduled-bet-note-"]')).toContainText("doesn't have enough funds to cover this stake");
   expect(status).toBe("Error");
 });
