@@ -24,6 +24,14 @@ const BETFAIR_ERROR_MESSAGES: Record<string, string> = {
   BET_ACTION_ERROR: "Betfair rejected this bet without a specific reason — check your account and try again.",
   INVALID_BET_SIZE: "The stake was outside the size Betfair allows for this market.",
   BET_IN_PROGRESS: "Another bet was already in progress on this account — try again shortly.",
+  // Confirmed live 2026-07-29 (see AGENTS.md's config-boolean-fix entry):
+  // the account's only registered Betfair application key is the free
+  // "Delay" tier, which isn't authorized to place real orders — this is
+  // the top-level status Betfair returns for that, not a per-selection
+  // error. Fixable only on Betfair's own site (a paid Live/full-access
+  // application key), never by retrying or by anything in this codebase.
+  ERROR_IN_ORDER:
+    'Betfair rejected this order at the account level — your application key may not be authorized for real order placement (a free "Delay" key can\'t place bets; a Live application key is needed). This won\'t be fixed by retrying.',
 };
 
 function humanizeBetfairError(rawError: string): string {
