@@ -5,6 +5,8 @@ import app from "../app";
 import { CodebaseSearchService } from "../../lib/service/codebase-search-service";
 import { PredictionApiClient } from "../../lib/service/prediction-api-client";
 import { RacingApiClient } from "../../lib/service/racing-api-client";
+import { initializeServices, areServicesReady } from "../router";
+import { DatabaseConnection } from "../../config/database";
 
 let authToken: string;
 
@@ -2720,5 +2722,49 @@ describe("API Endpoints", () => {
       expect(response.headers).toHaveProperty("x-frame-options");
       expect(response.headers).toHaveProperty("x-xss-protection");
     });
+  });
+});
+
+// REAL BUG FOUND AND FIXED 2026-07-29 (see AGENTS.md's bets-tab-load-fix
+// entry): initializeServices() used to swallow any error in a bare
+// `catch { console.error(...) }` with no rethrow — a single TRANSIENT
+// failure (e.g. a Mongo connection blip on Lambda cold start) left every
+// service permanently null for that Lambda execution environment's entire
+// remaining lifetime (apps/lambda/src/handler.ts only ever called this
+// once, at module load), so every subsequent request on that same warm
+// container kept getting a real 503 "Service not initialized" from every
+// route's own defensive check, until AWS eventually recycled the
+// container. This describe lives in app.test.ts (not a separate file)
+// specifically to reuse its already-working DatabaseConnection/service
+// mock harness above — replicating that in a new file would mean
+// duplicating ~100 lines of mocks (twilio, google-auth-library,
+// codebase-search-service, etc.) just to reach the same working
+// "initializeServices() can actually succeed" baseline this file already
+// has.
+describe("initializeServices — transient failure recovery", () => {
+  it("rethrows on failure instead of silently swallowing it (so a caller can detect and retry)", async () => {
+    const mockedConnect = DatabaseConnection.getInstance().connect as jest.Mock;
+    mockedConnect.mockRejectedValueOnce(new Error("simulated transient Mongo connection blip"));
+
+    await expect(initializeServices()).rejects.toThrow("simulated transient Mongo connection blip");
+    expect(areServicesReady()).toBe(false);
+  });
+
+  it("recovers on a subsequent call once the transient failure clears — proves the actual bug is fixed", async () => {
+    const mockedConnect = DatabaseConnection.getInstance().connect as jest.Mock;
+    mockedConnect.mockRejectedValueOnce(new Error("simulated transient Mongo connection blip"));
+
+    await expect(initializeServices()).rejects.toThrow();
+    expect(areServicesReady()).toBe(false);
+
+    // mockRejectedValueOnce only consumes one call — this next call falls
+    // back to the file's base mockResolvedValue(undefined), simulating the
+    // blip clearing. Before this fix, nothing in this codebase ever
+    // retried initializeServices() at all once a Lambda's single
+    // module-load-time call had already "settled" (successfully, since
+    // the old code swallowed the error) — this second call is the retry
+    // apps/lambda/src/handler.ts's ensureServicesReady() now performs.
+    await expect(initializeServices()).resolves.toBeUndefined();
+    expect(areServicesReady()).toBe(true);
   });
 });

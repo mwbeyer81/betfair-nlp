@@ -36,8 +36,29 @@ let savedFilterSetService: SavedFilterSetService | null = null;
 let liveFilterResultService: LiveFilterResultService | null = null;
 let authService: AuthService | null = null;
 let betOrderService: BetOrderService | null = null;
+// REAL BUG FOUND AND FIXED 2026-07-29 (see AGENTS.md's bets-tab-load-fix
+// entry): initializeServices() below used to swallow any error from the
+// DB-connect/service-construction block in a bare `catch { console.error
+// (...) }` with no rethrow — a single TRANSIENT failure (e.g. a Mongo
+// connection blip on cold start) left every service above permanently
+// `null` for that Lambda execution environment's entire remaining
+// lifetime, since apps/lambda/src/handler.ts only ever called this once
+// at module load and cached the (silently-"succeeded") promise. Every
+// subsequent request on that same warm container then got a real
+// `{success:false, error:"Service not initialized"}` 503 from every
+// route's own defensive null-check, until AWS eventually recycled the
+// container — unpredictable, and affecting the whole app, not one route.
+// This flag lets a caller detect that failure and retry initialization
+// on the next request instead of being stuck forever; see
+// apps/lambda/src/handler.ts's ensureServicesReady().
+let servicesReady = false;
+
+export function areServicesReady(): boolean {
+  return servicesReady;
+}
 
 export const initializeServices = async () => {
+  servicesReady = false;
   // Independent of the DB connection below — the chat feature no longer
   // touches MongoDB at all, so it's constructed unconditionally and can
   // still work even if the database itself is unavailable.
@@ -99,8 +120,14 @@ export const initializeServices = async () => {
       console.warn("bet-order createIndexes failed (non-fatal, queries may be slower):", indexError);
     }
     console.log("Services initialized successfully");
+    servicesReady = true;
   } catch (error) {
     console.error("Failed to initialize services:", error);
+    // Rethrown (unlike the old behavior) so the caller — the Lambda
+    // handler's ensureServicesReady() — can detect the failure and retry
+    // on the next request, rather than silently caching a "succeeded"
+    // promise around a container that's actually unusable.
+    throw error;
   }
 };
 

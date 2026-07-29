@@ -2,7 +2,7 @@ import serverlessExpress from "@vendia/serverless-express";
 import express from "express";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
-import { router, initializeServices } from "../../../src/server/router";
+import { router, initializeServices, areServicesReady } from "../../../src/server/router";
 import { corsMiddleware, helmetMiddleware } from "../../../src/server/middleware";
 import { DailyRaceService } from "../../../src/lib/service/daily-race-service";
 import { IndustrySpResultsCaptureService } from "../../../src/lib/service/industry-sp-results-capture-service";
@@ -43,8 +43,37 @@ app.use(router);
 const proxy = serverlessExpress({ app });
 
 // Start initialization immediately on cold start; subsequent requests await
-// the same promise so they block until MongoDB is connected.
-const initPromise = initializeServices();
+// the same promise so they block until MongoDB is connected. Caught here
+// (not left to reject the module-level binding) so a transient cold-start
+// failure doesn't need special handling at the call site below — see
+// ensureServicesReady, which is what actually decides whether to retry.
+let initPromise: Promise<void> = initializeServices().catch(error => {
+  console.error("Initial service initialization failed — will retry on the next request:", error);
+});
+
+// REAL BUG FOUND AND FIXED 2026-07-29 (see AGENTS.md's bets-tab-load-fix
+// entry, and router.ts's servicesReady flag): a transient failure during
+// initializeServices() (e.g. a Mongo connection blip) used to leave every
+// service in router.ts permanently null for this execution environment's
+// entire remaining lifetime, since initPromise was only ever assigned
+// once, at module load — awaiting an already-settled promise doesn't
+// retry the work it represents. Every request routed to that same warm
+// container then got a real 503 "Service not initialized" from every
+// route's own defensive check, until AWS eventually recycled the
+// container (unpredictable, could be minutes or hours). Now: if services
+// aren't ready after awaiting the current attempt, kick off a fresh
+// initializeServices() call for THIS request rather than trusting a
+// stale, already-failed attempt forever.
+async function ensureServicesReady(): Promise<void> {
+  await initPromise;
+  if (!areServicesReady()) {
+    console.warn("Services not ready after initialization — retrying for this request.");
+    initPromise = initializeServices().catch(error => {
+      console.error("Retried service initialization also failed:", error);
+    });
+    await initPromise;
+  }
+}
 
 // EventBridge Scheduled Rule events carry `source: "aws.events"` — a shape
 // API Gateway HTTP API v2 events never have. Used to route both the
@@ -65,7 +94,7 @@ function isScheduledEvent(event: unknown): event is ScheduledEvent {
 }
 
 export const handler = async (event: APIGatewayProxyEventV2 | ScheduledEvent, context: Context) => {
-  await initPromise;
+  await ensureServicesReady();
   if (isScheduledEvent(event)) {
     if (event.action === "capture-results") {
       try {
