@@ -9,7 +9,7 @@ import {
   KeyboardTypeOptions,
 } from "react-native";
 import { Text, Button, Chip, Checkbox, ActivityIndicator } from "react-native-paper";
-import { chatApi, DailyRace, LivePrice } from "../services/chatApi";
+import { chatApi, DailyRace, LivePrice, BetOrderType } from "../services/chatApi";
 import { colors, radii, spacing, statusPill } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
@@ -117,7 +117,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
   const [betSaving, setBetSaving] = useState(false);
   const [betError, setBetError] = useState<string | null>(null);
 
-  async function handlePlaceBet(pick: DailyRacePick, targetProfit: number, maxStake: number) {
+  async function handlePlaceBet(pick: DailyRacePick, orderType: BetOrderType, targetProfit: number, maxStake: number) {
     setBetSaving(true);
     setBetError(null);
     try {
@@ -131,10 +131,11 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
         eventId: pick.race.eventId,
         targetProfit,
         maxStake,
+        orderType,
       });
       setBetDialogRunnerId(null);
     } catch (err) {
-      setBetError(err instanceof Error ? err.message : "Failed to schedule bet");
+      setBetError(err instanceof Error ? err.message : "Failed to place bet");
     } finally {
       setBetSaving(false);
     }
@@ -952,7 +953,7 @@ export const DailyRacesScreen: React.FC<DailyRacesScreenProps> = ({
             saving={betSaving}
             error={betError}
             onCancel={() => { setBetDialogRunnerId(null); setBetError(null); }}
-            onSave={({ targetProfit, maxStake }) => handlePlaceBet(selected, targetProfit, maxStake)}
+            onSave={({ orderType, targetProfit, maxStake }) => handlePlaceBet(selected, orderType, targetProfit, maxStake)}
           />
         );
       })()}

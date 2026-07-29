@@ -63,7 +63,7 @@ export const ScheduledBetsScreen: React.FC<ScheduledBetsScreenProps> = ({
         isAuthenticated={isAuthenticated}
         onLogout={onLogout}
         onBack={onBack}
-        subtitle="Scheduled Bets"
+        subtitle="My Bets"
         testIdPrefix="scheduled-bets"
       />
 
@@ -83,7 +83,7 @@ export const ScheduledBetsScreen: React.FC<ScheduledBetsScreenProps> = ({
           {!loading && !error && bets.length === 0 && (
             <View testID="scheduled-bets-empty" style={styles.centered}>
               <Text style={styles.emptyText}>
-                No scheduled bets yet — tap "Bet" on a Today's Pick to set one up.
+                No bets yet — tap "Bet" on a Today's Pick to schedule one or place one instantly.
               </Text>
             </View>
           )}
@@ -96,6 +96,12 @@ export const ScheduledBetsScreen: React.FC<ScheduledBetsScreenProps> = ({
                     <View style={styles.cardHeader}>
                       <Text variant="titleSmall" style={styles.horseName} numberOfLines={1}>
                         {bet.horse}
+                      </Text>
+                      <Text
+                        testID={`scheduled-bet-order-type-${bet.id}`}
+                        style={styles.orderTypeBadge}
+                      >
+                        {bet.orderType === "instant" ? "Instant" : "Scheduled"}
                       </Text>
                       <Text
                         testID={`scheduled-bet-status-${bet.id}`}
@@ -156,6 +162,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: radii.sm,
+    overflow: "hidden",
+  },
+  orderTypeBadge: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textSecondary,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
     overflow: "hidden",
   },
   meta: { fontSize: 12, color: colors.textSecondary },

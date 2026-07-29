@@ -12,6 +12,7 @@ import { ModelVersionService } from "../lib/service/model-version-service";
 import { SavedFilterSetService, computeSnapshotParamsFromFilters } from "../lib/service/saved-filter-set-service";
 import { LiveFilterResultService } from "../lib/service/live-filter-result-service";
 import { BetOrderService } from "../lib/service/bet-order-service";
+import { BetOrderType } from "../lib/dao/bet-order-dao";
 import { LivePriceService } from "../lib/service/live-price-service";
 import type { PickToResolve } from "../lib/service/betfair-market-resolver";
 import { parseDateRangeParams, parseCsvListParam } from "../lib/service/filter-params-util";
@@ -874,14 +875,15 @@ router.delete("/api/saved-filter-sets/:id", async (req, res) => {
   }
 });
 
-// Conditional Betfair bet orders — mirrors /api/saved-filter-sets' shape
-// as the second user-owned MongoDB resource in this codebase (see
-// bet-order-dao.ts). Real money implications: BetOrderService's own
+// Betfair bet orders — mirrors /api/saved-filter-sets' shape as the second
+// user-owned MongoDB resource in this codebase (see bet-order-dao.ts).
+// Two orderTypes share this one endpoint (see bet-order-service.ts):
+// "scheduled" (default) only ever schedules a watch — BetOrderService's own
 // evaluatePendingOrders (run on a schedule, see apps/lambda/src/handler.ts)
-// is the only thing that ever calls Betfair's real placeOrders, and only
-// while config betfair.dryRun=false (default true, see
-// betfair-api-client.ts) — creating an order here never itself places a
-// bet, it only schedules one to be watched for.
+// is what later calls Betfair's real placeOrders for it. "instant" calls
+// placeOrders synchronously, right here in this request. Either way,
+// placeOrders itself only reaches Betfair's real endpoint while config
+// betfair.dryRun=false (default true, see betfair-api-client.ts).
 router.post("/api/bet-orders", async (req, res) => {
   const userId = userIdFromAuthHeader(req);
   if (!userId) return res.status(401).json({ success: false, error: "Invalid or expired token" });
@@ -896,6 +898,9 @@ router.post("/api/bet-orders", async (req, res) => {
     }
     const targetProfit = Number(body.targetProfit);
     const maxStake = Number(body.maxStake);
+    // Old cached client bundles won't send orderType at all — default to
+    // "scheduled" so they keep today's behavior unchanged.
+    const orderType: BetOrderType = body.orderType === "instant" ? "instant" : "scheduled";
     const data = await betOrderService.createForUser(userId, {
       runnerId: body.runnerId,
       horse: body.horse,
@@ -906,6 +911,7 @@ router.post("/api/bet-orders", async (req, res) => {
       eventId: body.eventId,
       targetProfit,
       maxStake,
+      orderType,
     });
     res.status(201).json({ success: true, data });
   } catch (error) {
@@ -914,6 +920,12 @@ router.post("/api/bet-orders", async (req, res) => {
     // (bad input), not a server fault.
     if (message.includes("must be a positive number")) {
       return res.status(400).json({ success: false, error: message });
+    }
+    // An instant bet that couldn't be safely placed (ambiguous market
+    // match, or the current price doesn't meet the user's target) — the
+    // caller's request was well-formed, there's just nothing to place.
+    if (message.startsWith("INSTANT_BET_REJECTED: ")) {
+      return res.status(400).json({ success: false, error: message.replace("INSTANT_BET_REJECTED: ", "") });
     }
     console.error("createBetOrder error:", error);
     res.status(500).json({ success: false, error: "Failed to create bet order" });

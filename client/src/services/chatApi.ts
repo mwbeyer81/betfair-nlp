@@ -145,6 +145,11 @@ export interface ReseedResultsResult {
 // BetOrderStatus doc comment for why each needs its own honest label.
 export type BetOrderStatus = "pending" | "unmatched" | "placing" | "triggered" | "expired" | "cancelled" | "error";
 
+// "scheduled" watches the market until the price condition is met (today's
+// original flow); "instant" places once, synchronously, at whatever price
+// Betfair currently offers.
+export type BetOrderType = "instant" | "scheduled";
+
 export interface BetOrder {
   id: string;
   runnerId: string;
@@ -157,6 +162,7 @@ export interface BetOrder {
   maxStake: number;
   minQualifyingPrice: number;
   status: BetOrderStatus;
+  orderType: BetOrderType;
   createdAt: string;
   matchedPrice?: number;
   dryRun?: boolean;
@@ -173,6 +179,7 @@ export interface CreateBetOrderInput {
   eventId: string;
   targetProfit: number;
   maxStake: number;
+  orderType: BetOrderType;
 }
 
 // Mirrors src/lib/service/live-price-service.ts's LivePriceResult.
@@ -1072,11 +1079,14 @@ class ChatApi {
     return result;
   }
 
-  // Creates a mocked-no-more, real conditional bet order — see AGENTS.md's
-  // daily-races-bet-button entry. Placing this order never itself bets
-  // real money: it's only watched (and, once real credentials + dryRun:false
-  // are both configured on the backend, potentially acted on) by a
-  // scheduled evaluator, not this call.
+  // Creates a real bet order — see AGENTS.md's daily-races-bet-button and
+  // instant-bet-orders entries. For orderType "scheduled" (the original
+  // flow), this call never itself bets real money: the order is only
+  // watched (and, once real credentials + dryRun:false are both configured
+  // on the backend, potentially acted on) by a scheduled evaluator, not
+  // this call. For orderType "instant", this call places (or, while
+  // dryRun stays at its default true, simulates placing) the bet
+  // synchronously, right now.
   async createBetOrder(input: CreateBetOrderInput): Promise<BetOrder> {
     const response = await fetch(`${this.baseUrl}/api/bet-orders`, {
       method: "POST",

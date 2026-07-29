@@ -1,7 +1,7 @@
 import { toFractionalOdds } from "./oddsFormat";
-import { BetOrder, BetOrderStatus } from "../services/chatApi";
+import { BetOrder, BetOrderStatus, BetOrderType } from "../services/chatApi";
 
-export type { BetOrder, BetOrderStatus };
+export type { BetOrder, BetOrderStatus, BetOrderType };
 
 // "placing" is a brief transient state (see BetOrderDAO.tryTransition on
 // the backend) that a GET could theoretically observe mid-evaluation;
@@ -34,8 +34,15 @@ export function minQualifyingPrice(targetProfit: number, maxStake: number): numb
 
 // Same "Fair {fraction} ({decimal})" framing as the existing Fair-odds pick
 // badge (oddsFormat.ts), so the bet condition reads as a natural extension
-// of a price the user has already seen on this same row.
+// of a price the user has already seen on this same row. Instant orders are
+// only ever persisted terminal (see bet-order-service.ts's placeInstant —
+// no "pending" instant order exists), so a matchedPrice is always present
+// once one reaches this formatter; the scheduled wording is kept as a
+// defensive fallback rather than assumed unreachable.
 export function formatBetOrderCondition(order: BetOrder): string {
+  if (order.orderType === "instant" && order.matchedPrice != null) {
+    return `Backed now at ${toFractionalOdds(order.matchedPrice)} (${order.matchedPrice.toFixed(2)})`;
+  }
   const price = order.minQualifyingPrice;
   return `Back at ${toFractionalOdds(price)} (${price.toFixed(2)})+ to win £${order.targetProfit.toFixed(2)} (stake up to £${order.maxStake.toFixed(2)})`;
 }

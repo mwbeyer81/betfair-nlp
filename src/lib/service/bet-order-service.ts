@@ -1,4 +1,4 @@
-import { BetOrderDAO, BetOrderDocument, BetOrderStatus } from "../dao/bet-order-dao";
+import { BetOrderDAO, BetOrderDocument, BetOrderStatus, BetOrderType } from "../dao/bet-order-dao";
 import { DatabaseConnection } from "../../config/database";
 import { BetfairApiClient } from "./betfair-api-client";
 import { resolveMarketForRace } from "./betfair-market-resolver";
@@ -13,6 +13,7 @@ export interface CreateBetOrderInput {
   eventId: string;
   targetProfit: number;
   maxStake: number;
+  orderType: BetOrderType;
 }
 
 export interface BetOrderApiResponse {
@@ -27,6 +28,7 @@ export interface BetOrderApiResponse {
   maxStake: number;
   minQualifyingPrice: number;
   status: BetOrderStatus;
+  orderType: BetOrderType;
   createdAt: string;
   matchedPrice?: number;
   dryRun?: boolean;
@@ -46,6 +48,9 @@ function toApiResponse(doc: BetOrderDocument): BetOrderApiResponse {
     maxStake: doc.maxStake,
     minQualifyingPrice: doc.minQualifyingPrice,
     status: doc.status,
+    // Docs created before this field existed have no orderType at all —
+    // they were always the original (only) flow, i.e. "scheduled".
+    orderType: doc.orderType ?? "scheduled",
     createdAt: doc.createdAt,
     matchedPrice: doc.matchedPrice,
     dryRun: doc.dryRun,
@@ -94,7 +99,7 @@ export class BetOrderService {
       throw new Error("maxStake must be a positive number");
     }
     const now = new Date().toISOString();
-    const doc = await this.dao.create({
+    const base = {
       userId,
       runnerId: input.runnerId,
       horse: input.horse,
@@ -106,11 +111,73 @@ export class BetOrderService {
       targetProfit: input.targetProfit,
       maxStake: input.maxStake,
       minQualifyingPrice: 1 + input.targetProfit / input.maxStake,
-      status: "pending",
+      orderType: input.orderType,
       createdAt: now,
       updatedAt: now,
+    };
+
+    if (input.orderType === "scheduled") {
+      return toApiResponse(await this.dao.create({ ...base, status: "pending" }));
+    }
+    return toApiResponse(await this.placeInstant(base));
+  }
+
+  // Synchronous, single-shot counterpart to evaluateOne below: resolves the
+  // market and checks the price condition once, right now, instead of
+  // persisting "pending" for the cron evaluator to watch over time. No
+  // tryTransition CAS here — unlike evaluateOne (which guards against two
+  // overlapping/retried scheduled-evaluator invocations racing the same
+  // already-persisted order), nothing else can race a single request's own
+  // not-yet-persisted instant placement, so there's no double-bet risk to
+  // guard against. A pre-flight rejection (bad market match, price not
+  // qualifying) throws and is never persisted at all — the router maps
+  // that to a 400, since nothing was placed and there's nothing to show
+  // the user in "My Bets".
+  private async placeInstant(base: Omit<BetOrderDocument, "_id" | "status">): Promise<BetOrderDocument> {
+    const resolution = await resolveMarketForRace(this.client, { course: base.course, offDt: base.offDt }, base.horse);
+    if (!resolution.ok) {
+      throw new Error(`INSTANT_BET_REJECTED: ${resolution.failure.detail}`);
+    }
+    const { marketId, selectionId } = resolution.resolved;
+
+    const books = await this.client.listMarketBook([marketId]);
+    const book = books[0];
+    const runner = book?.runners.find(r => r.selectionId === selectionId);
+    const bestBackPrice = runner?.ex?.availableToBack?.[0]?.price;
+
+    if (!book || book.inplay || runner?.status !== "ACTIVE" || book.status === "CLOSED") {
+      throw new Error("INSTANT_BET_REJECTED: Market is in-play, closed, or the runner is no longer active.");
+    }
+    if (bestBackPrice == null || bestBackPrice < base.minQualifyingPrice) {
+      throw new Error(
+        `INSTANT_BET_REJECTED: current best back price (${bestBackPrice ?? "unavailable"}) is below ` +
+          `your minimum qualifying price (${base.minQualifyingPrice.toFixed(2)}) — nothing was placed.`
+      );
+    }
+
+    const result = await this.client.placeOrders(marketId, selectionId, bestBackPrice, base.maxStake);
+    if (result.outcome === "FAILURE") {
+      // A real attempt was made against the live API and rejected —
+      // persisted as "error" (not thrown) so the user has a durable record
+      // of it, mirroring evaluateOne's FAILURE handling below.
+      return this.dao.create({
+        ...base,
+        status: "error",
+        betfairMarketId: marketId,
+        betfairSelectionId: selectionId,
+        note: result.error,
+      });
+    }
+    return this.dao.create({
+      ...base,
+      status: "triggered",
+      betfairMarketId: marketId,
+      betfairSelectionId: selectionId,
+      matchedPrice: result.outcome === "SUCCESS" ? result.matchedPrice : result.simulatedPrice,
+      betfairBetId: result.outcome === "SUCCESS" ? result.betId : undefined,
+      dryRun: result.outcome === "DRY_RUN",
+      note: result.outcome === "DRY_RUN" ? "Dry run — no real bet was placed." : undefined,
     });
-    return toApiResponse(doc);
   }
 
   public async listForUser(userId: string): Promise<BetOrderApiResponse[]> {

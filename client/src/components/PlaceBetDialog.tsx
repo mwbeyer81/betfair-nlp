@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { TextInput as RNTextInput, StyleSheet } from "react-native";
-import { Text, Button, Portal, Dialog } from "react-native-paper";
+import { TextInput as RNTextInput, StyleSheet, View } from "react-native";
+import { Text, Button, Portal, Dialog, SegmentedButtons } from "react-native-paper";
 import { colors, radii, spacing } from "../theme";
 import { minQualifyingPrice } from "../utils/betOrderFormat";
 import { toFractionalOdds } from "../utils/oddsFormat";
+import { BetOrderType } from "../services/chatApi";
 
 interface PlaceBetDialogProps {
   visible: boolean;
@@ -11,7 +12,7 @@ interface PlaceBetDialogProps {
   raceSummary: string;
   saving: boolean;
   error: string | null;
-  onSave: (values: { targetProfit: number; maxStake: number }) => void;
+  onSave: (values: { orderType: BetOrderType; targetProfit: number; maxStake: number }) => void;
   onCancel: () => void;
 }
 
@@ -24,14 +25,17 @@ export const PlaceBetDialog: React.FC<PlaceBetDialogProps> = ({
   onSave,
   onCancel,
 }) => {
+  const [orderType, setOrderType] = useState<BetOrderType>("scheduled");
   const [targetProfit, setTargetProfit] = useState("");
   const [maxStake, setMaxStake] = useState("");
 
   // Reset the typed values each time the dialog reopens, same pattern as
   // SaveResultDialog — a previous bet's leftover figures shouldn't bleed
-  // into the next one.
+  // into the next one. Defaulting orderType back to "scheduled" preserves
+  // today's behavior for anyone who never touches the new toggle.
   useEffect(() => {
     if (visible) {
+      setOrderType("scheduled");
       setTargetProfit("");
       setMaxStake("");
     }
@@ -48,7 +52,7 @@ export const PlaceBetDialog: React.FC<PlaceBetDialogProps> = ({
 
   function handleSave() {
     if (minPrice == null) return;
-    onSave({ targetProfit: targetProfitNum, maxStake: maxStakeNum });
+    onSave({ orderType, targetProfit: targetProfitNum, maxStake: maxStakeNum });
   }
 
   return (
@@ -56,10 +60,21 @@ export const PlaceBetDialog: React.FC<PlaceBetDialogProps> = ({
       <Dialog testID="place-bet-dialog" visible={visible} onDismiss={onCancel}>
         <Dialog.Title>Bet on {horseName}</Dialog.Title>
         <Dialog.Content>
+          <View testID="place-bet-dialog-order-type-toggle">
+            <SegmentedButtons
+              value={orderType}
+              onValueChange={value => setOrderType(value as BetOrderType)}
+              style={styles.orderTypeToggle}
+              buttons={[
+                { value: "scheduled", label: "Schedule", testID: "place-bet-dialog-order-type-scheduled" },
+                { value: "instant", label: "Bet now", testID: "place-bet-dialog-order-type-instant" },
+              ]}
+            />
+          </View>
           <Text variant="bodyMedium" style={styles.helperText}>
-            {raceSummary} — set how much you want to win and the most you're
-            willing to stake. This only backs the runner if Betfair offers a
-            price high enough to hit your target within that stake.
+            {orderType === "instant"
+              ? `${raceSummary} — this places the bet immediately at whatever price Betfair currently offers. It will fail with an error if the current price doesn't already meet your target — there's no waiting for an instant bet.`
+              : `${raceSummary} — set how much you want to win and the most you're willing to stake. This only backs the runner if Betfair offers a price high enough to hit your target within that stake.`}
           </Text>
           <Text style={styles.label}>Target profit (£)</Text>
           <RNTextInput
@@ -110,7 +125,7 @@ export const PlaceBetDialog: React.FC<PlaceBetDialogProps> = ({
             onPress={handleSave}
             style={styles.dialogButton}
           >
-            Schedule Bet
+            {orderType === "instant" ? "Place Bet Now" : "Schedule Bet"}
           </Button>
         </Dialog.Actions>
       </Dialog>
@@ -119,6 +134,9 @@ export const PlaceBetDialog: React.FC<PlaceBetDialogProps> = ({
 };
 
 const styles = StyleSheet.create({
+  orderTypeToggle: {
+    marginBottom: spacing.sm,
+  },
   helperText: {
     marginBottom: spacing.sm,
     color: colors.textSecondary,

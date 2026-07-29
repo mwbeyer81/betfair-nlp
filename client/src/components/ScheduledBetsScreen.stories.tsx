@@ -9,27 +9,27 @@ const BASE = "http://localhost:3000";
 const MOCK_BETS: BetOrder[] = [
   {
     id: "bet_1", runnerId: "hrs_1", horse: "Artagnan", course: "Redcar", offTime: "2:05", raceId: "rac_1", eventId: "redcar-2026-07-29",
-    targetProfit: 20, maxStake: 10, minQualifyingPrice: 3.0, status: "pending",
+    targetProfit: 20, maxStake: 10, minQualifyingPrice: 3.0, status: "pending", orderType: "scheduled",
     createdAt: "2026-07-29T08:00:00Z",
   },
   {
     id: "bet_2", runnerId: "hrs_2", horse: "Vanilla Skies", course: "Redcar", offTime: "2:40", raceId: "rac_2", eventId: "redcar-2026-07-29",
-    targetProfit: 15, maxStake: 5, minQualifyingPrice: 4.0, status: "triggered", dryRun: true, matchedPrice: 4.2,
+    targetProfit: 15, maxStake: 5, minQualifyingPrice: 4.0, status: "triggered", orderType: "instant", dryRun: true, matchedPrice: 4.2,
     createdAt: "2026-07-29T08:05:00Z",
   },
   {
     id: "bet_3", runnerId: "hrs_3", horse: "Wild Dahlia", course: "Redcar", offTime: "3:50", raceId: "rac_3", eventId: "redcar-2026-07-29",
-    targetProfit: 10, maxStake: 10, minQualifyingPrice: 2.0, status: "expired", note: "Off time passed without the price condition being met",
+    targetProfit: 10, maxStake: 10, minQualifyingPrice: 2.0, status: "expired", orderType: "scheduled", note: "Off time passed without the price condition being met",
     createdAt: "2026-07-29T08:10:00Z",
   },
   {
     id: "bet_4", runnerId: "hrs_4", horse: "Thats My Boy Luke", course: "Redcar", offTime: "4:50", raceId: "rac_4", eventId: "redcar-2026-07-29",
-    targetProfit: 25, maxStake: 10, minQualifyingPrice: 3.5, status: "cancelled",
+    targetProfit: 25, maxStake: 10, minQualifyingPrice: 3.5, status: "cancelled", orderType: "scheduled",
     createdAt: "2026-07-29T08:15:00Z",
   },
   {
     id: "bet_5", runnerId: "hrs_5", horse: "Best Rate", course: "Sandown", offTime: "5:45", raceId: "rac_5", eventId: "sandown-2026-07-29",
-    targetProfit: 20, maxStake: 10, minQualifyingPrice: 3.0, status: "unmatched", note: "No Betfair GB horse racing market found for \"Sandown\"",
+    targetProfit: 20, maxStake: 10, minQualifyingPrice: 3.0, status: "unmatched", orderType: "scheduled", note: "No Betfair GB horse racing market found for \"Sandown\"",
     createdAt: "2026-07-29T08:20:00Z",
   },
 ];

@@ -12,6 +12,14 @@ import { Collection, Db, ObjectId } from "mongodb";
 // hidden inside "pending".
 export type BetOrderStatus = "pending" | "unmatched" | "placing" | "triggered" | "expired" | "cancelled" | "error";
 
+// "scheduled" is today's original conditional flow (watched by the cron
+// evaluator until the price condition is met or the race expires).
+// "instant" is placed synchronously, once, at whatever price Betfair
+// offers right now — it only ever lands on "triggered"/"error" (see
+// bet-order-service.ts's placeInstant), never "pending"/"unmatched"/
+// "placing", so it never interacts with listAllOpen/tryTransition below.
+export type BetOrderType = "instant" | "scheduled";
+
 // First user-owned MongoDB resource added after saved_filter_sets — same
 // ownership convention: every per-user method takes and filters by userId,
 // no "get any doc by id" method exists, so a route can never leak another
@@ -30,6 +38,10 @@ export interface BetOrderDocument {
   maxStake: number;
   minQualifyingPrice: number;
   status: BetOrderStatus;
+  // Absent on documents created before this field existed — always treat
+  // that absence as "scheduled" at the read boundary (toApiResponse), not
+  // by backfilling old docs.
+  orderType: BetOrderType;
   createdAt: string;
   updatedAt: string;
   // Populated once resolveMarketForRace succeeds — absent while status is
