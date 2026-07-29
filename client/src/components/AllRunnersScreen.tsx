@@ -679,6 +679,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
               testID="all-runners-export-cancel"
               mode="text"
               onPress={() => setShowExportModal(false)}
+              style={{ borderRadius: radii.button }}
             >
               Cancel
             </Button>
@@ -696,7 +697,7 @@ const styles = StyleSheet.create({
   },
   headerButton: {
     marginHorizontal: 3,
-    borderRadius: radii.md,
+    borderRadius: radii.button,
   },
   headerButtonLabel: {
     fontSize: 11,
@@ -786,7 +787,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   applyBtn: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     marginLeft: 6,
   },
   applyBtnLabel: {
@@ -979,7 +980,7 @@ const styles = StyleSheet.create({
   },
   loadMoreButton: {
     margin: spacing.lg,
-    borderRadius: radii.md,
+    borderRadius: radii.button,
   },
   bspBadge: {
     fontSize: 11,
@@ -1012,6 +1013,6 @@ const styles = StyleSheet.create({
   },
   exportDialogButton: {
     width: "100%",
-    borderRadius: radii.md,
+    borderRadius: radii.button,
   },
 });

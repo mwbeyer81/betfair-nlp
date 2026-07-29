@@ -363,7 +363,7 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.8)",
   },
   closeButton: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
   },
   closeButtonLabel: {
     fontSize: 11,
@@ -449,7 +449,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   jumpButton: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
   },
   jumpButtonLabel: {
     fontSize: 12,

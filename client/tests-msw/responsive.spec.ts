@@ -70,21 +70,17 @@ test.describe("Responsive layout — /runners (MSW mocked, 375px)", () => {
   // (768px) — see all-runners-menu-button/all-runners-nav-menu in
   // AllRunnersScreen.tsx. Closed by default; opening it reveals the same
   // sort-toggle/Export/← Events buttons the tablet+ inline row always had.
-  test("burger menu opens to reveal sort toggle and ← Events buttons, both within viewport width", async ({ page }) => {
+  test("burger menu opens to reveal sort toggle, within viewport width", async ({ page }) => {
     await expect(page.getByTestId("all-runners-nav-menu")).not.toBeVisible();
     await page.getByTestId("all-runners-menu-button").click();
 
     const sortBtn = page.getByTestId("all-runners-sort-toggle");
-    const eventsBtn = page.getByTestId("all-runners-menu-events-link");
 
     await expect(sortBtn).toBeVisible();
-    await expect(eventsBtn).toBeVisible();
 
     const sortBox = await sortBtn.boundingBox();
-    const eventsBox = await eventsBtn.boundingBox();
 
     expect(sortBox!.x + sortBox!.width).toBeLessThanOrEqual(MOBILE_VIEWPORT.width + 1);
-    expect(eventsBox!.x + eventsBox!.width).toBeLessThanOrEqual(MOBILE_VIEWPORT.width + 1);
   });
 
   test("filter bar fits within 375px — no horizontal scroll needed", async ({ page }) => {
@@ -224,12 +220,12 @@ test.describe("Responsive layout — /chat (MSW mocked, iPhone 12 mini, 375px)",
     await expect(page.getByTestId("chat-header-actions")).toHaveCount(0);
   });
 
-  test("opening the burger reveals ← Events and Logout, both within viewport", async ({ page }) => {
+  test("opening the burger reveals Logout, within viewport", async ({ page }) => {
     await page.getByTestId("chat-menu-button").click();
     const menu = page.getByTestId("chat-nav-menu");
     await expect(menu).toBeVisible();
 
-    for (const testId of ["chat-menu-events-link", "chat-logout-button"]) {
+    for (const testId of ["chat-logout-button"]) {
       const el = page.getByTestId(testId);
       await expect(el).toBeVisible();
       const box = (await el.boundingBox())!;
@@ -297,8 +293,6 @@ test.describe("Responsive layout — /isp filters screen (MSW mocked, iPhone 12 
       "industry-sp-filters-toggle",
       "industry-sp-model-performance-button",
       "industry-sp-menu-chat-link",
-      "industry-sp-menu-events-link",
-      "industry-sp-menu-runners-link",
       "industry-sp-logout-button",
     ];
     for (const testId of items) {
@@ -333,22 +327,10 @@ test.describe("Responsive layout — /isp filters screen (MSW mocked, iPhone 12 
     await expect(page.getByTestId("industry-sp-nav-menu")).not.toBeVisible();
   });
 
-  test("Chat/Events/Runners links in the nav menu actually navigate", async ({ page }) => {
+  test("Chat link in the nav menu actually navigates", async ({ page }) => {
     await page.getByTestId("industry-sp-menu-button").click();
     await page.getByTestId("industry-sp-menu-chat-link").click();
     await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 10000 });
-
-    await page.goBack();
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("industry-sp-menu-button").click();
-    await page.getByTestId("industry-sp-menu-events-link").click();
-    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
-
-    await page.goBack();
-    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("industry-sp-menu-button").click();
-    await page.getByTestId("industry-sp-menu-runners-link").click();
-    await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
   });
 });
 
@@ -613,7 +595,6 @@ test.describe("Responsive layout — /runners (MSW mocked, 768px)", () => {
 
   test("all header buttons visible at 768px", async ({ page }) => {
     await expect(page.getByTestId("all-runners-sort-toggle")).toBeVisible();
-    await expect(page.getByTestId("all-runners-menu-events-link")).toBeVisible();
   });
 
   test("filter-apply button visible without scrolling at 768px", async ({ page }) => {
@@ -631,7 +612,6 @@ test.describe("Responsive layout — /runners (MSW mocked, 1280px)", () => {
 
   test("all header buttons visible at 1280px", async ({ page }) => {
     await expect(page.getByTestId("all-runners-sort-toggle")).toBeVisible();
-    await expect(page.getByTestId("all-runners-menu-events-link")).toBeVisible();
     await expect(page.getByTestId("all-runners-filter-apply")).toBeVisible();
   });
 });

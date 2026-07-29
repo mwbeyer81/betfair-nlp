@@ -251,5 +251,5 @@ const styles = StyleSheet.create({
   oddsToggle: { fontSize: 12, fontWeight: "600", color: colors.primary },
   trainerLink: { fontSize: 15, fontWeight: "700", color: colors.primary },
   trainerFormText: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
-  historyButton: { margin: spacing.lg, borderRadius: radii.md },
+  historyButton: { margin: spacing.lg, borderRadius: radii.button },
 });

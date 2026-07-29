@@ -182,6 +182,7 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
                       compact
                       mode="text"
                       onPress={() => setConfirmDeleteId(null)}
+                      style={{ borderRadius: radii.button }}
                     >
                       Cancel
                     </Button>
@@ -191,6 +192,7 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
                       mode="text"
                       textColor={colors.danger}
                       onPress={() => handleDelete(result.id)}
+                      style={{ borderRadius: radii.button }}
                     >
                       Delete
                     </Button>
@@ -276,7 +278,7 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  headerButton: { borderRadius: radii.sm, marginLeft: spacing.xs },
+  headerButton: { borderRadius: radii.button, marginLeft: spacing.xs },
   headerButtonLabel: { fontSize: 12, fontWeight: "600" },
   scroll: { flex: 1 },
   scrollContent: { flexGrow: 1 },

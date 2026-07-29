@@ -1475,6 +1475,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             compact
             buttonColor={colors.accent}
             onPress={onRequestAuth}
+            style={{ borderRadius: radii.button }}
             labelStyle={styles.headerButtonLabel}
           >
             Sign Up
@@ -1504,6 +1505,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               compact
               onPress={handleResendVerification}
               disabled={resendStatus === "sending"}
+              style={{ borderRadius: radii.button }}
               labelStyle={styles.headerToggleButtonLabel}
             >
               {resendStatus === "sending" ? "Sending…" : "Resend email"}
@@ -1513,6 +1515,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               mode="text"
               compact
               onPress={handleRefreshVerification}
+              style={{ borderRadius: radii.button }}
             >
               I've verified
             </Button>
@@ -1763,6 +1766,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             compact
             buttonColor={colors.accent}
             onPress={onRequestAuth}
+            style={{ borderRadius: radii.button }}
             labelStyle={styles.headerButtonLabel}
           >
             Sign Up
@@ -1922,7 +1926,7 @@ const styles = StyleSheet.create({
   },
   headerToggleButton: {
     marginHorizontal: 3,
-    borderRadius: radii.md,
+    borderRadius: radii.button,
     borderColor: "rgba(255,255,255,0.6)",
   },
   headerToggleButtonLabel: {
@@ -2064,7 +2068,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   applyBtn: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     flex: 1,
   },
   applyBtnLabel: {
@@ -2072,7 +2076,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   resetBtn: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     borderColor: colors.primary,
   },
   resetBtnLabel: {
@@ -2188,7 +2192,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   splitDetailsButton: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     borderColor: "rgba(255,255,255,0.4)",
   },
   splitDetailsButtonLabel: {
@@ -2197,7 +2201,7 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   splitViewButton: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     flex: 1,
   },
   splitViewButtonLabel: {

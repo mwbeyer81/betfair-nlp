@@ -196,7 +196,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   sortButton: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     marginRight: spacing.xs,
   },
   sortButtonLabel: {
