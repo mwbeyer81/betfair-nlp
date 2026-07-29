@@ -4852,3 +4852,52 @@ name/testID match.
 
 Deployed: `develop@dda06b0` → app.backbet.co.uk (web only, no backend
 change). `build-commit` meta tag confirmed live.
+
+## 2026-07-29 — primary checkout (branch `fix/isp-month-data-bound`), merged into `develop`
+
+**Task:** user, viewing the isp-month-direct-load fix live on a real
+Split B view (screenshot, same 2024 races): "This is Split B results
+view. It should only include months where the results start from.
+That's why it started at July before as default. I made mistake to
+request default starting point to change." A direct correction/retract
+of the previous request.
+
+**Root cause of the correction:** a row range (Split A/B) doesn't start
+at a year's own January 1st — it starts wherever its own `fromRow`
+lands chronologically, e.g. Split B's row window can genuinely have
+zero possible races before some later month if that's where its own
+row range begins. isp-month-direct-load's "always default to the
+calendar year's own first month" was correct in spirit (data-driven
+defaults are confusing when they silently vary) but wrong in mechanism
+— it should have stayed data-driven, just applied per-year via a real
+probe rather than assumed statically from the calendar.
+
+**Fix:** `expandYearDefaultMonth` now probes the year's own row-ranged
+window (no sub-month restriction — the same shape the pre-
+isp-month-direct-load `loadYearPage` used) and expands+loads whichever
+month(s) that probe actually returns, the same way the outer mount
+effect already finds which *year* to land in. New
+`yearDataStartMonth` records the earliest confirmed-real month per
+year; `mergeMonthPlaceholders` now clips its lower bound to that once
+known — a month strictly before it doesn't render a placeholder header
+at all (provably impossible for this filter, not "not loaded yet").
+Months on-or-after the confirmed start are unaffected: real data
+renders as before, empty-but-plausible months still show a legitimate,
+directly-tappable "Not loaded yet".
+
+**Verified:** `yarn build` clean (frontend-only change). Storybook
+still fully broken repo-wide (see prior entries) — rewrote
+`isp-races-month-loading.spec.ts`'s fixture expectations for the
+reverted default (June, not January) plus new coverage for the
+before-the-real-start trimming. Also reverted 3 tests in
+`industry-sp.spec.ts` that isp-month-direct-load had (correctly, for
+that fix) given an explicit tap to reveal a fixture race in a
+non-default month — with this revert that race's month auto-expands
+again, so the explicit tap now *collapsed* it instead, a real
+regression caught by re-running the full suite, not assumed; removed
+the now-wrong taps. Full suite: 87/90, the same 3 pre-existing
+unrelated failures documented repeatedly above, confirmed by exact
+name/testID match.
+
+Deployed: `develop@4ff3b51` → app.backbet.co.uk (web only, no backend
+change). `build-commit` meta tag confirmed live.
