@@ -638,6 +638,17 @@ jest.mock("../../config/database", () => {
                 // reusing either name would make the new endpoint read an array
                 // as a number and emit totalPages: NaN.
                 matchedRunners: 7,
+                // getModelVsSpRunners' summary pipeline accumulators — one tally
+                // per EDGE_BAND_BOUNDS band plus the open-ended tail, and the
+                // denominator (which deliberately ignores the difference filter).
+                allRunners: 10,
+                sumAbsEdge: 52.8,
+                band0: 4,
+                band1: 2,
+                band2: 2,
+                band3: 1,
+                band4: 1,
+                band5: 0,
               },
             ]),
           }),
@@ -1726,23 +1737,38 @@ describe("API Endpoints", () => {
     // silently widen the edge filter back to ±100. minEdge=0 / maxEdge=0 are the
     // two headline use cases ("model above the market" / "model below it"), so
     // this would have broken the feature's whole point.
-    it("accepts an explicit minEdge of 0 without falling back", async () => {
+    it("accepts an explicit maxAbsEdge of 0 without falling back", async () => {
       const response = await request(app)
-        .get("/api/model-vs-sp?minEdge=0")
+        .get("/api/model-vs-sp?maxAbsEdge=0")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body).toHaveProperty("success", true);
-      expect(lastParams().minEdge).toBe(0);
+      // 0 is falsy, and "only runners whose gap is exactly zero" is a legitimate
+      // query — the `parseFloat(x) || DEFAULT` idiom would widen it to 100.
+      expect(lastParams().maxAbsEdge).toBe(0);
     });
 
-    it("accepts an explicit maxEdge of 0 without falling back", async () => {
+    it("defaults the difference range to the full 0-100 span", async () => {
       await request(app)
-        .get("/api/model-vs-sp?maxEdge=0")
+        .get("/api/model-vs-sp")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
-      expect(lastParams().maxEdge).toBe(0);
+      expect(lastParams().minAbsEdge).toBe(0);
+      expect(lastParams().maxAbsEdge).toBe(100);
+    });
+
+    it("treats the difference filter as unsigned — a negative bound clamps to 0", async () => {
+      await request(app)
+        .get("/api/model-vs-sp?minAbsEdge=-25&maxAbsEdge=30")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      // |edge| can never be negative, so a negative bound is meaningless rather
+      // than an error.
+      expect(lastParams().minAbsEdge).toBe(0);
+      expect(lastParams().maxAbsEdge).toBe(30);
     });
 
     it("accepts an explicit minModelProb of 0 without falling back", async () => {
@@ -1756,15 +1782,15 @@ describe("API Endpoints", () => {
       expect(params.minImpliedProb).toBe(0);
     });
 
-    it("clamps the edge range to ±100", async () => {
+    it("clamps the difference range to 0-100", async () => {
       await request(app)
-        .get("/api/model-vs-sp?minEdge=-9999&maxEdge=9999")
+        .get("/api/model-vs-sp?minAbsEdge=-9999&maxAbsEdge=9999")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       const params = lastParams();
-      expect(params.minEdge).toBe(-100);
-      expect(params.maxEdge).toBe(100);
+      expect(params.minAbsEdge).toBe(0);
+      expect(params.maxAbsEdge).toBe(100);
     });
 
     it("clamps the probability ranges to 0-100", async () => {
@@ -1824,8 +1850,51 @@ describe("API Endpoints", () => {
 
       expect(response.body.total).toBeNull();
       expect(response.body.totalPages).toBeNull();
+      expect(response.body.summary).toBeNull();
       expect(Array.isArray(response.body.data)).toBe(true);
       expect(lastParams().includeTotal).toBe(false);
+    });
+
+    it("returns a distribution summary alongside the rows", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const summary = response.body.summary;
+      expect(summary).toBeTruthy();
+      expect(typeof summary.allRunners).toBe("number");
+      expect(typeof summary.matchedRunners).toBe("number");
+      expect(typeof summary.matchedPercent).toBe("number");
+      expect(typeof summary.meanAbsEdge).toBe("number");
+      expect(Array.isArray(summary.bands)).toBe(true);
+    });
+
+    it("each summary band carries a label, a count and a share", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      for (const band of response.body.summary.bands) {
+        expect(typeof band.label).toBe("string");
+        expect(typeof band.count).toBe("number");
+        expect(typeof band.percent).toBe("number");
+        expect(typeof band.minAbs).toBe("number");
+      }
+      // Only the open-ended final band omits a cumulative share.
+      const bands = response.body.summary.bands;
+      expect(bands[bands.length - 1].cumulativePercent).toBeNull();
+      expect(bands[0].cumulativePercent).not.toBeNull();
+    });
+
+    it("summary.matchedRunners is the same number pagination totals by", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.summary.matchedRunners).toBe(response.body.total);
     });
 
     it("accepts the isp, runner-count and country filter params", async () => {

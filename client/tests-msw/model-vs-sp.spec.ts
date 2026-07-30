@@ -74,30 +74,46 @@ test.describe("Model vs SP screen (MSW mocked)", () => {
     await expect(firstRow(page)).toHaveAttribute("data-testid", /model-vs-sp-row-914592-/);
   });
 
-  test("a minimum gap of 0 keeps only runners the model rates above SP", async ({ page }) => {
+  // The filter is unsigned: it selects on the SIZE of the disagreement, so a
+  // runner rated 9.7 points BELOW its SP and one rated 25 points ABOVE are judged
+  // by magnitude alone. 2025 gaps are +25.0, -2.6, -4.0, -8.4, -9.7.
+  test("the difference filter matches on gap size regardless of direction", async ({ page }) => {
     await openScreen(page);
-    await page.getByTestId("model-vs-sp-min-edge").fill("0");
+    await page.getByTestId("model-vs-sp-min-edge").fill("5");
+    await page.getByTestId("model-vs-sp-max-edge").fill("30");
     await page.getByTestId("model-vs-sp-apply-button").click();
 
-    await expect(page.getByTestId("model-vs-sp-result-count")).toHaveText("1 runners");
+    // |−8.4|, |−9.7| and |+25.0| qualify — a negative and a positive row together,
+    // which is the whole point of the change.
+    await expect(page.getByTestId("model-vs-sp-result-count")).toHaveText("3 runners");
     await expect(page.getByTestId(JUNE_VALUE_ROW)).toBeVisible();
-    // Every negative-gap row must be gone. This is the assertion that fails if a
-    // minEdge of 0 is dropped as falsy anywhere in the chain — client
-    // serialisation, router parsing, or the DAO condition.
-    await expect(page.getByTestId(SPRINGWELL_ROW)).toHaveCount(0);
+    await expect(page.getByTestId(SPRINGWELL_ROW)).toBeVisible();
+    // |−2.6| and |−4.0| are too close to qualify.
     await expect(page.getByTestId(GAELIC_ROW)).toHaveCount(0);
     await expect(page.getByTestId(JUNE_OUTSIDER_ROW)).toHaveCount(0);
   });
 
-  test("a maximum gap of 0 keeps only runners the model rates below SP", async ({ page }) => {
+  test("a small maximum finds only the runners the model agrees with most closely", async ({ page }) => {
     await openScreen(page);
-    await page.getByTestId("model-vs-sp-max-edge").fill("0");
+    await page.getByTestId("model-vs-sp-max-edge").fill("5");
     await page.getByTestId("model-vs-sp-apply-button").click();
 
-    await expect(page.getByTestId("model-vs-sp-result-count")).toHaveText("4 runners");
-    await expect(page.getByTestId(SPRINGWELL_ROW)).toBeVisible();
+    // |−2.6| and |−4.0| only.
+    await expect(page.getByTestId("model-vs-sp-result-count")).toHaveText("2 runners");
+    await expect(page.getByTestId(GAELIC_ROW)).toBeVisible();
     await expect(page.getByTestId(JUNE_OUTSIDER_ROW)).toBeVisible();
     await expect(page.getByTestId(JUNE_VALUE_ROW)).toHaveCount(0);
+  });
+
+  test("a negative bound is treated as zero rather than rejected", async ({ page }) => {
+    await openScreen(page);
+    // |edge| can never be negative, so this is meaningless input rather than an
+    // error — it should widen to the full range, not empty the list.
+    await page.getByTestId("model-vs-sp-min-edge").fill("-20");
+    await page.getByTestId("model-vs-sp-apply-button").click();
+
+    await expect(page.getByTestId("model-vs-sp-result-count")).toHaveText("5 runners");
+    await expect(page.getByTestId("model-vs-sp-min-edge")).toHaveValue("0");
   });
 
   test("the model-probability filter narrows the list", async ({ page }) => {
@@ -196,7 +212,7 @@ test.describe("Model vs SP screen (MSW mocked)", () => {
   test("the URL round-trips: reloading a filtered, sorted URL restores the same view", async ({ page }) => {
     await openScreen(page);
     await page.getByTestId("model-vs-sp-sort-edge").click();
-    await page.getByTestId("model-vs-sp-min-edge").fill("-5");
+    await page.getByTestId("model-vs-sp-min-edge").fill("5");
     await page.getByTestId("model-vs-sp-apply-button").click();
     await expect(page.getByTestId("model-vs-sp-result-count")).toHaveText("3 runners");
 
@@ -208,17 +224,17 @@ test.describe("Model vs SP screen (MSW mocked)", () => {
     await expect(page.getByTestId("model-vs-sp-result-count")).toHaveText("3 runners");
     await expect(page.getByTestId("model-vs-sp-sort-edge")).toContainText("Biggest first");
     await expect(firstRow(page)).toHaveAttribute("data-testid", JUNE_VALUE_ROW);
-    await expect(page.getByTestId("model-vs-sp-min-edge")).toHaveValue("-5");
+    await expect(page.getByTestId("model-vs-sp-min-edge")).toHaveValue("5");
   });
 
   test("Reset restores the defaults", async ({ page }) => {
     await openScreen(page);
-    await page.getByTestId("model-vs-sp-min-edge").fill("0");
+    await page.getByTestId("model-vs-sp-min-edge").fill("20");
     await page.getByTestId("model-vs-sp-apply-button").click();
     await expect(page.getByTestId("model-vs-sp-result-count")).toHaveText("1 runners");
 
     await page.getByTestId("model-vs-sp-reset-button").click();
-    await expect(page.getByTestId("model-vs-sp-min-edge")).toHaveValue("-100");
+    await expect(page.getByTestId("model-vs-sp-min-edge")).toHaveValue("0");
     await expect(page.getByTestId("model-vs-sp-pagination-top-status")).toContainText("Page 1");
   });
 
@@ -233,6 +249,55 @@ test.describe("Model vs SP screen (MSW mocked)", () => {
     // industry SP, so an unsatisfiable filter otherwise looks like a data gap.
     await expect(empty).toContainText(/model score/i);
     await expect(page.getByTestId("model-vs-sp-result-count")).toHaveText("0 runners");
+  });
+
+  test("shows a distribution summary over all runners in the window", async ({ page }) => {
+    await openScreen(page);
+    const summary = page.getByTestId("model-vs-sp-summary");
+    await expect(summary).toBeVisible();
+    // 2025 gaps: 25.0, 2.6, 4.0, 8.4, 9.7 -> mean |gap| = 9.94 -> 9.9
+    await expect(page.getByTestId("model-vs-sp-summary-headline")).toContainText("all 5 runners");
+    await expect(page.getByTestId("model-vs-sp-summary-headline")).toContainText("9.9 pts");
+  });
+
+  test("the summary answers 'what share is the model within ±N of?'", async ({ page }) => {
+    await openScreen(page);
+    // Cumulative shares of the 5 runners: within ±2 -> 0; ±5 -> 2.6 and 4.0 = 40%;
+    // ±10 -> plus 8.4 and 9.7 = 80%; ±20 -> still 80%; ±50 -> plus 25.0 = 100%.
+    await expect(page.getByTestId("model-vs-sp-summary-percent-2")).toHaveText("0.0%");
+    await expect(page.getByTestId("model-vs-sp-summary-percent-5")).toHaveText("40.0%");
+    await expect(page.getByTestId("model-vs-sp-summary-percent-10")).toHaveText("80.0%");
+    await expect(page.getByTestId("model-vs-sp-summary-percent-20")).toHaveText("80.0%");
+    await expect(page.getByTestId("model-vs-sp-summary-percent-50")).toHaveText("100.0%");
+  });
+
+  test("the summary's denominator ignores the difference filter", async ({ page }) => {
+    await openScreen(page);
+    await page.getByTestId("model-vs-sp-min-edge").fill("20");
+    await page.getByTestId("model-vs-sp-apply-button").click();
+    await expect(page.getByTestId("model-vs-sp-result-count")).toHaveText("1 runners");
+
+    // Still describes all 5 runners — otherwise narrowing the filter would move
+    // its own baseline and every band would read 100%.
+    await expect(page.getByTestId("model-vs-sp-summary-headline")).toContainText("all 5 runners");
+    await expect(page.getByTestId("model-vs-sp-summary-selection")).toContainText("selects 1 of them");
+    await expect(page.getByTestId("model-vs-sp-summary-selection")).toContainText("20.0%");
+  });
+
+  test("the selection line is hidden while the difference filter is at its default", async ({ page }) => {
+    await openScreen(page);
+    // At the full 0-100 range it would only restate the total as 100%.
+    await expect(page.getByTestId("model-vs-sp-summary")).toBeVisible();
+    await expect(page.getByTestId("model-vs-sp-summary-selection")).toHaveCount(0);
+  });
+
+  test("the summary survives a page step, like the total does", async ({ page }) => {
+    await openScreen(page, `${Y2025}&limit=2`);
+    await expect(page.getByTestId("model-vs-sp-summary-headline")).toContainText("all 5 runners");
+    await page.getByTestId("model-vs-sp-pagination-top-next").click();
+    await expect(page.getByTestId("model-vs-sp-pagination-top-status")).toHaveText("Page 2 of 3");
+    // The page-step response carries summary: null alongside total: null.
+    await expect(page.getByTestId("model-vs-sp-summary-headline")).toContainText("all 5 runners");
   });
 
   test("tapping a runner row opens the runner detail screen", async ({ page }) => {

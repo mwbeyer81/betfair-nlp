@@ -65,8 +65,8 @@ interface CapturedRequest {
   sort: string | null;
   minDate: string | null;
   maxDate: string | null;
-  minEdge: string | null;
-  maxEdge: string | null;
+  minAbsEdge: string | null;
+  maxAbsEdge: string | null;
   minModelProb: string | null;
   includeTotal: string | null;
   raw: string;
@@ -80,17 +80,17 @@ function respond(url: URL) {
   const includeTotal = url.searchParams.get("includeTotal") !== "false";
   const minDate = url.searchParams.get("minDate") ?? "2015-01-01";
   const maxDate = url.searchParams.get("maxDate") ?? "2026-12-31";
-  const minEdge = parseFloat(url.searchParams.get("minEdge") ?? "-100");
-  const maxEdge = parseFloat(url.searchParams.get("maxEdge") ?? "100");
+  // Unsigned, like the real endpoint: the filter selects on the SIZE of the gap.
+  const minAbsEdge = parseFloat(url.searchParams.get("minAbsEdge") ?? "0");
+  const maxAbsEdge = parseFloat(url.searchParams.get("maxAbsEdge") ?? "100");
   const minModelProb = parseFloat(url.searchParams.get("minModelProb") ?? "0");
 
-  let filtered = ROWS.filter(
-    r =>
-      r.raceDate >= minDate &&
-      r.raceDate <= maxDate &&
-      r.edge >= minEdge &&
-      r.edge <= maxEdge &&
-      r.modelWinProbability >= minModelProb
+  // The summary's denominator deliberately excludes the difference filter.
+  const beforeEdgeFilter = ROWS.filter(
+    r => r.raceDate >= minDate && r.raceDate <= maxDate && r.modelWinProbability >= minModelProb
+  );
+  let filtered = beforeEdgeFilter.filter(
+    r => Math.abs(r.edge) >= minAbsEdge && Math.abs(r.edge) <= maxAbsEdge
   );
 
   filtered = [...filtered].sort((a, b) => {
@@ -103,6 +103,27 @@ function respond(url: URL) {
   const total = filtered.length;
   const data = filtered.slice((page - 1) * limit, page * limit);
 
+  // Mirrors buildEdgeSummary — EDGE_BAND_BOUNDS [2, 5, 10, 20, 50] plus a tail.
+  const bounds = [2, 5, 10, 20, 50];
+  const absEdges = beforeEdgeFilter.map(r => Math.abs(r.edge));
+  const all = absEdges.length;
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+  const pctOf = (n: number) => (all > 0 ? round1((n / all) * 100) : 0);
+  let running = 0;
+  const bands = [...bounds, null].map((upper, i) => {
+    const lower = i === 0 ? 0 : bounds[i - 1];
+    const count = absEdges.filter(e => (upper == null ? e >= lower : e >= lower && e < upper)).length;
+    running += count;
+    return {
+      minAbs: lower,
+      maxAbs: upper,
+      label: upper == null ? `beyond ±${lower} pts` : lower === 0 ? `within ±${upper} pts` : `±${lower} to ±${upper} pts`,
+      count,
+      percent: pctOf(count),
+      cumulativePercent: upper == null ? null : pctOf(running),
+    };
+  });
+
   return HttpResponse.json({
     success: true,
     data,
@@ -114,6 +135,15 @@ function respond(url: URL) {
     sort,
     minDate,
     maxDate,
+    summary: includeTotal
+      ? {
+          allRunners: all,
+          matchedRunners: total,
+          matchedPercent: pctOf(total),
+          meanAbsEdge: all > 0 ? round1(absEdges.reduce((a, b) => a + b, 0) / all) : 0,
+          bands,
+        }
+      : null,
   });
 }
 
@@ -125,8 +155,8 @@ const modelVsSpHandler = http.get(`${BASE}/api/model-vs-sp`, ({ request }) => {
     sort: url.searchParams.get("sort"),
     minDate: url.searchParams.get("minDate"),
     maxDate: url.searchParams.get("maxDate"),
-    minEdge: url.searchParams.get("minEdge"),
-    maxEdge: url.searchParams.get("maxEdge"),
+    minAbsEdge: url.searchParams.get("minAbsEdge"),
+    maxAbsEdge: url.searchParams.get("maxAbsEdge"),
     minModelProb: url.searchParams.get("minModelProb"),
     includeTotal: url.searchParams.get("includeTotal"),
     raw: url.search,
@@ -427,40 +457,80 @@ export const GapSortPutsTheBiggestGapFirst: Story = {
   },
 };
 
-export const MinEdgeOfZeroIsSentNotDropped: Story = {
+export const MaxDifferenceOfZeroIsSentNotDropped: Story = {
   decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
     capturedRequests = [];
 
-    const input = canvas.getByTestId("model-vs-sp-min-edge");
+    const input = canvas.getByTestId("model-vs-sp-max-edge");
     await userEvent.clear(input);
     await userEvent.type(input, "0");
     await userEvent.click(canvas.getByTestId("model-vs-sp-apply-button"));
     await waitFor(() => expect(capturedRequests.length).toBeGreaterThan(0));
 
-    // 0 is falsy — the whole point. If it were dropped, the server's own -100
-    // default would silently win and every negative-gap runner would come back.
-    await expect(capturedRequests[0].minEdge).toBe("0");
-    await expect(capturedRequests[0].raw).toContain("minEdge=0");
+    // 0 is falsy — the whole point. If it were dropped, the server's own 100
+    // default would silently win and every runner would come back.
+    await expect(capturedRequests[0].maxAbsEdge).toBe("0");
+    await expect(capturedRequests[0].raw).toContain("maxAbsEdge=0");
   },
 };
 
-export const MaxEdgeOfZeroFindsModelBelowSp: Story = {
+export const DifferenceFilterIgnoresDirection: Story = {
   decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
 
-    const input = canvas.getByTestId("model-vs-sp-max-edge");
-    await userEvent.clear(input);
-    await userEvent.type(input, "0");
+    // 12 to 15 pts apart. The +14.0 landmark AND the -12.4 one both qualify —
+    // proving the filter selects on magnitude, not sign.
+    const min = canvas.getByTestId("model-vs-sp-min-edge");
+    await userEvent.clear(min);
+    await userEvent.type(min, "12");
+    const max = canvas.getByTestId("model-vs-sp-max-edge");
+    await userEvent.clear(max);
+    await userEvent.type(max, "15");
     await userEvent.click(canvas.getByTestId("model-vs-sp-apply-button"));
 
-    // The -12.4 row survives; the +14.0 row must not.
-    await waitFor(() => expect(canvas.getByTestId("model-vs-sp-edge-1002-90002")).toBeInTheDocument());
-    await expect(canvas.queryByTestId("model-vs-sp-edge-1000-90000")).not.toBeInTheDocument();
+    await waitFor(() => expect(canvas.getByTestId("model-vs-sp-edge-1000-90000")).toBeInTheDocument());
+    await expect(canvas.getByTestId("model-vs-sp-edge-1002-90002")).toBeInTheDocument();
+    // The exactly-zero row is far too close to qualify.
+    await expect(canvas.queryByTestId("model-vs-sp-edge-1001-90001")).not.toBeInTheDocument();
+  },
+};
+
+export const SummaryShowsTheDistributionOverAllRunners: Story = {
+  decorators: [ALL_2024],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await resetToDefaults(canvas);
+
+    await expect(canvas.getByTestId("model-vs-sp-summary")).toBeInTheDocument();
+    await expect(canvas.getByTestId("model-vs-sp-summary-headline")).toHaveTextContent(/average gap/i);
+    // One row per band bound plus the open-ended tail.
+    for (const key of ["2", "5", "10", "20", "50", "beyond"]) {
+      await expect(canvas.getByTestId(`model-vs-sp-summary-band-${key}`)).toBeInTheDocument();
+    }
+  },
+};
+
+export const SummaryDenominatorIgnoresTheDifferenceFilter: Story = {
+  decorators: [ALL_2024],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await resetToDefaults(canvas);
+    const before = canvas.getByTestId("model-vs-sp-summary-headline").textContent;
+
+    const min = canvas.getByTestId("model-vs-sp-min-edge");
+    await userEvent.clear(min);
+    await userEvent.type(min, "12");
+    await userEvent.click(canvas.getByTestId("model-vs-sp-apply-button"));
+
+    // Narrowing the difference filter must not move the summary's own baseline,
+    // or every band would read 100%.
+    await waitFor(() => expect(canvas.getByTestId("model-vs-sp-summary-selection")).toBeInTheDocument());
+    await expect(canvas.getByTestId("model-vs-sp-summary-headline")).toHaveTextContent(before ?? "");
   },
 };
 

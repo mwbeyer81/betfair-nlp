@@ -45,8 +45,8 @@ function params(overrides: Partial<ModelVsSpParams> = {}): ModelVsSpParams {
     maxModelProb: 100,
     minImpliedProb: 0,
     maxImpliedProb: 100,
-    minEdge: -100,
-    maxEdge: 100,
+    minAbsEdge: 0,
+    maxAbsEdge: 100,
     minIsp: 1,
     maxIsp: 1000,
     minRunners: 1,
@@ -74,12 +74,12 @@ async function main() {
   const scenarios: { label: string; p: Partial<ModelVsSpParams> }[] = [
     { label: "jan-2024, unfiltered", p: {} },
     {
-      label: "jan-2024, minEdge=0 (model above market)",
-      p: { minEdge: 0 },
+      label: "jan-2024, gap of 10-20 pts either way",
+      p: { minAbsEdge: 10, maxAbsEdge: 20 },
     },
     {
-      label: "jan-2024, maxEdge=0 (model below market)",
-      p: { maxEdge: 0 },
+      label: "jan-2024, gap under 5 pts (model close to market)",
+      p: { maxAbsEdge: 5 },
     },
     {
       label: "jan-2024, model 20-60% and implied <= 30%",
@@ -116,13 +116,15 @@ async function main() {
           },
           {
             $addFields: {
-              _edge: { $subtract: ["$runners.modelWinProbability", "$_implied"] },
+              // Independently shaped on purpose: $abs applied AFTER the
+              // subtraction here, where the DAO folds it into one expression.
+              _absEdge: { $abs: { $subtract: ["$runners.modelWinProbability", "$_implied"] } },
             },
           },
           {
             $match: {
               _implied: { $gte: p.minImpliedProb, $lte: p.maxImpliedProb },
-              _edge: { $gte: p.minEdge, $lte: p.maxEdge },
+              _absEdge: { $gte: p.minAbsEdge, $lte: p.maxAbsEdge },
             },
           },
           { $count: "n" },
@@ -226,6 +228,40 @@ async function main() {
     await dao.getModelVsSpRunners({ ...p, includeTotal: false });
     const withoutMs = Date.now() - withoutStart;
     console.log(`with_total=${withMs}ms without_total=${withoutMs}ms saved=${withMs - withoutMs}ms`);
+  }
+
+  // ---- 5. Summary self-consistency ----
+  console.log("");
+  console.log("=== 5. distribution summary (bands must tile the population exactly) ===");
+  for (const scenario of [
+    { label: "jan-2024, no difference filter", p: {} as Partial<ModelVsSpParams> },
+    { label: "jan-2024, gap 10-20 pts", p: { minAbsEdge: 10, maxAbsEdge: 20 } as Partial<ModelVsSpParams> },
+  ]) {
+    const { summary, total } = await dao.getModelVsSpRunners(params({ ...scenario.p, limit: 1 }));
+    if (!summary) {
+      console.log(`FAIL ${scenario.label}: no summary returned`);
+      continue;
+    }
+    const banded = summary.bands.reduce((sum, b) => sum + b.count, 0);
+    const tiles = banded === summary.allRunners;
+    const matchesTotal = summary.matchedRunners === total;
+    // The final cumulative share before the open-ended tail, plus that tail's own
+    // share, must account for everyone.
+    const lastCumulative = summary.bands[summary.bands.length - 2]?.cumulativePercent ?? 0;
+    const tailPercent = summary.bands[summary.bands.length - 1].percent;
+    const accounted = Math.abs(lastCumulative + tailPercent - 100) < 0.5;
+
+    console.log(
+      `${tiles && matchesTotal && accounted ? "OK  " : "FAIL"} ${scenario.label}: ` +
+        `allRunners=${summary.allRunners} banded=${banded} matched=${summary.matchedRunners} total=${total} ` +
+        `matchedPercent=${summary.matchedPercent} meanAbsEdge=${summary.meanAbsEdge}`
+    );
+    for (const b of summary.bands) {
+      console.log(
+        `       ${b.label.padEnd(18)} count=${String(b.count).padStart(7)} ` +
+          `share=${String(b.percent).padStart(5)}% cumulative=${b.cumulativePercent ?? "-"}`
+      );
+    }
   }
 
   await client.close();

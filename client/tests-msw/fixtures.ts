@@ -569,19 +569,25 @@ async function setupApiMocks(page: Page) {
     capped.setUTCDate(capped.getUTCDate() + 366);
     const maxAllowed = capped.toISOString().slice(0, 10);
     const maxDate = rawMaxDate > maxAllowed ? maxAllowed : rawMaxDate;
-    const minEdge = parseFloat(reqUrl.searchParams.get("minEdge") ?? "-100");
-    const maxEdge = parseFloat(reqUrl.searchParams.get("maxEdge") ?? "100");
+    // Unsigned, like the real endpoint: the filter asks how FAR apart the model
+    // and the market are, not which way round.
+    const minAbsEdge = parseFloat(reqUrl.searchParams.get("minAbsEdge") ?? "0");
+    const maxAbsEdge = parseFloat(reqUrl.searchParams.get("maxAbsEdge") ?? "100");
     const minModelProb = parseFloat(reqUrl.searchParams.get("minModelProb") ?? "0");
     const maxModelProb = parseFloat(reqUrl.searchParams.get("maxModelProb") ?? "100");
 
-    let rows = MODEL_VS_SP_ROWS.filter(
+    // The summary's denominator deliberately ignores the difference filter, so
+    // narrowing that filter doesn't move its own baseline.
+    const beforeEdgeFilter = MODEL_VS_SP_ROWS.filter(
       (r) =>
         r.raceDate >= minDate &&
         r.raceDate <= maxDate &&
-        r.edge >= minEdge &&
-        r.edge <= maxEdge &&
         r.modelWinProbability >= minModelProb &&
         r.modelWinProbability <= maxModelProb
+    );
+
+    let rows = beforeEdgeFilter.filter(
+      (r) => Math.abs(r.edge) >= minAbsEdge && Math.abs(r.edge) <= maxAbsEdge
     );
 
     rows = [...rows].sort((a, b) => {
@@ -593,6 +599,29 @@ async function setupApiMocks(page: Page) {
 
     const total = rows.length;
     const data = rows.slice((page_ - 1) * limit, page_ * limit);
+
+    // Mirrors buildEdgeSummary in src/lib/service/model-vs-sp-summary.ts —
+    // EDGE_BAND_BOUNDS [2, 5, 10, 20, 50] plus an open-ended tail.
+    const bounds = [2, 5, 10, 20, 50];
+    const absEdges = beforeEdgeFilter.map((r) => Math.abs(r.edge));
+    const all = absEdges.length;
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+    const pct = (n: number) => (all > 0 ? round1((n / all) * 100) : 0);
+    let running = 0;
+    const bands = [...bounds, null].map((upper, i) => {
+      const lower = i === 0 ? 0 : bounds[i - 1];
+      const count = absEdges.filter((e) => (upper == null ? e >= lower : e >= lower && e < upper)).length;
+      running += count;
+      return {
+        minAbs: lower,
+        maxAbs: upper,
+        label: upper == null ? `beyond ±${lower} pts` : lower === 0 ? `within ±${upper} pts` : `±${lower} to ±${upper} pts`,
+        count,
+        percent: pct(count),
+        cumulativePercent: upper == null ? null : pct(running),
+      };
+    });
+
     route.fulfill({
       json: {
         success: true,
@@ -605,6 +634,15 @@ async function setupApiMocks(page: Page) {
         sort,
         minDate,
         maxDate,
+        summary: includeTotal
+          ? {
+              allRunners: all,
+              matchedRunners: total,
+              matchedPercent: pct(total),
+              meanAbsEdge: all > 0 ? round1(absEdges.reduce((a, b) => a + b, 0) / all) : 0,
+              bands,
+            }
+          : null,
       },
     });
   });
