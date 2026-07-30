@@ -119,7 +119,11 @@ export const PaginationControls: React.FC<PaginationControlsProps> = ({
               mode={active ? "contained" : "outlined"}
               compact
               disabled={disabled}
-              accessibilityState={{ selected: active }}
+              // React Native Paper renders a Button as role="button", for which
+              // React Native Web emits no aria-selected at all — so the active
+              // page size has to carry its state in the accessible label. Same
+              // constraint the year/month pills on ModelVsSpScreen hit.
+              accessibilityLabel={`${option} rows per page${active ? " (selected)" : ""}`}
               // Page 1, always: page 7 of a 25-row pagination covers rows
               // 151-175, which is a different (and usually empty) place in a
               // 200-row pagination. Resetting is the only non-surprising choice.
