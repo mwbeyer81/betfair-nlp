@@ -773,8 +773,11 @@ router.get("/api/model-vs-sp", async (req, res) => {
     const maxModelProb = clampPct(parseFloatParam(req.query.maxModelProb, 100));
     const minImpliedProb = clampPct(parseFloatParam(req.query.minImpliedProb, 0));
     const maxImpliedProb = clampPct(parseFloatParam(req.query.maxImpliedProb, 100));
-    const minEdge = Math.min(100, Math.max(-100, parseFloatParam(req.query.minEdge, -100)));
-    const maxEdge = Math.min(100, Math.max(-100, parseFloatParam(req.query.maxEdge, 100)));
+    // The difference filter is unsigned: it asks how FAR apart the model and the
+    // market are, not which way round. |edge| can't exceed 100 (both sides are
+    // percentages), so the range is 0-100 rather than ±100.
+    const minAbsEdge = clampPct(parseFloatParam(req.query.minAbsEdge, 0));
+    const maxAbsEdge = clampPct(parseFloatParam(req.query.maxAbsEdge, 100));
 
     const minIsp = Math.max(1, parseFloatParam(req.query.minIsp, 1));
     const maxIsp = Math.min(100000, parseFloatParam(req.query.maxIsp, 1000));
@@ -782,13 +785,13 @@ router.get("/api/model-vs-sp", async (req, res) => {
     const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
     const countries = parseCsvListParam(req.query.countries);
 
-    // A pure page step already knows the total from the request that loaded page
-    // 1, so it opts out of the (separate) count query — halving this endpoint's
-    // cost per Next/Prev on a tier where concurrency, not per-query time, is the
+    // A pure page step already knows the total AND the summary from the request
+    // that loaded page 1, so it opts out of both — halving this endpoint's cost
+    // per Next/Prev on a tier where concurrency, not per-query time, is the
     // ceiling.
     const includeTotal = req.query.includeTotal !== "false";
 
-    const { rows, total } = await industrySpService.getModelVsSpRunners({
+    const { rows, total, summary } = await industrySpService.getModelVsSpRunners({
       page,
       limit,
       sort,
@@ -798,8 +801,8 @@ router.get("/api/model-vs-sp", async (req, res) => {
       maxModelProb,
       minImpliedProb,
       maxImpliedProb,
-      minEdge,
-      maxEdge,
+      minAbsEdge,
+      maxAbsEdge,
       minIsp,
       maxIsp,
       minRunners,
@@ -823,6 +826,11 @@ router.get("/api/model-vs-sp", async (req, res) => {
       // (or defaulted) and reflect the window actually queried.
       minDate,
       maxDate,
+      // How the model's accuracy is distributed across every runner matching the
+      // other filters — the denominator deliberately ignores the difference
+      // range, so narrowing that filter doesn't move its own baseline. null
+      // alongside total when the count was skipped.
+      summary,
     });
   } catch (error) {
     console.error("getModelVsSpRunners error:", error);

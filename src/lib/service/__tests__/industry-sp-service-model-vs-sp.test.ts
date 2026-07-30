@@ -1,5 +1,6 @@
 import { IndustrySpService } from "../industry-sp-service";
 import { IndustrySpDAO, ModelVsSpParams, ModelVsSpRow } from "../../dao/industry-sp-dao";
+import type { ModelVsSpSummary } from "../model-vs-sp-summary";
 
 // A fake DAO injected through the constructor's optional param — the same
 // approach live-price-service.test.ts uses, and the reason IndustrySpService
@@ -22,8 +23,8 @@ const PARAMS: ModelVsSpParams = {
   maxModelProb: 90,
   minImpliedProb: 5,
   maxImpliedProb: 80,
-  minEdge: 0,
-  maxEdge: 40,
+  minAbsEdge: 5,
+  maxAbsEdge: 40,
   minIsp: 2,
   maxIsp: 20,
   minRunners: 4,
@@ -61,10 +62,25 @@ const ROW: ModelVsSpRow = {
   modelVersionId: "xgb-v1",
 };
 
+const SUMMARY: ModelVsSpSummary = {
+  allRunners: 100,
+  matchedRunners: 40,
+  matchedPercent: 40,
+  meanAbsEdge: 5.3,
+  bands: [
+    { minAbs: 0, maxAbs: 2, label: "within ±2 pts", count: 40, percent: 40, cumulativePercent: 40 },
+    { minAbs: 2, maxAbs: 5, label: "±2 to ±5 pts", count: 25, percent: 25, cumulativePercent: 65 },
+    { minAbs: 5, maxAbs: 10, label: "±5 to ±10 pts", count: 20, percent: 20, cumulativePercent: 85 },
+    { minAbs: 10, maxAbs: 20, label: "±10 to ±20 pts", count: 10, percent: 10, cumulativePercent: 95 },
+    { minAbs: 20, maxAbs: 50, label: "±20 to ±50 pts", count: 4, percent: 4, cumulativePercent: 99 },
+    { minAbs: 50, maxAbs: null, label: "beyond ±50 pts", count: 1, percent: 1, cumulativePercent: null },
+  ],
+};
+
 describe("IndustrySpService.getModelVsSpRunners", () => {
   it("passes the params object through to the DAO unchanged", async () => {
     const dao = fakeDao();
-    dao.getModelVsSpRunners.mockResolvedValue({ rows: [], total: 0 });
+    dao.getModelVsSpRunners.mockResolvedValue({ rows: [], total: 0, summary: SUMMARY });
     const service = new IndustrySpService(dao);
 
     await service.getModelVsSpRunners(PARAMS);
@@ -75,10 +91,28 @@ describe("IndustrySpService.getModelVsSpRunners", () => {
 
   it("returns the DAO's rows and total verbatim", async () => {
     const dao = fakeDao();
-    dao.getModelVsSpRunners.mockResolvedValue({ rows: [ROW], total: 1284 });
+    dao.getModelVsSpRunners.mockResolvedValue({ rows: [ROW], total: 1284, summary: SUMMARY });
     const service = new IndustrySpService(dao);
 
-    await expect(service.getModelVsSpRunners(PARAMS)).resolves.toEqual({ rows: [ROW], total: 1284 });
+    await expect(service.getModelVsSpRunners(PARAMS)).resolves.toEqual({
+      rows: [ROW],
+      total: 1284,
+      summary: SUMMARY,
+    });
+  });
+
+  it("passes the distribution summary through untouched", async () => {
+    const dao = fakeDao();
+    dao.getModelVsSpRunners.mockResolvedValue({ rows: [ROW], total: 40, summary: SUMMARY });
+    const service = new IndustrySpService(dao);
+
+    const result = await service.getModelVsSpRunners(PARAMS);
+    // The service must not recompute or reshape any of it — the banding is the
+    // DAO's (via buildEdgeSummary), and a second implementation here would be
+    // free to drift.
+    expect(result.summary).toBe(SUMMARY);
+    expect(result.summary!.bands).toHaveLength(6);
+    expect(result.summary!.matchedRunners).toBe(40);
   });
 
   // total: null is a distinct state from 0 — "not counted this request" vs
@@ -86,11 +120,13 @@ describe("IndustrySpService.getModelVsSpRunners", () => {
   // "0 runners" every time the user pages.
   it("propagates a null total rather than coercing it to zero", async () => {
     const dao = fakeDao();
-    dao.getModelVsSpRunners.mockResolvedValue({ rows: [ROW], total: null });
+    dao.getModelVsSpRunners.mockResolvedValue({ rows: [ROW], total: null, summary: null });
     const service = new IndustrySpService(dao);
 
     const result = await service.getModelVsSpRunners({ ...PARAMS, includeTotal: false });
     expect(result.total).toBeNull();
+    // The summary is skipped on the same requests the count is.
+    expect(result.summary).toBeNull();
     expect(result.rows).toHaveLength(1);
   });
 

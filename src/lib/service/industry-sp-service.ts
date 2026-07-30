@@ -1,4 +1,5 @@
 import { IndustrySpDAO, IspRace, IspFilterBounds, ModelVsSpParams, ModelVsSpRow } from "../dao/industry-sp-dao";
+import type { ModelVsSpSummary } from "./model-vs-sp-summary";
 import { DatabaseConnection } from "../../config/database";
 
 export class IndustrySpService {
@@ -365,7 +366,9 @@ export class IndustrySpService {
    * work against the very M0 concurrency ceiling getSplitStats was written to
    * respect, so deliberately don't.
    */
-  public async getModelVsSpRunners(p: ModelVsSpParams): Promise<{ rows: ModelVsSpRow[]; total: number | null }> {
+  public async getModelVsSpRunners(
+    p: ModelVsSpParams
+  ): Promise<{ rows: ModelVsSpRow[]; total: number | null; summary: ModelVsSpSummary | null }> {
     return this.industrySpDAO.getModelVsSpRunners(p);
   }
 

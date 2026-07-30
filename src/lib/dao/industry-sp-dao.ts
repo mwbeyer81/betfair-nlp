@@ -1,5 +1,6 @@
 import { Collection, Db } from "mongodb";
 import { RaceDoc, synthRaceId } from "./industry-sp-row-mapping";
+import { EDGE_BAND_BOUNDS, buildEdgeSummary, ModelVsSpSummary } from "../service/model-vs-sp-summary";
 
 export interface IspFilterBounds {
   maxRunnersPerRace: number;
@@ -78,10 +79,14 @@ export interface ModelVsSpParams {
   maxModelProb: number;
   minImpliedProb: number;
   maxImpliedProb: number;
-  // Signed percentage points: modelWinProbability - (100 / isp). Negative means
-  // the model rates the runner WORSE than its own industry SP implies.
-  minEdge: number;
-  maxEdge: number;
+  // The SIZE of the gap between the model and the market, in percentage points,
+  // ignoring direction: |modelWinProbability - (100 / isp)|. A range of 10-20
+  // therefore matches a runner the model rates 12 points above its SP and one it
+  // rates 12 points below equally — the question this screen answers is "how far
+  // apart are they", not "which way". The signed value is still carried on every
+  // row (ModelVsSpRow.edge) and shown in the UI; only the filter is unsigned.
+  minAbsEdge: number;
+  maxAbsEdge: number;
   minIsp: number;
   maxIsp: number;
   minRunners: number;
@@ -1257,9 +1262,16 @@ export class IndustrySpDAO {
    * expression tree, one is plain arithmetic), so the integration test pins both
    * to the same hand-derived numbers.
    */
-  private buildModelVsSpRunnerCond(p: ModelVsSpParams): Record<string, unknown> {
+  private buildModelVsSpRunnerCond(
+    p: ModelVsSpParams,
+    // The summary's band tallies describe the whole population being looked at,
+    // so they're computed over the same runners MINUS the difference filter —
+    // otherwise narrowing the difference range would move its own denominator
+    // and every percentage would read 100%.
+    opts: { applyAbsEdge: boolean } = { applyAbsEdge: true }
+  ): Record<string, unknown> {
     const impliedExpr = { $divide: [100, "$$r.isp"] };
-    const edgeExpr = { $subtract: ["$$r.modelWinProbability", impliedExpr] };
+    const absEdgeExpr = { $abs: { $subtract: ["$$r.modelWinProbability", impliedExpr] } };
     return {
       $and: [
         { $ifNull: ["$$r.isp", false] },
@@ -1271,8 +1283,12 @@ export class IndustrySpDAO {
         { $lte: ["$$r.modelWinProbability", p.maxModelProb] },
         { $gte: [impliedExpr, p.minImpliedProb] },
         { $lte: [impliedExpr, p.maxImpliedProb] },
-        { $gte: [edgeExpr, p.minEdge] },
-        { $lte: [edgeExpr, p.maxEdge] },
+        ...(opts.applyAbsEdge
+          ? [
+              { $gte: [absEdgeExpr, p.minAbsEdge] },
+              { $lte: [absEdgeExpr, p.maxAbsEdge] },
+            ]
+          : []),
       ],
     };
   }
@@ -1357,7 +1373,9 @@ export class IndustrySpDAO {
    * streaming and order-preserving, so sort memory stays O(1) however deep the
    * requested page is.
    */
-  public async getModelVsSpRunners(p: ModelVsSpParams): Promise<{ rows: ModelVsSpRow[]; total: number | null }> {
+  public async getModelVsSpRunners(
+    p: ModelVsSpParams
+  ): Promise<{ rows: ModelVsSpRow[]; total: number | null; summary: ModelVsSpSummary | null }> {
     const runnerCond = this.buildModelVsSpRunnerCond(p);
     const dateMatch = { $match: { raceTime: { $gte: p.minRaceTime, $lte: p.maxRaceTime } } };
     const skip = (Math.max(1, p.page) - 1) * p.limit;
@@ -1521,27 +1539,100 @@ export class IndustrySpDAO {
 
     const rows = await this.collection.aggregate<ModelVsSpRow>(dataPipeline, { allowDiskUse: true }).toArray();
 
-    if (!p.includeTotal) return { rows, total: null };
+    if (!p.includeTotal) return { rows, total: null, summary: null };
 
-    // No $sort and no $unwind: one streaming pass, O(1) memory, at any dataset
-    // size. Named `matchedRunners` rather than `total`/`count` so the shared
-    // aggregate mock in src/server/__tests__/app.test.ts can carry it without
-    // colliding with those two keys, which already hold a $facet-shaped array
-    // and a plain number respectively.
-    const [countResult] = await this.collection
-      .aggregate<{ matchedRunners: number }>(
+    // The count and the distribution summary come from ONE streaming pass — no
+    // $sort, no $unwind, O(1) memory at any dataset size. Both are needed
+    // together (the summary's matchedRunners IS the total), and computing them
+    // separately would double this endpoint's cost on a tier where concurrency is
+    // the ceiling.
+    //
+    // Two runner sets are built, differing only in whether the difference filter
+    // applies: `mvsAll` is the denominator the bands describe, `matchedRunners`
+    // the numerator. `matchedRunners` is deliberately not named `total`/`count` —
+    // the shared aggregate mock in src/server/__tests__/app.test.ts already holds
+    // a $facet-shaped array under `total` and a number under `count`.
+    const condWithoutAbsEdge = this.buildModelVsSpRunnerCond(p, { applyAbsEdge: false });
+    const bandBounds = EDGE_BAND_BOUNDS;
+
+    // One tally per band, in EDGE_BAND_BOUNDS order, plus the open-ended final
+    // band. Each counts the absolute edges falling in [lower, upper).
+    const bandAccumulators: Record<string, unknown> = {};
+    bandBounds.forEach((upper, i) => {
+      const lower = i === 0 ? 0 : bandBounds[i - 1];
+      bandAccumulators[`band${i}`] = {
+        $sum: {
+          $size: {
+            $filter: {
+              input: "$mvsAbsEdges",
+              as: "e",
+              cond: { $and: [{ $gte: ["$$e", lower] }, { $lt: ["$$e", upper] }] },
+            },
+          },
+        },
+      };
+    });
+    bandAccumulators[`band${bandBounds.length}`] = {
+      $sum: {
+        $size: {
+          $filter: {
+            input: "$mvsAbsEdges",
+            as: "e",
+            cond: { $gte: ["$$e", bandBounds[bandBounds.length - 1]] },
+          },
+        },
+      },
+    };
+
+    const [summaryResult] = await this.collection
+      .aggregate<{
+        allRunners: number;
+        matchedRunners: number;
+        sumAbsEdge: number;
+        [band: string]: number;
+      }>(
         [
           dateMatch,
           ...this.buildModelVsSpRaceStages(p),
-          { $addFields: { mvsCount: { $size: { $filter: { input: "$runners", as: "r", cond: runnerCond } } } } },
-          { $match: { mvsCount: { $gt: 0 } } },
-          { $group: { _id: null, matchedRunners: { $sum: "$mvsCount" } } },
+          { $addFields: { mvsAll: { $filter: { input: "$runners", as: "r", cond: condWithoutAbsEdge } } } },
+          { $match: { mvsAll: { $ne: [] } } },
+          {
+            $addFields: {
+              mvsMatchedCount: { $size: { $filter: { input: "$mvsAll", as: "r", cond: runnerCond } } },
+              mvsAbsEdges: {
+                $map: {
+                  input: "$mvsAll",
+                  as: "r",
+                  in: { $abs: { $subtract: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] } },
+                },
+              },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              allRunners: { $sum: { $size: "$mvsAll" } },
+              matchedRunners: { $sum: "$mvsMatchedCount" },
+              sumAbsEdge: { $sum: { $sum: "$mvsAbsEdges" } },
+              ...bandAccumulators,
+            },
+          },
         ],
         { allowDiskUse: true }
       )
       .toArray();
 
-    return { rows, total: countResult?.matchedRunners ?? 0 };
+    const summary = buildEdgeSummary({
+      allRunners: summaryResult?.allRunners ?? 0,
+      matchedRunners: summaryResult?.matchedRunners ?? 0,
+      sumAbsEdge: summaryResult?.sumAbsEdge ?? 0,
+      bandCounts: Array.from(
+        { length: bandBounds.length + 1 },
+        (_, i) => (summaryResult?.[`band${i}`] as number) ?? 0
+      ),
+    });
+
+    return { rows, total: summary.matchedRunners, summary };
   }
 
   public async getPnlStats(): Promise<{ staked: number; returns: number; pnl: number }> {

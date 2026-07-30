@@ -9,7 +9,7 @@ import {
   KeyboardTypeOptions,
 } from "react-native";
 import { Text, Button, Chip, ActivityIndicator } from "react-native-paper";
-import { chatApi, ModelVsSpRow, ModelVsSpSort } from "../services/chatApi";
+import { chatApi, ModelVsSpRow, ModelVsSpSort, ModelVsSpSummary } from "../services/chatApi";
 import { DateRangePicker } from "./DateRangePicker";
 import { PageContainer } from "./PageContainer";
 import { PaginationControls } from "./PaginationControls";
@@ -54,8 +54,8 @@ const FILTER_DEFAULTS = {
   maxModelProb: 100,
   minImpliedProb: 0,
   maxImpliedProb: 100,
-  minEdge: -100,
-  maxEdge: 100,
+  minAbsEdge: 0,
+  maxAbsEdge: 100,
   minDate: DEFAULT_MIN_DATE,
   maxDate: DEFAULT_MAX_DATE,
 };
@@ -66,7 +66,7 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   impliedSp:
     "The win probability the runner's industry SP itself implies: 100 ÷ decimal odds. An SP of 4.0 implies 25%.",
   edge:
-    "Model win % minus implied SP %, in percentage points. Positive means the model rates the runner a better chance than its price does; negative means worse. Set the minimum to 0 to see only runners the model rates above the market, or the maximum to 0 for only those it rates below.",
+    "How far apart the model and the market are, in percentage points, ignoring which way round. A range of 10-20 finds runners the model rates 10-20 points above their SP AND ones it rates 10-20 points below — the question is the size of the disagreement, not its direction. Each row still shows the signed gap.",
 };
 
 // Mirrors IndustrySpScreen's one-calendar-year cap. The server enforces the same
@@ -110,8 +110,8 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
   const [maxModelProb, setMaxModelProb] = useState(() => urlFloatParam("maxModelProb", FILTER_DEFAULTS.maxModelProb));
   const [minImpliedProb, setMinImpliedProb] = useState(() => urlFloatParam("minImpliedProb", FILTER_DEFAULTS.minImpliedProb));
   const [maxImpliedProb, setMaxImpliedProb] = useState(() => urlFloatParam("maxImpliedProb", FILTER_DEFAULTS.maxImpliedProb));
-  const [minEdge, setMinEdge] = useState(() => urlFloatParam("minEdge", FILTER_DEFAULTS.minEdge));
-  const [maxEdge, setMaxEdge] = useState(() => urlFloatParam("maxEdge", FILTER_DEFAULTS.maxEdge));
+  const [minAbsEdge, setMinAbsEdge] = useState(() => urlFloatParam("minAbsEdge", FILTER_DEFAULTS.minAbsEdge));
+  const [maxAbsEdge, setMaxAbsEdge] = useState(() => urlFloatParam("maxAbsEdge", FILTER_DEFAULTS.maxAbsEdge));
   const [minDate, setMinDate] = useState(() => urlStringParam("minDate", FILTER_DEFAULTS.minDate));
   const [maxDate, setMaxDate] = useState(() => urlStringParam("maxDate", FILTER_DEFAULTS.maxDate));
 
@@ -122,8 +122,8 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
   const [draftMaxModelProb, setDraftMaxModelProb] = useState(String(maxModelProb));
   const [draftMinImpliedProb, setDraftMinImpliedProb] = useState(String(minImpliedProb));
   const [draftMaxImpliedProb, setDraftMaxImpliedProb] = useState(String(maxImpliedProb));
-  const [draftMinEdge, setDraftMinEdge] = useState(String(minEdge));
-  const [draftMaxEdge, setDraftMaxEdge] = useState(String(maxEdge));
+  const [draftMinAbsEdge, setDraftMinAbsEdge] = useState(String(minAbsEdge));
+  const [draftMaxAbsEdge, setDraftMaxAbsEdge] = useState(String(maxAbsEdge));
   const [draftMinDate, setDraftMinDate] = useState(minDate);
   const [draftMaxDate, setDraftMaxDate] = useState(maxDate);
 
@@ -139,6 +139,7 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
 
   const [rows, setRows] = useState<ModelVsSpRow[]>([]);
   const [total, setTotal] = useState<number | null>(null);
+  const [summary, setSummary] = useState<ModelVsSpSummary | null>(null);
   const [totalPages, setTotalPages] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +159,7 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
   const countedSignatureRef = useRef<string | null>(null);
 
   function filterSignature(): string {
-    return JSON.stringify([minModelProb, maxModelProb, minImpliedProb, maxImpliedProb, minEdge, maxEdge, minDate, maxDate, limit, sort]);
+    return JSON.stringify([minModelProb, maxModelProb, minImpliedProb, maxImpliedProb, minAbsEdge, maxAbsEdge, minDate, maxDate, limit, sort]);
   }
 
   // Fetches on mount either way — unlike /isp, which waits for Apply because its
@@ -194,8 +195,8 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
         maxModelProb,
         minImpliedProb,
         maxImpliedProb,
-        minEdge,
-        maxEdge,
+        minAbsEdge,
+        maxAbsEdge,
         includeTotal,
       })
       .then(response => {
@@ -206,6 +207,9 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
         if (response.total != null) {
           setTotal(response.total);
           setTotalPages(response.totalPages);
+          // Arrives on the same requests the total does, and is kept on screen
+          // across page steps for the same reason.
+          setSummary(response.summary);
           countedSignatureRef.current = signature;
         }
         // The server clamps an over-wide span and defaults a malformed one, and
@@ -246,19 +250,20 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
       maxModelProb: maxModelProb !== FILTER_DEFAULTS.maxModelProb ? String(maxModelProb) : null,
       minImpliedProb: minImpliedProb !== FILTER_DEFAULTS.minImpliedProb ? String(minImpliedProb) : null,
       maxImpliedProb: maxImpliedProb !== FILTER_DEFAULTS.maxImpliedProb ? String(maxImpliedProb) : null,
-      minEdge: minEdge !== FILTER_DEFAULTS.minEdge ? String(minEdge) : null,
-      maxEdge: maxEdge !== FILTER_DEFAULTS.maxEdge ? String(maxEdge) : null,
+      minAbsEdge: minAbsEdge !== FILTER_DEFAULTS.minAbsEdge ? String(minAbsEdge) : null,
+      maxAbsEdge: maxAbsEdge !== FILTER_DEFAULTS.maxAbsEdge ? String(maxAbsEdge) : null,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasFetched, page, limit, sort, minDate, maxDate, minModelProb, maxModelProb, minImpliedProb, maxImpliedProb, minEdge, maxEdge]);
+  }, [hasFetched, page, limit, sort, minDate, maxDate, minModelProb, maxModelProb, minImpliedProb, maxImpliedProb, minAbsEdge, maxAbsEdge]);
 
   function applyFilters() {
     const nextMinModel = Math.min(100, Math.max(0, parseNumericInput(draftMinModelProb, FILTER_DEFAULTS.minModelProb)));
     const nextMaxModel = Math.min(100, Math.max(0, parseNumericInput(draftMaxModelProb, FILTER_DEFAULTS.maxModelProb)));
     const nextMinImplied = Math.min(100, Math.max(0, parseNumericInput(draftMinImpliedProb, FILTER_DEFAULTS.minImpliedProb)));
     const nextMaxImplied = Math.min(100, Math.max(0, parseNumericInput(draftMaxImpliedProb, FILTER_DEFAULTS.maxImpliedProb)));
-    const nextMinEdge = Math.min(100, Math.max(-100, parseNumericInput(draftMinEdge, FILTER_DEFAULTS.minEdge)));
-    const nextMaxEdge = Math.min(100, Math.max(-100, parseNumericInput(draftMaxEdge, FILTER_DEFAULTS.maxEdge)));
+    // 0-100, not ±100: this is the SIZE of the gap, which can't be negative.
+    const nextMinAbsEdge = Math.min(100, Math.max(0, parseNumericInput(draftMinAbsEdge, FILTER_DEFAULTS.minAbsEdge)));
+    const nextMaxAbsEdge = Math.min(100, Math.max(0, parseNumericInput(draftMaxAbsEdge, FILTER_DEFAULTS.maxAbsEdge)));
 
     let nextMinDate = DATE_RE.test(draftMinDate) ? draftMinDate : FILTER_DEFAULTS.minDate;
     let nextMaxDate = DATE_RE.test(draftMaxDate) ? draftMaxDate : FILTER_DEFAULTS.maxDate;
@@ -274,8 +279,8 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
     setMaxModelProb(nextMaxModel);
     setMinImpliedProb(nextMinImplied);
     setMaxImpliedProb(nextMaxImplied);
-    setMinEdge(nextMinEdge);
-    setMaxEdge(nextMaxEdge);
+    setMinAbsEdge(nextMinAbsEdge);
+    setMaxAbsEdge(nextMaxAbsEdge);
     setMinDate(nextMinDate);
     setMaxDate(nextMaxDate);
 
@@ -285,8 +290,8 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
     setDraftMaxModelProb(String(nextMaxModel));
     setDraftMinImpliedProb(String(nextMinImplied));
     setDraftMaxImpliedProb(String(nextMaxImplied));
-    setDraftMinEdge(String(nextMinEdge));
-    setDraftMaxEdge(String(nextMaxEdge));
+    setDraftMinAbsEdge(String(nextMinAbsEdge));
+    setDraftMaxAbsEdge(String(nextMaxAbsEdge));
     setDraftMinDate(nextMinDate);
     setDraftMaxDate(nextMaxDate);
 
@@ -300,16 +305,16 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
     setMaxModelProb(FILTER_DEFAULTS.maxModelProb);
     setMinImpliedProb(FILTER_DEFAULTS.minImpliedProb);
     setMaxImpliedProb(FILTER_DEFAULTS.maxImpliedProb);
-    setMinEdge(FILTER_DEFAULTS.minEdge);
-    setMaxEdge(FILTER_DEFAULTS.maxEdge);
+    setMinAbsEdge(FILTER_DEFAULTS.minAbsEdge);
+    setMaxAbsEdge(FILTER_DEFAULTS.maxAbsEdge);
     setMinDate(FILTER_DEFAULTS.minDate);
     setMaxDate(FILTER_DEFAULTS.maxDate);
     setDraftMinModelProb(String(FILTER_DEFAULTS.minModelProb));
     setDraftMaxModelProb(String(FILTER_DEFAULTS.maxModelProb));
     setDraftMinImpliedProb(String(FILTER_DEFAULTS.minImpliedProb));
     setDraftMaxImpliedProb(String(FILTER_DEFAULTS.maxImpliedProb));
-    setDraftMinEdge(String(FILTER_DEFAULTS.minEdge));
-    setDraftMaxEdge(String(FILTER_DEFAULTS.maxEdge));
+    setDraftMinAbsEdge(String(FILTER_DEFAULTS.minAbsEdge));
+    setDraftMaxAbsEdge(String(FILTER_DEFAULTS.maxAbsEdge));
     setDraftMinDate(FILTER_DEFAULTS.minDate);
     setDraftMaxDate(FILTER_DEFAULTS.maxDate);
     setSort("date_desc");
@@ -553,13 +558,13 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
               {renderFilterRow({
                 filterKey: "edge",
                 label: "Difference",
-                minValue: draftMinEdge,
-                onMinChange: setDraftMinEdge,
+                minValue: draftMinAbsEdge,
+                onMinChange: setDraftMinAbsEdge,
                 minTestId: "model-vs-sp-min-edge",
-                maxValue: draftMaxEdge,
-                onMaxChange: setDraftMaxEdge,
+                maxValue: draftMaxAbsEdge,
+                onMaxChange: setDraftMaxAbsEdge,
                 maxTestId: "model-vs-sp-max-edge",
-                hint: "pts, signed",
+                hint: "pts apart, ± ignored",
               })}
 
               <View testID="model-vs-sp-filter-row-date" style={styles.filterGridRow}>
@@ -674,6 +679,60 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
               {sort === "edge_asc" ? "Gap: Smallest first" : "Gap: Biggest first"}
             </Button>
           </View>
+
+          {summary != null && summary.allRunners > 0 && (
+            <View testID="model-vs-sp-summary" style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>How close is the model to the market?</Text>
+              <Text testID="model-vs-sp-summary-headline" style={styles.summaryHeadline}>
+                {`Across all ${summary.allRunners.toLocaleString()} runners in this window, the average gap is ` +
+                  `${summary.meanAbsEdge.toFixed(1)} pts.`}
+              </Text>
+
+              {/* Cumulative shares, which is the question actually being asked —
+                  "what percentage of runners is the model within ±N of?" — rather
+                  than each band in isolation. */}
+              <View style={styles.summaryBands}>
+                {summary.bands.map(band => {
+                  const key = band.maxAbs == null ? "beyond" : String(band.maxAbs);
+                  const share = band.cumulativePercent ?? band.percent;
+                  return (
+                    <View key={key} testID={`model-vs-sp-summary-band-${key}`} style={styles.summaryBandRow}>
+                      <Text style={styles.summaryBandLabel}>
+                        {band.maxAbs == null ? band.label : `within ±${band.maxAbs} pts`}
+                      </Text>
+                      <View style={styles.summaryBarTrack}>
+                        <View
+                          style={[
+                            styles.summaryBarFill,
+                            // Width is the share itself, so the bars read as a
+                            // proportion of the whole population at a glance.
+                            { width: `${Math.max(0, Math.min(100, share))}%` },
+                            band.maxAbs == null && styles.summaryBarFillTail,
+                          ]}
+                        />
+                      </View>
+                      <Text testID={`model-vs-sp-summary-percent-${key}`} style={styles.summaryBandPercent}>
+                        {`${share.toFixed(1)}%`}
+                      </Text>
+                      <Text testID={`model-vs-sp-summary-count-${key}`} style={styles.summaryBandCount}>
+                        {band.count.toLocaleString()}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* Only meaningful once the difference filter is actually narrowing
+                  something — at the full 0-100 default it would just restate the
+                  total as 100%. */}
+              {(minAbsEdge > FILTER_DEFAULTS.minAbsEdge || maxAbsEdge < FILTER_DEFAULTS.maxAbsEdge) && (
+                <Text testID="model-vs-sp-summary-selection" style={styles.summarySelection}>
+                  {`Your difference filter (${minAbsEdge}–${maxAbsEdge} pts) selects ` +
+                    `${summary.matchedRunners.toLocaleString()} of them — ${summary.matchedPercent.toFixed(1)}%.`}
+                </Text>
+              )}
+            </View>
+          )}
 
           <View style={styles.countHeader}>
             <Text testID="model-vs-sp-result-count" style={styles.countText}>
@@ -884,6 +943,71 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing.sm,
     marginBottom: spacing.sm,
+  },
+  summaryCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  summaryTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  summaryHeadline: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  summaryBands: {
+    gap: 4,
+  },
+  summaryBandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  summaryBandLabel: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    width: 108,
+  },
+  summaryBarTrack: {
+    flex: 1,
+    height: 10,
+    minWidth: 40,
+    backgroundColor: colors.background,
+    borderRadius: radii.pill,
+    overflow: "hidden",
+  },
+  summaryBarFill: {
+    height: "100%",
+    backgroundColor: colors.accent,
+    borderRadius: radii.pill,
+  },
+  summaryBarFillTail: {
+    backgroundColor: colors.textTertiary,
+  },
+  summaryBandPercent: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.text,
+    width: 48,
+    textAlign: "right",
+  },
+  summaryBandCount: {
+    fontSize: 10,
+    color: colors.textTertiary,
+    width: 56,
+    textAlign: "right",
+  },
+  summarySelection: {
+    fontSize: 12,
+    color: colors.accent,
+    fontWeight: "600",
   },
   countHeader: {
     gap: 2,

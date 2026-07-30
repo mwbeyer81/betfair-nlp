@@ -377,6 +377,28 @@ export interface ModelVsSpRow {
   modelVersionId: string | null;
 }
 
+// One magnitude band of |model% - implied SP%|, for the distribution summary.
+export interface ModelVsSpBand {
+  minAbs: number;
+  maxAbs: number | null;
+  label: string;
+  count: number;
+  percent: number;
+  // null on the open-ended final band, where it would always be 100.
+  cumulativePercent: number | null;
+}
+
+export interface ModelVsSpSummary {
+  // Every runner matching the current filters EXCEPT the difference range — the
+  // bands' denominator, deliberately fixed so narrowing that filter doesn't move
+  // its own baseline.
+  allRunners: number;
+  matchedRunners: number;
+  matchedPercent: number;
+  meanAbsEdge: number;
+  bands: ModelVsSpBand[];
+}
+
 export interface ModelVsSpQuery {
   page?: number;
   limit?: number;
@@ -387,8 +409,11 @@ export interface ModelVsSpQuery {
   maxModelProb?: number;
   minImpliedProb?: number;
   maxImpliedProb?: number;
-  minEdge?: number;
-  maxEdge?: number;
+  // The SIZE of the model-vs-market gap in percentage points, ignoring direction
+  // — 10-20 matches a runner rated 12 points above its SP and one rated 12 below
+  // alike. Always 0-100, never negative.
+  minAbsEdge?: number;
+  maxAbsEdge?: number;
   minIsp?: number;
   maxIsp?: number;
   minRunners?: number;
@@ -413,6 +438,8 @@ export interface ModelVsSpPage {
   // what was asked for (the server caps the span at 366 days).
   minDate: string;
   maxDate: string;
+  // null alongside total when the request opted out of the count.
+  summary: ModelVsSpSummary | null;
 }
 
 export interface ModelTrainingParams {
@@ -908,10 +935,10 @@ class ChatApi {
   // smell terminal. Matches the shape the backend DAO/service already take
   // (getModelVsSpRunners).
   //
-  // Every numeric is serialised with `!= null`, never a truthiness check: a
-  // minEdge of 0 is the single most important value this screen can send ("only
-  // runners the model rates above the market"), and `if (q.minEdge)` would drop
-  // it and let the server's own -100 default silently win.
+  // Every numeric is serialised with `!= null`, never a truthiness check: 0 is a
+  // legitimate value for the difference bounds (maxAbsEdge=0 means "only runners
+  // whose gap is exactly zero"), and `if (q.maxAbsEdge)` would drop it and let
+  // the server's own 100 default silently win.
   async getModelVsSp(q: ModelVsSpQuery = {}): Promise<ModelVsSpPage> {
     const params = new URLSearchParams();
     const numericKeys: (keyof ModelVsSpQuery)[] = [
@@ -921,8 +948,8 @@ class ChatApi {
       "maxModelProb",
       "minImpliedProb",
       "maxImpliedProb",
-      "minEdge",
-      "maxEdge",
+      "minAbsEdge",
+      "maxAbsEdge",
       "minIsp",
       "maxIsp",
       "minRunners",

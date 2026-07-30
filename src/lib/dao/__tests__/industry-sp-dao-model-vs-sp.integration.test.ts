@@ -27,8 +27,8 @@ function params(overrides: Partial<ModelVsSpParams> = {}): ModelVsSpParams {
     maxModelProb: 100,
     minImpliedProb: 0,
     maxImpliedProb: 100,
-    minEdge: -100,
-    maxEdge: 100,
+    minAbsEdge: 0,
+    maxAbsEdge: 100,
     minIsp: 1,
     maxIsp: 1000,
     minRunners: 1,
@@ -202,35 +202,121 @@ describe("IndustrySpDAO.getModelVsSpRunners (integration)", () => {
     });
   });
 
-  describe("edge range filter", () => {
-    it("minEdge=0 keeps the zero-edge and positive rows and drops every negative one", async () => {
-      const { rows, total } = await dao.getModelVsSpRunners(params({ minEdge: 0 }));
-      expect(rows.map(r => r.edge).sort((a, b) => a - b)).toEqual([0, 10, 15, 15]);
+  describe("difference (absolute edge) filter", () => {
+    // The whole point of the filter being unsigned: a runner the model rates 15
+    // points ABOVE its SP and one it rates 5 points BELOW are both "close" or
+    // "far" purely by magnitude. Seeded edges are +15, 0, -60, +10, -5, +15.
+    it("matches on the size of the gap regardless of direction", async () => {
+      const { rows, total } = await dao.getModelVsSpRunners(params({ minAbsEdge: 5, maxAbsEdge: 15 }));
+      // |−5|, |+10|, |+15|, |+15| qualify; 0 is too small and |−60| too large.
+      expect(rows.map(r => r.edge).sort((a, b) => a - b)).toEqual([-5, 10, 15, 15]);
       expect(total).toBe(4);
     });
 
-    it("maxEdge=0 keeps the zero-edge and negative rows", async () => {
-      const { rows, total } = await dao.getModelVsSpRunners(params({ maxEdge: 0 }));
-      expect(rows.map(r => r.edge).sort((a, b) => a - b)).toEqual([-60, -5, 0]);
-      expect(total).toBe(3);
+    it("keeps a negative row when the band is expressed in positive numbers", async () => {
+      const { rows } = await dao.getModelVsSpRunners(params({ minAbsEdge: 50, maxAbsEdge: 100 }));
+      expect(rows.map(r => r.runnerId)).toEqual([201]);
+      expect(rows[0].edge).toBeCloseTo(-60, 10);
     });
 
-    it("minEdge=maxEdge=0 keeps exactly the zero-edge row", async () => {
-      const { rows, total } = await dao.getModelVsSpRunners(params({ minEdge: 0, maxEdge: 0 }));
+    it("minAbsEdge=0 keeps everything, including the exactly-zero row", async () => {
+      const { rows, total } = await dao.getModelVsSpRunners(params({ minAbsEdge: 0 }));
+      expect(total).toBe(ALL_EDGES.length);
+      expect(rows.map(r => r.runnerId)).toContain(102);
+    });
+
+    it("maxAbsEdge=0 keeps exactly the zero-gap row", async () => {
+      const { rows, total } = await dao.getModelVsSpRunners(params({ maxAbsEdge: 0 }));
       expect(rows).toHaveLength(1);
       expect(rows[0].runnerId).toBe(102);
       expect(total).toBe(1);
     });
 
-    it("narrows to a positive band, excluding rows on either side of it", async () => {
-      const { rows } = await dao.getModelVsSpRunners(params({ minEdge: 11, maxEdge: 20 }));
+    it("excludes rows on both sides of a narrow band", async () => {
+      const { rows } = await dao.getModelVsSpRunners(params({ minAbsEdge: 11, maxAbsEdge: 20 }));
       expect(rows.map(r => r.runnerId).sort()).toEqual([101, 401]);
     });
 
-    it("returns nothing and a total of 0 when the band is above every row's edge", async () => {
-      const { rows, total } = await dao.getModelVsSpRunners(params({ minEdge: 90 }));
+    it("returns nothing and a total of 0 when the band is above every row's gap", async () => {
+      const { rows, total } = await dao.getModelVsSpRunners(params({ minAbsEdge: 90 }));
       expect(rows).toEqual([]);
       expect(total).toBe(0);
+    });
+  });
+
+  describe("summary", () => {
+    // Seeded absolute gaps across the six qualifying runners: 15, 0, 60, 10, 5, 15.
+    // Bands are [0,2) [2,5) [5,10) [10,20) [20,50) [50,∞):
+    //   within ±2   -> 0        (one row)
+    //   ±2 to ±5    -> none
+    //   ±5 to ±10   -> 5        (one row)
+    //   ±10 to ±20  -> 10,15,15 (three rows)
+    //   ±20 to ±50  -> none
+    //   beyond ±50  -> 60       (one row)
+    it("buckets every runner's gap by magnitude", async () => {
+      const { summary } = await dao.getModelVsSpRunners(params());
+      expect(summary).not.toBeNull();
+      expect(summary!.allRunners).toBe(6);
+      expect(summary!.bands.map(b => b.count)).toEqual([1, 0, 1, 3, 0, 1]);
+    });
+
+    it("reports the cumulative share the user asked for — how many are within ±N", async () => {
+      const { summary } = await dao.getModelVsSpRunners(params());
+      // within ±10 = the 0 row and the 5 row = 2 of 6.
+      expect(summary!.bands[2].cumulativePercent).toBeCloseTo(33.3, 1);
+      // within ±20 = those plus 10, 15, 15 = 5 of 6.
+      expect(summary!.bands[3].cumulativePercent).toBeCloseTo(83.3, 1);
+    });
+
+    it("computes the mean absolute gap over every runner", async () => {
+      const { summary } = await dao.getModelVsSpRunners(params());
+      // (15 + 0 + 60 + 10 + 5 + 15) / 6 = 17.5
+      expect(summary!.meanAbsEdge).toBeCloseTo(17.5, 1);
+    });
+
+    // The denominator deliberately ignores the difference filter, so narrowing
+    // that filter doesn't move its own baseline to 100%.
+    it("keeps allRunners as the unfiltered population when a difference band is applied", async () => {
+      const { summary, total } = await dao.getModelVsSpRunners(params({ minAbsEdge: 11, maxAbsEdge: 20 }));
+      expect(summary!.allRunners).toBe(6);
+      expect(summary!.matchedRunners).toBe(2);
+      expect(summary!.matchedPercent).toBeCloseTo(33.3, 1);
+      expect(total).toBe(2);
+      // The bands still describe all six runners, not just the two matched.
+      expect(summary!.bands.reduce((sum, b) => sum + b.count, 0)).toBe(6);
+    });
+
+    it("still narrows with the other filters, which DO move the denominator", async () => {
+      const { summary } = await dao.getModelVsSpRunners(params({ countries: ["IE"] }));
+      expect(summary!.allRunners).toBe(1);
+      expect(summary!.bands.reduce((sum, b) => sum + b.count, 0)).toBe(1);
+    });
+
+    it("is null, alongside total, when the count is skipped", async () => {
+      const { summary, total } = await dao.getModelVsSpRunners(params({ includeTotal: false }));
+      expect(summary).toBeNull();
+      expect(total).toBeNull();
+    });
+
+    it("returns zeroed bands rather than NaN for an empty window", async () => {
+      const { summary } = await dao.getModelVsSpRunners(
+        params({ minRaceTime: "2019-01-01", maxRaceTime: "2019-12-31T23:59:59.999" })
+      );
+      expect(summary!.allRunners).toBe(0);
+      expect(summary!.matchedPercent).toBe(0);
+      expect(summary!.meanAbsEdge).toBe(0);
+      expect(summary!.bands.every(b => b.percent === 0)).toBe(true);
+    });
+
+    it("agrees with total — matchedRunners is the same number pagination uses", async () => {
+      for (const band of [
+        { minAbsEdge: 0, maxAbsEdge: 100 },
+        { minAbsEdge: 5, maxAbsEdge: 15 },
+        { minAbsEdge: 90, maxAbsEdge: 100 },
+      ]) {
+        const { summary, total } = await dao.getModelVsSpRunners(params(band));
+        expect(summary!.matchedRunners).toBe(total);
+      }
     });
   });
 
