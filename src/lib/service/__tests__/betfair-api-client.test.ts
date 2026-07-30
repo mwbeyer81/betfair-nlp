@@ -132,3 +132,68 @@ describe("BetfairApiClient.placeOrders — real Betfair error code priority", ()
     expect(result).toEqual({ outcome: "SUCCESS", betId: "12345", matchedPrice: 3.6 });
   });
 });
+
+// REAL BUG FOUND AND FIXED 2026-07-30 (see AGENTS.md's matched-price-zero
+// entry). Confirmed against the live account: bet 436598726286 (Silken Bay,
+// 20:40 Leicester) was placed at 19:30:35 and only matched at 19:33:05 —
+// nearly three minutes after placeOrders had already returned SUCCESS. The
+// response therefore carried `averagePriceMatched: 0` ("nothing matched
+// yet"), and because `?? price` only substitutes on null/undefined, a
+// literal 0 was persisted as the bet's matched price while Betfair's own
+// listClearedOrders reported priceMatched 8.4.
+describe("BetfairApiClient.placeOrders — averagePriceMatched: 0 means 'not matched yet', not a price of zero", () => {
+  // Re-acquired per test rather than once at describe scope: the block
+  // above restores the real global.fetch in its own afterAll, which would
+  // otherwise leave a describe-scoped spy here inert — and an un-stubbed
+  // fetch means these tests quietly hit the real Betfair API.
+  let fetchSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    fetchSpy = jest.spyOn(global, "fetch");
+    fetchSpy.mockReset();
+    mockGet.mockReset();
+    mockGet.mockImplementation((key: string) => {
+      if (key === "betfair.dryRun") return false;
+      if (key === "betfair.sessionId") return "fake-session-id";
+      if (key === "betfair.appKey") return "fake-app-key";
+      return "";
+    });
+  });
+
+  afterAll(() => jest.restoreAllMocks());
+
+  async function placeWithReport(report: Record<string, unknown>) {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: "SUCCESS", instructionReports: [report] }),
+    } as Response);
+    return await new BetfairApiClient().placeOrders("1.123", 555, 8.4, 2);
+  }
+
+  it("falls back to the requested price when the order hasn't filled yet (averagePriceMatched: 0)", async () => {
+    const result = await placeWithReport({ status: "SUCCESS", betId: "436598726286", averagePriceMatched: 0 });
+
+    expect(result).toEqual({ outcome: "SUCCESS", betId: "436598726286", matchedPrice: 8.4 });
+  });
+
+  it("falls back to the requested price when averagePriceMatched is absent entirely", async () => {
+    const result = await placeWithReport({ status: "SUCCESS", betId: "12345" });
+
+    expect(result).toEqual({ outcome: "SUCCESS", betId: "12345", matchedPrice: 8.4 });
+  });
+
+  it("never returns a non-positive matchedPrice, which downstream PnL maths would turn into a phantom loss", async () => {
+    for (const averagePriceMatched of [0, -1, null, undefined]) {
+      const result = await placeWithReport({ status: "SUCCESS", betId: "12345", averagePriceMatched });
+
+      expect(result.outcome).toBe("SUCCESS");
+      expect(result.outcome === "SUCCESS" && result.matchedPrice).toBeGreaterThan(0);
+    }
+  });
+
+  it("still uses a real reported fill price when the order did match immediately", async () => {
+    const result = await placeWithReport({ status: "SUCCESS", betId: "12345", averagePriceMatched: 9.2 });
+
+    expect(result).toEqual({ outcome: "SUCCESS", betId: "12345", matchedPrice: 9.2 });
+  });
+});

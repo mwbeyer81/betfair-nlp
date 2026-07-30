@@ -618,6 +618,85 @@ describe("BetOrderService.listForUser — real settled results", () => {
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe(realOrder._id!.toString());
   });
+
+  // REAL BUG FOUND AND FIXED 2026-07-30 (see AGENTS.md's matched-price-zero
+  // entry). The price captured at placement time is only ever provisional:
+  // bet 436598726286 stored 0 (it filled ~3 minutes after placeOrders
+  // returned — see betfair-api-client.test.ts), and bet 436580966910 was
+  // requested at 3.4 but actually matched at 3.8. Betfair's own settled
+  // record is the authoritative one, so settlement corrects it.
+  describe("corrects the stored matched price from Betfair's settled record", () => {
+    function settlingOrder(overrides: Partial<BetOrderDocument> = {}) {
+      return makeOrder({ orderType: "instant", status: "triggered", dryRun: false, betfairBetId: "bet_123", ...overrides });
+    }
+
+    function statefulDao(order: BetOrderDocument) {
+      const updateFields = jest.fn().mockImplementation((_id: unknown, patch: Partial<BetOrderDocument>) => {
+        Object.assign(order, patch);
+        return Promise.resolve();
+      });
+      return fakeDAO({ listByUser: jest.fn().mockImplementation(() => Promise.resolve([order])), updateFields });
+    }
+
+    it("overwrites a bogus 0 captured at placement time with Betfair's real priceMatched", async () => {
+      const realOrder = settlingOrder({ matchedPrice: 0 });
+      const client = fakeClient({
+        listClearedOrders: jest.fn().mockResolvedValue([
+          { betId: "bet_123", betOutcome: "LOST", priceMatched: 8.4, sizeSettled: 2, profit: -2, settledDate: "2026-07-29T19:44:36.000Z" },
+        ]),
+      });
+      const dao = statefulDao(realOrder);
+
+      const result = await new BetOrderService(dao, client, fakeDailyRaceService()).listForUser("user1");
+
+      expect(dao.updateFields).toHaveBeenCalledWith(realOrder._id, expect.objectContaining({ matchedPrice: 8.4 }));
+      expect(result[0].matchedPrice).toBe(8.4);
+    });
+
+    it("corrects a price that filled better than requested", async () => {
+      const realOrder = settlingOrder({ matchedPrice: 3.4 });
+      const client = fakeClient({
+        listClearedOrders: jest.fn().mockResolvedValue([
+          { betId: "bet_123", betOutcome: "LOST", priceMatched: 3.8, sizeSettled: 2, profit: -2, settledDate: "2026-07-29T17:30:24.000Z" },
+        ]),
+      });
+      const dao = statefulDao(realOrder);
+
+      const result = await new BetOrderService(dao, client, fakeDailyRaceService()).listForUser("user1");
+
+      expect(result[0].matchedPrice).toBe(3.8);
+    });
+
+    it("leaves a good stored price alone when Betfair reports no usable priceMatched (e.g. a VOID)", async () => {
+      const realOrder = settlingOrder({ matchedPrice: 8.4 });
+      const client = fakeClient({
+        listClearedOrders: jest.fn().mockResolvedValue([
+          { betId: "bet_123", betOutcome: "VOID", profit: 0, settledDate: "2026-07-29T19:44:36.000Z" },
+        ]),
+      });
+      const dao = statefulDao(realOrder);
+
+      const result = await new BetOrderService(dao, client, fakeDailyRaceService()).listForUser("user1");
+
+      expect(dao.updateFields).toHaveBeenCalledWith(realOrder._id, expect.not.objectContaining({ matchedPrice: expect.anything() }));
+      expect(result[0].matchedPrice).toBe(8.4);
+      expect(result[0].betOutcome).toBe("VOID");
+    });
+
+    it("never writes a non-positive priceMatched over the stored one", async () => {
+      const realOrder = settlingOrder({ matchedPrice: 8.4 });
+      const client = fakeClient({
+        listClearedOrders: jest.fn().mockResolvedValue([
+          { betId: "bet_123", betOutcome: "LOST", priceMatched: 0, profit: -2, settledDate: "2026-07-29T19:44:36.000Z" },
+        ]),
+      });
+      const dao = statefulDao(realOrder);
+
+      const result = await new BetOrderService(dao, client, fakeDailyRaceService()).listForUser("user1");
+
+      expect(result[0].matchedPrice).toBe(8.4);
+    });
+  });
 });
 
 describe("BetOrderService — sandbox bets", () => {

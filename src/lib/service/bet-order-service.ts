@@ -392,6 +392,18 @@ export class BetOrderService {
         betOutcome: result.betOutcome,
         settledProfit: result.profit,
         settledAt: result.settledDate,
+        // Betfair's settled record is the authoritative matched price —
+        // the one captured at placement time is only ever provisional,
+        // since an order can fill after placeOrders has already returned
+        // (see betfair-api-client.ts's matched-price-zero comment) or fill
+        // better than requested (confirmed live: bet 436580966910 was
+        // requested at 3.4 and matched at 3.8). Only overwrite when
+        // Betfair actually reports a positive price, so a settled order
+        // without one (e.g. a VOID) never clobbers a good stored value
+        // with 0/undefined.
+        ...(typeof result.priceMatched === "number" && result.priceMatched > 0
+          ? { matchedPrice: result.priceMatched }
+          : {}),
       });
     }
   }
