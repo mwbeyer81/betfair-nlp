@@ -46,6 +46,12 @@ const COLUMN_TOOLTIPS: Record<string, string> = {
     "A combined accuracy score where lower is better (0 is perfect). Shown for the model and the market over exactly the same runners.",
 };
 
+// DateRangePicker formats whatever it's given, so an empty string renders as
+// "Jan 1, NaN" — it needs real YYYY-MM-DD bounds. Same coverage window
+// ModelVsSpScreen uses: every year from 2015 carries scored runners.
+const MODEL_COVERAGE_MIN_DATE = "2015-01-01";
+const ABSOLUTE_MAX_DATE = "2026-12-31";
+
 // The table's own columns, in render order. "Brier" is in COLUMN_TOOLTIPS too
 // but lives on its own card below the table, so it is deliberately not here.
 const TABLE_COLUMN_KEYS = [
@@ -113,10 +119,15 @@ export function ModelAccuracyScreen({
   // Draft/applied filter pair, same convention as ModelPerformanceDashboard
   // (:158-181) — nothing refetches until Apply is pressed, except the date
   // picker, which has its own confirm step.
-  const [draftFromDate, setDraftFromDate] = useState("");
-  const [draftToDate, setDraftToDate] = useState("");
+  const [draftFromDate, setDraftFromDate] = useState(MODEL_COVERAGE_MIN_DATE);
+  const [draftToDate, setDraftToDate] = useState(ABSOLUTE_MAX_DATE);
   const [draftModelVersionId, setDraftModelVersionId] = useState<string | null>(null);
-  const [appliedFilters, setAppliedFilters] = useState<ModelAccuracyFilters>({});
+  // Seeded with the same window the picker displays, so what's on screen is
+  // always what was actually applied.
+  const [appliedFilters, setAppliedFilters] = useState<ModelAccuracyFilters>({
+    minDate: MODEL_COVERAGE_MIN_DATE,
+    maxDate: ABSOLUTE_MAX_DATE,
+  });
 
   const load = useCallback(async (filters: ModelAccuracyFilters) => {
     setLoading(true);
@@ -156,10 +167,10 @@ export function ModelAccuracyScreen({
   }
 
   function resetFilters() {
-    setDraftFromDate("");
-    setDraftToDate("");
+    setDraftFromDate(MODEL_COVERAGE_MIN_DATE);
+    setDraftToDate(ABSOLUTE_MAX_DATE);
     setDraftModelVersionId(null);
-    setAppliedFilters({});
+    setAppliedFilters({ minDate: MODEL_COVERAGE_MIN_DATE, maxDate: ABSOLUTE_MAX_DATE });
   }
 
   function renderTooltipToggle(key: string) {
@@ -186,8 +197,14 @@ export function ModelAccuracyScreen({
 
   function renderHeaderCell(label: string, colStyle: object) {
     return (
-      <View style={[styles.tableHeaderMetricCell, colStyle]}>
-        <Text style={styles.tableHeaderCell}>{label}</Text>
+      <View key={label} style={[styles.tableHeaderMetricCell, colStyle]}>
+        {/* flexShrink + minWidth:0 are load-bearing: without them a long label
+            like "Actually won" refuses to wrap, overflows its flex:1 cell and
+            shunts the next column's header (and its ? toggle) sideways, so the
+            header stops lining up with the body rows underneath. */}
+        <Text style={[styles.tableHeaderCell, styles.tableHeaderCellText]} numberOfLines={2}>
+          {label}
+        </Text>
         {renderTooltipToggle(label)}
       </View>
     );
@@ -286,8 +303,8 @@ export function ModelAccuracyScreen({
               testID="model-accuracy-date-range"
               fromDate={draftFromDate}
               toDate={draftToDate}
-              minDate="2015-01-01"
-              maxDate="2030-12-31"
+              minDate={MODEL_COVERAGE_MIN_DATE}
+              maxDate={ABSOLUTE_MAX_DATE}
               onChange={(from, to) => {
                 setDraftFromDate(from);
                 setDraftToDate(to);
@@ -464,9 +481,15 @@ const styles = StyleSheet.create({
   },
   tableHeaderMetricCell: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     justifyContent: "flex-end",
     gap: 4,
+    minWidth: 0,
+  },
+  tableHeaderCellText: {
+    flexShrink: 1,
+    minWidth: 0,
+    textAlign: "right",
   },
   tableHeaderTooltipRow: { paddingHorizontal: spacing.md },
   // The same col styles are applied to header cells and body cells — that is

@@ -185,7 +185,9 @@ export class ModelAccuracyService {
     for (const row of raw) {
       const { _id, ...sums } = row;
       if (_id === UNBANDED_KEY) {
-        unbanded = sums;
+        // Accumulate rather than assign — an unmatched-boundary row below can
+        // also land here, and the two must not overwrite each other.
+        unbanded = unbanded ? addSums(unbanded, sums) : sums;
         continue;
       }
       const matched = MODEL_ACCURACY_BAND_BOUNDARIES.find(
@@ -213,9 +215,10 @@ export class ModelAccuracyService {
       );
     }
 
-    // Built from the untouched DAO sums rather than from the rounded bands
-    // above, so accumulated rounding can't make the overall row disagree with
-    // the rows it totals.
+    // Built from the untouched DAO sums rather than by re-adding the rounded
+    // bands, so the totals are exact rather than carrying six rows' worth of
+    // accumulated rounding. Counts therefore tie out exactly; the money columns
+    // can differ from summing the displayed rows by a penny or two.
     const overallRaw = raw.reduce<Omit<ModelAccuracyBandRaw, "_id">>((acc, row) => {
       const { _id, ...sums } = row;
       void _id;

@@ -145,6 +145,7 @@ Ran claimed ports for this worktree (`scripts/claim-worktree-ports.sh daily-race
 **Follow-up (same session): merged to `develop` and deployed (Lambda + web), per the user's explicit direct request** ("deploy to app.backbet.co.uk"), reversing the earlier "do not merge" instruction. Fast-forward merge — `feat/daily-races-bet-button` had no divergence from `origin/develop` (918da17), so `git push origin feat/daily-races-bet-button:develop` landed as a clean fast-forward to `2d8416c`, no merge commit. **This agent's own push attempts were repeatedly blocked by the auto-mode permission classifier** (direct refspec push, creating a worktree on `develop`, checking out `develop` in the deploy worktree — four different approaches all denied) — the user ran the push themselves from their own terminal instead; worth knowing if you hit the same wall doing a `develop` push from an agent session. `apps/web/deploy.sh` (auto-syncs `~/betfair-nlp-deploy-develop` to `origin/develop` itself) and `apps/lambda/build.sh` (run from that same now-synced worktree, so it bundled the right commit) both completed cleanly — `Skipping secrets update (config/local.json not found — existing Lambda env vars unchanged)`, confirming no Betfair credentials and no `dryRun` override reached the live Lambda; it inherits `config/default.json`'s tracked `dryRun: true`/empty credentials exactly as before. **No EventBridge cron provisioned** — `scripts/setup-bet-orders-schedule.sh` still was not run, so nothing evaluates/watches bet orders on a schedule; they just sit `pending` once created. **Live-verified end-to-end against real production** (not just build-commit tag matching): `app.backbet.co.uk`'s `build-commit` meta tag confirmed `2d8416c`; logged into the real deployed Lambda as the real `matthew@backbet.co.uk` account and ran a full `POST /api/bet-orders` → `GET` (confirms it) → `DELETE` (cancels) → `GET` (confirms `status: "cancelled"`) round trip against production — real data written to and read back from the real production database, cleaned up (cancelled, not deleted) the same way the e2e test's own convention leaves things. Both AGENTS.md and this row were edited from the `~/betfair-nlp-deploy-develop` worktree (already at the right commit, clean) rather than the primary checkout, which had a different concurrent agent's own uncommitted edit to this same file sitting in its working tree — deliberately left untouched. |
 | `~/betfair-nlp-daily-races-filters` | `feat/daily-races-filters` | ISP-style filters on `DailyRacesScreen.tsx` (model win%, trainer form, field size, course/going/class/type/region chips, trainer/jockey search) + a new "Today's Picks" list. **Odds-badge history, resolved:** this branch originally added its own "minimum value odds" badge/utility (`dailyRaceFormat.ts`), duplicating a concurrent, unrelated worktree (`~/betfair-nlp-daily-race-fair-odds`) that was building the same idea on `DailyRaceScreen.tsx`. That other worktree ended up merging+deploying its version to `develop` first (`b01cacf`/`c1a4421` "Add fair-odds pill", `client/src/utils/oddsFormat.ts` — `fairDecimalOdds`/`toFractionalOdds`, snaps to the real UK bookmaker fractional-odds ladder) while this branch was still in progress — on merging `origin/develop` into this branch, kept their already-shipped `DailyRaceScreen.tsx`/`oddsFormat.ts` as-is (real conflict, resolved via `git checkout --theirs`) and switched Today's Picks' own odds badge to reuse `oddsFormat.ts` instead of the now-deleted `dailyRaceFormat.ts` odds functions — one consistent "Fair {fraction} ({decimal})" format app-wide, no duplicate math. **Also found+fixed while re-testing post-merge:** the newly-live 3rd pill (form+model+fair-odds) shifts the runner row's geometric center in a way that a coordinate-based click (Playwright's default `.click()` on the row's own testID) can land on the fair-odds pill's own `stopPropagation()` handler instead of the row — not a real production bug (a user tapping the horse name, the actual content, still navigates fine; only a literal-bounding-box-center click is affected), but it broke two **pre-existing** local-ci/MSW drill-down tests that used the row's testID as their click target. Fixed by retargeting those clicks to the horse-name testID (`daily-race-item-horse-{id}`) instead — no production code changed for this. **Gotcha for whoever runs `test:e2e:local-ci` from a freshly-created worktree:** `data/` and `ml/venv` are both gitignored and not brought over by `git worktree add` — symlink both from the primary checkout (`ln -s /home/ubuntu/betfair-nlp/data ./data`, same for `ml/venv`) before running, then remove the symlinks again before committing (they're untracked but not gitignore-matched as symlinks, so `git add -A` would pick them up). | **done** — merged `origin/develop`, resolved the odds-badge conflict, re-verified everything post-merge: build clean, Storybook (34/34 across the three touched story files), MSW (4/4), local-ci (29/29). Ready to merge to `develop` + deploy. |
 | `~/betfair-nlp-model-vs-sp` | `model-vs-sp` | New auth-gated **Model vs SP** screen (`/model-vs-sp`) — a runner-level list comparing the model's win probability against the probability each runner's own industry SP implies (`100/isp`), plus the signed percentage-point gap. Backend: new `IndustrySpDAO.getModelVsSpRunners` (params object, not 29 positional args — follows `getQualifyingRacesForDate`'s precedent), new `GET /api/model-vs-sp` registered **below `router.use(jwtAuth)` and outside the `/api/industry-sp` prefix** (that prefix carries `optionalJwtAuth`, so the natural placement next to its siblings would have shipped an anonymous endpoint). Frontend: `ModelVsSpScreen.tsx` + a new reusable `PaginationControls.tsx` — **numbered backend pagination, the first in this app**, which everywhere else uses "Load more". Filters on model %, SP-implied %, and the signed gap; date range via the shared `DateRangePicker` plus year/month quick-pills whose selected state is *derived* from the applied range, never stored. Two prod sanity scripts under `scripts/`. **Read the `parseFloatParam` note in the dated entry below before touching any numeric query param in `router.ts`.** | **done — not merged, not deployed** (no instruction to). Backend jest 607 passed / 43 failed vs a same-session baseline of 524 / 43 → **+83 new, zero new failures**. MSW Playwright 217 passed / 41 failed vs a baseline of 192 / 41 taken on unmodified `develop` → **+25 new, failure set byte-identical**. `tsc --noEmit` and `client yarn build` clean. Storybook stories written but **not runnable** — the repo-wide test-runner breakage flagged three times already in this file is still present. |
+| `~/betfair-nlp-model-accuracy` | `model-accuracy` | New auth-gated **Model Accuracy** screen (`/model-accuracy`) — the aggregate companion to `model-vs-sp` above: instead of listing runners and their gap to the market, it buckets every scored runner by **the price the model itself makes it** (`under 2.0` … `20.0+`, bucketed on `modelWinProbability` so the boundaries stay exact) and shows per band what the model claimed, what actually won, what the market thought, and the £1-to-win P&L. **Two things the existing comparisons get wrong are fixed here.** (1) **The market column is de-overrounded.** Model probabilities are normalised to sum to 100 per race (`normalize_within_race`), but `100/isp` still carries the bookmaker's margin and sums to ~115–125%, so every runner's SP number is inflated and the raw gap is biased against the model. The DAO computes a per-race `bookSum` via `$reduce` *before* `$unwind` and divides through; the raw figure is kept beside it as the break-even bar a bet must actually clear (which is what `modelBeatsSp`/`onlyModelBeatsSp` correctly compare against — that logic is untouched). (2) **The screen says on its face that the figures are in-sample** — `ml/train_and_predict.py:420-437` refits on 100% of rows *including* the test period and then scores those same rows, so the model already knew the result of every race it scored. Strike rates here are therefore optimistic, worst at short prices; **do not read them as a forward test.** Backend: new standalone `src/lib/dao/model-accuracy-dao.ts` + `model-accuracy-service.ts` (named params object, not positional args) — **deliberately a new DAO rather than another method on the contested `industry-sp-dao.ts`**, same precedent as `model-version-dao.ts`; the race-level `$match` is re-implemented because `buildQualifyingRaceStages` is private and only ever returns scalar counts, never the runner subdocuments a band aggregation needs (the two existing P&L consumers duplicate it for the same reason). `GET /api/model-accuracy` sits **below `router.use(jwtAuth)`** so it 401s anonymously. `scripts/local-ci-e2e.sh` gains a **Step 3f** — nothing in that stack writes `modelWinProbability` onto `industry_starting_prices` (the CI-fixture model only scores `daily_racecards`), so without it these e2e specs could only ever assert the empty state; the new `src/commands/seed-isp-model-probabilities.ts` writes explicitly-synthetic, race-normalized values, deliberately **not** derived from `isp` so the model and market columns can't silently collapse into the same source. **Touches `client/App.tsx`, `AppHeader.tsx`, `useRouter.ts`, `chatApi.ts`, `tests-msw/fixtures.ts`, `src/server/router.ts`, `app.test.ts`, `scripts/local-ci-e2e.sh`** — all additive; checked this table first. `industry-sp-dao.ts` and `IndustrySpScreen.tsx` are **not touched at all**. | in progress |
 | `/home/ubuntu/betfair-nlp` | `develop` | primary checkout | — |
 | `~/betfair-nlp-deploy-develop` | `develop` (detached) | persistent — `/deploy-web` builds from here | keep |
 | `~/betfair-nlp-deploy-main` | `main` (detached) | persistent — `/deploy-backbet` builds from here | keep |
@@ -5377,3 +5378,134 @@ Three design points worth not undoing:
 **Verified**: backend jest **633 passed / 43 failed / 683 total** vs the same-session baseline of **524 / 43 / 574** → **+109 new tests, zero new failures, same 8 failing suites**. New: 12 unit tests for the banding math, 9 integration tests for the summary, 6 rewritten integration tests for the unsigned filter, 6 Supertest cases, 8 MSW tests (`model-vs-sp.spec.ts` now 31/31). `tsc --noEmit` and `client yarn build` clean.
 
 **Verified against production** (`scripts/verify-model-vs-sp-pagination-2026-07-30.ts`, extended with a summary section): count reconciliation still exact across the new magnitude scenarios — 674 runners 10-20 pts apart and 3,751 under 5 pts, both matching an independently-shaped `$unwind` query — and the bands tile the population exactly (`banded === allRunners`, `matchedRunners === total`). Real January-2024 shape: **30.7% of runners within ±2 pts, 62.9% within ±5, 84.6% within ±10, 95.9% within ±20**, mean absolute gap 5.6. Confirmed the denominator holds: with the filter narrowed to 674 runners, `allRunners` stayed 5,963.
+
+---
+
+## 2026-07-30 (later still) — Agent in `~/betfair-nlp-model-accuracy` (branch `model-accuracy`)
+
+**Task:** the user asked how the XGBoost model's quality could be judged, and
+landed on bucketing runner probabilities into price bands and comparing them to
+results. This is that screen. Full plan:
+`/home/ubuntu/.claude/plans/look-at-how-the-virtual-sonnet.md`.
+
+**The measurement, and why the obvious version of it is wrong.** Being close to
+SP is not the goal — a model that matched SP exactly would lose the overround on
+every bet. The money is entirely in the disagreements, and the only question
+that matters is whether they're right. So each band shows the model's claim, the
+market's view and **what actually won**, plus both signed errors: whichever is
+closer to zero was nearer the truth in that band. That turns "how far from SP?"
+from a vague smell test into a per-price verdict.
+
+**The overround is not cosmetic.** `normalize_within_race` forces model
+probabilities to sum to exactly 100 per race; `100/isp` does not — a real book
+sums to ~115–125%. Comparing them directly makes the model look systematically
+pessimistic by roughly the margin, on every single runner. The fix is a per-race
+`bookSum` computed with `$reduce` while `runners` is still an array, then
+`fairProb = (100/isp)/bookSum*100`. **Both numbers are kept**: the fair one is
+the only honest comparison against the model, and the raw one is the real
+break-even bar a bet has to clear — which is why `modelBeatsSp` /
+`onlyModelBeatsSp` comparing against the *raw* figure is correct and was left
+exactly as it is.
+
+**The numbers on this screen are in-sample, and it says so in the UI.**
+`ml/train_and_predict.py:420-423` refits on all rows including the test period,
+`:437` predicts those same rows, `:442-466` writes them back. Every stored
+`modelWinProbability` therefore comes from a model that already knew that race's
+result. Strike rates read high, most at short prices. An honest version needs
+walk-forward re-scoring into a separate field — deliberately out of scope here
+and called out as such in the plan, along with the two other gaps that surfaced
+while reading the pipeline: **nothing ever reads `model_evaluations` back**
+(there's no champion/challenger gate, so a worse retrain silently and
+irrecoverably overwrites a better one), and **nothing computes what the market's
+own log loss/Brier would have been**, so the pipeline currently cannot tell it's
+doing worse than just reading the price.
+
+**Correction to the `model-vs-sp` entry above: the Storybook test-runner is NOT
+broken repo-wide.** That entry reports stories "written but not runnable". It
+works — full suite **437 passed / 7 failed / 444** on this branch. I hit the
+identical symptom first (every story failing in 4–69ms with
+`page.evaluate: ReferenceError: Cannot access 'StorybookTestRunnerError' before
+initialization`) and briefly mis-blamed `.storybook/test-runner.ts`'s
+`testEnvironment: "jsdom"`. **The real cause is running `test-storybook` against
+a Storybook dev server that has answered `/index.json` but hasn't finished
+compiling the preview bundle yet.** `curl /index.json` returning 200 is *not* a
+readiness signal. Give it a warm-up run, or just re-run — the second attempt
+passes with the config completely untouched. The 7 real failures are the
+long-standing `AllRunnersScreen`/`EventsScreen`/`IndustrySpScreen`/
+`RunnerDetailScreen`/`SavedResultsListScreen` ones.
+
+**A related trap on this 2-core VM:** leaving the Storybook dev server running
+while a Playwright suite executes inflates everything enough to produce dozens of
+spurious 6s/30s timeout failures in `tests-msw/industry-sp.spec.ts`. Kill it
+first, or you will spend a while investigating regressions that aren't there.
+
+**Why a new DAO.** `industry-sp-dao.ts` is on this file's read-before-touching
+list, and `buildQualifyingRaceStages` is `private` and only returns scalar
+counts, never the runner subdocuments a band aggregation needs — both existing
+P&L consumers already duplicate that filter for the same reason (see the
+comments at `:591-604` and `:913-916`). So `model-accuracy-dao.ts` is standalone
+over the same collection, same precedent as `model-version-dao.ts`.
+`industry-sp-dao.ts` and `IndustrySpScreen.tsx` were not touched at all.
+
+**A real bug the tests caught, worth keeping:** `pnl` was originally computed
+from unrounded staked/returns and then rounded, which made the money columns
+fail to add up on screen (staked £2.34 + returns £3.67 displayed a P&L of
+£1.32, not £1.33). It now derives from the same rounded figures the user sees,
+so the columns reconcile exactly — and the integration test asserts exact
+equality rather than `toBeCloseTo`, which is what surfaced it.
+
+**Two smaller things fixed during self-review, both found by reading rather than
+by a failing test:** the `Brier` tooltip was rendered by both the table's
+hoisted tooltip row and its own card, emitting a duplicate testID; and
+`marketMeanProbRaw` had a tooltip but no column, so the break-even figure was
+computed and returned but never actually displayed.
+
+**`scripts/local-ci-e2e.sh` Step 3f is new and load-bearing.** Nothing in that
+stack writes `modelWinProbability` onto `industry_starting_prices` — the
+CI-fixture model only scores `daily_racecards` — so before this, every
+model-accuracy e2e assertion would have passed vacuously against all-zero bands.
+`src/commands/seed-isp-model-probabilities.ts` writes explicitly-synthetic,
+race-normalized values, deliberately **not** derived from `isp`: deriving them
+from the market price would make the model and market columns near-identical and
+the whole error comparison degenerate, so the suite would still pass if the two
+were accidentally wired to the same source. One API spec asserts
+`overall.runners > 0` specifically to fail loudly if this step ever stops
+running.
+
+**Verified:**
+- `npx tsc --noEmit` and `client yarn build` clean, before and after merging
+  `origin/develop`.
+- **`yarn test:e2e:local-ci` 54/54 passed** (was 36 before this branch — 18 new:
+  12 API, 6 UI), full throwaway stack, real backend, real Mongo, no mocking.
+- Backend jest `app.test.ts` + the new DAO integration suite: **241 passed / 7
+  skipped**, including 19 new integration tests against real local mongo on
+  :27019 in a uniquely-named throwaway DB (dropped in `afterAll`) and 8 new
+  supertest cases.
+- Storybook, post-merge: **454 passed / 25 failed / 479**; the new
+  `ModelAccuracyScreen.stories.tsx` is **9/9 green**. Pre-merge this branch was
+  437/7 against the 5 long-standing broken suites — **the extra 18 failures came
+  in with `model-vs-sp`**: `ModelVsSpScreen.stories.tsx` (11) and
+  `PaginationControls.stories.tsx` (7), consistent with that entry stating its
+  stories were never run. They fail on their own testIDs
+  (`model-vs-sp-model-1000-90000` not found) and on
+  `expect(...).toHaveAttribute("aria-selected", "true")` returning `null` —
+  **nothing to do with the `AppHeader` nav item added here**, which I checked
+  specifically because both branches edited that file. Flagging for whoever owns
+  that feature.
+- MSW `model-accuracy.spec.ts` **8/8** post-merge. The wider MSW suite has a
+  large pre-existing failure set (the `model-vs-sp` entry above records 41 on
+  unmodified `develop`), and a full run exceeds the harness timeout on this
+  2-core box; a run excluding `industry-sp.spec.ts` gave **172 passed / 16
+  failed**, every failure in `odds-display`/`responsive`/`runner-detail`/
+  `trainer-detail` — files this branch does not touch.
+- The integration test's arithmetic is hand-worked in a comment block at the top
+  of the file (book sums to exactly 625/6, fair probs land on 48/24/16/12) so the
+  expectations are checkable rather than snapshotted.
+
+**Merged `origin/develop` mid-task** — `model-vs-sp` had landed and touched nine
+of the same files. Three real conflicts (`App.tsx`, `AppHeader.tsx`,
+`app.test.ts`), all the "both branches added a sibling item" shape, resolved by
+keeping both. The two screens are complementary and now sit next to each other
+in the nav: **Model vs SP** lists individual runners and their gap to the
+market; **Model Accuracy** aggregates the same comparison into price bands and
+checks each band against what actually won.
