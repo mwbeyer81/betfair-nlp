@@ -57,20 +57,20 @@ the API itself — see "Failure behavior" below).
 
 ## Schedule
 
-**As of 2026-07-28: every 10 minutes, all day** (`rate(10 minutes)`), set
-in `scripts/setup-industry-sp-results-schedule.sh` — changed from the
-original once-daily 21:30 UTC firing once Daily Races' Today's Picks
-started showing live per-pick results/P&L (`feat/daily-picks-results-pnl`):
-punters want a race's result to show up shortly after it finishes, not
-only once in the evening. Safe to call this often — `/results/today` only
-ever returns races that have already finished, and the write is an
-idempotent upsert keyed by hashed raceId, so an extra call just means
-nothing new to upsert yet. Also sidesteps the old day-boundary edge case
-below (running continuously through midnight UK time rather than needing
-to land in one narrow pre-midnight window). **Worth keeping an eye on**:
-this is ~144 calls/day to RacingAPI's `/results/today` — if the account's
-Basic-plan rate limit ever becomes a problem, dial `SCHEDULE_EXPRESSION`
-back down (e.g. `rate(30 minutes)`) rather than reverting to once-daily.
+**As of 2026-07-29: every 2 minutes, all day** (`rate(2 minutes)`), set in
+`scripts/setup-industry-sp-results-schedule.sh` — tightened from an
+intermediate 10-minute rate (2026-07-28) at the user's request so a
+finished race's result shows up within ~2 minutes rather than up to 10.
+Safe to call this often — `/results/today` only ever returns races that
+have already finished, and the write is an idempotent upsert keyed by
+hashed raceId, so an extra call just means nothing new to upsert yet. Also
+sidesteps the old day-boundary edge case below (running continuously
+through midnight UK time rather than needing to land in one narrow
+pre-midnight window). **Worth keeping an eye on**: this is ~720 calls/day
+to RacingAPI's `/results/today` — still nowhere near the Basic plan's
+1-5 requests/second ceiling, but if the account's rate limit ever becomes
+a problem, dial `SCHEDULE_EXPRESSION` back up (e.g. `rate(10 minutes)`)
+rather than reverting to once-daily.
 
 Original reasoning for the old once-daily 21:30 UTC default, kept for
 context: deliberately later than the racecards cron's 06:00 UTC, since
