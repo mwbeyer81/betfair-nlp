@@ -339,7 +339,23 @@ export class BetfairApiClient {
       if (result.status !== "SUCCESS" || !report || report.status !== "SUCCESS" || !report.betId) {
         return { outcome: "FAILURE", error: result.errorCode ?? report?.errorCode ?? result.status ?? "unknown placeOrders failure" };
       }
-      return { outcome: "SUCCESS", betId: report.betId, matchedPrice: report.averagePriceMatched ?? price };
+      // REAL BUG FOUND AND FIXED 2026-07-30 (see AGENTS.md's
+      // matched-price-zero entry): a LIMIT order that hasn't filled by the
+      // time placeOrders returns comes back SUCCESS with a real betId but
+      // `averagePriceMatched: 0` — Betfair's "nothing matched yet", not a
+      // real price of zero. `?? price` only substitutes on null/undefined,
+      // so a literal 0 sailed through and was persisted as the bet's
+      // matched price (confirmed live: bet 436598726286 stored 0 while
+      // Betfair's own listClearedOrders reported priceMatched 8.4). That
+      // wrong price is then displayed as the bet's odds, and — for a
+      // sandbox order, whose settlement multiplies by it — turns a winning
+      // bet into a loss (bet-order-service.ts's refreshSandboxResults).
+      // Treat any non-positive/absent value as "unmatched so far" and fall
+      // back to the requested price; the true matched price is corrected
+      // from Betfair's own settled data later (refreshSettledResults).
+      const averagePriceMatched = report.averagePriceMatched;
+      const matchedPrice = typeof averagePriceMatched === "number" && averagePriceMatched > 0 ? averagePriceMatched : price;
+      return { outcome: "SUCCESS", betId: report.betId, matchedPrice };
     } catch (error) {
       return { outcome: "FAILURE", error: error instanceof Error ? error.message : String(error) };
     }
