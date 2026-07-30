@@ -341,6 +341,80 @@ export interface IspPage {
   pnlStats: PnlStats;
 }
 
+export type ModelVsSpSort = "date_desc" | "date_asc" | "edge_desc" | "edge_asc";
+
+// One row per RUNNER, not per race — the Model vs SP screen's unit. Mirrors the
+// backend's ModelVsSpRow field-for-field. Every one of the three comparison
+// numbers is non-optional here (unlike IspRunner.modelWinProbability above),
+// because the endpoint only ever returns runners that have all of them.
+export interface ModelVsSpRow {
+  raceId: number;
+  raceTime: string;
+  raceDate: string;
+  meetingId: string;
+  meetingName: string;
+  course: string;
+  countryCode: string;
+  raceName: string;
+  raceType: string;
+  raceClass: string | null;
+  going: string | null;
+  runnerId: number;
+  runnerName: string;
+  num: number | null;
+  draw: number | null;
+  sortPriority: number;
+  status: "WINNER" | "PLACED" | "LOSER" | "NON_FINISHER";
+  isp: number;
+  ispFraction: string | null;
+  isFavourite: boolean;
+  jockey: string | null;
+  trainer: string | null;
+  modelWinProbability: number;
+  impliedSpProbability: number;
+  // Signed percentage points: modelWinProbability - impliedSpProbability.
+  edge: number;
+  modelVersionId: string | null;
+}
+
+export interface ModelVsSpQuery {
+  page?: number;
+  limit?: number;
+  sort?: ModelVsSpSort;
+  minDate?: string;
+  maxDate?: string;
+  minModelProb?: number;
+  maxModelProb?: number;
+  minImpliedProb?: number;
+  maxImpliedProb?: number;
+  minEdge?: number;
+  maxEdge?: number;
+  minIsp?: number;
+  maxIsp?: number;
+  minRunners?: number;
+  maxRunners?: number;
+  countries?: string[];
+  includeTotal?: boolean;
+}
+
+export interface ModelVsSpPage {
+  success: boolean;
+  data: ModelVsSpRow[];
+  count: number;
+  // null (not 0) when the request opted out of the count with
+  // includeTotal: false — "not counted" is a different state from "none found",
+  // and the screen keeps displaying the total it already had.
+  total: number | null;
+  page: number;
+  limit: number;
+  totalPages: number | null;
+  sort: ModelVsSpSort;
+  // The window actually queried, which may be a clamped or defaulted version of
+  // what was asked for (the server caps the span at 366 days).
+  minDate: string;
+  maxDate: string;
+}
+
 export interface ModelTrainingParams {
   nEstimators: number;
   learningRate: number;
@@ -824,6 +898,50 @@ class ChatApi {
       { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch industry SP");
+    return response.json();
+  }
+
+  // Runner-level rows for the Model vs SP screen.
+  //
+  // A params OBJECT, deliberately unlike getIndustrySp above — that method has
+  // 29 positional arguments, and adding a 30th through 40th here would make the
+  // smell terminal. Matches the shape the backend DAO/service already take
+  // (getModelVsSpRunners).
+  //
+  // Every numeric is serialised with `!= null`, never a truthiness check: a
+  // minEdge of 0 is the single most important value this screen can send ("only
+  // runners the model rates above the market"), and `if (q.minEdge)` would drop
+  // it and let the server's own -100 default silently win.
+  async getModelVsSp(q: ModelVsSpQuery = {}): Promise<ModelVsSpPage> {
+    const params = new URLSearchParams();
+    const numericKeys: (keyof ModelVsSpQuery)[] = [
+      "page",
+      "limit",
+      "minModelProb",
+      "maxModelProb",
+      "minImpliedProb",
+      "maxImpliedProb",
+      "minEdge",
+      "maxEdge",
+      "minIsp",
+      "maxIsp",
+      "minRunners",
+      "maxRunners",
+    ];
+    for (const key of numericKeys) {
+      const value = q[key];
+      if (value != null) params.set(key, String(value));
+    }
+    if (q.sort) params.set("sort", q.sort);
+    if (q.minDate) params.set("minDate", q.minDate);
+    if (q.maxDate) params.set("maxDate", q.maxDate);
+    if (q.countries?.length) params.set("countries", q.countries.join(","));
+    // Only ever written when explicitly false — the server defaults it to true,
+    // so an absent param and `includeTotal=true` mean the same thing.
+    if (q.includeTotal === false) params.set("includeTotal", "false");
+
+    const response = await fetch(`${this.baseUrl}/api/model-vs-sp?${params}`, { headers: this.authHeader() });
+    if (!response.ok) throw new Error("Failed to fetch model vs SP");
     return response.json();
   }
 

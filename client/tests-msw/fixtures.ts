@@ -471,6 +471,144 @@ async function setupApiMocks(page: Page) {
     });
   });
 
+  // Two extra runners in a second 2025 race, existing only for the Model vs SP
+  // screen: the three race fixtures above are each a single moment in time, so
+  // without a second date inside the same calendar year there is nothing for a
+  // date sort to order (and that endpoint caps any window at 366 days).
+  //   June Value Runner isp 5  -> SP 20.0% | model 45 -> edge +25.0
+  //   June Outsider     isp 20 -> SP  5.0% | model  1 -> edge  -4.0
+  const MODEL_VS_SP_JUNE_RACE = {
+    raceId: 667788,
+    meetingId: "Newbury|2025-06-15",
+    meetingName: "Newbury — 15 June 2025",
+    course: "Newbury",
+    countryCode: "GB",
+    raceTime: "2025-06-15T13:45:00",
+    raceName: "Newbury Stakes",
+    raceType: "Flat",
+    raceClass: "Class 4",
+    going: "Firm",
+    ran: 2,
+    runners: [
+      { id: 66601, name: "June Value Runner", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false, trainer: "A Balding", modelWinProbability: 45 },
+      { id: 66602, name: "June Outsider", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 20, ispFraction: "19/1", isFavourite: false, trainer: "A Balding", modelWinProbability: 1 },
+    ],
+  };
+
+  // Model vs SP: runner-level rows, flattened from the SAME three race fixtures
+  // above so the model/SP/edge numbers this screen asserts reconcile with the
+  // ones /isp/races' own specs already assert against those runners. Every edge
+  // below is therefore derived, not invented:
+  //
+  //   Springwell Bay   isp 4.5 -> SP 22.2% | model 12.5 -> edge  -9.7
+  //   Gaelic Warrior   isp 9.2 -> SP 10.9% | model  8.3 -> edge  -2.6
+  //   Fact To File     isp 2.1 -> SP 47.6% | model 39.2 -> edge  -8.4
+  //   Teston (FR)      isp 11  -> SP  9.1% | model  100 -> edge +90.9
+  //   Value Bet Horse  isp 10  -> SP 10.0% | model   25 -> edge +15.0
+  //   Market Favourite isp 1.5 -> SP 66.7% | model   20 -> edge -46.7
+  const MODEL_VS_SP_ROWS = [
+    MOCK_INDUSTRY_SP_RACE,
+    MOCK_NO_FORM_RACE,
+    MOCK_VALUE_MIXED_RACE,
+    MODEL_VS_SP_JUNE_RACE,
+  ].flatMap((race) =>
+    race.runners.map((r) => {
+      const runner = r as {
+        id: number; name: string; num: number | null; draw: number | null;
+        status: string; sortPriority: number; isp: number; ispFraction: string;
+        isFavourite: boolean; trainer?: string; modelWinProbability: number;
+      };
+      const implied = 100 / runner.isp;
+      return {
+        raceId: race.raceId,
+        raceTime: race.raceTime,
+        raceDate: race.raceTime.slice(0, 10),
+        meetingId: race.meetingId,
+        meetingName: race.meetingName,
+        course: race.course,
+        countryCode: race.countryCode,
+        raceName: race.raceName,
+        raceType: race.raceType,
+        raceClass: race.raceClass,
+        going: race.going,
+        runnerId: runner.id,
+        runnerName: runner.name,
+        num: runner.num,
+        draw: runner.draw,
+        sortPriority: runner.sortPriority,
+        status: runner.status,
+        isp: runner.isp,
+        ispFraction: runner.ispFraction,
+        isFavourite: runner.isFavourite,
+        jockey: null,
+        trainer: runner.trainer ?? null,
+        modelWinProbability: runner.modelWinProbability,
+        impliedSpProbability: implied,
+        edge: runner.modelWinProbability - implied,
+        modelVersionId: "xgb-msw",
+      };
+    })
+  );
+
+  // A predicate matcher on the exact pathname, not a glob: "**/api/model*"
+  // would also swallow /api/model-versions, which has its own handler.
+  await page.route((url) => url.pathname === "/api/model-vs-sp", (route) => {
+    const reqUrl = new URL(route.request().url());
+    const page_ = Math.max(1, parseInt(reqUrl.searchParams.get("page") ?? "1", 10));
+    const limit = Math.max(1, parseInt(reqUrl.searchParams.get("limit") ?? "50", 10));
+    const sort = reqUrl.searchParams.get("sort") ?? "date_desc";
+    const includeTotal = reqUrl.searchParams.get("includeTotal") !== "false";
+    const rawMinDate = reqUrl.searchParams.get("minDate") ?? "2024-01-01";
+    const rawMaxDate = reqUrl.searchParams.get("maxDate") ?? "2024-01-31";
+    // The real endpoint ALWAYS clamps the window to 366 days and echoes back what
+    // it actually queried (its gap sort is a blocking in-memory sort with no
+    // index to fall back on). Mirrored here, or these tests would pass against a
+    // wider window than production would ever serve.
+    const minDate = rawMinDate;
+    const capped = new Date(`${minDate}T00:00:00Z`);
+    capped.setUTCDate(capped.getUTCDate() + 366);
+    const maxAllowed = capped.toISOString().slice(0, 10);
+    const maxDate = rawMaxDate > maxAllowed ? maxAllowed : rawMaxDate;
+    const minEdge = parseFloat(reqUrl.searchParams.get("minEdge") ?? "-100");
+    const maxEdge = parseFloat(reqUrl.searchParams.get("maxEdge") ?? "100");
+    const minModelProb = parseFloat(reqUrl.searchParams.get("minModelProb") ?? "0");
+    const maxModelProb = parseFloat(reqUrl.searchParams.get("maxModelProb") ?? "100");
+
+    let rows = MODEL_VS_SP_ROWS.filter(
+      (r) =>
+        r.raceDate >= minDate &&
+        r.raceDate <= maxDate &&
+        r.edge >= minEdge &&
+        r.edge <= maxEdge &&
+        r.modelWinProbability >= minModelProb &&
+        r.modelWinProbability <= maxModelProb
+    );
+
+    rows = [...rows].sort((a, b) => {
+      if (sort === "edge_desc") return b.edge - a.edge;
+      if (sort === "edge_asc") return a.edge - b.edge;
+      if (sort === "date_asc") return a.raceTime.localeCompare(b.raceTime);
+      return b.raceTime.localeCompare(a.raceTime);
+    });
+
+    const total = rows.length;
+    const data = rows.slice((page_ - 1) * limit, page_ * limit);
+    route.fulfill({
+      json: {
+        success: true,
+        data,
+        count: data.length,
+        total: includeTotal ? total : null,
+        page: page_,
+        limit,
+        totalPages: includeTotal ? Math.ceil(total / limit) : null,
+        sort,
+        minDate,
+        maxDate,
+      },
+    });
+  });
+
   const MOCK_TRAINER_FORM = {
     trainer: "W P Mullins",
     formCategory: "Flat",

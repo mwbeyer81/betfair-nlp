@@ -63,6 +63,71 @@ export interface IspRace {
   runners: IspRunner[];
 }
 
+export type ModelVsSpSort = "date_desc" | "date_asc" | "edge_desc" | "edge_asc";
+
+export interface ModelVsSpParams {
+  page: number;
+  limit: number;
+  sort: ModelVsSpSort;
+  // Both always supplied, unlike getAllRacesByRace's nullable minRaceTime /
+  // maxRaceTime — see getModelVsSpRunners for why this query can never run
+  // unbounded.
+  minRaceTime: string;
+  maxRaceTime: string;
+  minModelProb: number;
+  maxModelProb: number;
+  minImpliedProb: number;
+  maxImpliedProb: number;
+  // Signed percentage points: modelWinProbability - (100 / isp). Negative means
+  // the model rates the runner WORSE than its own industry SP implies.
+  minEdge: number;
+  maxEdge: number;
+  minIsp: number;
+  maxIsp: number;
+  minRunners: number;
+  maxRunners: number;
+  countries: string[];
+  // Skips the (separate, cheaper) count query and returns total: null — a pure
+  // page step already knows the total from the request that loaded page 1, so
+  // re-counting on every Next would halve this endpoint's throughput for no new
+  // information.
+  includeTotal: boolean;
+}
+
+// One row per qualifying RUNNER, not per race — the whole point of this query,
+// and why it can't reuse getAllRacesByRace's race-shaped IspRace output. Every
+// runner-level field here is non-null by construction: the filter requires
+// isp > 1 and a non-null modelWinProbability, so impliedSpProbability and edge
+// are always computable.
+export interface ModelVsSpRow {
+  raceId: number;
+  raceTime: string;
+  raceDate: string;
+  meetingId: string;
+  meetingName: string;
+  course: string;
+  countryCode: string;
+  raceName: string;
+  raceType: string;
+  raceClass: string | null;
+  going: string | null;
+  runnerId: number;
+  runnerName: string;
+  num: number | null;
+  draw: number | null;
+  sortPriority: number;
+  status: IspRunnerStatus;
+  isp: number;
+  ispFraction: string | null;
+  isFavourite: boolean;
+  jockey: string | null;
+  trainer: string | null;
+  modelWinProbability: number;
+  impliedSpProbability: number;
+  edge: number;
+  modelVersionId: string | null;
+}
+
 // Escapes regex metacharacters so a raw trainer/jockey search string can't be
 // interpreted as a regex pattern (both a correctness issue — literal
 // characters like "O'Brien" or "St. Leger" would otherwise misbehave — and a
@@ -1171,6 +1236,312 @@ export class IndustrySpDAO {
       if (rawId) byRawId.set(rawId, doc as unknown as RaceDoc);
     }
     return byRawId;
+  }
+
+  /**
+   * The per-runner condition shared by getModelVsSpRunners' data and count
+   * pipelines — extracted for the same reason buildQualifyingRaceStages is, so
+   * "which runners does this screen show" and "how many rows does it claim
+   * there are" can never drift apart.
+   *
+   * `isp > 1` isn't only the usual "has a real SP" guard here: it's what makes
+   * the $divide safe. `modelWinProbability != null` excludes both an explicit
+   * null and an absent field in one check (a missing path compares equal to
+   * null in an aggregation expression), which is what drops the CSV-imported
+   * historical runners that were never model-scored — a model-vs-SP gap is
+   * undefined without both sides, so those rows are excluded server-side rather
+   * than rendered with a blank column.
+   *
+   * The TypeScript counterpart of the edge expression is `modelSpEdge` in
+   * client/src/utils/ispFormat.ts. The two can't share code (one is a Mongo
+   * expression tree, one is plain arithmetic), so the integration test pins both
+   * to the same hand-derived numbers.
+   */
+  private buildModelVsSpRunnerCond(p: ModelVsSpParams): Record<string, unknown> {
+    const impliedExpr = { $divide: [100, "$$r.isp"] };
+    const edgeExpr = { $subtract: ["$$r.modelWinProbability", impliedExpr] };
+    return {
+      $and: [
+        { $ifNull: ["$$r.isp", false] },
+        { $gt: ["$$r.isp", 1] },
+        { $gte: ["$$r.isp", p.minIsp] },
+        { $lte: ["$$r.isp", p.maxIsp] },
+        { $ne: ["$$r.modelWinProbability", null] },
+        { $gte: ["$$r.modelWinProbability", p.minModelProb] },
+        { $lte: ["$$r.modelWinProbability", p.maxModelProb] },
+        { $gte: [impliedExpr, p.minImpliedProb] },
+        { $lte: [impliedExpr, p.maxImpliedProb] },
+        { $gte: [edgeExpr, p.minEdge] },
+        { $lte: [edgeExpr, p.maxEdge] },
+      ],
+    };
+  }
+
+  /** The race-level prelude both getModelVsSpRunners pipelines share. */
+  private buildModelVsSpRaceStages(p: ModelVsSpParams): Record<string, unknown>[] {
+    return this.buildQualifyingRaceStages({
+      countries: p.countries,
+      minRunners: p.minRunners,
+      maxRunners: p.maxRunners,
+      minIsp: p.minIsp,
+      maxIsp: p.maxIsp,
+      minInIspRange: 1,
+      maxInIspRange: 10000,
+      courses: [],
+      goings: [],
+      raceClasses: [],
+      raceTypes: [],
+      trainerSearch: null,
+      jockeySearch: null,
+      runnerName: null,
+      trainerFormMinWinRate: 0,
+      minTrainerFormRunners: 0,
+      maxTrainerFormRunners: 100,
+      // A valid necessary condition, and a cheap race-level pre-filter: no race
+      // can contribute a row unless at least one of its runners clears
+      // minModelProb. The joint per-runner condition still runs below — this
+      // only discards races that can't possibly match.
+      minModelWinProbability: p.minModelProb,
+      // Subsumed by the edge range (minEdge >= 0 IS "model beats SP"), so
+      // applying it again would be redundant work.
+      onlyModelBeatsSp: false,
+      modelVersionId: null,
+    });
+  }
+
+  /**
+   * One row per runner (not per race), carrying the model's own win probability
+   * alongside the probability that runner's industry SP implies (100/isp) and
+   * the signed percentage-point gap between them — the "Model vs SP" screen.
+   *
+   * Runner-level pagination is new to this DAO; every other paginated query here
+   * pages by race. Three deliberate departures, each with a reason:
+   *
+   * 1. **A params object, not positional args.** getAllRacesByRace has 29
+   *    positional parameters, which is why chatApi.getIndustrySp has 29 too, and
+   *    why scripts/verify-isp-year-walk-fix-2026-07-28.ts has to hand-spread an
+   *    object back into positional order. getQualifyingRacesForDate already set
+   *    the better precedent; this follows that one.
+   *
+   * 2. **Two queries, not one $facet.** The count needs neither ordering nor an
+   *    $unwind — it's a single streaming $group over $size of a $filter, far
+   *    cheaper than the data query. Putting it in a $facet would force it to
+   *    consume the unwound stream, and would drag the 16MB single-BSON-doc
+   *    ceiling (the reason /api/industry-sp caps limit at 2000) into a query
+   *    that otherwise has no reason to care about it. The two run sequentially,
+   *    not via Promise.all — M0's ceiling is concurrent throughput, not
+   *    per-query cost (see getSplitStats in industry-sp-service.ts).
+   *
+   * 3. **The date window is mandatory.** The edge sort is a blocking sort that NO
+   *    index can serve — its key is arithmetic over two fields of an array
+   *    subdocument. It does NOT, however, hit the 32MB blocking-sort limit that
+   *    Atlas M0 can't spill around: the $sort is immediately followed by
+   *    $skip/$limit, so MongoDB uses a bounded top-k sort (memory scales with
+   *    skip+limit, not with the input), over documents already projected down to
+   *    ~44 bytes. Verified against production, not assumed —
+   *    scripts/verify-model-vs-sp-pagination-2026-07-30.ts sorted the entire
+   *    ~970k-runner collection without error. What scales linearly is TIME:
+   *    ~106ms for a month, ~1.1s for a year, ~11.5s for everything. The router
+   *    clamps the span to MODEL_VS_SP_MAX_SPAN_DAYS to keep a cold load near a
+   *    second; see that constant for the full measurement table.
+   *
+   *    createIndexes() is deliberately left untouched. A multikey index on
+   *    runners.modelWinProbability wouldn't help: the race-level pre-filter is an
+   *    $expr over a computed count, which can't use an index, so it would cost
+   *    ~1M index entries against M0's tight storage quota and never be read.
+   *
+   * The date sort, by contrast, has zero blocking-sort exposure at any scale:
+   * its leading $match and $sort are on the same indexed raceTime field (one
+   * bounded index walk serves both — the same idiom as getAllRacesByRace), and
+   * every stage after it ($unwind/$addFields/$match/$project/$skip/$limit) is
+   * streaming and order-preserving, so sort memory stays O(1) however deep the
+   * requested page is.
+   */
+  public async getModelVsSpRunners(p: ModelVsSpParams): Promise<{ rows: ModelVsSpRow[]; total: number | null }> {
+    const runnerCond = this.buildModelVsSpRunnerCond(p);
+    const dateMatch = { $match: { raceTime: { $gte: p.minRaceTime, $lte: p.maxRaceTime } } };
+    const skip = (Math.max(1, p.page) - 1) * p.limit;
+    const isEdgeSort = p.sort === "edge_desc" || p.sort === "edge_asc";
+
+    // Recomputed from the runner's own fields rather than threaded through every
+    // stage — cheap, and it keeps the emitted numbers provably consistent with
+    // the filter condition above.
+    const impliedFromRunner = { $divide: [100, "$mvsRunner.isp"] };
+    const rowFields: Record<string, unknown> = {
+      _id: 0,
+      raceId: 1,
+      raceTime: 1,
+      raceDate: 1,
+      meetingId: 1,
+      meetingName: 1,
+      course: 1,
+      countryCode: 1,
+      raceName: 1,
+      raceType: 1,
+      raceClass: { $ifNull: ["$raceClass", null] },
+      going: { $ifNull: ["$going", null] },
+      runnerId: "$mvsRunner.id",
+      runnerName: "$mvsRunner.name",
+      num: { $ifNull: ["$mvsRunner.num", null] },
+      draw: { $ifNull: ["$mvsRunner.draw", null] },
+      sortPriority: "$mvsRunner.sortPriority",
+      status: "$mvsRunner.status",
+      isp: "$mvsRunner.isp",
+      ispFraction: { $ifNull: ["$mvsRunner.ispFraction", null] },
+      isFavourite: { $ifNull: ["$mvsRunner.isFavourite", false] },
+      jockey: { $ifNull: ["$mvsRunner.jockey", null] },
+      trainer: { $ifNull: ["$mvsRunner.trainer", null] },
+      modelWinProbability: "$mvsRunner.modelWinProbability",
+      impliedSpProbability: impliedFromRunner,
+      modelVersionId: { $ifNull: ["$mvsRunner.modelVersionId", null] },
+    };
+
+    const dataPipeline: Record<string, unknown>[] = isEdgeSort
+      ? [
+          dateMatch,
+          ...this.buildModelVsSpRaceStages(p),
+          { $addFields: { mvsRunners: { $filter: { input: "$runners", as: "r", cond: runnerCond } } } },
+          { $match: { mvsRunners: { $ne: [] } } },
+          // Slim each doc down to (race id, sort keys) *before* the $sort — the
+          // same optimization getAllRacesByRace documents for its own leading
+          // sort, and the only thing keeping this blocking sort's buffer to tens
+          // of bytes per runner rather than a whole race document.
+          {
+            $project: {
+              _id: 1,
+              raceTime: 1,
+              mvsRunners: {
+                $map: {
+                  input: "$mvsRunners",
+                  as: "r",
+                  in: {
+                    id: "$$r.id",
+                    edge: { $subtract: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
+                  },
+                },
+              },
+            },
+          },
+          { $unwind: "$mvsRunners" },
+          { $project: { _id: 1, raceTime: 1, runnerId: "$mvsRunners.id", edge: "$mvsRunners.edge" } },
+          // raceTime + runnerId aren't cosmetic tiebreaks: without a total
+          // order, two runners with an identical edge can swap places between
+          // the page-2 and page-3 queries, so one row gets shown twice and
+          // another never at all.
+          { $sort: { edge: p.sort === "edge_desc" ? -1 : 1, raceTime: 1, runnerId: 1 } },
+          { $skip: skip },
+          { $limit: p.limit },
+          // Rehydrate only the <=limit survivors. Safe here (unlike ahead of a
+          // $setWindowFields — see getRaceConvergenceSeries) because nothing
+          // downstream depends on the pipeline's sort being index-provable.
+          { $lookup: { from: this.collectionName, localField: "_id", foreignField: "_id", as: "_docs" } },
+          { $addFields: { _doc: { $arrayElemAt: ["$_docs", 0] } } },
+          {
+            $addFields: {
+              raceId: "$_doc.raceId",
+              raceDate: "$_doc.raceDate",
+              meetingId: "$_doc.meetingId",
+              meetingName: "$_doc.meetingName",
+              course: "$_doc.course",
+              countryCode: "$_doc.countryCode",
+              raceName: "$_doc.raceName",
+              raceType: "$_doc.raceType",
+              raceClass: "$_doc.raceClass",
+              going: "$_doc.going",
+              mvsRunner: {
+                $arrayElemAt: [
+                  {
+                    $filter: {
+                      input: { $ifNull: ["$_doc.runners", []] },
+                      as: "r",
+                      cond: { $eq: ["$$r.id", "$runnerId"] },
+                    },
+                  },
+                  0,
+                ],
+              },
+            },
+          },
+          // `edge` is carried through from the slim doc rather than recomputed
+          // from $mvsRunner, so the number displayed is provably the number that
+          // was sorted on. Runner ids are synthNumericId hashes, assumed unique
+          // within a race; were one ever to collide, this ordering means the row
+          // shows a correct edge against a possibly-wrong name, not a wrong edge.
+          { $project: { ...rowFields, edge: 1 } },
+        ]
+      : [
+          dateMatch,
+          // Must be the pipeline's second stage, on the same field the $match
+          // above bounds — that's what lets one bounded {raceTime:1} index walk
+          // serve both instead of a blocking sort. Moving the race-filter stages
+          // ahead of it reintroduces exactly that (documented as failed fix #1
+          // in getRaceConvergenceSeries).
+          { $sort: { raceTime: p.sort === "date_desc" ? -1 : 1 } },
+          ...this.buildModelVsSpRaceStages(p),
+          {
+            $addFields: {
+              mvsRunners: {
+                $sortArray: {
+                  input: { $filter: { input: "$runners", as: "r", cond: runnerCond } },
+                  // A per-document sort of ~9 elements, not a pipeline sort —
+                  // gives runners within a race the same racecard order the rest
+                  // of the app shows them in.
+                  sortBy: { sortPriority: 1 },
+                },
+              },
+            },
+          },
+          { $match: { mvsRunners: { $ne: [] } } },
+          // Drop the full runners array before the $unwind, so the fan-out
+          // carries only the qualifying subset rather than every race document
+          // multiplied by its field size.
+          {
+            $project: {
+              _id: 0,
+              raceId: 1,
+              raceTime: 1,
+              raceDate: 1,
+              meetingId: 1,
+              meetingName: 1,
+              course: 1,
+              countryCode: 1,
+              raceName: 1,
+              raceType: 1,
+              raceClass: 1,
+              going: 1,
+              mvsRunners: 1,
+            },
+          },
+          { $unwind: "$mvsRunners" },
+          { $skip: skip },
+          { $limit: p.limit },
+          { $addFields: { mvsRunner: "$mvsRunners" } },
+          { $project: { ...rowFields, edge: { $subtract: ["$mvsRunner.modelWinProbability", impliedFromRunner] } } },
+        ];
+
+    const rows = await this.collection.aggregate<ModelVsSpRow>(dataPipeline, { allowDiskUse: true }).toArray();
+
+    if (!p.includeTotal) return { rows, total: null };
+
+    // No $sort and no $unwind: one streaming pass, O(1) memory, at any dataset
+    // size. Named `matchedRunners` rather than `total`/`count` so the shared
+    // aggregate mock in src/server/__tests__/app.test.ts can carry it without
+    // colliding with those two keys, which already hold a $facet-shaped array
+    // and a plain number respectively.
+    const [countResult] = await this.collection
+      .aggregate<{ matchedRunners: number }>(
+        [
+          dateMatch,
+          ...this.buildModelVsSpRaceStages(p),
+          { $addFields: { mvsCount: { $size: { $filter: { input: "$runners", as: "r", cond: runnerCond } } } } },
+          { $match: { mvsCount: { $gt: 0 } } },
+          { $group: { _id: null, matchedRunners: { $sum: "$mvsCount" } } },
+        ],
+        { allowDiskUse: true }
+      )
+      .toArray();
+
+    return { rows, total: countResult?.matchedRunners ?? 0 };
   }
 
   public async getPnlStats(): Promise<{ staked: number; returns: number; pnl: number }> {
