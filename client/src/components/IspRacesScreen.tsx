@@ -185,17 +185,29 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const [oddsMode, setOddsMode] = useState<OddsMode>("fraction");
   // Every year header renders immediately from the filter's own date range
   // (see yearKeys below), long before any race data for most of them has
-  // loaded — only whichever year(s) page 1 actually landed in start
-  // expanded (set once the mount fetch resolves, see the mount/sortOrder
-  // effect below — NOT statically computed from yearKeys[0] here, since
-  // with an unbounded filter yearKeys starts at ABSOLUTE_MIN_DATE's year,
-  // which for real data is typically nowhere near where the real results
-  // actually are). Within an expanded year, only its own literal first
-  // month (per the filter's effective range, not wherever real data
-  // happens to start) is expanded+loaded by default — see
-  // expandYearDefaultMonth. Every other year/month starts collapsed until
-  // the user taps it (or "Expand All"), which triggers loadMonthPage.
-  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+  // loaded — and every one of them starts *collapsed*, along with every
+  // month/day/meeting under it. Nothing is expanded on load, so the screen
+  // always lands as a short, scannable list of year headers rather than
+  // dropping the user part-way into an already-opened tree.
+  //
+  // Membership here means "explicitly expanded"; a key that isn't present
+  // is collapsed. That polarity (rather than the inverse "collapsedKeys"
+  // this used to be) is what lets day/meeting nodes start closed too —
+  // they only come into existence once a month's races land, so they can't
+  // be enumerated into a collapsed-set up front.
+  //
+  // Data still loads on mount for whichever month each starting year
+  // begins in (see the mount effect + expandYearDefaultMonth), purely so
+  // those year headers can show a real race count and P&L immediately —
+  // collapsed, not empty. Every other year/month stays unfetched until the
+  // user taps it (or "Expand All"), which triggers loadMonthPage.
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  // "Expand All" has to keep applying to nodes that don't exist yet: it
+  // fires each year's own first-month fetch, and those months' day/meeting
+  // nodes only appear once that data lands. While this is on, newly
+  // discovered nodes get auto-expanded too (see the effect below); any
+  // individual toggle hands control back to the user and turns it off.
+  const [expandAllActive, setExpandAllActive] = useState(false);
   // Years whose default-first-month expansion has already run — makes
   // expandYearDefaultMonth idempotent, so re-collapsing/re-expanding a
   // year the user has already interacted with doesn't reset which
@@ -261,15 +273,18 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       setMonthStates({});
       setInitializedYears(new Set());
       setYearDataStartMonth({});
+      setExpandedKeys(new Set());
+      setExpandAllActive(false);
       try {
         // A small, unscoped probe — page 1 of the row-ranged sequence with
         // no sub-date range — purely to learn the grand total (for the
         // header) and which year(s) real data actually starts in. A single
         // 20-race page usually lands entirely within one year, but not
         // always (a filter matching few races near a year boundary can
-        // genuinely span two) — every year actually present gets expanded,
-        // not just the first race's year, or a real race that did load
-        // would end up invisible under a collapsed year header. Not used
+        // genuinely span two) — every year actually present gets its own
+        // first month loaded, not just the first race's year, so no year
+        // showing a header is left with a blank count/P&L that real loaded
+        // data should have filled in. Not used
         // to seed any month's own races directly: yearKeys[0] can't be
         // trusted for this (see above), and this probe's own `total` is
         // the *grand* total across the whole row range, not any single
@@ -285,14 +300,16 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         if (cancelled) return;
         setTotalRaces(probe.total);
         if (probe.data.length === 0) {
-          setCollapsedKeys(new Set());
           setIsLoading(false);
           return;
         }
         const startYears = new Set(probe.data.map(r => raceYearKey(r.raceTime)));
-        setCollapsedKeys(new Set(yearKeys.filter(y => !startYears.has(y)).map(y => `year:${y}`)));
         setIsLoading(false);
-        for (const y of startYears) expandYearDefaultMonth(y);
+        // Loads each starting year's own first month so that year's header
+        // can show a real race count and P&L straight away — but passes
+        // expand=false, so none of it is opened. The tree stays fully
+        // collapsed on load; this is a data fetch, not an expansion.
+        for (const y of startYears) expandYearDefaultMonth(y, false);
       } catch {
         if (!cancelled) {
           setError("Failed to load races");
@@ -343,8 +360,11 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     }
   }
 
-  // Expands+loads whichever month(s) a year's own row-ranged data
-  // actually starts in, and collapses every other month in that year.
+  // Loads (and, when `expand` is set, opens) whichever month(s) a year's
+  // own row-ranged data actually starts in. The mount effect passes
+  // expand=false — it wants the data for the year header's count/P&L
+  // without opening anything, since nothing is expanded on load — while a
+  // user tapping a year passes the default true.
   // Deliberately data-driven, NOT "always the calendar's own January" —
   // a row range (Split A/B) doesn't necessarily start at a year's own
   // Jan 1st; it starts wherever its own fromRow lands chronologically,
@@ -358,7 +378,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // first time a user expands any other year). Idempotent via
   // initializedYears — re-collapsing/re-expanding a year already
   // interacted with doesn't reset its months or refire this probe.
-  async function expandYearDefaultMonth(year: string) {
+  async function expandYearDefaultMonth(year: string, expand = true) {
     if (initializedYears.has(year)) return;
     setInitializedYears(prev => new Set(prev).add(year));
     const { from, to } = yearBounds(year, effectiveMinDate, effectiveMaxDate);
@@ -372,15 +392,17 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       // a header for it at all (see its own comment).
       const earliestStartMonth = [...startMonths].sort()[0];
       setYearDataStartMonth(prev => ({ ...prev, [year]: earliestStartMonth }));
-      const months = monthsInRange(from, to, sortOrder);
-      setCollapsedKeys(prev => {
-        const next = new Set(prev);
-        for (const m of months) {
-          if (startMonths.has(m)) next.delete(`month:${m}`);
-          else next.add(`month:${m}`);
-        }
-        return next;
-      });
+      // Only the months actually starting this year's data get opened, and
+      // only when the caller asked for it — every other month is already
+      // collapsed by virtue of not being in expandedKeys at all, so there's
+      // nothing to explicitly close here anymore.
+      if (expand) {
+        setExpandedKeys(prev => {
+          const next = new Set(prev);
+          for (const m of startMonths) next.add(`month:${m}`);
+          return next;
+        });
+      }
       for (const m of startMonths) loadMonthPage(m);
     } catch {
       // Allow a retry on the next tap rather than leaving this year
@@ -455,11 +477,40 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     months: mergeMonthPlaceholders(year, effectiveMinDate, effectiveMaxDate, sortOrder, yearDataStartMonth[year.key]),
   }));
   const allNodeKeys = collectHierarchyNodeKeys(hierarchy);
-  const isAllCollapsed = allNodeKeys.length > 0 && allNodeKeys.every(k => collapsedKeys.has(k));
+  const isAllCollapsed = allNodeKeys.length > 0 && allNodeKeys.every(k => !expandedKeys.has(k));
+
+  // While "Expand All" is on, nodes that only come into existence later —
+  // the day/meeting rows under a month whose fetch was still in flight when
+  // the button was pressed — get expanded as they appear, so "Expand All"
+  // genuinely means all of it rather than just whatever had happened to
+  // load by the moment of the tap.
+  const allNodeKeysSignature = allNodeKeys.join("|");
+  useEffect(() => {
+    if (!expandAllActive) return;
+    setExpandedKeys(prev => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const key of allNodeKeys) {
+        if (!next.has(key)) {
+          next.add(key);
+          changed = true;
+        }
+      }
+      // Returning `prev` unchanged matters — this effect reruns on every
+      // node-set change, and a fresh Set every time would re-render forever.
+      return changed ? next : prev;
+    });
+    // allNodeKeys is rebuilt on every render; its joined signature is the
+    // real "did the set of nodes actually change" trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandAllActive, allNodeKeysSignature]);
 
   function toggleNode(key: string) {
-    const wasCollapsed = collapsedKeys.has(key);
-    setCollapsedKeys(prev => {
+    const wasCollapsed = !expandedKeys.has(key);
+    // An individual tap is the user taking over from "Expand All" — stop
+    // auto-expanding whatever loads next.
+    setExpandAllActive(false);
+    setExpandedKeys(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
@@ -484,16 +535,20 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
 
   function toggleCollapseAll() {
     if (isAllCollapsed) {
-      setCollapsedKeys(new Set());
+      setExpandAllActive(true);
+      setExpandedKeys(new Set(allNodeKeys));
       // Every not-yet-interacted-with year gets its own default first
       // month loaded — same as tapping each individually, just fired
       // together (a no-op for years already initialized, so months the
       // user already opened by hand are left exactly as they were).
+      // Whatever those fetches turn up gets expanded by the
+      // expandAllActive effect above as it arrives.
       for (const year of yearKeys) {
         expandYearDefaultMonth(year);
       }
     } else {
-      setCollapsedKeys(new Set(allNodeKeys));
+      setExpandAllActive(false);
+      setExpandedKeys(new Set());
     }
   }
 
@@ -632,7 +687,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
             )}
             {hierarchy.map(year => {
               const yearKey = `year:${year.key}`;
-              const yearCollapsed = collapsedKeys.has(yearKey);
+              const yearCollapsed = !expandedKeys.has(yearKey);
               const yearPnl = groupPnl(year.items);
               return (
                 <View key={year.key} testID={`industry-sp-year-${year.key}`}>
@@ -659,7 +714,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                   <>
                   {year.months.map(month => {
                     const monthKey = `month:${month.key}`;
-                    const monthCollapsed = collapsedKeys.has(monthKey);
+                    const monthCollapsed = !expandedKeys.has(monthKey);
                     const monthPnl = groupPnl(month.items);
                     return (
                       <View key={month.key} testID={`industry-sp-month-${month.key}`}>
@@ -686,7 +741,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                         <>
                         {month.days.map(day => {
                           const dayKey = `day:${day.key}`;
-                          const dayCollapsed = collapsedKeys.has(dayKey);
+                          const dayCollapsed = !expandedKeys.has(dayKey);
                           const dayPnl = groupPnl(day.items);
                           return (
                             <View key={day.key} testID={`industry-sp-day-${day.key}`}>
@@ -709,7 +764,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
 
                               {!dayCollapsed && day.meetings.map(meeting => {
                                 const meetingKey = `meeting:${meeting.meetingId}`;
-                                const meetingCollapsed = collapsedKeys.has(meetingKey);
+                                const meetingCollapsed = !expandedKeys.has(meetingKey);
                                 const meetingPnl = groupPnl(meeting.items);
                                 return (
                                   <View key={meeting.meetingId} testID={`industry-sp-meeting-${meeting.meetingId}`}>

@@ -153,6 +153,28 @@ const withQueryParams = (search: string) => {
   return Decorator;
 };
 
+// Every group starts collapsed now (see IspRacesScreen's `expandedKeys`), so
+// any story asserting on something below year level has to open the tree
+// first. One tap of the collapse-all toggle — which reads "Expand All" on
+// load precisely *because* nothing is expanded — is the cheapest way to get
+// the whole hierarchy on screen, and it keeps auto-expanding groups whose
+// own data is still in flight at the moment of the tap.
+//
+// `probeTestId` is the deepest row the caller is about to assert on. Expanding
+// is not instantaneous: the tap opens every group that exists *at that moment*,
+// then each year's own first-month fetch resolves and the day/meeting/race rows
+// underneath it appear (and get auto-expanded — see expandAllActive). Waiting
+// on one of those rows is what makes the helper safe to `getByTestId` after.
+async function expandAll(canvas: ReturnType<typeof within>, probeTestId?: string) {
+  const btn = await canvas.findByTestId("industry-sp-collapse-all-toggle");
+  await expect(btn).toHaveTextContent("Expand All");
+  await userEvent.click(btn);
+  await waitFor(() => expect(btn).toHaveTextContent("Collapse All"));
+  if (probeTestId) {
+    await waitFor(() => expect(canvas.getByTestId(probeTestId)).toBeInTheDocument(), { timeout: 5000 });
+  }
+}
+
 const defaultHandlers = [
   http.get(`${BASE}/api/industry-sp`, () =>
     HttpResponse.json({
@@ -255,8 +277,10 @@ export const ScreenLoaded: Story = {
     await expect(canvas.getByTestId("industry-sp-races-screen")).toBeInTheDocument();
     await expect(canvas.findByTestId("industry-sp-list")).resolves.toBeInTheDocument();
     // "Races" (plus counts) is now folded into the AppHeader subtitle
-    // rather than being its own Appbar title.
-    await expect(canvas.findByText(/Races/)).resolves.toBeInTheDocument();
+    // rather than being its own Appbar title. Matched via the subtitle's
+    // own "Races · N runners" shape — a bare /Races/ also hits the burger
+    // menu's "Daily Races" button and fails as ambiguous.
+    await expect(canvas.findByText(/Races · \d+ runners/)).resolves.toBeInTheDocument();
   },
 };
 
@@ -276,6 +300,8 @@ export const MeetingSections: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
+    await expandAll(canvas, "industry-sp-meeting-Leopardstown|2026-02-01");
+
     // Meeting header shows just the course now — the date lives on the day
     // header above it in the year/month/day/meeting hierarchy.
     const meeting = await canvas.findByTestId("industry-sp-meeting-Leopardstown|2026-02-01");
@@ -289,6 +315,8 @@ export const RaceAndRunnerRows: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
+    await expandAll(canvas, "industry-sp-race-914592");
+
     await expect(canvas.findByTestId("industry-sp-race-914592")).resolves.toBeInTheDocument();
     await expect(canvas.findByText("Galopin Des Champs")).resolves.toBeInTheDocument();
   },
@@ -298,6 +326,8 @@ export const MeetingHeaderNavigatesToMeeting: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
+
+    await expandAll(canvas, "industry-sp-meeting-link-Leopardstown|2026-02-01");
 
     const link = canvas.getByTestId(`industry-sp-meeting-link-${MOCK_RACES[0].meetingId}`);
     await userEvent.click(link);
@@ -310,6 +340,8 @@ export const RaceRowNavigatesToRace: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
+    await expandAll(canvas, "industry-sp-race-914592");
+
     const raceRow = canvas.getByTestId(`industry-sp-race-${MOCK_RACES[0].raceId}`);
     await userEvent.click(raceRow);
     await expect(args.onNavigateToRace).toHaveBeenCalledWith(MOCK_RACES[0].raceId);
@@ -320,6 +352,8 @@ export const OddsModeDefaultsToFraction: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
+
+    await expandAll(canvas, "industry-sp-isp-21001");
     await expect(canvas.getByTestId("industry-sp-odds-mode-toggle")).toHaveTextContent("Odds: Fraction");
     await expect(canvas.getByTestId(`industry-sp-isp-${MOCK_RACES[0].runners[0].id}`)).toHaveTextContent("ISP 19/20");
   },
@@ -329,6 +363,8 @@ export const OddsModeToggleSwitchesToDecimal: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
+
+    await expandAll(canvas, "industry-sp-isp-21001");
     await userEvent.click(canvas.getByTestId("industry-sp-odds-mode-toggle"));
     await expect(canvas.getByTestId("industry-sp-odds-mode-toggle")).toHaveTextContent("Odds: Decimal");
     // 19/20 + 1 = 1.95 — a clean 2dp value, never a raw float artifact.
@@ -339,6 +375,8 @@ export const OddsModeToggleSwitchesToDecimal: Story = {
 export const IspDisplayed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+
+    await expandAll(canvas, "industry-sp-isp-21001");
 
     const runners = MOCK_RACES.flatMap(r => r.runners);
     for (const runner of runners) {
@@ -354,6 +392,8 @@ export const PerRunnerPnl: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
+    await expandAll(canvas, "industry-sp-pnl-item-21001");
+
     // Galopin Des Champs: WINNER at ISP 1.95, stake £1.05 → +£1.00
     await expect(await canvas.findByTestId("industry-sp-pnl-item-21001")).toHaveTextContent("+£1.00");
     await expect(canvas.getByTestId("industry-sp-stake-21001")).toHaveTextContent("Bet £1.05");
@@ -367,6 +407,8 @@ export const MeetingPnlDisplayed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
+
+    await expandAll(canvas, "industry-sp-meeting-pnl-Leopardstown|2026-02-01");
 
     // Leopardstown's two races combined: Galopin (+£1.00, stake £1.05),
     // Meetingofthewaters (-£0.22), State Man (+£1.00, stake £2.50),
@@ -402,6 +444,7 @@ export const MeetingPnlRespondsToFilters: Story = {
     const canvas = within(canvasElement);
     try {
       await canvas.findByTestId("industry-sp-list");
+      await expandAll(canvas, "industry-sp-meeting-pnl-Wetherby|2026-03-01");
 
       // Only Red Stripes + Aqlette pass the filter — the meeting-level
       // total must count just those two (+£1.00 winner, -£0.06 loser =
@@ -440,6 +483,7 @@ export const RacePnlMatchesVisibleRunnersWhenFiltered: Story = {
     const canvas = within(canvasElement);
     try {
       await canvas.findByTestId("industry-sp-list");
+      await expandAll(canvas, "industry-sp-item-name-31001");
 
       // Only the two runners where the model beats SP are shown...
       await expect(canvas.getByTestId("industry-sp-item-name-31001")).toBeInTheDocument();
@@ -464,6 +508,8 @@ export const TrainerFormBadgeDisplayed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
+
+    await expandAll(canvas, "industry-sp-item-trainer-21001");
 
     // Galopin Des Champs has a 14-day form sample — badge shows win/run/rate.
     await expect(canvas.getByTestId("industry-sp-item-trainer-21001")).toHaveTextContent("W P Mullins");
@@ -560,6 +606,8 @@ export const HierarchyLevelsVisible: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
+    await expandAll(canvas, "industry-sp-meeting-Musselburgh|2015-01-01");
+
     await expect(canvas.getByTestId("industry-sp-year-2015")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-year-2016")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-month-2015-01")).toBeInTheDocument();
@@ -577,6 +625,8 @@ export const GroupPnlRollupsMatchChildRaces: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
+
+    await expandAll(canvas, "industry-sp-meeting-pnl-Musselburgh|2015-01-01");
 
     // Meeting level: one race each. Each testID targets the group's own
     // P&L text directly (not a free-text search of the whole subtree) —
@@ -605,11 +655,59 @@ export const GroupPnlRollupsMatchChildRaces: Story = {
   },
 };
 
+// The behaviour this screen is specified on: arriving at it never drops the
+// user part-way into an already-opened tree, however deep the data that
+// loaded goes.
+export const EverythingStartsCollapsedOnLoad: Story = {
+  parameters: { msw: { handlers: hierarchyHandlers } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    // Year headers are the only tappable rows on screen — every level below
+    // them starts shut, including the year the mount fetch actually landed
+    // in (2015 here, which is where the old behaviour would have opened).
+    await expect(canvas.getByTestId("industry-sp-year-2015")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-year-2016")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-month-2015-01")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-day-2015-01-01")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-meeting-Musselburgh|2015-01-01")).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId("industry-sp-race-700001")).not.toBeInTheDocument();
+
+    // ...and with nothing expanded, the toggle offers to expand.
+    await expect(canvas.getByTestId("industry-sp-collapse-all-toggle")).toHaveTextContent("Expand All");
+  },
+};
+
+// Collapsed must not mean empty: the mount fetch still runs, so the year
+// header carries a real race count and P&L rollup the user can read without
+// opening anything.
+export const CollapsedYearStillShowsItsCountAndPnl: Story = {
+  parameters: { msw: { handlers: hierarchyHandlers } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-sp-list");
+
+    // 2015 = Jan (staked £0.50, returns £1.25) + Feb (staked £0.50,
+    // returns £0) → +£0.25 (+25.0%) — the same arithmetic as
+    // GroupPnlRollupsMatchChildRaces, just read off a shut year.
+    await waitFor(() => {
+      expect(canvas.getByTestId("industry-sp-year-pnl-2015")).toHaveTextContent("+£0.25 (+25.0%)");
+    }, { timeout: 5000 });
+    await expect(canvas.getByTestId("industry-sp-year-count-2015")).toHaveTextContent("3 races");
+
+    // Still shut while showing those numbers.
+    await expect(canvas.queryByTestId("industry-sp-month-2015-01")).not.toBeInTheDocument();
+  },
+};
+
 export const YearToggleCollapsesDescendants: Story = {
   parameters: { msw: { handlers: hierarchyHandlers } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
+
+    await expandAll(canvas, "industry-sp-race-700001");
 
     await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2015"));
 
@@ -630,6 +728,8 @@ export const MonthToggleCollapsesDescendants: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
+    await expandAll(canvas, "industry-sp-day-2015-02-15");
+
     await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2015-01"));
 
     await expect(canvas.queryByTestId("industry-sp-day-2015-01-01")).not.toBeInTheDocument();
@@ -645,6 +745,8 @@ export const DayToggleCollapsesDescendants: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
+    await expandAll(canvas, "industry-sp-day-toggle-2015-01-01");
+
     await userEvent.click(canvas.getByTestId("industry-sp-day-toggle-2015-01-01"));
 
     await expect(canvas.queryByTestId("industry-sp-meeting-Musselburgh|2015-01-01")).not.toBeInTheDocument();
@@ -659,6 +761,8 @@ export const MeetingToggleCollapsesRacesButLinkStillNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
+
+    await expandAll(canvas, "industry-sp-meeting-toggle-Musselburgh|2015-01-01");
 
     await userEvent.click(canvas.getByTestId("industry-sp-meeting-toggle-Musselburgh|2015-01-01"));
     await expect(canvas.queryByTestId("industry-sp-race-700001")).not.toBeInTheDocument();
@@ -679,7 +783,16 @@ export const CollapseAllTogglesEverything: Story = {
     await canvas.findByTestId("industry-sp-list");
 
     const btn = canvas.getByTestId("industry-sp-collapse-all-toggle");
+    // Nothing is expanded on load, so the toggle's opening offer is to
+    // expand — not to collapse an already-open tree.
+    await expect(btn).toHaveTextContent("Expand All");
+
+    await userEvent.click(btn);
     await expect(btn).toHaveTextContent("Collapse All");
+    await expect(canvas.getByTestId("industry-sp-month-2015-01")).toBeInTheDocument();
+    // 2016's races only exist once its own first-month fetch (fired by the
+    // same tap) resolves and expandAllActive opens what it brought back.
+    await waitFor(() => expect(canvas.getByTestId("industry-sp-race-700004")).toBeInTheDocument(), { timeout: 5000 });
 
     await userEvent.click(btn);
     await expect(btn).toHaveTextContent("Expand All");
@@ -688,11 +801,6 @@ export const CollapseAllTogglesEverything: Story = {
     await expect(canvas.queryByTestId("industry-sp-race-700004")).not.toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-year-2015")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-year-2016")).toBeInTheDocument();
-
-    await userEvent.click(btn);
-    await expect(btn).toHaveTextContent("Collapse All");
-    await expect(canvas.getByTestId("industry-sp-month-2015-01")).toBeInTheDocument();
-    await expect(canvas.getByTestId("industry-sp-race-700004")).toBeInTheDocument();
   },
 };
 
@@ -778,6 +886,14 @@ export const LazyYearPlaceholdersRenderFromDateRangeImmediately: Story = {
       await waitFor(() => {
         expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("20 races");
       }, { timeout: 5000 });
+
+      // 2024's races are loaded but shut (nothing expands on load), so its
+      // day rows only appear once the year and then its loaded month are
+      // opened. Tapping the year alone doesn't re-open the month for it:
+      // the mount fetch already marked 2024 initialized, so
+      // expandYearDefaultMonth is a deliberate no-op on this tap.
+      await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2024"));
+      await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2024-06"));
       await expect(canvas.getByTestId("industry-sp-day-2024-06-01")).toBeInTheDocument();
 
       // 2025 hasn't been tapped yet — not "0 races" (which would claim
@@ -876,8 +992,9 @@ export const ExpandAllLoadsEveryCollapsedYearIndependently: Story = {
         expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("20 races");
       }, { timeout: 5000 });
       const btn = canvas.getByTestId("industry-sp-collapse-all-toggle");
-
-      await userEvent.click(btn); // -> Collapse All
+      // Nothing expands on load, so the tree is already fully collapsed —
+      // the first tap is the Expand All this story is about, with no need
+      // to collapse first.
       await expect(btn).toHaveTextContent("Expand All");
       perYearRequests = [];
       // 2025 was never tapped before this — Expand All must load it (not

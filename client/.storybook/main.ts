@@ -46,7 +46,18 @@ const config: StorybookConfig = {
         [
           "@babel/preset-env",
           {
-            loose: true,
+            // Deliberately NOT loose. Loose mode compiles array spread to
+            // `[].concat(x)`, which wraps a non-array iterable instead of
+            // iterating it — so `[...someSet]` silently evaluated to
+            // `[theSetObject]` in every story. That's not a cosmetic
+            // difference: IspRacesScreen derives a year's earliest data
+            // month via `[...startMonths].sort()[0]`, which under loose
+            // mode yielded the Set itself, poisoning the month range with
+            // "[object Set]-01" so no month/day/meeting/race row ever
+            // rendered under Storybook (24 of its stories failed on that
+            // alone, while the real Metro/Expo build — which has its own
+            // Babel config and never had loose set — worked fine).
+            loose: false,
             targets: {
               browsers: ["last 2 versions"],
             },

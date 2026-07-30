@@ -62,28 +62,45 @@ export function formatBetOrderResult(order: BetOrder): string | null {
   return `${order.betOutcome} (${sign}£${amount})`;
 }
 
-export interface SandboxPnlSummary {
+export interface BetsPnlSummary {
   staked: number;
   pnl: number;
   settledCount: number;
   pendingCount: number;
 }
 
-// Aggregate PnL across a list of sandbox bets — same staked/pnl shape as
-// the existing Industry SP PnL screens (client/src/utils/ispFormat.ts's
+/** @deprecated Use BetsPnlSummary — kept as an alias for older imports. */
+export type SandboxPnlSummary = BetsPnlSummary;
+
+// Aggregate PnL across a list of bets — same staked/pnl shape as the
+// existing Industry SP PnL screens (client/src/utils/ispFormat.ts's
 // computeRangePnl), but driven by each bet's own real stake/settledProfit
-// rather than an implied stake-to-win-£1 model, since a sandbox bet has an
-// actual user-chosen stake. Only settled bets contribute to staked/pnl —
-// pendingCount tells the caller how many sandbox bets are still awaiting
+// rather than an implied stake-to-win-£1 model, since a placed bet has an
+// actual user-chosen stake. Deliberately does NOT filter by sandbox/real —
+// the caller passes whatever slice it's showing (all bets, real only,
+// sandbox only, plus any active filters), so the headline figure always
+// describes exactly the list underneath it. Only triggered bets can have a
+// result at all, and only settled ones contribute to staked/pnl —
+// pendingCount tells the caller how many triggered bets are still awaiting
 // their race result, so a "3 bets not yet settled" note can be shown
 // alongside the totals rather than silently under-counting them.
-export function computeSandboxPnl(orders: BetOrder[]): SandboxPnlSummary {
-  const sandboxBets = orders.filter(o => o.sandbox === true && o.status === "triggered");
-  const settled = sandboxBets.filter(o => o.settledProfit != null);
+export function computeBetsPnl(orders: BetOrder[]): BetsPnlSummary {
+  const placed = orders.filter(o => o.status === "triggered");
+  const settled = placed.filter(o => o.settledProfit != null);
   return {
     staked: settled.reduce((sum, o) => sum + o.maxStake, 0),
     pnl: settled.reduce((sum, o) => sum + (o.settledProfit ?? 0), 0),
     settledCount: settled.length,
-    pendingCount: sandboxBets.length - settled.length,
+    pendingCount: placed.length - settled.length,
   };
+}
+
+// The date (YYYY-MM-DD) a bet belongs to for filtering/grouping: the
+// race's own off day, not when the order was created — a bet scheduled on
+// Monday for a Wednesday race is a Wednesday bet to a punter. offDt is ISO
+// with a UK offset, so slicing its date part gives the local race day
+// directly (no timezone shifting). Falls back to createdAt for orders from
+// an API build that didn't return offDt yet.
+export function betRaceDate(order: BetOrder): string {
+  return (order.offDt ?? order.createdAt).slice(0, 10);
 }

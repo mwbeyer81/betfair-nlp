@@ -1,14 +1,47 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View, ScrollView, StyleSheet, SafeAreaView } from "react-native";
-import { Text, Button, ActivityIndicator, Surface, SegmentedButtons } from "react-native-paper";
-import { chatApi, BetOrder } from "../services/chatApi";
+import { Text, Button, ActivityIndicator, Surface, SegmentedButtons, Chip } from "react-native-paper";
+import { chatApi, BetOrder, BetOrderStatus, BetOrderType } from "../services/chatApi";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
+import { DateRangePicker } from "./DateRangePicker";
 import { colors, radii, spacing, statusPill } from "../theme";
-import { BET_ORDER_STATUS_LABEL, formatBetOrderCondition, formatBetOrderResult, computeSandboxPnl } from "../utils/betOrderFormat";
+import {
+  BET_ORDER_STATUS_LABEL,
+  formatBetOrderCondition,
+  formatBetOrderResult,
+  computeBetsPnl,
+  betRaceDate,
+} from "../utils/betOrderFormat";
 import type { Route } from "../hooks/useRouter";
 
 type BetsFilter = "all" | "real" | "sandbox";
+
+// A bet's result bucket for the Outcome filter. Anything without a
+// settled result is "UNSETTLED" — never inferred as a loss, same rule as
+// formatBetOrderResult.
+type BetOutcomeKey = "WON" | "LOST" | "VOID" | "UNSETTLED";
+
+const OUTCOME_LABEL: Record<string, string> = {
+  WON: "Won",
+  LOST: "Lost",
+  VOID: "Void",
+  UNSETTLED: "No result yet",
+};
+
+const TYPE_LABEL: Record<BetOrderType, string> = {
+  instant: "Instant",
+  scheduled: "Scheduled",
+};
+
+function outcomeKey(bet: BetOrder): string {
+  if (bet.betOutcome == null || bet.settledProfit == null) return "UNSETTLED";
+  return bet.betOutcome;
+}
+
+function formatSignedPounds(value: number): string {
+  return `${value >= 0 ? "+" : "-"}£${Math.abs(value).toFixed(2)}`;
+}
 
 interface ScheduledBetsScreenProps {
   navigate: (to: Route, query?: string) => void;
@@ -29,14 +62,104 @@ export const ScheduledBetsScreen: React.FC<ScheduledBetsScreenProps> = ({
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<BetsFilter>("all");
 
-  const filteredBets = useMemo(() => {
+  // Detail filters. Unlike the Industry SP screen (which batches every
+  // change behind an Apply button because each apply is a fresh paged
+  // query), these all run client-side over an already-loaded list — so
+  // they apply on tap, and Reset is the only action button needed.
+  const [showFilters, setShowFilters] = useState(false);
+  const [minDate, setMinDate] = useState("");
+  const [maxDate, setMaxDate] = useState("");
+  const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
+  const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
+  const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
+  const [selectedOutcomes, setSelectedOutcomes] = useState<Set<string>>(new Set());
+
+  // Real/sandbox is the tab, so it's applied first — every other filter's
+  // chip options are then derived from (and every count describes) just
+  // the bets that tab can show.
+  const tabBets = useMemo(() => {
     if (filter === "sandbox") return bets.filter(b => b.sandbox === true);
     if (filter === "real") return bets.filter(b => b.sandbox !== true);
     return bets;
   }, [bets, filter]);
 
-  const sandboxPnl = useMemo(() => computeSandboxPnl(bets), [bets]);
-  const hasSandboxBets = bets.some(b => b.sandbox === true);
+  const filteredBets = useMemo(() => {
+    return tabBets.filter(bet => {
+      const date = betRaceDate(bet);
+      if (minDate && date < minDate) return false;
+      if (maxDate && date > maxDate) return false;
+      if (selectedCourses.size > 0 && !selectedCourses.has(bet.course)) return false;
+      if (selectedStatuses.size > 0 && !selectedStatuses.has(bet.status)) return false;
+      if (selectedTypes.size > 0 && !selectedTypes.has(bet.orderType)) return false;
+      if (selectedOutcomes.size > 0 && !selectedOutcomes.has(outcomeKey(bet))) return false;
+      return true;
+    });
+  }, [tabBets, minDate, maxDate, selectedCourses, selectedStatuses, selectedTypes, selectedOutcomes]);
+
+  // The headline figure always describes exactly the list rendered below
+  // it — tab and detail filters included — rather than a fixed "sandbox
+  // only" total that wouldn't match what's on screen.
+  const pnl = useMemo(() => computeBetsPnl(filteredBets), [filteredBets]);
+  // On the All tab the single total mixes real money with simulated
+  // money, which would be misleading on its own — so it's broken out.
+  const realPnl = useMemo(() => computeBetsPnl(filteredBets.filter(b => b.sandbox !== true)), [filteredBets]);
+  const sandboxPnl = useMemo(() => computeBetsPnl(filteredBets.filter(b => b.sandbox === true)), [filteredBets]);
+  const showBreakdown =
+    filter === "all" && realPnl.settledCount > 0 && sandboxPnl.settledCount > 0;
+
+  // Array.from, not [...new Set(…)] — this bundle's transpile target
+  // turns a spread of a Set into a single-element array holding the Set
+  // itself, which silently renders one "[object Set]" chip per row.
+  const availableCourses = useMemo(
+    () => Array.from(new Set(tabBets.map(b => b.course))).sort((a, b) => a.localeCompare(b)),
+    [tabBets]
+  );
+  const availableStatuses = useMemo(
+    () => Array.from(new Set(tabBets.map(b => b.status))).sort((a, b) => a.localeCompare(b)),
+    [tabBets]
+  );
+  const availableTypes = useMemo(
+    () => Array.from(new Set(tabBets.map(b => b.orderType))).sort((a, b) => a.localeCompare(b)),
+    [tabBets]
+  );
+  const availableOutcomes = useMemo(
+    () => Array.from(new Set(tabBets.map(outcomeKey))).sort((a, b) => a.localeCompare(b)),
+    [tabBets]
+  );
+
+  // The picker needs a concrete range to open on even when no date filter
+  // is set ("" = unbounded), so it falls back to the span the bets
+  // themselves cover.
+  const dateBounds = useMemo(() => {
+    const dates = bets.map(betRaceDate).sort();
+    const today = new Date().toISOString().slice(0, 10);
+    return { min: dates[0] ?? today, max: dates[dates.length - 1] ?? today };
+  }, [bets]);
+
+  const activeFilterCount =
+    (minDate || maxDate ? 1 : 0) +
+    (selectedCourses.size > 0 ? 1 : 0) +
+    (selectedStatuses.size > 0 ? 1 : 0) +
+    (selectedTypes.size > 0 ? 1 : 0) +
+    (selectedOutcomes.size > 0 ? 1 : 0);
+
+  function toggleChip(setSelected: React.Dispatch<React.SetStateAction<Set<string>>>, value: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
+
+  function resetFilters() {
+    setMinDate("");
+    setMaxDate("");
+    setSelectedCourses(new Set());
+    setSelectedStatuses(new Set());
+    setSelectedTypes(new Set());
+    setSelectedOutcomes(new Set());
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -66,6 +189,39 @@ export const ScheduledBetsScreen: React.FC<ScheduledBetsScreenProps> = ({
     } finally {
       setCancellingId(null);
     }
+  }
+
+  function renderChipRow(opts: {
+    testId: string;
+    label: string;
+    values: string[];
+    selected: Set<string>;
+    labelFor?: (value: string) => string;
+    onToggle: (value: string) => void;
+  }) {
+    if (opts.values.length === 0) return null;
+    return (
+      <View testID={`scheduled-bets-filter-row-${opts.testId}`} style={styles.filterRowBlock}>
+        <Text style={styles.filterLabel}>{opts.label}</Text>
+        <View style={styles.chipWrap}>
+          {opts.values.map(value => {
+            const active = opts.selected.has(value);
+            return (
+              <Chip
+                key={value}
+                testID={`scheduled-bets-filter-chip-${opts.testId}-${value}`}
+                compact
+                onPress={() => opts.onToggle(value)}
+                style={active ? styles.chipActive : styles.chip}
+                textStyle={active ? styles.chipTextActive : styles.chipText}
+              >
+                {opts.labelFor ? opts.labelFor(value) : value}
+              </Chip>
+            );
+          })}
+        </View>
+      </View>
+    );
   }
 
   return (
@@ -99,7 +255,7 @@ export const ScheduledBetsScreen: React.FC<ScheduledBetsScreenProps> = ({
               </Text>
             </View>
           )}
-          {!loading && !error && bets.length > 0 && hasSandboxBets && (
+          {!loading && !error && bets.length > 0 && (
             <View testID="scheduled-bets-filter" style={styles.filterRow}>
               <SegmentedButtons
                 value={filter}
@@ -112,24 +268,114 @@ export const ScheduledBetsScreen: React.FC<ScheduledBetsScreenProps> = ({
               />
             </View>
           )}
-          {!loading && !error && bets.length > 0 && filter === "sandbox" && (
-            <Surface testID="scheduled-bets-sandbox-pnl" style={styles.pnlCard} elevation={1}>
-              <Text style={styles.pnlTitle}>Sandbox P&amp;L</Text>
-              <Text style={[styles.pnlValue, { color: sandboxPnl.pnl >= 0 ? colors.success : colors.danger }]}>
-                {sandboxPnl.pnl >= 0 ? "+" : "-"}£{Math.abs(sandboxPnl.pnl).toFixed(2)}
+          {!loading && !error && bets.length > 0 && (
+            <Surface testID="scheduled-bets-pnl" style={styles.pnlCard} elevation={1}>
+              <Text testID="scheduled-bets-pnl-title" style={styles.pnlTitle}>
+                {filter === "sandbox" ? "Sandbox P&L" : filter === "real" ? "Real P&L" : "P&L (all bets)"}
               </Text>
-              <Text style={styles.pnlMeta}>
-                Staked £{sandboxPnl.staked.toFixed(2)} across {sandboxPnl.settledCount} settled bet
-                {sandboxPnl.settledCount === 1 ? "" : "s"}
-                {sandboxPnl.pendingCount > 0
-                  ? ` (${sandboxPnl.pendingCount} more not settled yet — race hasn't run or result not captured)`
+              <Text
+                testID="scheduled-bets-pnl-value"
+                style={[styles.pnlValue, { color: pnl.pnl >= 0 ? colors.success : colors.danger }]}
+              >
+                {formatSignedPounds(pnl.pnl)}
+              </Text>
+              <Text testID="scheduled-bets-pnl-meta" style={styles.pnlMeta}>
+                {pnl.settledCount === 0
+                  ? "No settled bets yet — nothing to total up."
+                  : `Staked £${pnl.staked.toFixed(2)} across ${pnl.settledCount} settled bet${pnl.settledCount === 1 ? "" : "s"}`}
+                {pnl.pendingCount > 0
+                  ? ` (${pnl.pendingCount} more not settled yet — race hasn't run or result not captured)`
                   : ""}
               </Text>
+              {showBreakdown && (
+                <Text testID="scheduled-bets-pnl-breakdown" style={styles.pnlMeta}>
+                  Real {formatSignedPounds(realPnl.pnl)} · Sandbox {formatSignedPounds(sandboxPnl.pnl)} (simulated)
+                </Text>
+              )}
+            </Surface>
+          )}
+          {!loading && !error && bets.length > 0 && (
+            <View style={styles.filterRow}>
+              <Button
+                testID="scheduled-bets-filters-toggle"
+                mode="outlined"
+                compact
+                onPress={() => setShowFilters(v => !v)}
+                style={styles.filtersToggle}
+              >
+                {showFilters ? "Hide filters" : "Filters"}
+                {activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+              </Button>
+            </View>
+          )}
+          {!loading && !error && bets.length > 0 && showFilters && (
+            <Surface testID="scheduled-bets-filters" style={styles.filtersCard} elevation={1}>
+              <View testID="scheduled-bets-filter-row-date" style={styles.filterRowBlock}>
+                <Text style={styles.filterLabel}>Race date</Text>
+                <DateRangePicker
+                  testID="scheduled-bets-date-range-picker"
+                  fromDate={minDate || dateBounds.min}
+                  toDate={maxDate || dateBounds.max}
+                  minDate={dateBounds.min}
+                  maxDate={dateBounds.max}
+                  onChange={(from, to) => {
+                    setMinDate(from);
+                    setMaxDate(to);
+                  }}
+                />
+              </View>
+              {renderChipRow({
+                testId: "course",
+                label: "Course",
+                values: availableCourses,
+                selected: selectedCourses,
+                onToggle: value => toggleChip(setSelectedCourses, value),
+              })}
+              {renderChipRow({
+                testId: "status",
+                label: "Status",
+                values: availableStatuses,
+                selected: selectedStatuses,
+                labelFor: value => BET_ORDER_STATUS_LABEL[value as BetOrderStatus] ?? value,
+                onToggle: value => toggleChip(setSelectedStatuses, value),
+              })}
+              {renderChipRow({
+                testId: "type",
+                label: "Type",
+                values: availableTypes,
+                selected: selectedTypes,
+                labelFor: value => TYPE_LABEL[value as BetOrderType] ?? value,
+                onToggle: value => toggleChip(setSelectedTypes, value),
+              })}
+              {renderChipRow({
+                testId: "outcome",
+                label: "Outcome",
+                values: availableOutcomes,
+                selected: selectedOutcomes,
+                labelFor: value => OUTCOME_LABEL[value] ?? value,
+                onToggle: value => toggleChip(setSelectedOutcomes, value),
+              })}
+              <View style={styles.filterActions}>
+                <Button
+                  testID="scheduled-bets-filters-reset"
+                  mode="outlined"
+                  compact
+                  disabled={activeFilterCount === 0}
+                  onPress={resetFilters}
+                  style={styles.resetBtn}
+                >
+                  Reset
+                </Button>
+              </View>
             </Surface>
           )}
           {!loading && !error && bets.length > 0 && filteredBets.length === 0 && (
             <View testID="scheduled-bets-filter-empty" style={styles.centered}>
-              <Text style={styles.emptyText}>No {filter} bets to show.</Text>
+              <Text style={styles.emptyText}>
+                {activeFilterCount > 0
+                  ? "No bets match these filters."
+                  : `No ${filter} bets to show.`}
+              </Text>
             </View>
           )}
           {!loading && !error && filteredBets.length > 0 && (
@@ -252,6 +498,23 @@ const styles = StyleSheet.create({
   result: { fontSize: 13, fontWeight: "700" },
   note: { fontSize: 12, color: colors.textSecondary, fontStyle: "italic" },
   filterRow: { paddingHorizontal: spacing.md, paddingTop: spacing.md },
+  filtersToggle: { alignSelf: "flex-start", borderRadius: radii.button },
+  filtersCard: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  filterRowBlock: { gap: spacing.xs },
+  filterLabel: { fontSize: 12, fontWeight: "700", color: colors.textSecondary },
+  chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+  chip: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  chipActive: { backgroundColor: colors.primary, borderWidth: 1, borderColor: colors.primary },
+  chipText: { fontSize: 12, color: colors.text },
+  chipTextActive: { fontSize: 12, color: colors.surface, fontWeight: "700" },
+  filterActions: { flexDirection: "row", justifyContent: "flex-end" },
+  resetBtn: { borderRadius: radii.button },
   pnlCard: {
     marginHorizontal: spacing.md,
     marginTop: spacing.md,
