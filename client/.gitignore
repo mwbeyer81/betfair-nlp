@@ -9,6 +9,11 @@ dist/
 web-build/
 expo-env.d.ts
 
+# Separate static build output for scripts/local-ci-e2e.sh, kept apart from
+# dist/ so it doesn't clobber (or get clobbered by) other Playwright suites
+# running concurrently in sibling worktrees.
+dist-local-ci/
+
 # Native
 .kotlin/
 *.orig.*

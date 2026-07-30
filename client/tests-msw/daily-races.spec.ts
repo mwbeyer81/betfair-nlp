@@ -1,0 +1,294 @@
+import { test, expect } from "./fixtures";
+
+// fixtures.ts mocks 3 daily racecards across 2 events:
+// newton-abbot-2026-06-03 (rac_test_0001, rac_test_0002) and
+// ascot-2026-06-03 (rac_test_0003). rac_test_0001 has 2 runners
+// (hrs_1 "Fixture Star", hrs_2 "Second Fixture"). hrs_1 has a
+// modelWinProbability of 25 (-> breakeven decimal odds 4.00, "3/1");
+// hrs_2 has none, so it never qualifies for the Today's Picks filters below.
+// hrs_1 also carries a real captured result (WINNER, isp 5) — its race has
+// already finished, unlike every other runner in this fixture, which stays
+// pending (result: undefined, same as never having been captured yet).
+// hrs_1's 25% model probability beats isp 5's 20% implied price, so it also
+// carries a "beats SP" verdict.
+
+test.describe("Daily Races — full drill-down chain (MSW mocked)", () => {
+  test("burger menu link opens Daily Races", async ({ page }) => {
+    await page.goto("/events");
+    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("events-menu-daily-races-link").click();
+
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/daily-races");
+  });
+
+  test("list -> event -> race -> runner detail, and back navigates one level at a time", async ({ page }) => {
+    await page.goto("/daily-races");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-event-newton-abbot-2026-06-03")).toBeVisible();
+    await expect(page.getByTestId("daily-races-event-ascot-2026-06-03")).toBeVisible();
+
+    await page.getByTestId("daily-races-event-newton-abbot-2026-06-03").click();
+    await expect(page.getByTestId("daily-race-event-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/daily-races/event");
+    await expect(page.getByTestId("daily-race-event-race-rac_test_0001")).toBeVisible();
+    await expect(page.getByTestId("daily-race-event-race-rac_test_0002")).toBeVisible();
+
+    await page.getByTestId("daily-race-event-race-rac_test_0001").click();
+    await expect(page.getByTestId("daily-race-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/daily-races/race");
+    await expect(page.getByTestId("daily-race-item-hrs_1")).toBeVisible();
+    await expect(page.getByTestId("daily-race-item-hrs_2")).toBeVisible();
+
+    // Click the horse name specifically, not the row's own testID — with
+    // three tap-to-reveal pills now present (form/model/fair-odds), the
+    // row's bounding-box center (Playwright's default click point for a
+    // whole-row locator) can land on a pill instead, which by design opens
+    // its tooltip and stops the row's own navigation from firing.
+    await page.getByTestId("daily-race-item-horse-hrs_1").click();
+    await expect(page.getByTestId("daily-runner-detail-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/daily-races/runner");
+    await expect(page.getByTestId("daily-runner-detail-course")).toHaveText("Newton Abbot");
+    await expect(page.getByTestId("daily-runner-detail-trainer")).toHaveText("A Trainer");
+    await expect(page.getByTestId("daily-runner-detail-jockey")).toHaveText("B Jockey");
+
+    // Back from runner detail returns to the race, not the event or list.
+    await page.getByTestId("daily-runner-detail-back-button").click();
+    await expect(page.getByTestId("daily-race-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/daily-races/race");
+
+    // Back from race returns to the event.
+    await page.getByTestId("daily-race-back-button").click();
+    await expect(page.getByTestId("daily-race-event-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/daily-races/event");
+
+    // Back from event returns to the top-level list.
+    await page.getByTestId("daily-race-event-back-button").click();
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/daily-races");
+    expect(page.url()).not.toContain("/daily-races/event");
+  });
+
+  test("Model % tooltip shows plain-language top factors", async ({ page }) => {
+    await page.goto("/daily-races/race?id=rac_test_0001");
+    await expect(page.getByTestId("daily-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-race-item-hrs_1")).toBeVisible();
+
+    await page.getByTestId("daily-race-item-model-hrs_1").click();
+    await expect(page.getByTestId("daily-race-item-model-tooltip-hrs_1")).toBeVisible();
+    await expect(page.getByTestId("daily-race-item-model-factor-hrs_1-0")).toHaveText("▲ Strong recent form");
+    await expect(page.getByTestId("daily-race-item-model-factor-hrs_1-1")).toHaveText("▲ In-form trainer");
+    await expect(page.getByTestId("daily-race-item-model-factor-hrs_1-2")).toHaveText("▼ Lower official rating");
+  });
+
+  test("a race not found in the mocked data shows the error state", async ({ page }) => {
+    await page.goto("/daily-races/race?id=rac_does_not_exist");
+    await expect(page.getByTestId("daily-race-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-race-error")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-race-list")).not.toBeVisible();
+  });
+
+  test("applying a model win% filter narrows Today's Picks and shows the fair-odds badge, and a pick navigates to its race", async ({ page }) => {
+    await page.goto("/daily-races");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    // No Apply pressed yet — Today's Picks hasn't appeared.
+    await expect(page.getByTestId("daily-races-picks-list")).not.toBeVisible();
+
+    await page.getByTestId("daily-races-min-model-win-probability").fill("20");
+    await page.getByTestId("daily-races-filter-apply").click();
+
+    await expect(page.getByTestId("daily-races-picks-list")).toBeVisible();
+    await expect(page.getByTestId("daily-races-pick-hrs_1")).toBeVisible();
+    await expect(page.getByTestId("daily-races-pick-fair-odds-hrs_1")).toHaveText("Fair 3/1 (4.00)");
+    await expect(page.getByTestId("daily-races-pick-hrs_2")).not.toBeVisible();
+
+    await page.getByTestId("daily-races-pick-hrs_1").click();
+    await expect(page.getByTestId("daily-race-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/daily-races/race");
+    await expect(page.getByTestId("daily-race-item-hrs_1")).toBeVisible();
+    await expect(page.getByTestId("daily-race-item-fair-odds-hrs_1")).toHaveText("Fair 3/1 (4.00)");
+  });
+
+  test("Today's Picks shows a live Betfair price next to Bet when available", async ({ page }) => {
+    await page.goto("/daily-races");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("daily-races-min-model-win-probability").fill("20");
+    await page.getByTestId("daily-races-filter-apply").click();
+    await expect(page.getByTestId("daily-races-picks-list")).toBeVisible();
+
+    // fixtures.ts's live-prices mock: hrs_1 (the only runner with a
+    // modelWinProbability set, so the only one that ever qualifies for
+    // Today's Picks in this fixture) has a real price.
+    await expect(page.getByTestId("daily-races-pick-live-price-hrs_1")).toHaveText("Live 3/1 (4.00)");
+  });
+
+  test("Today's Picks shows a plain 'No live price' badge when Betfair has none for a pick", async ({ page }) => {
+    // Registered after setupApiMocks's own route for the same path — a
+    // route added later wins first (Playwright resolves in reverse
+    // registration order), so this overrides the default fixture's price
+    // for this test only.
+    await page.route((url) => url.pathname === "/api/daily-races/live-prices", (route) =>
+      route.fulfill({ json: { success: true, data: { hrs_1: { price: null, note: "Live prices aren't configured yet." } } } })
+    );
+
+    await page.goto("/daily-races");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("daily-races-min-model-win-probability").fill("20");
+    await page.getByTestId("daily-races-filter-apply").click();
+    await expect(page.getByTestId("daily-races-picks-list")).toBeVisible();
+
+    await expect(page.getByTestId("daily-races-pick-live-price-hrs_1")).toHaveText("No live price");
+  });
+
+  test("a pick with a captured result shows Won + PnL alongside its pre-race Model/Fair-odds badges", async ({ page }) => {
+    await page.goto("/daily-races");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("daily-races-min-model-win-probability").fill("20");
+    await page.getByTestId("daily-races-filter-apply").click();
+
+    // hrs_1 (Fixture Star) has a finished result — isp 5 WINNER — so its
+    // pick row shows both its original pre-race pick info and the result.
+    await expect(page.getByTestId("daily-races-pick-hrs_1")).toBeVisible();
+    await expect(page.getByTestId("daily-races-pick-fair-odds-hrs_1")).toHaveText("Fair 3/1 (4.00)");
+    await expect(page.getByTestId("daily-races-pick-result-hrs_1")).toHaveText("Won");
+    await expect(page.getByTestId("daily-races-pick-pnl-hrs_1")).toHaveText("+£1.00");
+    await expect(page.getByTestId("daily-races-pick-beats-sp-hrs_1")).toHaveText("Beat SP");
+
+    // Day P&L totals every resulted pick — only hrs_1 has a captured
+    // result here, so the day total equals its own +£1.00, "1 resulted".
+    await expect(page.getByTestId("daily-races-picks-day-pnl")).toContainText("Day P&L: +£1.00");
+    await expect(page.getByTestId("daily-races-picks-day-pnl")).toContainText("1 resulted");
+  });
+
+  test("the 'only value bets' filter narrows to picks that beat their SP", async ({ page }) => {
+    await page.goto("/daily-races");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("daily-races-only-model-beats-sp").click();
+    await page.getByTestId("daily-races-filter-apply").click();
+
+    // hrs_1 is the only runner in this fixture with a modelWinProbability
+    // at all, and it beats its own SP (25% model vs 20% implied) — the
+    // deeper "narrows to only beats-SP picks, excluding a still-pending
+    // one and a below-SP one" behavior is covered by Storybook
+    // (OnlyModelBeatsSpFilterNarrowsToValueBetsOnly); this is a smoke test
+    // that the checkbox + filter-apply flow works end-to-end.
+    await expect(page.getByTestId("daily-races-pick-hrs_1")).toBeVisible();
+  });
+
+  test("Prev/Next Day buttons update the current-date label and the URL's date param", async ({ page }) => {
+    await page.goto("/daily-races?date=2026-06-03");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("daily-races-current-date")).toContainText("3 Jun 2026");
+
+    await page.getByTestId("daily-races-next-day").click();
+    await expect(page).toHaveURL(/date=2026-06-04/);
+    await expect(page.getByTestId("daily-races-current-date")).toContainText("4 Jun 2026");
+
+    await page.getByTestId("daily-races-prev-day").click();
+    await page.getByTestId("daily-races-prev-day").click();
+    await expect(page).toHaveURL(/date=2026-06-02/);
+    await expect(page.getByTestId("daily-races-current-date")).toContainText("2 Jun 2026");
+  });
+
+  test("Next Day preserves an already-applied filter in the URL", async ({ page }) => {
+    await page.goto("/daily-races?date=2026-06-03");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("daily-races-min-model-win-probability").fill("20");
+    await page.getByTestId("daily-races-filter-apply").click();
+    await expect(page).toHaveURL(/minModelWinProbability=20/);
+
+    await page.getByTestId("daily-races-next-day").click();
+    await expect(page).toHaveURL(/date=2026-06-04/);
+    await expect(page).toHaveURL(/minModelWinProbability=20/);
+  });
+
+  test("does not show the missing-results prompt when a result already exists (hrs_1)", async ({ page }) => {
+    await page.goto("/daily-races?date=2026-06-03");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-missing-results-prompt")).not.toBeVisible();
+  });
+
+  test("shows the missing-results prompt for a past day with zero results, and a successful reseed refreshes the list", async ({ page }) => {
+    // Override the default fixture for this one test — every runner here
+    // has no `result` at all, unlike the shared fixture (hrs_1 already has
+    // one), so the "all runners unresulted" condition is genuinely met.
+    const noResultsRace = {
+      raceId: "rac_test_0099", eventId: "goodwood-2026-06-01", course: "Goodwood", date: "2026-06-01",
+      offTime: "2:00", offDt: "2026-06-01T14:00:00+01:00", raceName: "No Results Yet Stakes",
+      distanceF: "8.0", region: "GB", raceClass: "Class 4", type: "Flat", ageBand: "4yo+",
+      prize: "£4,000", fieldSize: "1", going: "Good", surface: "Turf",
+      runners: [{
+        runnerId: "hrs_99", horse: "Unresulted Runner", age: "5", sex: "gelding", sexCode: "G", colour: "b",
+        region: "GB", dam: null, damId: null, sire: null, sireId: null, damsire: null, damsireId: null,
+        trainer: "A Trainer", trainerId: "trn_1", owner: null, ownerId: null, number: "1", draw: "0",
+        headgear: "", lbs: "140", officialRating: "80", jockey: "B Jockey", jockeyId: "jky_1",
+        lastRun: "10", form: "1-2", modelWinProbability: 30,
+      }],
+    };
+    await page.route((url) => url.pathname === "/api/daily-races", (route) => {
+      route.fulfill({ json: { success: true, data: [noResultsRace], count: 1 } });
+    });
+
+    await page.goto("/daily-races?date=2026-06-01");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-missing-results-prompt")).toBeVisible();
+
+    await page.route((url) => url.pathname === "/api/daily-races/reseed-results", (route) => {
+      route.fulfill({ json: { success: true, data: { racesUpserted: 1, runnersUpserted: 1, nonGbSkipped: 0 } } });
+    });
+
+    await page.getByTestId("daily-races-reseed-confirm").click();
+    await expect(page.getByTestId("daily-races-reseed-success")).toContainText("Found 1 race");
+  });
+
+  test("shows a plain-language explanation when the racing data provider requires a higher plan", async ({ page }) => {
+    const noResultsRace = {
+      raceId: "rac_test_0098", eventId: "goodwood-2026-05-31", course: "Goodwood", date: "2026-05-31",
+      offTime: "2:00", offDt: "2026-05-31T14:00:00+01:00", raceName: "No Results Yet Stakes 2",
+      distanceF: "8.0", region: "GB", raceClass: "Class 4", type: "Flat", ageBand: "4yo+",
+      prize: "£4,000", fieldSize: "1", going: "Good", surface: "Turf",
+      runners: [{
+        runnerId: "hrs_98", horse: "Another Unresulted Runner", age: "5", sex: "gelding", sexCode: "G", colour: "b",
+        region: "GB", dam: null, damId: null, sire: null, sireId: null, damsire: null, damsireId: null,
+        trainer: "A Trainer", trainerId: "trn_1", owner: null, ownerId: null, number: "1", draw: "0",
+        headgear: "", lbs: "140", officialRating: "80", jockey: "B Jockey", jockeyId: "jky_1",
+        lastRun: "10", form: "1-2", modelWinProbability: 30,
+      }],
+    };
+    await page.route((url) => url.pathname === "/api/daily-races", (route) => {
+      route.fulfill({ json: { success: true, data: [noResultsRace], count: 1 } });
+    });
+    await page.route((url) => url.pathname === "/api/daily-races/reseed-results", (route) => {
+      route.fulfill({
+        json: {
+          success: false,
+          error: "plan_required",
+          message: "Our racing data provider only lets us fetch today's results on our current plan.",
+        },
+      });
+    });
+
+    await page.goto("/daily-races?date=2026-05-31");
+    await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 10000 });
+    await page.getByTestId("daily-races-reseed-confirm").click();
+    await expect(page.getByTestId("daily-races-reseed-error")).toContainText("today's results");
+  });
+});

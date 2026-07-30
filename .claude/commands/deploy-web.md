@@ -28,7 +28,7 @@ cd /home/ubuntu/betfair-nlp && bash apps/web/deploy.sh
 | CloudFront distribution | `E1MADGEADM9CJZ` → `d3jepqko9i1lgu.cloudfront.net` |
 | ACM certificate | `arn:aws:acm:us-east-1:465137780330:certificate/1d0fef63-a6d2-405c-9170-b2d5957dbda0` |
 | Custom domain | `app.backbet.co.uk` (CNAME in GoDaddy → CloudFront) |
-| Lambda API | `https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com` |
+| Lambda API | `https://6fj7nh9mw6.execute-api.eu-west-2.amazonaws.com` |
 
 ## First-time setup
 

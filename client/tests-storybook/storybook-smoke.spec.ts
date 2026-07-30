@@ -146,7 +146,7 @@ test.describe("EventDocsPanel stories", () => {
 test.describe("AuthScreen stories", () => {
   test("Default — login form renders", async ({ page }) => {
     await loadStory(page, "components-authscreen--default");
-    await expect(page.getByTestId("auth-username-input")).toBeVisible();
+    await expect(page.getByTestId("auth-email-input")).toBeVisible();
     await expect(page.getByTestId("auth-password-input")).toBeVisible();
     await expect(page.getByTestId("auth-login-button")).toBeVisible();
   });

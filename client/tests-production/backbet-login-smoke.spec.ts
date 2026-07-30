@@ -7,6 +7,15 @@ test.describe("backbet.co.uk — login regression test", () => {
   // Reproduces the reported bug directly: drive the real login form with
   // matthew/beyer and confirm the app actually authenticates and navigates
   // to the events screen, instead of silently staying on the login form.
+  //
+  // NOTE: this targets backbet.co.uk (main branch), which is NOT updated by
+  // the develop-branch email/JWT signup work — it still ships the old
+  // username/password AuthScreen, so this test intentionally keeps using the
+  // old auth-username-input testID and the plaintext-era "matthew"/"beyer"
+  // credentials. The shared Lambda backend (src/server/router.ts) aliases
+  // that legacy {username, password} shape onto the new seeded
+  // matthew@backbet.co.uk account so this keeps passing without a main-branch
+  // redeploy.
   test("logging in with matthew/beyer reaches the events screen", async ({
     page,
   }) => {

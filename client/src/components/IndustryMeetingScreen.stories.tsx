@@ -46,6 +46,42 @@ const defaultHandlers = [
   ),
 ];
 
+// Same decorator pattern IspRacesScreen.stories.tsx uses to simulate
+// arriving with filter query params already in the URL (see App.tsx's
+// onNavigateToMeeting/onNavigateToRace, threaded from SavedResultDetailScreen's
+// Live Performance section) — this screen reads them directly via
+// ispUrlParams.ts's urlQualifyingFilterParams(), not via props.
+const withQueryParams = (search: string) => {
+  const Decorator = (Story: React.ComponentType) => {
+    window.history.pushState({}, "", `${window.location.pathname}?${search}`);
+    return <Story />;
+  };
+  return Decorator;
+};
+
+// Regression coverage for a real prod bug (reported live with a
+// screenshot): tapping through from a saved filter's Live Performance
+// section into a meeting showed every race/runner at that meeting, not
+// just what the filter actually selected. Race 1 has one qualifying and
+// one non-qualifying runner; race 2 has none at all, so under a filter it
+// should be dropped entirely rather than shown empty.
+const FILTERED_MOCK_RACES = [
+  {
+    ...MOCK_RACES[0],
+    runners: [
+      { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true, modelWinProbability: 60 },
+      { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 5.5, ispFraction: "9/2", isFavourite: false },
+    ],
+  },
+  {
+    ...MOCK_RACES[1],
+    runners: [
+      { id: 22001, name: "State Man", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.4, ispFraction: "2/5", isFavourite: true },
+      { id: 22002, name: "Brighterdaysahead", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 6.0, ispFraction: "5/1", isFavourite: false },
+    ],
+  },
+];
+
 const meta: Meta<typeof IndustryMeetingScreen> = {
   title: "Components/IndustryMeetingScreen",
   component: IndustryMeetingScreen,
@@ -54,9 +90,14 @@ const meta: Meta<typeof IndustryMeetingScreen> = {
     msw: { handlers: defaultHandlers },
   },
   args: {
+    navigate: fn(),
+    isAuthenticated: true,
+    onLogout: fn(),
     meetingId: MEETING_ID,
     onBack: fn(),
     onNavigateToRace: fn(),
+    onNavigateToRunner: fn(),
+    onNavigateToTrainer: fn(),
   },
 };
 
@@ -88,7 +129,7 @@ export const BackButton: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-meeting-list");
-    await userEvent.click(canvas.getByTestId("industry-meeting-back"));
+    await userEvent.click(canvas.getByTestId("industry-meeting-back-button"));
     await expect(args.onBack).toHaveBeenCalledTimes(1);
   },
 };
@@ -165,5 +206,75 @@ export const EmptyState: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.findByText("No races found.")).resolves.toBeInTheDocument();
+  },
+};
+
+export const RendersAtIphone12: Story = {
+  parameters: { viewport: { defaultViewport: "iphone12" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-meeting-list");
+    await expect(canvas.getByTestId("industry-meeting-screen")).toBeInTheDocument();
+  },
+};
+
+export const RendersAtLaptop: Story = {
+  parameters: { viewport: { defaultViewport: "laptop" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-meeting-list");
+    await expect(canvas.getByTestId("industry-meeting-screen")).toBeInTheDocument();
+  },
+};
+
+export const FilterActiveShowsOnlyQualifyingRacesAndRunners: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp/meeting/:meetingId`, () =>
+          HttpResponse.json({ success: true, data: FILTERED_MOCK_RACES, count: FILTERED_MOCK_RACES.length })
+        ),
+      ],
+    },
+  },
+  decorators: [withQueryParams("onlyModelBeatsSp=true&minModelWinProbability=20")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    try {
+      await canvas.findByTestId("industry-meeting-list");
+
+      // Race 1 shows only its one qualifying runner...
+      await expect(canvas.getByTestId("industry-meeting-race-914592")).toBeInTheDocument();
+      await expect(canvas.getByTestId("industry-meeting-item-21001")).toBeInTheDocument();
+      await expect(canvas.queryByTestId("industry-meeting-item-21002")).not.toBeInTheDocument();
+      // ...race 2 has zero qualifying runners, so it's dropped entirely.
+      await expect(canvas.queryByTestId("industry-meeting-race-914593")).not.toBeInTheDocument();
+
+      await expect(canvas.getByTestId("industry-meeting-screen")).toHaveTextContent("1 races");
+      await expect(canvas.getByTestId("industry-meeting-screen")).toHaveTextContent("1 qualifying runners");
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  },
+};
+
+export const NoFilterInUrlShowsEveryRaceAndRunner: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/industry-sp/meeting/:meetingId`, () =>
+          HttpResponse.json({ success: true, data: FILTERED_MOCK_RACES, count: FILTERED_MOCK_RACES.length })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("industry-meeting-list");
+    // A plain browse-in (no filter query params at all) shows every race
+    // and runner, unchanged from before filter-awareness existed.
+    await expect(canvas.getByTestId("industry-meeting-race-914592")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-meeting-race-914593")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-meeting-item-21002")).toBeInTheDocument();
   },
 };

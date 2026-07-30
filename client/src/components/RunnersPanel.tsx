@@ -31,6 +31,7 @@ function formatRaceTime(isoTime: string): string {
       hour: "2-digit",
       minute: "2-digit",
       timeZone: "Europe/London",
+      hour12: false,
     });
   } catch {
     return isoTime;
@@ -166,7 +167,7 @@ const styles = StyleSheet.create({
     paddingLeft: spacing.lg,
     paddingRight: spacing.xs,
     paddingVertical: 6,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: colors.primaryLight,
   },
   headerText: {
     flex: 1,
@@ -278,8 +279,8 @@ const styles = StyleSheet.create({
   bspBadge: {
     fontSize: 11,
     fontWeight: "700",
-    color: colors.primaryDark,
-    backgroundColor: "#EEF2FF",
+    color: colors.accent,
+    backgroundColor: colors.primaryLight,
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: radii.sm,

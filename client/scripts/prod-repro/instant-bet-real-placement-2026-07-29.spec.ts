@@ -1,0 +1,142 @@
+import { test, expect } from "@playwright/test";
+
+// One-off prod repro/verification — see .claude/commands/prod-repro-scripts.md.
+// Per the user's explicit request ("create prod ./scripts playwright test
+// to actually make an instant 1 pound bet") after reporting the live
+// "Bet now" flow "wasn't working". Drives the REAL "Bet now" flow through
+// the REAL UI on the REAL deployed app (app.backbet.co.uk), as the real
+// allow-listed account (see AGENTS.md's live-betting-safety /
+// config-boolean-fix entries) — this is not mocked at any layer.
+//
+// COST NOTE, unlike every other prod-repro/live-verify script in this
+// repo: this one is NOT free to re-run for no reason. Every run attempts
+// one real (currently-rejected, but genuinely attempted) order against the
+// real Betfair account, capped at £2 by MAX_LIVE_STAKE_GBP
+// (bet-order-service.ts — raised from an initial £1 once Betfair's own
+// £2 minimum stake was confirmed; a cap below Betfair's minimum meant no
+// real bet could ever succeed regardless of funds). Re-run deliberately,
+// not as part of any loop.
+//
+// CURRENT KNOWN STATE (2026-07-29, fully diagnosed — see AGENTS.md's
+// betfair-error-code-fix / min-stake-cap entries, which correct an
+// earlier wrong guess in the config-boolean-fix entry): the account's
+// Betfair application key (the free "Delay" tier) DOES authorize real
+// order placement — Delay vs Live only affects market DATA timing,
+// confirmed via Betfair's own developer docs/forum, not betting
+// permission. The real, current blocker is simply that the real Betfair
+// account has insufficient real funds to cover even a £2 stake. Every
+// real attempt currently comes back status:"error", note "Your Betfair
+// account doesn't have enough funds to cover this stake."
+// (bet-order-service.ts's humanizeBetfairError INSUFFICIENT_FUNDS
+// mapping, now correctly surfaced — betfair-api-client.ts previously only
+// read a cascading per-instruction placeholder code, ERROR_IN_ORDER,
+// instead of Betfair's real top-level errorCode). This is NOT a bug in
+// this codebase — the full pipeline (login -> real market resolution ->
+// real price check -> real placeOrders call reaching Betfair -> real
+// account-level rejection) is confirmed working end to end; only real
+// money in the account is missing.
+//
+// TO RE-VERIFY AFTER DEPOSITING REAL FUNDS: once the real Betfair account
+// has at least £2 available (Betfair's own minimum stake), change the
+// expectation below from the INSUFFICIENT_FUNDS case to the real success
+// case (status "Triggered", condition text starting with "Backed now at").
+//
+// Credentials via env vars only — never hardcoded, this file is committed:
+//   PROD_REPRO_EMAIL=matthewbeyer@hotmail.com PROD_REPRO_PASSWORD=... \
+//     npx playwright test --config playwright.prod-repro.config.ts scripts/prod-repro/instant-bet-real-placement-2026-07-29.spec.ts
+
+const EMAIL = process.env.PROD_REPRO_EMAIL;
+const PASSWORD = process.env.PROD_REPRO_PASSWORD;
+
+test("REPRO/VERIFY (2026-07-29): a real instant £2 bet, placed through the real UI on the real deployed app", async ({ page }) => {
+  // Trying several real picks in turn (see the retry loop below) can
+  // legitimately take a while against real, live-changing racing data —
+  // the default 60s is too tight for that, not a sign of something hung.
+  test.setTimeout(180000);
+  test.skip(!EMAIL || !PASSWORD, "Set PROD_REPRO_EMAIL/PROD_REPRO_PASSWORD (the real allow-listed account) to run this — never hardcoded here.");
+
+  // Same URL-param auto-login technique as client/tests/bet-orders-e2e.spec.ts,
+  // pointed at the real deployed app instead of a local dev server.
+  await page.goto(`/daily-races?email=${encodeURIComponent(EMAIL!)}&password=${encodeURIComponent(PASSWORD!)}`);
+  await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId("daily-races-loading")).not.toBeVisible({ timeout: 30000 });
+
+  // 0% threshold — as permissive as this filter gets, to maximize the
+  // chance today's real data has at least one qualifying pick to bet on.
+  await page.getByTestId("daily-races-min-model-win-probability").fill("0");
+  await page.getByTestId("daily-races-filter-apply").click();
+
+  const noPicksToday = await page.getByTestId("daily-races-picks-empty").isVisible().catch(() => false);
+  test.skip(noPicksToday, "No Daily Races picks qualify today on the real deployed app — nothing to bet on right now.");
+
+  const betBadges = page.locator('[data-testid^="daily-races-pick-bet-"]');
+  await expect(betBadges.first()).toBeVisible({ timeout: 10000 });
+  // Today's real data can have hundreds of runners with a Bet badge —
+  // capped so this test has a predictable upper bound on wall-clock time
+  // and real attempts, not because more picks wouldn't also be valid.
+  const attemptCount = Math.min(await betBadges.count(), 15);
+
+  // Real racing data changes underneath us between page load and the
+  // moment this test actually submits — a pick that was upcoming when the
+  // list loaded can go off-time (or in-play) by the time we get to it,
+  // which is a genuine pre-flight INSTANT_BET_REJECTED, not the
+  // account-level issue this test exists to verify. Try picks in order
+  // until one gets far enough to reach Betfair for real (dialog closes),
+  // rather than failing on the first unlucky timing collision.
+  let dialogClosed = false;
+  let lastInlineError: string | null = null;
+  for (let i = 0; i < attemptCount; i++) {
+    await betBadges.nth(i).click();
+    await expect(page.getByTestId("place-bet-dialog")).toBeVisible();
+
+    // Toggle to "Bet now" (instant) — the whole point of this test, as
+    // opposed to the existing scheduled-flow e2e coverage.
+    await page.getByTestId("place-bet-dialog-order-type-instant").click();
+    // £0.20 target profit / £2 max stake -> minQualifyingPrice £1.10, low
+    // enough to qualify against almost any real market price, while
+    // staying at MAX_LIVE_STAKE_GBP's exact cap.
+    await page.getByTestId("place-bet-dialog-target-profit-input").fill("0.20");
+    await page.getByTestId("place-bet-dialog-max-stake-input").fill("2");
+    await expect(page.getByTestId("place-bet-dialog-confirm")).toHaveText("Place Bet Now");
+    await page.getByTestId("place-bet-dialog-confirm").click();
+
+    // Instant placement resolves synchronously — either the dialog closes
+    // (persisted, success or a real-attempt error, see My Bets below) or
+    // an inline pre-flight rejection (INSTANT_BET_REJECTED — price/market
+    // couldn't even be checked) shows in the dialog itself, never both.
+    // Racing against both outcomes rather than waiting on one then
+    // checking the other, since either can legitimately take a moment.
+    dialogClosed = await Promise.race([
+      page.getByTestId("place-bet-dialog").waitFor({ state: "hidden", timeout: 20000 }).then(() => true),
+      page.getByTestId("place-bet-dialog-error").waitFor({ state: "visible", timeout: 20000 }).then(() => false),
+    ]).catch(() => false);
+    if (dialogClosed) break;
+
+    lastInlineError = await page.getByTestId("place-bet-dialog-error").textContent().catch(() => null);
+    console.log(`Pick ${i + 1}/${attemptCount} pre-flight rejected (${lastInlineError}) — trying the next one.`);
+    await page.getByTestId("place-bet-dialog-cancel").click();
+    await expect(page.getByTestId("place-bet-dialog")).not.toBeVisible();
+  }
+  if (!dialogClosed) {
+    throw new Error(`All ${attemptCount} picks tried were pre-flight rejected before reaching Betfair at all — last error: ${lastInlineError}`);
+  }
+
+  await page.getByTestId("daily-races-menu-bets-link").click();
+  await expect(page.getByTestId("scheduled-bets-screen")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId("scheduled-bets-loading")).not.toBeVisible({ timeout: 15000 });
+
+  // Newest-first list — the instant bet just placed is the first item.
+  const firstItem = page.locator('[data-testid^="scheduled-bet-item-"]').first();
+  await expect(firstItem).toBeVisible({ timeout: 10000 });
+  const status = await firstItem.locator('[data-testid^="scheduled-bet-status-"]').textContent();
+
+  console.log(`Real instant bet result — status: "${status}"`);
+
+  // CURRENT expected state (see header comment) — a genuine real-account
+  // rejection (insufficient funds), proving the pipeline reaches Betfair
+  // for real. If Betfair ever actually places the bet (status
+  // "Triggered"), that means real funds are now in the account — update
+  // this expectation to match, don't just widen it to accept both silently.
+  await expect(firstItem.locator('[data-testid^="scheduled-bet-note-"]')).toContainText("doesn't have enough funds to cover this stake");
+  expect(status).toBe("Error");
+});

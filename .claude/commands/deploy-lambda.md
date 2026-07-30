@@ -1,7 +1,7 @@
 # Deploy Lambda
 
-Build and deploy the API to AWS Lambda (`hello-api`, eu-north-1).
-Live at: `https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com`
+Build and deploy the API to AWS Lambda (`hello-api`, eu-west-2).
+Live at: `https://6fj7nh9mw6.execute-api.eu-west-2.amazonaws.com`
 
 ## Command
 
@@ -23,11 +23,20 @@ cd /home/mwbeyer/betfair-nlp && bash apps/lambda/build.sh
 `MONGODB_URI`, `MONGODB_DB_NAME`, `OPENAI_API_KEY` are set as Lambda environment variables.
 To update them, create `config/local.json` (gitignored) — build.sh will pick them up automatically.
 
+## Scheduled invocations
+
+This same Lambda also runs a daily EventBridge-triggered ingest (branches
+on `event.source === "aws.events"` in `handler.ts`, entirely separate from
+the API Gateway HTTP path) — see `/daily-races-cron`. A normal deploy via
+this command ships that handler branch and the `RACINGAPI_*` secrets
+together with everything else; no separate step needed unless you're
+setting the schedule up for the first time.
+
 ## Verify
 
 ```bash
 curl -s -H "Authorization: Basic bWF0dGhldzpiZXllcg==" \
-  https://fd0xrhcmj0.execute-api.eu-north-1.amazonaws.com/api/stats
+  https://6fj7nh9mw6.execute-api.eu-west-2.amazonaws.com/api/stats
 # Expect: {"success":true,"data":{...}}
 ```
 

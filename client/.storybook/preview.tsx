@@ -18,6 +18,18 @@ const iphone12Viewport = {
   type: "mobile" as const,
 };
 
+const ipadViewport = {
+  name: "iPad (portrait)",
+  styles: { width: "768px", height: "1024px" },
+  type: "tablet" as const,
+};
+
+const laptopViewport = {
+  name: "Laptop / MacBook (landscape)",
+  styles: { width: "1440px", height: "900px" },
+  type: "desktop" as const,
+};
+
 // Initialize MSW
 initialize({ onUnhandledRequest: "bypass" });
 
@@ -35,7 +47,21 @@ if (typeof window !== "undefined") {
 }
 
 const preview = {
-  loaders: [mswLoader],
+  loaders: [
+    mswLoader,
+    // IndustrySpScreen caches its /splits result in sessionStorage, keyed
+    // by filter params — since most stories share the same default filter
+    // args, a cache entry written by one story would otherwise leak into
+    // the next one's mount and mask whatever that story's own MSW handler
+    // returns. Clearing before every story keeps each one's mocked
+    // response the actual source of truth.
+    async () => {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.clear();
+      }
+      return {};
+    },
+  ],
   parameters: {
     actions: { argTypesRegex: "^on[A-Z].*" },
     controls: {
@@ -58,7 +84,12 @@ const preview = {
       ],
     },
     viewport: {
-      viewports: { mobile1: mobile1Viewport, iphone12: iphone12Viewport },
+      viewports: {
+        mobile1: mobile1Viewport,
+        iphone12: iphone12Viewport,
+        ipad: ipadViewport,
+        laptop: laptopViewport,
+      },
     },
     // Enable interaction testing logging in headless mode
     test: {

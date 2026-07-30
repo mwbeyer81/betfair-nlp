@@ -25,95 +25,57 @@ test.describe("Routing — MSW mocked network", () => {
     await expect(page.getByTestId("events-screen")).not.toBeVisible();
   });
 
-  test("clicking runners stat navigates to /runners", async ({ page }) => {
-    await page.goto("/events");
-    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("event-group-loading")).not.toBeVisible({ timeout: 10000 });
-
-    await page.getByTestId("events-total-runners").click();
-
-    await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
-    expect(page.url()).toContain("/runners");
-  });
-
-  test("← Events button on All Runners screen returns to /events", async ({ page }) => {
-    await page.goto("/runners");
-    await expect(page.getByTestId("all-runners-screen")).toBeVisible({ timeout: 10000 });
-
-    await page.getByTestId("all-runners-screen-events-button").click();
-
-    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
-    expect(page.url()).toMatch(/\/events/);
-  });
-
   test("Chat → button on Events screen navigates to /chat", async ({ page }) => {
     await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-screen-chat-button").click();
+    await page.getByTestId("events-menu-chat-link").click();
 
     await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("events-screen")).not.toBeVisible();
-  });
-
-  test("← Events button on Chat screen navigates back to /events", async ({ page }) => {
-    await page.goto("/chat");
-    await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 10000 });
-
-    await page.getByTestId("events-button").click();
-
-    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId("chat-screen")).not.toBeVisible();
   });
 
   test("URL updates to /chat after navigation", async ({ page }) => {
     await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-screen-chat-button").click();
+    await page.getByTestId("events-menu-chat-link").click();
     await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 5000 });
 
     expect(page.url()).toContain("/chat");
-  });
-
-  test("URL updates to /events after navigating back", async ({ page }) => {
-    await page.goto("/chat");
-    await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 10000 });
-
-    await page.getByTestId("events-button").click();
-    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
-
-    expect(page.url()).toMatch(/\/events/);
   });
 
   test("browser back button restores previous route", async ({ page }) => {
     await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-screen-chat-button").click();
+    await page.getByTestId("events-menu-chat-link").click();
     await expect(page.getByTestId("chat-screen")).toBeVisible({ timeout: 5000 });
 
     await page.goBack();
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
   });
 
-  test("Industry SP → link on Events screen navigates to /isp", async ({ page }) => {
+  test("Industry SP link in the burger menu on Events screen navigates to /isp", async ({ page }) => {
     await page.goto("/events");
     await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("events-nav-isp").click();
+    await page.getByTestId("events-menu-isp-link").click();
 
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain("/isp");
   });
 
-  test("← Events button on Industry SP (home) screen navigates to /events", async ({ page }) => {
+  // Industry SP (home) no longer links out to Events, Chat, or Runners —
+  // those pages are hidden (still reachable by URL, still behind login)
+  // but not linked from the public home page.
+  test("Industry SP (home) screen has no nav link to /events", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-sp-screen-events-button").click();
-
-    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 5000 });
-    expect(page.url()).toMatch(/\/events/);
+    await expect(page.getByTestId("industry-sp-screen-events-button")).not.toBeVisible();
+    // The fixture's default session is authenticated, so the header shows
+    // Log Out rather than Sign Up/Log In — either way, no Events link.
+    await expect(page.getByTestId("industry-sp-logout-button")).toBeVisible();
   });
 });

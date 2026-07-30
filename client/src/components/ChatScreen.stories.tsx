@@ -82,7 +82,8 @@ const meta: Meta<typeof ChatScreen> = {
     ),
   ],
   args: {
-    onNavigateToEvents: fn(),
+    navigate: fn(),
+    isAuthenticated: true,
     onLogout: fn(),
   },
 };
@@ -92,14 +93,14 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-export const EventsButtonNavigates: Story = {
+export const ResultsButtonNavigates: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
 
-    const eventsBtn = canvas.getByTestId("events-button");
-    await expect(eventsBtn).toBeInTheDocument();
-    await userEvent.click(eventsBtn);
-    await expect(args.onNavigateToEvents).toHaveBeenCalledTimes(1);
+    const resultsBtn = canvas.getByTestId("chat-menu-results-link");
+    await expect(resultsBtn).toBeInTheDocument();
+    await userEvent.click(resultsBtn);
+    await expect(args.navigate).toHaveBeenCalledWith("/results");
   },
 };
 

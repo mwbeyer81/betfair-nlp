@@ -1,4 +1,5 @@
 import express from "express";
+import compression from "compression";
 import morgan from "morgan";
 import path from "path";
 import { router, initializeServices } from "./router";
@@ -8,6 +9,9 @@ const app = express();
 
 app.use(corsMiddleware);
 app.use(helmetMiddleware);
+// Same fix as the Lambda handler (apps/lambda/src/handler.ts) — see its
+// comment / the isp-response-compression entry in AGENTS.md.
+app.use(compression());
 app.use(morgan("combined"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -25,6 +29,14 @@ app.use((req, res, next) => {
 
 app.use(router);
 
-initializeServices();
+// Caught, not fire-and-forget unhandled — initializeServices() now rethrows
+// on failure (see router.ts's servicesReady flag / AGENTS.md's
+// bets-tab-load-fix entry) so the Lambda handler can detect and retry it;
+// this plain long-running server has no equivalent per-request retry need
+// (restarting the process is the normal recovery path here), but an
+// uncaught rejection would still be a real unhandled-rejection risk.
+initializeServices().catch(error => {
+  console.error("Initial service initialization failed:", error);
+});
 
 export default app;

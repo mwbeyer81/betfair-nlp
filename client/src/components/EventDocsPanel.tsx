@@ -13,7 +13,7 @@ import {
   Divider,
 } from "react-native-paper";
 import { MarketDefinitionDoc } from "../services/chatApi";
-import { colors, radii, spacing } from "../theme";
+import { colors, statusPill, radii, spacing } from "../theme";
 
 function formatIfTimestamp(value: string): string {
   const n = Number(value);
@@ -22,12 +22,6 @@ function formatIfTimestamp(value: string): string {
   if (n >= 1e9 && n < 1e10) return new Date(n * 1000).toLocaleString("en-GB");
   return n.toLocaleString();
 }
-
-const STATUS_PILL: Record<string, { bg: string; fg: string }> = {
-  OPEN: { bg: "#DCFCE7", fg: colors.success },
-  SUSPENDED: { bg: "#FEF3C7", fg: colors.warning },
-  CLOSED: { bg: "#F1F5F9", fg: colors.textSecondary },
-};
 
 interface EventDocsPanelProps {
   eventId: string;
@@ -112,7 +106,7 @@ export const EventDocsPanel: React.FC<EventDocsPanelProps> = ({
           )}
           {sortedDocs.map((doc, index) => {
             const statusPillColors =
-              STATUS_PILL[doc.status] ?? {
+              statusPill[doc.status] ?? {
                 bg: colors.background,
                 fg: colors.textTertiary,
               };
@@ -202,7 +196,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   sortButton: {
-    borderRadius: radii.sm,
+    borderRadius: radii.button,
     marginRight: spacing.xs,
   },
   sortButtonLabel: {
