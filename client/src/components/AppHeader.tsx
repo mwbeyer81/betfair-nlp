@@ -28,6 +28,13 @@ export interface AppHeaderProps {
   // shell. Render-prop so those buttons can also close the phone dropdown
   // on press via the same `wrap` the standard nav items use.
   extraActions?: (wrap: (onPress: () => void) => () => void) => React.ReactNode;
+  // Same idea as extraActions, but rendered *inside* the nav group right
+  // after Backtest instead of in its own section above the divider — for a
+  // screen-specific action that belongs with the destinations rather than
+  // with the screen's own view controls (IndustrySpScreen's "Model
+  // Performance" sits here; its "Show filters" toggle stays in
+  // extraActions).
+  navActions?: (wrap: (onPress: () => void) => () => void) => React.ReactNode;
 }
 
 // One header — brand, title/subtitle, back action, and burger nav menu —
@@ -44,6 +51,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   subtitle,
   testIdPrefix,
   extraActions,
+  navActions,
 }) => {
   const { isTablet, isWide, open: menuOpen, setOpen: setMenuOpen, wrap } = useHeaderMenu();
   const [showAccountPanel, setShowAccountPanel] = useState(false);
@@ -91,6 +99,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       >
         Backtest
       </Button>
+      {navActions?.(wrap)}
       <Button
         testID={`${testIdPrefix}-menu-chat-link`}
         mode="outlined"
