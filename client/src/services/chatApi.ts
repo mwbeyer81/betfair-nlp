@@ -156,6 +156,10 @@ export interface BetOrder {
   horse: string;
   course: string;
   offTime: string;
+  // The race's scheduled off (ISO, with offset). Absent on bet orders
+  // returned by older API builds — always fall back to createdAt rather
+  // than dropping the bet from a date filter (see betRaceDate).
+  offDt?: string;
   raceId: string;
   eventId: string;
   targetProfit: number;

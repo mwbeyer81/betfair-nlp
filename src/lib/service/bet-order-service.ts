@@ -78,6 +78,11 @@ export interface BetOrderApiResponse {
   horse: string;
   course: string;
   offTime: string;
+  // The race's own scheduled off (ISO, with offset) — the date a punter
+  // thinks of a bet as belonging to, as opposed to createdAt (when the
+  // order was placed, which can be a different day for a scheduled bet).
+  // Exposed so the My Bets screen can filter by race date.
+  offDt: string;
   raceId: string;
   eventId: string;
   targetProfit: number;
@@ -105,6 +110,7 @@ function toApiResponse(doc: BetOrderDocument): BetOrderApiResponse {
     horse: doc.horse,
     course: doc.course,
     offTime: doc.offTime,
+    offDt: doc.offDt,
     raceId: doc.raceId,
     eventId: doc.eventId,
     targetProfit: doc.targetProfit,
