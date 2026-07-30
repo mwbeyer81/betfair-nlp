@@ -33,16 +33,29 @@ sed -i "s#<meta charset=\"utf-8\" />#<meta charset=\"utf-8\" /><meta name=\"buil
 echo "Removing node_modules (not needed post-build, keeps the worktree lean on disk)..."
 rm -rf node_modules
 
-echo "Syncing static assets to S3 (long cache)..."
+# Deliberately three steps, in this order. The old single `sync --delete`
+# deleted the previous build's hashed JS bundle *before* the new index.html
+# went up, so for the seconds in between, anyone loading the site got an
+# index.html pointing at a bundle that no longer existed — a hard white-screen
+# failure, and one that CloudFront could then cache at the edge. Uploading
+# additively first, cutting index.html over second, and only then pruning the
+# now-unreferenced old assets means every index.html that's ever live has its
+# bundle present.
+echo "Uploading new static assets to S3 (long cache, additive)..."
+aws s3 sync dist/ "s3://$BUCKET/" \
+  --cache-control "public,max-age=31536000,immutable" \
+  --exclude "index.html"
+
+echo "Uploading index.html (no-cache) — cuts traffic over to the new bundle..."
+aws s3 cp dist/index.html "s3://$BUCKET/index.html" \
+  --cache-control "no-cache,no-store,must-revalidate" \
+  --content-type "text/html"
+
+echo "Pruning assets no longer referenced by this build..."
 aws s3 sync dist/ "s3://$BUCKET/" \
   --delete \
   --cache-control "public,max-age=31536000,immutable" \
   --exclude "index.html"
-
-echo "Uploading index.html (no-cache)..."
-aws s3 cp dist/index.html "s3://$BUCKET/index.html" \
-  --cache-control "no-cache,no-store,must-revalidate" \
-  --content-type "text/html"
 
 if [ -n "$CF_DIST_ID" ]; then
   echo "Invalidating CloudFront distribution $CF_DIST_ID..."

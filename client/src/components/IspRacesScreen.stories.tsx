@@ -153,27 +153,42 @@ const withQueryParams = (search: string) => {
   return Decorator;
 };
 
-// Every group starts collapsed now (see IspRacesScreen's `expandedKeys`), so
-// any story asserting on something below year level has to open the tree
-// first. One tap of the collapse-all toggle — which reads "Expand All" on
-// load precisely *because* nothing is expanded — is the cheapest way to get
-// the whole hierarchy on screen, and it keeps auto-expanding groups whose
-// own data is still in flight at the moment of the tap.
+// Every group starts collapsed (see IspRacesScreen's `expandedKeys`) and the
+// day is the fetch unit (see dayStates/loadDayPage), so reaching a race row
+// means opening year -> month -> day -> meeting in turn, waiting for each
+// level's own fetch to land before the next level's rows exist to click.
+// That's exactly what a user does, and it's what the local-CI Playwright
+// suite does too (client/tests-local-ci/isp-races-ui.spec.ts).
 //
-// `probeTestId` is the deepest row the caller is about to assert on. Expanding
-// is not instantaneous: the tap opens every group that exists *at that moment*,
-// then each year's own first-month fetch resolves and the day/meeting/race rows
-// underneath it appear (and get auto-expanded — see expandAllActive). Waiting
-// on one of those rows is what makes the helper safe to `getByTestId` after.
-async function expandAll(canvas: ReturnType<typeof within>, probeTestId?: string) {
-  const btn = await canvas.findByTestId("industry-sp-collapse-all-toggle");
-  await expect(btn).toHaveTextContent("Expand All");
-  await userEvent.click(btn);
-  await waitFor(() => expect(btn).toHaveTextContent("Collapse All"));
-  if (probeTestId) {
-    await waitFor(() => expect(canvas.getByTestId(probeTestId)).toBeInTheDocument(), { timeout: 5000 });
+// Deliberately NOT "just press Expand All": that now cascades a year probe
+// into a month probe into a day fetch for every year in range, which with an
+// unbounded filter is a large burst of requests and several render passes to
+// settle — slow and flaky as a precondition for an assertion about one row.
+async function drill(
+  canvas: ReturnType<typeof within>,
+  { year, month, day, meeting }: { year: string; month: string; day: string; meeting?: string }
+) {
+  await userEvent.click(await canvas.findByTestId(`industry-sp-year-toggle-${year}`));
+  await userEvent.click(await canvas.findByTestId(`industry-sp-month-toggle-${month}`));
+  // The day's own row only appears once the month's probe has resolved and
+  // told the screen which day its data starts on.
+  await waitFor(() => expect(canvas.getByTestId(`industry-sp-day-toggle-${day}`)).toBeInTheDocument(), {
+    timeout: 10000,
+  });
+  await userEvent.click(canvas.getByTestId(`industry-sp-day-toggle-${day}`));
+  if (meeting) {
+    await waitFor(() => expect(canvas.getByTestId(`industry-sp-meeting-toggle-${meeting}`)).toBeInTheDocument(), {
+      timeout: 10000,
+    });
+    await userEvent.click(canvas.getByTestId(`industry-sp-meeting-toggle-${meeting}`));
   }
 }
+
+// The three fixtures' own coordinates, so stories name a fixture rather than
+// repeating date arithmetic.
+const AT_LEOPARDSTOWN = { year: "2026", month: "2026-02", day: "2026-02-01", meeting: "Leopardstown|2026-02-01" };
+const AT_WETHERBY = { year: "2026", month: "2026-03", day: "2026-03-01", meeting: "Wetherby|2026-03-01" };
+const AT_MUSSELBURGH = { year: "2015", month: "2015-01", day: "2015-01-01", meeting: "Musselburgh|2015-01-01" };
 
 const defaultHandlers = [
   http.get(`${BASE}/api/industry-sp`, () =>
@@ -300,7 +315,7 @@ export const MeetingSections: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expandAll(canvas, "industry-sp-meeting-Leopardstown|2026-02-01");
+    await drill(canvas, AT_LEOPARDSTOWN);
 
     // Meeting header shows just the course now — the date lives on the day
     // header above it in the year/month/day/meeting hierarchy.
@@ -315,7 +330,7 @@ export const RaceAndRunnerRows: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expandAll(canvas, "industry-sp-race-914592");
+    await drill(canvas, AT_LEOPARDSTOWN);
 
     await expect(canvas.findByTestId("industry-sp-race-914592")).resolves.toBeInTheDocument();
     await expect(canvas.findByText("Galopin Des Champs")).resolves.toBeInTheDocument();
@@ -327,7 +342,7 @@ export const MeetingHeaderNavigatesToMeeting: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-meeting-link-Leopardstown|2026-02-01");
+    await drill(canvas, AT_LEOPARDSTOWN);
 
     const link = canvas.getByTestId(`industry-sp-meeting-link-${MOCK_RACES[0].meetingId}`);
     await userEvent.click(link);
@@ -340,7 +355,7 @@ export const RaceRowNavigatesToRace: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-race-914592");
+    await drill(canvas, AT_LEOPARDSTOWN);
 
     const raceRow = canvas.getByTestId(`industry-sp-race-${MOCK_RACES[0].raceId}`);
     await userEvent.click(raceRow);
@@ -353,7 +368,7 @@ export const OddsModeDefaultsToFraction: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-isp-21001");
+    await drill(canvas, AT_LEOPARDSTOWN);
     await expect(canvas.getByTestId("industry-sp-odds-mode-toggle")).toHaveTextContent("Odds: Fraction");
     await expect(canvas.getByTestId(`industry-sp-isp-${MOCK_RACES[0].runners[0].id}`)).toHaveTextContent("ISP 19/20");
   },
@@ -364,7 +379,7 @@ export const OddsModeToggleSwitchesToDecimal: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-isp-21001");
+    await drill(canvas, AT_LEOPARDSTOWN);
     await userEvent.click(canvas.getByTestId("industry-sp-odds-mode-toggle"));
     await expect(canvas.getByTestId("industry-sp-odds-mode-toggle")).toHaveTextContent("Odds: Decimal");
     // 19/20 + 1 = 1.95 — a clean 2dp value, never a raw float artifact.
@@ -376,7 +391,7 @@ export const IspDisplayed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expandAll(canvas, "industry-sp-isp-21001");
+    await drill(canvas, AT_LEOPARDSTOWN);
 
     const runners = MOCK_RACES.flatMap(r => r.runners);
     for (const runner of runners) {
@@ -392,7 +407,7 @@ export const PerRunnerPnl: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-pnl-item-21001");
+    await drill(canvas, AT_LEOPARDSTOWN);
 
     // Galopin Des Champs: WINNER at ISP 1.95, stake £1.05 → +£1.00
     await expect(await canvas.findByTestId("industry-sp-pnl-item-21001")).toHaveTextContent("+£1.00");
@@ -408,7 +423,7 @@ export const MeetingPnlDisplayed: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-meeting-pnl-Leopardstown|2026-02-01");
+    await drill(canvas, AT_LEOPARDSTOWN);
 
     // Leopardstown's two races combined: Galopin (+£1.00, stake £1.05),
     // Meetingofthewaters (-£0.22), State Man (+£1.00, stake £2.50),
@@ -444,7 +459,7 @@ export const MeetingPnlRespondsToFilters: Story = {
     const canvas = within(canvasElement);
     try {
       await canvas.findByTestId("industry-sp-list");
-      await expandAll(canvas, "industry-sp-meeting-pnl-Wetherby|2026-03-01");
+      await drill(canvas, AT_WETHERBY);
 
       // Only Red Stripes + Aqlette pass the filter — the meeting-level
       // total must count just those two (+£1.00 winner, -£0.06 loser =
@@ -483,7 +498,7 @@ export const RacePnlMatchesVisibleRunnersWhenFiltered: Story = {
     const canvas = within(canvasElement);
     try {
       await canvas.findByTestId("industry-sp-list");
-      await expandAll(canvas, "industry-sp-item-name-31001");
+      await drill(canvas, AT_WETHERBY);
 
       // Only the two runners where the model beats SP are shown...
       await expect(canvas.getByTestId("industry-sp-item-name-31001")).toBeInTheDocument();
@@ -509,7 +524,7 @@ export const TrainerFormBadgeDisplayed: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-item-trainer-21001");
+    await drill(canvas, AT_LEOPARDSTOWN);
 
     // Galopin Des Champs has a 14-day form sample — badge shows win/run/rate.
     await expect(canvas.getByTestId("industry-sp-item-trainer-21001")).toHaveTextContent("W P Mullins");
@@ -574,13 +589,15 @@ export const LoadMoreVisibleWhenMorePagesExist: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
-    // MOCK_RACES' 2 races are both dated 2026-02-01 — the mount probe
-    // lands on 2026, then loadYearPage's own scoped fetch (this static
-    // handler ignores query params, always returning the same 2 races /
-    // total: 50) reports 48 more remaining within that year.
+    // MOCK_RACES' 2 races are both dated 2026-02-01 — the mount chain lands
+    // on 2026 -> February -> the 1st, and this static handler (which ignores
+    // query params, always returning the same 2 races / total: 50) reports 48
+    // more remaining within that day. "Load more" lives at day level now, so
+    // the tree has to be opened down to the day for it to be on screen.
+    await drill(canvas, { year: "2026", month: "2026-02", day: "2026-02-01" });
     await waitFor(() => {
-      expect(canvas.getByTestId("industry-sp-year-load-more-2026")).toHaveTextContent("Load more 2026 (48 remaining)");
-    }, { timeout: 5000 });
+      expect(canvas.getByTestId("industry-sp-day-load-more-2026-02-01")).toHaveTextContent("48 remaining");
+    }, { timeout: 10000 });
   },
 };
 
@@ -606,14 +623,17 @@ export const HierarchyLevelsVisible: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-meeting-Musselburgh|2015-01-01");
+    await drill(canvas, AT_MUSSELBURGH);
 
     await expect(canvas.getByTestId("industry-sp-year-2015")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-year-2016")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-month-2015-01")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-month-2015-02")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-day-2015-01-01")).toBeInTheDocument();
-    await expect(canvas.getByTestId("industry-sp-day-2015-02-15")).toBeInTheDocument();
+    // February's *day* rows only exist once February itself is opened — a
+    // closed month renders no days at all now that the day is the fetch unit.
+    await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2015-02"));
+    await waitFor(() => expect(canvas.getByTestId("industry-sp-day-2015-02-15")).toBeInTheDocument(), { timeout: 10000 });
     await expect(canvas.getByTestId("industry-sp-meeting-Musselburgh|2015-01-01")).toBeInTheDocument();
     await expect(canvas.getByTestId("industry-sp-meeting-Ascot|2015-01-01")).toBeInTheDocument();
     await expect(canvas.getByText("January 2015")).toBeInTheDocument();
@@ -626,7 +646,7 @@ export const GroupPnlRollupsMatchChildRaces: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-meeting-pnl-Musselburgh|2015-01-01");
+    await drill(canvas, AT_MUSSELBURGH);
 
     // Meeting level: one race each. Each testID targets the group's own
     // P&L text directly (not a free-text search of the whole subtree) —
@@ -707,7 +727,7 @@ export const YearToggleCollapsesDescendants: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-race-700001");
+    await drill(canvas, AT_MUSSELBURGH);
 
     await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2015"));
 
@@ -728,14 +748,16 @@ export const MonthToggleCollapsesDescendants: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-day-2015-02-15");
+    await drill(canvas, AT_MUSSELBURGH);
 
     await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2015-01"));
 
     await expect(canvas.queryByTestId("industry-sp-day-2015-01-01")).not.toBeInTheDocument();
     await expect(canvas.queryByTestId("industry-sp-race-700001")).not.toBeInTheDocument();
-    // A sibling month (Feb 2015) is unaffected.
-    await expect(canvas.getByTestId("industry-sp-day-2015-02-15")).toBeInTheDocument();
+    // A sibling month (Feb 2015) is unaffected — its own header is still
+    // there, still closed, still carrying the count its default day loaded.
+    await expect(canvas.getByTestId("industry-sp-month-2015-02")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-month-count-2015-02")).toHaveTextContent("1 races");
   },
 };
 
@@ -745,7 +767,7 @@ export const DayToggleCollapsesDescendants: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-day-toggle-2015-01-01");
+    await drill(canvas, AT_MUSSELBURGH);
 
     await userEvent.click(canvas.getByTestId("industry-sp-day-toggle-2015-01-01"));
 
@@ -762,7 +784,7 @@ export const MeetingToggleCollapsesRacesButLinkStillNavigates: Story = {
     const canvas = within(canvasElement);
     await canvas.findByTestId("industry-sp-list");
 
-    await expandAll(canvas, "industry-sp-meeting-toggle-Musselburgh|2015-01-01");
+    await drill(canvas, AT_MUSSELBURGH);
 
     await userEvent.click(canvas.getByTestId("industry-sp-meeting-toggle-Musselburgh|2015-01-01"));
     await expect(canvas.queryByTestId("industry-sp-race-700001")).not.toBeInTheDocument();
@@ -778,29 +800,41 @@ export const MeetingToggleCollapsesRacesButLinkStillNavigates: Story = {
 
 export const CollapseAllTogglesEverything: Story = {
   parameters: { msw: { handlers: hierarchyHandlers } },
+  // Bounded to the two years the fixture actually covers. Left unbounded,
+  // the filter spans 2015-2026 and one "Expand All" tap fans out into a
+  // year probe per year, then a month probe per month it finds, then a day
+  // fetch each — ~80 requests, slow enough to blow the runner's per-test
+  // timeout while telling us nothing extra about the toggle itself.
+  decorators: [withQueryParams("minDate=2015-01-01&maxDate=2016-12-31")],
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByTestId("industry-sp-list");
+    try {
+      const canvas = within(canvasElement);
+      await canvas.findByTestId("industry-sp-list");
 
-    const btn = canvas.getByTestId("industry-sp-collapse-all-toggle");
-    // Nothing is expanded on load, so the toggle's opening offer is to
-    // expand — not to collapse an already-open tree.
-    await expect(btn).toHaveTextContent("Expand All");
+      const btn = canvas.getByTestId("industry-sp-collapse-all-toggle");
+      // Nothing is expanded on load, so the toggle's opening offer is to
+      // expand — not to collapse an already-open tree.
+      await expect(btn).toHaveTextContent("Expand All");
 
-    await userEvent.click(btn);
-    await expect(btn).toHaveTextContent("Collapse All");
-    await expect(canvas.getByTestId("industry-sp-month-2015-01")).toBeInTheDocument();
-    // 2016's races only exist once its own first-month fetch (fired by the
-    // same tap) resolves and expandAllActive opens what it brought back.
-    await waitFor(() => expect(canvas.getByTestId("industry-sp-race-700004")).toBeInTheDocument(), { timeout: 5000 });
+      await userEvent.click(btn);
+      await expect(btn).toHaveTextContent("Collapse All");
+      await expect(canvas.getByTestId("industry-sp-month-2015-01")).toBeInTheDocument();
+      // 2016's races only exist once the cascade the same tap fired settles:
+      // its year probe finds January, that month's probe finds the 1st, that
+      // day's page arrives, and expandAllActive opens each new level as it
+      // appears. Several sequential round-trips, hence the longer window.
+      await waitFor(() => expect(canvas.getByTestId("industry-sp-race-700004")).toBeInTheDocument(), { timeout: 15000 });
 
-    await userEvent.click(btn);
-    await expect(btn).toHaveTextContent("Expand All");
-    // Nothing below year level survives a full collapse.
-    await expect(canvas.queryByTestId("industry-sp-month-2015-01")).not.toBeInTheDocument();
-    await expect(canvas.queryByTestId("industry-sp-race-700004")).not.toBeInTheDocument();
-    await expect(canvas.getByTestId("industry-sp-year-2015")).toBeInTheDocument();
-    await expect(canvas.getByTestId("industry-sp-year-2016")).toBeInTheDocument();
+      await userEvent.click(btn);
+      await expect(btn).toHaveTextContent("Expand All");
+      // Nothing below year level survives a full collapse.
+      await expect(canvas.queryByTestId("industry-sp-month-2015-01")).not.toBeInTheDocument();
+      await expect(canvas.queryByTestId("industry-sp-race-700004")).not.toBeInTheDocument();
+      await expect(canvas.getByTestId("industry-sp-year-2015")).toBeInTheDocument();
+      await expect(canvas.getByTestId("industry-sp-year-2016")).toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
   },
 };
 
@@ -883,15 +917,15 @@ export const LazyYearPlaceholdersRenderFromDateRangeImmediately: Story = {
       await expect(canvas.getByTestId("industry-sp-year-2024")).toBeInTheDocument();
       await expect(canvas.getByTestId("industry-sp-year-2025")).toBeInTheDocument();
 
+      // 2024's count comes from its first day alone (2 races on 1 June) —
+      // the mount chain resolves year -> first month -> first day and stops
+      // there. It is emphatically NOT a 20-race month page anymore.
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("20 races");
-      }, { timeout: 5000 });
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("2 races");
+      }, { timeout: 10000 });
 
-      // 2024's races are loaded but shut (nothing expands on load), so its
-      // day rows only appear once the year and then its loaded month are
-      // opened. Tapping the year alone doesn't re-open the month for it:
-      // the mount fetch already marked 2024 initialized, so
-      // expandYearDefaultMonth is a deliberate no-op on this tap.
+      // Those races are loaded but shut, so 2024's day rows only appear once
+      // the year and then the month are opened by hand.
       await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2024"));
       await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2024-06"));
       await expect(canvas.getByTestId("industry-sp-day-2024-06-01")).toBeInTheDocument();
@@ -914,8 +948,8 @@ export const TappingACollapsedYearFetchesItDirectlyWithoutTouchingOtherYears: St
     try {
       await canvas.findByTestId("industry-sp-list");
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("20 races");
-      }, { timeout: 5000 });
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("2 races");
+      }, { timeout: 10000 });
 
       // Regression proof for the user's report ("2024's numbers changed
       // when I tapped 2025", plus "still broke" tapping a collapsed
@@ -927,54 +961,126 @@ export const TappingACollapsedYearFetchesItDirectlyWithoutTouchingOtherYears: St
       await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2025"));
 
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("3 races");
-      }, { timeout: 5000 });
-      await expect(canvas.getByTestId("industry-sp-day-2025-06-01")).toBeInTheDocument();
+        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("1 races");
+      }, { timeout: 10000 });
 
       // 2024 is completely untouched — same count as before the tap.
-      await expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("20 races");
+      await expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("2 races");
 
-      // Exactly one request, scoped to 2025 alone — not a walk through
-      // 2024's ~45 races first.
-      expect(perYearRequests).toHaveLength(1);
-      expect(perYearRequests[0].subMinDate).toBe("2025-01-01");
-      expect(perYearRequests[0].subMaxDate).toBe("2025-12-31");
+      // Three requests, and every one of them scoped inside 2025: the year
+      // probe that finds which month to land in, that month's probe for its
+      // first day, and that day's own page. Narrowing at each hop rather
+      // than walking forward through 2024's ~45 races.
+      expect(perYearRequests).toHaveLength(3);
+      expect(perYearRequests.map(r => `${r.subMinDate}..${r.subMaxDate}`)).toEqual([
+        "2025-01-01..2025-12-31",
+        "2025-06-01..2025-06-30",
+        "2025-06-01..2025-06-01",
+      ]);
     } finally {
       window.history.pushState({}, "", window.location.pathname);
     }
   },
 };
 
-export const YearLoadMorePaginatesOnlyThatYear: Story = {
-  parameters: { msw: { handlers: perYearHandlers } },
-  decorators: [withQueryParams("minDate=2024-01-01&maxDate=2025-12-31")],
+// 45 races all on the SAME day (1 June 2024), so a single day genuinely spans
+// three pages at PAGE_SIZE=20 (20/20/5) and day-level "Load more" is actually
+// exercised. The per-year fixture above can't do this — it spreads its races
+// across 27 separate days, so no one day has more than 2.
+const BUSY_DAY_RACES = Array.from({ length: 45 }, (_, index) => ({
+  raceId: 640000 + index,
+  meetingId: "Ascot|2024-06-01",
+  meetingName: "Ascot — 1 June 2024",
+  course: "Ascot",
+  countryCode: "GB",
+  raceTime: `2024-06-01T13:00:00`,
+  raceName: `Ascot race ${index + 1}`,
+  raceType: "Flat",
+  ran: 1,
+  runners: [
+    {
+      id: 64100 + index,
+      name: `Busy Day Runner ${index}`,
+      num: 1,
+      draw: null,
+      status: "LOSER",
+      sortPriority: 1,
+      isp: 5,
+      ispFraction: "4/1",
+      isFavourite: false,
+    },
+  ],
+}));
+
+let busyDayRequests: { page: number; subMinDate: string | null; subMaxDate: string | null }[] = [];
+
+const busyDayHandlers = [
+  http.get(`${BASE}/api/industry-sp`, ({ request }) => {
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get("page") || "1", 10);
+    const limit = parseInt(url.searchParams.get("limit") || "20", 10);
+    const subMinDate = url.searchParams.get("subMinDate");
+    const subMaxDate = url.searchParams.get("subMaxDate");
+    busyDayRequests.push({ page, subMinDate, subMaxDate });
+    let matched = BUSY_DAY_RACES;
+    if (subMinDate) matched = matched.filter(r => r.raceTime.slice(0, 10) >= subMinDate);
+    if (subMaxDate) matched = matched.filter(r => r.raceTime.slice(0, 10) <= subMaxDate);
+    const skip = (page - 1) * limit;
+    const data = matched.slice(skip, skip + limit);
+    return HttpResponse.json({
+      success: true,
+      data,
+      count: data.length,
+      total: matched.length,
+      page,
+      limit,
+      totalPages: Math.ceil(matched.length / limit),
+      totalRunners: matched.length,
+      pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
+    });
+  }),
+];
+
+export const DayLoadMorePaginatesThatDayAlone: Story = {
+  parameters: { msw: { handlers: busyDayHandlers } },
+  decorators: [withQueryParams("minDate=2024-06-01&maxDate=2024-06-30")],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     try {
       await canvas.findByTestId("industry-sp-list");
+      // The mount chain lands on 1 June and pulls its first page: 20 of 45.
       await waitFor(() => {
         expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("20 races");
-      }, { timeout: 5000 });
+      }, { timeout: 10000 });
 
-      perYearRequests = [];
-      await userEvent.click(canvas.getByTestId("industry-sp-year-load-more-2024"));
+      await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2024"));
+      await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2024-06"));
+      await waitFor(() => expect(canvas.getByTestId("industry-sp-day-2024-06-01")).toBeInTheDocument(), {
+        timeout: 10000,
+      });
+      // The day's "Load more" only exists while the day itself is open —
+      // paging more races into a collapsed row would be invisible work.
+      await userEvent.click(canvas.getByTestId("industry-sp-day-toggle-2024-06-01"));
 
+      busyDayRequests = [];
+      await userEvent.click(canvas.getByTestId("industry-sp-day-load-more-2024-06-01"));
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("40 races");
-      }, { timeout: 5000 });
+        expect(canvas.getByTestId("industry-sp-day-count-2024-06-01")).toHaveTextContent("40 races");
+      }, { timeout: 10000 });
 
-      // Page 2, still scoped to 2024 alone.
-      expect(perYearRequests).toHaveLength(1);
-      expect(perYearRequests[0].page).toBe(2);
-      expect(perYearRequests[0].subMinDate).toBe("2024-01-01");
+      // Page 2, still scoped to that one day — never widened to the month.
+      expect(busyDayRequests).toHaveLength(1);
+      expect(busyDayRequests[0].page).toBe(2);
+      expect(busyDayRequests[0].subMinDate).toBe("2024-06-01");
+      expect(busyDayRequests[0].subMaxDate).toBe("2024-06-01");
 
-      // One more page (5 remaining of 45) exhausts 2024 — the button
+      // One more page (5 remaining of 45) exhausts the day — the button
       // disappears once state.races.length >= state.total.
-      await userEvent.click(canvas.getByTestId("industry-sp-year-load-more-2024"));
+      await userEvent.click(canvas.getByTestId("industry-sp-day-load-more-2024-06-01"));
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("45 races");
-      }, { timeout: 5000 });
-      await expect(canvas.queryByTestId("industry-sp-year-load-more-2024")).not.toBeInTheDocument();
+        expect(canvas.getByTestId("industry-sp-day-count-2024-06-01")).toHaveTextContent("45 races");
+      }, { timeout: 10000 });
+      await expect(canvas.queryByTestId("industry-sp-day-load-more-2024-06-01")).not.toBeInTheDocument();
     } finally {
       window.history.pushState({}, "", window.location.pathname);
     }
@@ -989,8 +1095,8 @@ export const ExpandAllLoadsEveryCollapsedYearIndependently: Story = {
     try {
       await canvas.findByTestId("industry-sp-list");
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("20 races");
-      }, { timeout: 5000 });
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("2 races");
+      }, { timeout: 10000 });
       const btn = canvas.getByTestId("industry-sp-collapse-all-toggle");
       // Nothing expands on load, so the tree is already fully collapsed —
       // the first tap is the Expand All this story is about, with no need
@@ -999,15 +1105,15 @@ export const ExpandAllLoadsEveryCollapsedYearIndependently: Story = {
       perYearRequests = [];
       // 2025 was never tapped before this — Expand All must load it (not
       // just re-reveal 2024's already-loaded data), same as every other
-      // not-yet-loaded year, each via its own independent request.
+      // not-yet-loaded year, each starting from its own year probe.
       await userEvent.click(btn); // -> Expand All
 
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("3 races");
-      }, { timeout: 5000 });
-      await expect(canvas.getByTestId("industry-sp-day-2025-06-01")).toBeInTheDocument();
-      // 2024 was already loaded (from mount) — Collapse All/Expand All
-      // doesn't need to refetch it, only years with no state yet.
+        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("1 races");
+      }, { timeout: 15000 });
+      // 2024 was already probed on mount — Expand All doesn't re-probe the
+      // year (initializedYears makes that a no-op), only years with no
+      // state yet get their own chain kicked off.
       expect(perYearRequests.filter(r => r.subMinDate === "2024-01-01")).toHaveLength(0);
       expect(perYearRequests.filter(r => r.subMinDate === "2025-01-01")).toHaveLength(1);
     } finally {
