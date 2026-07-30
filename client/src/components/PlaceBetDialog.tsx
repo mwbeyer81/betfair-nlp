@@ -60,7 +60,7 @@ export const PlaceBetDialog: React.FC<PlaceBetDialogProps> = ({
 
   return (
     <Portal>
-      <Dialog testID="place-bet-dialog" visible={visible} onDismiss={onCancel}>
+      <Dialog testID="place-bet-dialog" visible={visible} onDismiss={onCancel} style={styles.dialog}>
         <Dialog.Title>Bet on {horseName}</Dialog.Title>
         <Dialog.Content>
           <View testID="place-bet-dialog-order-type-toggle">
@@ -149,6 +149,19 @@ export const PlaceBetDialog: React.FC<PlaceBetDialogProps> = ({
 };
 
 const styles = StyleSheet.create({
+  // Paper's Dialog only insets itself by a fixed margin, so on a desktop
+  // viewport it grows to nearly the full window width — a two-field form
+  // stretched across 1900px, with the Schedule/Bet now toggle and the
+  // Cancel/Confirm buttons flung to opposite ends of the screen. Capping
+  // it keeps the dialog a dialog at any width; the cap is deliberately
+  // narrower than PageContainer's 900 (a short form needs far less room
+  // than a page of content), and is a no-op at phone widths, where
+  // width:100% minus Paper's own margin already wins.
+  dialog: {
+    width: "100%",
+    maxWidth: 480,
+    alignSelf: "center",
+  },
   orderTypeToggle: {
     marginBottom: spacing.sm,
   },
