@@ -108,8 +108,16 @@ export const NextAndPrevReportTheTargetPage: Story = {
 export const RowsPerPageSelectionMarksTheActiveOption: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByTestId("pagination-rows-per-page-50")).toHaveAttribute("aria-selected", "true");
-    await expect(canvas.getByTestId("pagination-rows-per-page-100")).toHaveAttribute("aria-selected", "false");
+    // Paper renders a Button as role="button", for which React Native Web emits
+    // no aria-selected — the active option carries its state in the label.
+    await expect(canvas.getByTestId("pagination-rows-per-page-50")).toHaveAttribute(
+      "aria-label",
+      "50 rows per page (selected)"
+    );
+    await expect(canvas.getByTestId("pagination-rows-per-page-100")).toHaveAttribute(
+      "aria-label",
+      "100 rows per page"
+    );
 
     await userEvent.click(canvas.getByTestId("pagination-rows-per-page-100"));
     await expect(args.onLimitChange).toHaveBeenLastCalledWith(100);

@@ -42,17 +42,27 @@ function makeRow(i: number, isp: number, model: number, raceDate: string): Model
   };
 }
 
-// The three landmark rows come first so they're always on page 1.
+// EVERY row sits inside the screen's own default window (January 2024), and the
+// three landmark rows are dated LAST so they lead under the default
+// newest-first sort. Both properties are load-bearing:
+//   - a fixture outside the default window only renders behind a URL decorator,
+//     and any story that presses Reset then silently empties the list;
+//   - landmarks dated earliest would sort onto the LAST page, so the stories
+//     asserting on their badges would find nothing on page 1.
+const LANDMARK_DATES = ["2024-01-31", "2024-01-30", "2024-01-29"];
 const ROWS: ModelVsSpRow[] = [
-  makeRow(0, 4, 39, "2024-01-10"), // +14.0
-  makeRow(1, 2, 50, "2024-01-11"), //   0.0
-  makeRow(2, 8, 0.1, "2024-01-12"), // -12.4
+  makeRow(0, 4, 39, LANDMARK_DATES[0]), // +14.0 — the largest edge in the fixture
+  makeRow(1, 2, 50, LANDMARK_DATES[1]), //   0.0
+  makeRow(2, 8, 0.1, LANDMARK_DATES[2]), // -12.4
   ...Array.from({ length: 127 }, (_, n) => {
     const i = n + 3;
-    // Spread across 2024 and 2025 so the year/month pills have data to filter.
-    const year = i % 2 === 0 ? 2024 : 2025;
-    const month = String((i % 12) + 1).padStart(2, "0");
-    return makeRow(i, 4, 20 + (i % 30), `${year}-${month}-15`);
+    // Day 1-28 of the same month, so filler never outranks a landmark by date.
+    const day = String((i % 28) + 1).padStart(2, "0");
+    // isp 4 (implied 25%) with model 14-24 gives edges of -11 to -1: every
+    // filler gap is strictly SMALLER in magnitude than either landmark, which is
+    // what lets the gap-sort and difference-band stories assert on the
+    // landmarks alone.
+    return makeRow(i, 4, 14 + (i % 11), `2024-01-${day}`);
   }),
 ];
 
@@ -169,9 +179,22 @@ const defaultHandlers = [
   http.get(`${BASE}/api/auth/me`, () => HttpResponse.json({ success: true, email: "story@backbet.co.uk" })),
 ];
 
+// The screen persists its applied filters to the URL (see updateUrlParams), and
+// the test-runner reuses one browser page across the whole suite — so a story
+// that taps a year pill leaves `minDate=2025-01-01` in the URL, and the NEXT
+// story mounts with that range, finds no rows in the January-2024 fixture, and
+// fails looking for a list that legitimately isn't there. Clearing the query
+// string before every story makes each one independent of the order it runs in.
+const withCleanUrl = (Story: React.ComponentType) => {
+  window.history.replaceState({}, "", window.location.pathname);
+  return <Story />;
+};
+
 // The screen reads its initial state from window.location.search at mount, so a
 // story that needs a specific starting URL must push it before the first render —
-// doing it inside `play` is one render too late.
+// doing it inside `play` is one render too late. Story-level decorators run
+// closer to the story than meta-level ones, so this reliably wins over
+// withCleanUrl above.
 const withQueryParams = (search: string) => {
   const Decorator = (Story: React.ComponentType) => {
     window.history.pushState({}, "", `${window.location.pathname}?${search}`);
@@ -187,6 +210,7 @@ const meta: Meta<typeof ModelVsSpScreen> = {
     layout: "fullscreen",
     msw: { handlers: defaultHandlers },
   },
+  decorators: [withCleanUrl],
   args: {
     navigate: fn(),
     isAuthenticated: true,
@@ -199,21 +223,31 @@ const meta: Meta<typeof ModelVsSpScreen> = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// The default window is January 2024, which only holds the three landmark rows —
-// most stories want the whole fixture, so they widen it via the URL.
-const WIDE = "minDate=2024-01-01&maxDate=2024-12-31";
-const ALL_2024 = withQueryParams(WIDE);
-
 // Filter and page state carries over between stories in the same suite (the test
 // runner reuses the module), so any story asserting on counts starts from Reset.
+// Safe now that the whole fixture lives inside the default window — Reset used to
+// narrow the date range back to January 2024 and empty a widened list.
 async function resetToDefaults(canvas: ReturnType<typeof within>) {
   await canvas.findByTestId("model-vs-sp-list");
   await userEvent.click(canvas.getByTestId("model-vs-sp-reset-button"));
   await waitFor(() => expect(canvas.getByTestId("model-vs-sp-pagination-top-status")).toHaveTextContent("Page 1"));
+  await waitUntilIdle(canvas);
+}
+
+// The pagination controls are disabled while a fetch is in flight, and both Reset
+// and Apply start one — so a click issued the moment the rows appear lands on a
+// button with `pointer-events: none` and silently does nothing. Every story that
+// clicks a pagination control waits on this first.
+async function waitUntilIdle(canvas: ReturnType<typeof within>) {
+  await waitFor(() => expect(canvas.queryByTestId("model-vs-sp-loading")).not.toBeInTheDocument(), {
+    timeout: 10000,
+  });
+  await waitFor(() => expect(canvas.getByTestId("model-vs-sp-pagination-top-next")).not.toBeDisabled(), {
+    timeout: 10000,
+  });
 }
 
 export const Default: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("model-vs-sp-list");
@@ -294,7 +328,6 @@ export const EmptyState: Story = {
 };
 
 export const RowShowsModelSpAndSignedEdge: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("model-vs-sp-list");
@@ -306,7 +339,6 @@ export const RowShowsModelSpAndSignedEdge: Story = {
 };
 
 export const ZeroEdgeRendersAsPlusZeroNotBlank: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("model-vs-sp-list");
@@ -317,7 +349,6 @@ export const ZeroEdgeRendersAsPlusZeroNotBlank: Story = {
 };
 
 export const NegativeEdgeRendersSigned: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("model-vs-sp-list");
@@ -326,14 +357,17 @@ export const NegativeEdgeRendersSigned: Story = {
 };
 
 export const NextGoesToPageTwoAndSkipsTheRecount: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
     capturedRequests = [];
 
     await userEvent.click(canvas.getByTestId("model-vs-sp-pagination-top-next"));
-    await waitFor(() => expect(canvas.getByTestId("model-vs-sp-pagination-top-status")).toHaveTextContent("Page 2"));
+    // Wait on the REQUEST, not the page label: `page` is component state that
+    // updates synchronously on click, so the status reads "Page 2" before the
+    // fetch has even been issued — asserting on the label first would check
+    // capturedRequests while it's still empty.
+    await waitFor(() => expect(capturedRequests.length).toBeGreaterThan(0), { timeout: 10000 });
 
     await expect(capturedRequests).toHaveLength(1);
     await expect(capturedRequests[0].page).toBe("2");
@@ -343,7 +377,6 @@ export const NextGoesToPageTwoAndSkipsTheRecount: Story = {
 };
 
 export const PageStepKeepsTheTotalOnScreen: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
@@ -359,7 +392,6 @@ export const PageStepKeepsTheTotalOnScreen: Story = {
 };
 
 export const FirstAndPrevDisabledOnPageOne: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
@@ -370,32 +402,36 @@ export const FirstAndPrevDisabledOnPageOne: Story = {
 };
 
 export const LastJumpsToTheFinalPageAndDisablesNext: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
     const status = canvas.getByTestId("model-vs-sp-pagination-top-status").textContent ?? "";
     const finalPage = status.split("of")[1]?.trim();
+    await expect(finalPage).toBeTruthy();
 
     await userEvent.click(canvas.getByTestId("model-vs-sp-pagination-top-last"));
     await waitFor(() =>
       expect(canvas.getByTestId("model-vs-sp-pagination-top-status")).toHaveTextContent(`Page ${finalPage}`)
     );
+    await waitFor(() => expect(canvas.queryByTestId("model-vs-sp-loading")).not.toBeInTheDocument());
     await expect(canvas.getByTestId("model-vs-sp-pagination-top-next")).toBeDisabled();
     await expect(canvas.getByTestId("model-vs-sp-pagination-top-prev")).not.toBeDisabled();
   },
 };
 
 export const RowsPerPageChangeResetsToPageOne: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
     await userEvent.click(canvas.getByTestId("model-vs-sp-pagination-top-next"));
     await waitFor(() => expect(canvas.getByTestId("model-vs-sp-pagination-top-status")).toHaveTextContent("Page 2"));
+    await waitUntilIdle(canvas);
 
     capturedRequests = [];
     await userEvent.click(canvas.getByTestId("model-vs-sp-pagination-top-rows-per-page-100"));
+    // Same reason as above — wait for the request, not the synchronously-updated
+    // page label.
+    await waitFor(() => expect(capturedRequests.length).toBeGreaterThan(0), { timeout: 10000 });
     await waitFor(() => expect(canvas.getByTestId("model-vs-sp-pagination-top-status")).toHaveTextContent("Page 1"));
 
     await expect(capturedRequests[0].limit).toBe("100");
@@ -407,7 +443,6 @@ export const RowsPerPageChangeResetsToPageOne: Story = {
 };
 
 export const SortByGapRequestsEdgeDescThenAsc: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
@@ -425,7 +460,6 @@ export const SortByGapRequestsEdgeDescThenAsc: Story = {
 };
 
 export const SortByDateTogglesAscDesc: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
@@ -439,7 +473,6 @@ export const SortByDateTogglesAscDesc: Story = {
 };
 
 export const GapSortPutsTheBiggestGapFirst: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
@@ -458,7 +491,6 @@ export const GapSortPutsTheBiggestGapFirst: Story = {
 };
 
 export const MaxDifferenceOfZeroIsSentNotDropped: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
@@ -478,7 +510,6 @@ export const MaxDifferenceOfZeroIsSentNotDropped: Story = {
 };
 
 export const DifferenceFilterIgnoresDirection: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
@@ -501,7 +532,6 @@ export const DifferenceFilterIgnoresDirection: Story = {
 };
 
 export const SummaryShowsTheDistributionOverAllRunners: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
@@ -516,7 +546,6 @@ export const SummaryShowsTheDistributionOverAllRunners: Story = {
 };
 
 export const SummaryDenominatorIgnoresTheDifferenceFilter: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
@@ -535,7 +564,6 @@ export const SummaryDenominatorIgnoresTheDifferenceFilter: Story = {
 };
 
 export const FiltersRequireApply: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
@@ -555,7 +583,6 @@ export const FiltersRequireApply: Story = {
 };
 
 export const YearPillSetsTheWholeYearAndRefetches: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await resetToDefaults(canvas);
@@ -572,7 +599,6 @@ export const YearPillSetsTheWholeYearAndRefetches: Story = {
 };
 
 export const YearPillHighlightsWhenTheRangeIsExactlyThatYear: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("model-vs-sp-list");
@@ -586,7 +612,6 @@ export const YearPillHighlightsWhenTheRangeIsExactlyThatYear: Story = {
 };
 
 export const MonthPillSetsTheWholeMonth: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("model-vs-sp-list");
@@ -615,7 +640,6 @@ export const ArbitraryDateRangeHighlightsNoPill: Story = {
 };
 
 export const ResetRestoresDefaults: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("model-vs-sp-list");
@@ -627,13 +651,13 @@ export const ResetRestoresDefaults: Story = {
     await waitFor(() => expect(canvas.getByTestId("model-vs-sp-min-edge")).toHaveValue("5"));
 
     await userEvent.click(canvas.getByTestId("model-vs-sp-reset-button"));
-    await waitFor(() => expect(canvas.getByTestId("model-vs-sp-min-edge")).toHaveValue("-100"));
+    // 0, not -100 — the difference filter is unsigned, so its floor is zero.
+    await waitFor(() => expect(canvas.getByTestId("model-vs-sp-min-edge")).toHaveValue("0"));
     await expect(canvas.getByTestId("model-vs-sp-pagination-top-status")).toHaveTextContent("Page 1");
   },
 };
 
 export const RunnerRowTapNavigatesToTheRunnerScreen: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("model-vs-sp-list");
@@ -650,7 +674,6 @@ export const RunnerRowTapNavigatesToTheRunnerScreen: Story = {
 };
 
 export const MenuHasTheModelVsSpLink: Story = {
-  decorators: [ALL_2024],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByTestId("model-vs-sp-list");
