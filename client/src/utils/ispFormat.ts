@@ -241,6 +241,29 @@ export function monthsInRange(minDate: string, maxDate: string, order: "asc" | "
   return order === "desc" ? months.reverse() : months;
 }
 
+// Same idea again, one more level down — every "YYYY-MM-DD" a minDate/maxDate
+// range touches, in sort order. Lets IspRacesScreen render a day header for
+// every day an expanded month could contain, so the days are visible (and
+// individually tappable) before any of their races have loaded — the day is
+// the actual fetch unit now, so an unloaded day still needs a row.
+//
+// Iterates in plain UTC. Every input here is a bare "YYYY-MM-DD" and every
+// output is one too, so no local-timezone shift can move a date across a
+// boundary — using `new Date("YYYY-MM-DD")` (UTC midnight) plus UTC getters
+// keeps that true regardless of where this runs.
+export function daysInRange(minDate: string, maxDate: string, order: "asc" | "desc" = "asc"): string[] {
+  const start = new Date(`${minDate.slice(0, 10)}T00:00:00Z`);
+  const end = new Date(`${maxDate.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return [];
+  const days: string[] = [];
+  for (const d = start; d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    days.push(
+      `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`
+    );
+  }
+  return order === "desc" ? days.reverse() : days;
+}
+
 // Builds the same human-readable filter-summary chips PnlConvergencePanel
 // shows (see IndustrySpScreen.buildConvergenceFilterSummary) from a raw
 // URL-param string map instead of live component state — used by

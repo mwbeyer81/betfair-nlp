@@ -89,3 +89,45 @@ test.describe("Bet button — full loop (MSW mocked)", () => {
     await expect(page.getByTestId("daily-races-screen")).toBeVisible({ timeout: 10000 });
   });
 });
+
+// Regression test for a real production screenshot (a desktop browser
+// window on /daily-races): PlaceBetDialog passed no style to Paper's
+// Dialog, which only insets itself by a fixed margin — so the bet form
+// stretched to nearly the full window width, putting the Schedule/Bet now
+// toggle and the Cancel/Confirm buttons at opposite ends of the screen.
+// Fixed with a maxWidth cap on the Dialog itself. Runs at a wide viewport
+// specifically; every other test in this file uses the default one, where
+// this bug is invisible.
+test.describe("Bet dialog at a wide desktop viewport (MSW mocked)", () => {
+  test.use({ viewport: { width: 1900, height: 1000 } });
+
+  test("the dialog is capped well short of the viewport width, and centered", async ({ page }) => {
+    await applyPicksFilterAndOpenBetDialog(page);
+    // Paper puts the testID on the full-screen modal wrapper and exposes
+    // the visible card as "<testID>-surface" — that's the box to measure.
+    const box = (await page.getByTestId("place-bet-dialog-surface").boundingBox())!;
+    // Before the fix this measured ~1850px — essentially the full window.
+    expect(box.width).toBeLessThanOrEqual(480);
+    expect(box.width).toBeGreaterThan(300);
+    // Centered means roughly equal empty space on both sides.
+    const rightGap = 1900 - (box.x + box.width);
+    expect(Math.abs(box.x - rightGap)).toBeLessThan(5);
+  });
+
+  test("the dialog's own controls stay together rather than spanning the window", async ({ page }) => {
+    await applyPicksFilterAndOpenBetDialog(page);
+    const toggle = (await page.getByTestId("place-bet-dialog-order-type-scheduled").boundingBox())!;
+    const confirm = (await page.getByTestId("place-bet-dialog-confirm").boundingBox())!;
+    // The Schedule half of the toggle used to be ~900px wide on its own.
+    expect(toggle.width).toBeLessThan(300);
+    // Confirm sits at the dialog's right edge, not the window's.
+    expect(confirm.x + confirm.width).toBeLessThan(1900 / 2 + 240 + 1);
+  });
+
+  test("still fills the width at a phone viewport — the cap must not shrink it there", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await applyPicksFilterAndOpenBetDialog(page);
+    const box = (await page.getByTestId("place-bet-dialog-surface").boundingBox())!;
+    expect(box.width).toBeGreaterThan(390 - 120);
+  });
+});

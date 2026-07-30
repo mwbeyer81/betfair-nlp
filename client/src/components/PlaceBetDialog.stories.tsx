@@ -45,7 +45,14 @@ export const ConfirmCallsOnSave: Story = {
     await userEvent.type(canvas.getByTestId("place-bet-dialog-target-profit-input"), "20");
     await userEvent.type(canvas.getByTestId("place-bet-dialog-max-stake-input"), "10");
     await userEvent.click(canvas.getByTestId("place-bet-dialog-confirm"));
-    await expect(args.onSave).toHaveBeenCalledWith({ targetProfit: 20, maxStake: 10 });
+    // orderType/sandbox joined the payload with the instant-bet + sandbox
+    // feature; this assertion was never updated and had been failing since.
+    await expect(args.onSave).toHaveBeenCalledWith({
+      orderType: "scheduled",
+      sandbox: false,
+      targetProfit: 20,
+      maxStake: 10,
+    });
   },
 };
 
