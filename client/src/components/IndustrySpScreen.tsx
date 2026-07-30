@@ -1443,17 +1443,22 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
             >
               {filtersVisible ? "Hide filters ▾" : "Show filters ▸"}
             </Button>
-            <Button
-              testID="industry-sp-model-performance-button"
-              mode="outlined"
-              compact
-              onPress={wrap(loadModelPerformance)}
-              style={styles.headerToggleButton}
-              labelStyle={styles.headerToggleButtonLabel}
-            >
-              Model Performance
-            </Button>
           </>
+        )}
+        // Model Performance goes in the nav group next to Backtest rather
+        // than up with "Show filters" — it's a place you go to look at model
+        // results, not a control over this screen's own view.
+        navActions={wrap => (
+          <Button
+            testID="industry-sp-model-performance-button"
+            mode="outlined"
+            compact
+            onPress={wrap(loadModelPerformance)}
+            style={styles.headerToggleButton}
+            labelStyle={styles.headerToggleButtonLabel}
+          >
+            Model Performance
+          </Button>
         )}
       />
       {/*
