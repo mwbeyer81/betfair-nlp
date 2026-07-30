@@ -9,6 +9,7 @@ import { IndustrySpResultsCaptureService } from "../lib/service/industry-sp-resu
 import { RacingApiClient } from "../lib/service/racing-api-client";
 import { TrainerFormService } from "../lib/service/trainer-form-service";
 import { ModelVersionService } from "../lib/service/model-version-service";
+import { ModelAccuracyService } from "../lib/service/model-accuracy-service";
 import { SavedFilterSetService, computeSnapshotParamsFromFilters } from "../lib/service/saved-filter-set-service";
 import { LiveFilterResultService } from "../lib/service/live-filter-result-service";
 import { BetOrderService } from "../lib/service/bet-order-service";
@@ -32,6 +33,7 @@ let dailyRaceService: DailyRaceService | null = null;
 let industrySpResultsCaptureService: IndustrySpResultsCaptureService | null = null;
 let trainerFormService: TrainerFormService | null = null;
 let modelVersionService: ModelVersionService | null = null;
+let modelAccuracyService: ModelAccuracyService | null = null;
 let savedFilterSetService: SavedFilterSetService | null = null;
 let liveFilterResultService: LiveFilterResultService | null = null;
 let authService: AuthService | null = null;
@@ -100,6 +102,7 @@ export const initializeServices = async () => {
       console.warn("trainer-form createIndexes failed (non-fatal, queries may be slower):", indexError);
     }
     modelVersionService = new ModelVersionService();
+    modelAccuracyService = new ModelAccuracyService();
     savedFilterSetService = new SavedFilterSetService();
     liveFilterResultService = new LiveFilterResultService();
     try {
@@ -690,6 +693,47 @@ function userIdFromAuthHeader(req: express.Request): string | null {
     return null;
   }
 }
+
+// Model accuracy by price band — how the model's own implied price compares to
+// what actually happened and to what the market thought. Deliberately NOT under
+// the /api/industry-sp prefix (which gets optionalJwtAuth at :295 and is public):
+// this sits below router.use(jwtAuth) so it 401s without a Bearer token, matching
+// the other logged-in-only screens.
+router.get("/api/model-accuracy", async (req, res) => {
+  try {
+    if (!modelAccuracyService) return res.status(503).json({ success: false, error: "Service not initialized" });
+
+    const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
+    const minRunners = parseInt(req.query.minRunners as string) || 1;
+    const maxRunners = parseInt(req.query.maxRunners as string) || 100;
+    if (minRunners > maxRunners) {
+      return res.status(400).json({ success: false, error: "minRunners cannot exceed maxRunners" });
+    }
+    const modelVersionIdRaw = req.query.modelVersionId;
+    const modelVersionId = typeof modelVersionIdRaw === "string" && modelVersionIdRaw.trim() !== ""
+      ? modelVersionIdRaw.trim()
+      : null;
+
+    const { bands, overall } = await modelAccuracyService.getPriceBandAccuracy({
+      minRaceTime,
+      maxRaceTime,
+      countries: parseCsvListParam(req.query.countries),
+      courses: parseCsvListParam(req.query.courses),
+      goings: parseCsvListParam(req.query.goings),
+      raceClasses: parseCsvListParam(req.query.raceClasses),
+      raceTypes: parseCsvListParam(req.query.raceTypes),
+      minRunners,
+      maxRunners,
+      modelVersionId,
+    });
+
+    res.set("Cache-Control", "public, max-age=60");
+    res.status(200).json({ success: true, data: bands, count: bands.length, overall });
+  } catch (error) {
+    console.error("getModelAccuracy error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch model accuracy" });
+  }
+});
 
 router.get("/api/auth/me", async (req, res) => {
   const userId = userIdFromAuthHeader(req);

@@ -146,6 +146,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           >
             Bets
           </Button>
+          <Button
+            testID={`${testIdPrefix}-menu-model-accuracy-link`}
+            mode="outlined"
+            compact
+            onPress={wrap(() => navigate("/model-accuracy"))}
+            style={styles.toggleButton}
+            labelStyle={styles.toggleButtonLabel}
+          >
+            Model Accuracy
+          </Button>
         </>
       )}
       <View style={styles.divider} />

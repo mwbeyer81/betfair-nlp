@@ -192,6 +192,18 @@ log "Running daily-races model prediction..."
 (cd ml && MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" DAILY_RACE_DATE="$SEED_FROM_DATE" \
   "$REPO_ROOT/$PYTHON_BIN" predict_daily_races.py) 2>&1 | tee "$SCRATCH_DIR/logs/predict-daily-races.log"
 
+# --- Step 3f: seed synthetic model probabilities onto the ISP slice ---------
+# The steps above only ever score daily_racecards — nothing writes
+# modelWinProbability back onto industry_starting_prices (that's
+# ml/train_and_predict.py's job, and a real retrain is far too slow and
+# non-deterministic for this hot path). Without this, /api/model-accuracy has
+# nothing to aggregate and its e2e specs could only ever assert the empty
+# state. The values are explicitly synthetic — see the header comment in
+# src/commands/seed-isp-model-probabilities.ts.
+log "Seeding synthetic model probabilities onto the ISP slice..."
+MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" \
+  npx ts-node src/commands/seed-isp-model-probabilities.ts 2>&1 | tee "$SCRATCH_DIR/logs/seed-isp-model-probabilities.log"
+
 # --- Step 4: seed hardcoded test user ---------------------------------------
 log "Seeding hardcoded test user..."
 MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" \

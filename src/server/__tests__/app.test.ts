@@ -607,6 +607,20 @@ jest.mock("../../config/database", () => {
                 returns: 2,
                 runnerCounts: [{ maxRunners: 12 }],
                 ispBounds: [{ maxIsp: 100, minIsp: 1.5 }],
+                // ModelAccuracyDAO's $bucket row shape (GET /api/model-accuracy).
+                // _id is the band's lower probability boundary — 50 puts these
+                // sums in the "under 2.0" band, leaving the other five as the
+                // zero-filled rows the service always emits. The count field is
+                // deliberately `runnerCount`, not `runners`, because `runners`
+                // above is the runner *array* other endpoints here rely on.
+                _id: 50,
+                runnerCount: 4,
+                wins: 1,
+                modelProbSum: 240,
+                marketProbFairSum: 200,
+                marketProbRawSum: 220,
+                modelSqErrSum: 0.64,
+                marketSqErrSum: 1.08,
               },
             ]),
           }),
@@ -1607,6 +1621,112 @@ describe("API Endpoints", () => {
       expect(typeof version.runMeta.trainRows).toBe("number");
       expect(typeof version.performanceMetrics.aucRoc).toBe("number");
       expect(Array.isArray(version.performanceMetrics.calibrationTable)).toBe(true);
+    });
+  });
+
+  describe("GET /api/model-accuracy", () => {
+    it("returns 200 with success and a data array", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("count equals data.length", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    it("requires auth — returns 401 without a token", async () => {
+      await request(app).get("/api/model-accuracy").expect(401);
+    });
+
+    it("always returns every price band, shortest price first", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.data.map((b: { label: string }) => b.label)).toEqual([
+        "under 2.0",
+        "2.0 – 3.0",
+        "3.0 – 5.0",
+        "5.0 – 10.0",
+        "10.0 – 20.0",
+        "20.0+",
+      ]);
+    });
+
+    it("each band carries the model, market, error and P&L figures", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const band = response.body.data[0];
+      expect(typeof band.bandKey).toBe("string");
+      expect(typeof band.runners).toBe("number");
+      expect(typeof band.wins).toBe("number");
+      expect(typeof band.modelMeanProb).toBe("number");
+      expect(typeof band.actualWinRate).toBe("number");
+      expect(typeof band.marketMeanProbFair).toBe("number");
+      expect(typeof band.marketMeanProbRaw).toBe("number");
+      expect(typeof band.modelErrorPp).toBe("number");
+      expect(typeof band.marketErrorPp).toBe("number");
+      expect(typeof band.modelBrier).toBe("number");
+      expect(typeof band.pnl).toBe("number");
+      expect(typeof band.roiPercent).toBe("number");
+    });
+
+    it("returns an overall row alongside the bands", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.overall).toBeDefined();
+      expect(response.body.overall.label).toBe("All bands");
+      // The mocked aggregate returns a single band's sums, so the overall row
+      // must total exactly that.
+      expect(response.body.overall.runners).toBe(
+        response.body.data.reduce((s: number, b: { runners: number }) => s + b.runners, 0)
+      );
+    });
+
+    it("accepts the filter params without error", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .query({
+          minDate: "2026-01-01",
+          maxDate: "2026-01-31",
+          courses: "Ascot,Kempton",
+          goings: "Good",
+          raceTypes: "Flat",
+          minRunners: "4",
+          maxRunners: "12",
+          modelVersionId: "xgb-v1",
+        })
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+    });
+
+    it("rejects a runner range where min exceeds max", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .query({ minRunners: "12", maxRunners: "4" })
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(400);
+
+      expect(response.body).toHaveProperty("success", false);
     });
   });
 

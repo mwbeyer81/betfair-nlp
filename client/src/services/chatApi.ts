@@ -389,6 +389,56 @@ export interface ModelVersionsResponse {
   count: number;
 }
 
+// One row of the Model Accuracy screen: every runner whose MODEL-implied price
+// fell in this band, checked against what actually happened and against what
+// the market thought. Mirrors ModelAccuracyBand in
+// src/lib/service/model-accuracy-service.ts.
+export interface ModelAccuracyBand {
+  bandKey: string;
+  // Decimal-odds label, e.g. "3.0 – 5.0" — price = 100 / modelWinProbability.
+  label: string;
+  minPrice: number | null;
+  maxPrice: number | null;
+  runners: number;
+  wins: number;
+  modelMeanProb: number;
+  actualWinRate: number;
+  // Overround removed, so it's comparable to a model probability that already
+  // sums to 100 across a race.
+  marketMeanProbFair: number;
+  // Overround still in — the price a bet actually has to beat. Always >= fair.
+  marketMeanProbRaw: number;
+  staked: number;
+  returns: number;
+  pnl: number;
+  roiPercent: number;
+  // Signed percentage points vs what actually happened; positive = over-rated.
+  modelErrorPp: number;
+  marketErrorPp: number;
+  modelBrier: number;
+  marketBrier: number;
+}
+
+export interface ModelAccuracyResponse {
+  success: boolean;
+  data: ModelAccuracyBand[];
+  count: number;
+  overall: ModelAccuracyBand;
+}
+
+export interface ModelAccuracyFilters {
+  minDate?: string | null;
+  maxDate?: string | null;
+  courses?: string[];
+  goings?: string[];
+  raceClasses?: string[];
+  raceTypes?: string[];
+  countries?: string[];
+  minRunners?: number | null;
+  maxRunners?: number | null;
+  modelVersionId?: string | null;
+}
+
 export interface SavedFilterSetPnlStats {
   staked: number;
   returns: number;
@@ -835,6 +885,32 @@ class ChatApi {
       { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch model versions");
+    return response.json();
+  }
+
+  // Model win-probability accuracy, bucketed by the model's own implied price
+  // — backs the Model Accuracy screen. Auth-gated (the route sits below
+  // router.use(jwtAuth)), so an unauthenticated call 401s rather than
+  // returning a public subset.
+  async getModelAccuracy(filters: ModelAccuracyFilters = {}): Promise<ModelAccuracyResponse> {
+    const params = new URLSearchParams();
+    if (filters.minDate) params.set("minDate", filters.minDate);
+    if (filters.maxDate) params.set("maxDate", filters.maxDate);
+    if (filters.courses?.length) params.set("courses", filters.courses.join(","));
+    if (filters.goings?.length) params.set("goings", filters.goings.join(","));
+    if (filters.raceClasses?.length) params.set("raceClasses", filters.raceClasses.join(","));
+    if (filters.raceTypes?.length) params.set("raceTypes", filters.raceTypes.join(","));
+    if (filters.countries?.length) params.set("countries", filters.countries.join(","));
+    if (filters.minRunners != null) params.set("minRunners", String(filters.minRunners));
+    if (filters.maxRunners != null) params.set("maxRunners", String(filters.maxRunners));
+    if (filters.modelVersionId) params.set("modelVersionId", filters.modelVersionId);
+
+    const qs = params.toString();
+    const response = await fetch(
+      `${this.baseUrl}/api/model-accuracy${qs ? `?${qs}` : ""}`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch model accuracy");
     return response.json();
   }
 
