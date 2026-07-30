@@ -15,7 +15,14 @@ import { BetOrderService } from "../lib/service/bet-order-service";
 import { BetOrderType } from "../lib/dao/bet-order-dao";
 import { LivePriceService } from "../lib/service/live-price-service";
 import type { PickToResolve } from "../lib/service/betfair-market-resolver";
-import { parseDateRangeParams, parseCsvListParam } from "../lib/service/filter-params-util";
+import {
+  parseDateRangeParams,
+  parseCsvListParam,
+  parseFloatParam,
+  clampPct,
+  clampModelVsSpDateWindow,
+} from "../lib/service/filter-params-util";
+import type { ModelVsSpSort } from "../lib/dao/industry-sp-dao";
 import { AuthService, AuthError } from "../lib/service/auth-service";
 import { DatabaseConnection } from "../config/database";
 import { jwtAuth, optionalJwtAuth } from "./middleware";
@@ -716,6 +723,110 @@ router.post("/api/auth/resend-verification", async (req, res) => {
     }
     console.error("resendVerification failed:", error);
     return res.status(500).json({ error: "Failed to resend verification email" });
+  }
+});
+
+// Runner-level (not race-level) rows comparing the model's own win probability
+// against the probability each runner's industry SP implies (100/isp), plus the
+// signed percentage-point gap between them — the Model vs SP screen.
+//
+// Login-gated, and the placement is what enforces that, not the path: every
+// handler registered ABOVE `router.use(jwtAuth)` under the /api/industry-sp
+// prefix inherits optionalJwtAuth instead (that prefix is the app's anonymous
+// home page). Registering this next to its natural /api/industry-sp siblings
+// would have silently shipped an anonymous endpoint, so it lives below the gate
+// AND outside that prefix, so the two signals agree. The 401 test in
+// src/server/__tests__/app.test.ts is the actual guard.
+router.get("/api/model-vs-sp", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+
+    const page = Math.min(100000, Math.max(1, parseInt(req.query.page as string) || 1));
+    // No $facet in this query (see getModelVsSpRunners), so the 16MB
+    // single-BSON-doc ceiling that forces /api/industry-sp's limit down to 2000
+    // doesn't apply here. This cap is about per-request M0 cost and payload
+    // size instead, at roughly 300 bytes per row.
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+
+    const sortRaw = req.query.sort;
+    const sort: ModelVsSpSort =
+      sortRaw === "date_asc" || sortRaw === "edge_desc" || sortRaw === "edge_asc" ? sortRaw : "date_desc";
+
+    // Always bounded, and the span clamped to keep a cold load near a second —
+    // the edge sort has no index able to serve it and its cost scales linearly
+    // with the window (measured: ~106ms for a month, ~1.1s for a year, ~11.5s for
+    // the whole collection; see MODEL_VS_SP_MAX_SPAN_DAYS). Clamping rather than
+    // 400ing an over-wide range matches the convention everywhere else in this
+    // file; the trade-off is that a shared URL with a hand-edited 5-year range
+    // quietly shows one year rather than telling the user why.
+    const { minRaceTime, maxRaceTime, minDate, maxDate } = clampModelVsSpDateWindow(
+      req.query.minDate,
+      req.query.maxDate
+    );
+
+    // parseFloatParam, not the `parseFloat(x) || DEFAULT` idiom used elsewhere in
+    // this file: 0 is falsy, and 0 is exactly the boundary that makes these
+    // filters useful ("only runners the model rates above the market" is
+    // minEdge=0, "only below" is maxEdge=0). The `||` form would silently widen
+    // both back to the ±100 default and match everything.
+    const minModelProb = clampPct(parseFloatParam(req.query.minModelProb, 0));
+    const maxModelProb = clampPct(parseFloatParam(req.query.maxModelProb, 100));
+    const minImpliedProb = clampPct(parseFloatParam(req.query.minImpliedProb, 0));
+    const maxImpliedProb = clampPct(parseFloatParam(req.query.maxImpliedProb, 100));
+    const minEdge = Math.min(100, Math.max(-100, parseFloatParam(req.query.minEdge, -100)));
+    const maxEdge = Math.min(100, Math.max(-100, parseFloatParam(req.query.maxEdge, 100)));
+
+    const minIsp = Math.max(1, parseFloatParam(req.query.minIsp, 1));
+    const maxIsp = Math.min(100000, parseFloatParam(req.query.maxIsp, 1000));
+    const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
+    const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
+    const countries = parseCsvListParam(req.query.countries);
+
+    // A pure page step already knows the total from the request that loaded page
+    // 1, so it opts out of the (separate) count query — halving this endpoint's
+    // cost per Next/Prev on a tier where concurrency, not per-query time, is the
+    // ceiling.
+    const includeTotal = req.query.includeTotal !== "false";
+
+    const { rows, total } = await industrySpService.getModelVsSpRunners({
+      page,
+      limit,
+      sort,
+      minRaceTime,
+      maxRaceTime,
+      minModelProb,
+      maxModelProb,
+      minImpliedProb,
+      maxImpliedProb,
+      minEdge,
+      maxEdge,
+      minIsp,
+      maxIsp,
+      minRunners,
+      maxRunners,
+      countries,
+      includeTotal,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: rows,
+      count: rows.length,
+      total,
+      page,
+      limit,
+      // null (not 0) when the count was skipped — the client keeps showing the
+      // total it already had rather than flashing "0 runners" on every page step.
+      totalPages: total != null ? Math.ceil(total / limit) : null,
+      sort,
+      // Echoed back so the client can tell when its requested window was clamped
+      // (or defaulted) and reflect the window actually queried.
+      minDate,
+      maxDate,
+    });
+  } catch (error) {
+    console.error("getModelVsSpRunners error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch model vs SP" });
   }
 });
 

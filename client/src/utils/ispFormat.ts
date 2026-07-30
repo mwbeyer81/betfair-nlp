@@ -124,12 +124,39 @@ export function impliedProbabilityPct(isp: number): number {
   return 100 / isp;
 }
 
+// The signed percentage-POINT gap between the model's own win probability and
+// the one the runner's industry SP implies (100/isp). Positive means the model
+// rates the runner a better chance than the market's price does. null when
+// either side is missing — a gap is undefined without both, which is why
+// /api/model-vs-sp excludes those runners server-side rather than rendering them
+// with a blank column.
+//
+// The Mongo counterpart is buildModelVsSpRunnerCond in
+// src/lib/dao/industry-sp-dao.ts. The two can't share code (one is an expression
+// tree), so that DAO's integration test pins both to the same hand-derived
+// numbers.
+export function modelSpEdge(runner: IspRunner): number | null {
+  if (runner.modelWinProbability == null || runner.isp == null || runner.isp <= 0) return null;
+  return runner.modelWinProbability - impliedProbabilityPct(runner.isp);
+}
+
+// Always signed, and always suffixed "pts" — the value is a difference of two
+// percentages, so a bare "17.2%" would misread as a relative change ("17% more
+// likely") rather than the 17-percentage-point gap it actually is.
+export function formatEdgePts(edge: number): string {
+  return `${edge >= 0 ? "+" : "-"}${Math.abs(edge).toFixed(1)} pts`;
+}
+
 // True when the model rates a runner's win chance higher than the market's
 // own price implies — a simple "value bet" signal, independent of any
-// fixed threshold (unlike minModelWinProbability).
+// fixed threshold (unlike minModelWinProbability). Expressed via modelSpEdge so
+// the two can never disagree about what "beats SP" means. Note the guard stays
+// isp > 0, not the isp > 1 the server-side filter uses: a runner priced at
+// exactly 1 can't reach /model-vs-sp at all, so that difference is only ever
+// exercised by this function's other callers.
 export function modelBeatsSp(runner: IspRunner): boolean {
-  if (runner.modelWinProbability == null || runner.isp == null || runner.isp <= 0) return false;
-  return runner.modelWinProbability > impliedProbabilityPct(runner.isp);
+  const edge = modelSpEdge(runner);
+  return edge != null && edge > 0;
 }
 
 export function formatRaceTime(isoTime: string): string {
