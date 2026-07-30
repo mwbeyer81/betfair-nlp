@@ -32,7 +32,7 @@ export interface AppHeaderProps {
 
 // One header — brand, title/subtitle, back action, and burger nav menu —
 // shared by every screen so "BackBet" branding and the menu's item set
-// (Backtest / Chat / Daily Races / Account / Results / Bets / Log Out or
+// (Backtest / Chat / Daily Races / Results / Bets / Account / Log Out or
 // Log In+Sign Up) are identical everywhere instead of each screen
 // reimplementing its own subset.
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -111,6 +111,34 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       >
         Daily Races
       </Button>
+      {/* Results/Bets sit in this first nav group alongside Backtest/Chat/
+          Daily Races (they used to live below the divider with Account) —
+          still auth-gated, hence the guard here rather than relying on the
+          isAuthenticated branch further down. */}
+      {isAuthenticated && (
+        <>
+          <Button
+            testID={`${testIdPrefix}-menu-results-link`}
+            mode="outlined"
+            compact
+            onPress={wrap(() => navigate("/results"))}
+            style={styles.toggleButton}
+            labelStyle={styles.toggleButtonLabel}
+          >
+            Results
+          </Button>
+          <Button
+            testID={`${testIdPrefix}-menu-bets-link`}
+            mode="outlined"
+            compact
+            onPress={wrap(() => navigate("/bets"))}
+            style={styles.toggleButton}
+            labelStyle={styles.toggleButtonLabel}
+          >
+            Bets
+          </Button>
+        </>
+      )}
       <View style={styles.divider} />
       {isAuthenticated ? (
         <>
@@ -123,27 +151,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             labelStyle={styles.toggleButtonLabel}
           >
             Account
-          </Button>
-          <Button
-            testID={`${testIdPrefix}-menu-results-link`}
-            mode="contained"
-            compact
-            buttonColor={colors.accent}
-            onPress={wrap(() => navigate("/results"))}
-            style={styles.headerButton}
-            labelStyle={styles.headerButtonLabel}
-          >
-            Results →
-          </Button>
-          <Button
-            testID={`${testIdPrefix}-menu-bets-link`}
-            mode="outlined"
-            compact
-            onPress={wrap(() => navigate("/bets"))}
-            style={styles.toggleButton}
-            labelStyle={styles.toggleButtonLabel}
-          >
-            Bets
           </Button>
           {onLogout && (
             <Button
