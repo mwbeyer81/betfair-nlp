@@ -39,8 +39,8 @@ export interface AppHeaderProps {
 
 // One header — brand, title/subtitle, back action, and burger nav menu —
 // shared by every screen so "BackBet" branding and the menu's item set
-// (Backtest / Chat / Daily Races / Results / Bets / Account / Log Out or
-// Log In+Sign Up) are identical everywhere instead of each screen
+// (Backtest / Chat / Daily Races / Results / Bets / Model vs SP / Account /
+// Log Out or Log In+Sign Up) are identical everywhere instead of each screen
 // reimplementing its own subset.
 export const AppHeader: React.FC<AppHeaderProps> = ({
   navigate,
@@ -146,6 +146,20 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           >
             Bets
           </Button>
+          <Button
+            testID={`${testIdPrefix}-menu-model-vs-sp-link`}
+            mode="outlined"
+            compact
+            onPress={wrap(() => navigate("/model-vs-sp"))}
+            style={styles.toggleButton}
+            labelStyle={styles.toggleButtonLabel}
+          >
+            Model vs SP
+          </Button>
+          {/* Sits next to Model vs SP deliberately: that screen lists
+              individual runners and their gap to the market, this one
+              aggregates the same comparison into price bands and checks each
+              band against what actually won. */}
           <Button
             testID={`${testIdPrefix}-menu-model-accuracy-link`}
             mode="outlined"

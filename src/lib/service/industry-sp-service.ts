@@ -1,4 +1,5 @@
-import { IndustrySpDAO, IspRace, IspFilterBounds } from "../dao/industry-sp-dao";
+import { IndustrySpDAO, IspRace, IspFilterBounds, ModelVsSpParams, ModelVsSpRow } from "../dao/industry-sp-dao";
+import type { ModelVsSpSummary } from "./model-vs-sp-summary";
 import { DatabaseConnection } from "../../config/database";
 
 export class IndustrySpService {
@@ -355,6 +356,20 @@ export class IndustrySpService {
     }[]
   > {
     return this.industrySpDAO.getQualifyingRacesForDate(p);
+  }
+
+  /**
+   * Runner-level rows for the Model vs SP screen. A plain pass-through — unlike
+   * getSplitStats above, which exists specifically to collapse several DAO calls
+   * into one round trip, this endpoint issues at most two queries and the DAO
+   * already runs them sequentially. Wrapping them in a Promise.all here would
+   * work against the very M0 concurrency ceiling getSplitStats was written to
+   * respect, so deliberately don't.
+   */
+  public async getModelVsSpRunners(
+    p: ModelVsSpParams
+  ): Promise<{ rows: ModelVsSpRow[]; total: number | null; summary: ModelVsSpSummary | null }> {
+    return this.industrySpDAO.getModelVsSpRunners(p);
   }
 
   public async getRacesByMeetingId(meetingId: string): Promise<IspRace[]> {

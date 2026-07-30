@@ -15,11 +15,15 @@ export type Route =
   | "/results/detail"
   | "/model-accuracy"
   | "/bets"
+  | "/model-vs-sp"
   | "/daily-races"
   | "/daily-races/event"
   | "/daily-races/race"
   | "/daily-races/runner";
 
+// Must stay in lockstep with the union above — pathToRoute silently falls back
+// to "/isp" for anything not listed here, so a route added to only one of the two
+// looks like a broken link rather than a type error.
 const STATIC_ROUTES = [
   "/events",
   "/chat",
@@ -35,6 +39,7 @@ const STATIC_ROUTES = [
   "/results/detail",
   "/model-accuracy",
   "/bets",
+  "/model-vs-sp",
   "/daily-races",
   "/daily-races/event",
   "/daily-races/race",

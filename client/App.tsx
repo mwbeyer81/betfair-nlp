@@ -23,6 +23,7 @@ import { DailyRaceEventScreen } from "./src/components/DailyRaceEventScreen";
 import { DailyRaceScreen } from "./src/components/DailyRaceScreen";
 import { DailyRunnerDetailScreen } from "./src/components/DailyRunnerDetailScreen";
 import { ScheduledBetsScreen } from "./src/components/ScheduledBetsScreen";
+import { ModelVsSpScreen } from "./src/components/ModelVsSpScreen";
 import { ModelAccuracyScreen } from "./src/components/ModelAccuracyScreen";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
@@ -360,6 +361,23 @@ export default function App() {
           isAuthenticated={isAuthenticated}
           onLogout={onLogout}
           onBack={() => navigate("/daily-races")}
+        />
+      );
+    }
+    if (route === "/model-vs-sp") {
+      return (
+        <ModelVsSpScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          onBack={() => navigate("/isp")}
+          // Reuses the existing runner-detail screen rather than a bespoke one —
+          // buildReturnParams sends the user back here, which works because
+          // "/model-vs-sp" is in STATIC_ROUTES (isRoute() validates the value
+          // read back out of the query string).
+          onNavigateToRunner={(raceId, runnerId) =>
+            navigate("/isp/runner", `raceId=${raceId}&runnerId=${runnerId}&${buildReturnParams(route)}`)
+          }
         />
       );
     }
