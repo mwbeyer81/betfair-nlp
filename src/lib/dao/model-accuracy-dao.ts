@@ -188,7 +188,26 @@ export class ModelAccuracyDAO {
                 _id: null,
                 eligibleRunners: { $sum: 1 },
                 scoredRunners: {
-                  $sum: { $cond: [{ $ne: [`$runners.${MODEL_ACCURACY_PROB_FIELD}`, null] }, 1, 0] },
+                  // $type, NOT { $ne: [<path>, null] }. Query-language
+                  // `{field: {$ne: null}}` excludes a missing field; the
+                  // aggregation EXPRESSION `$ne` does not — a missing path is
+                  // its own "missing" value and compares unequal to null. Both
+                  // forms appear in this one pipeline (the bands branch below
+                  // uses the query form inside $match, correctly), which is
+                  // exactly how this went wrong the first time.
+                  //
+                  // Measured on production: the expression form counted
+                  // 971,116 of 971,116 runners as scored when only 885,089
+                  // carry the field. A fixture with an explicit `null` passes
+                  // either way — real unscored runners have no field at all,
+                  // so only a $type check describes them.
+                  $sum: {
+                    $cond: [
+                      { $in: [{ $type: `$runners.${MODEL_ACCURACY_PROB_FIELD}` }, ["missing", "null"]] },
+                      0,
+                      1,
+                    ],
+                  },
                 },
               },
             },

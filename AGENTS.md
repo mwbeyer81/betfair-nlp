@@ -5757,14 +5757,41 @@ picks on winners.
    exists to prevent — and without the gap, nothing would exercise the coverage
    line or the null-exclusion rule end to end.
 
+**A real bug that only production data could catch — worth internalising.**
+The coverage counter first used the aggregation-EXPRESSION form
+`{$ne: ["$runners.modelWinProbabilityOos", null]}`. In the query language
+`{field: {$ne: null}}` excludes a missing field; **the expression form does
+not** — a missing path is its own "missing" value and compares unequal to
+null. Both forms sit in the same pipeline here (the bands branch uses the
+query form inside `$match`, correctly), which is exactly how it went wrong.
+Measured against production, the counter reported **971,116 of 971,116**
+runners as scored when only **885,089** carry the field. The integration test
+passed throughout, because its unscored fixture runner had an explicit
+`null` — and an explicit null behaves the same under both forms. Real
+unscored runners have **no field at all**. Fixed with a `$type` check against
+`["missing", "null"]`, and the fixture gained a runner with the key genuinely
+absent. **If you assert on a field's absence in this repo, make the fixture
+absent, not null.**
+
 **Verified**: `tsc --noEmit` and `client yarn build` clean. New Python tests
 `ml/test_walk_forward.py` **24/24** (fold-boundary leakage, first-year
 exclusion, calibrator source selection, de-overrounding, degenerate blocks) and
 `ml/test_training_gate.py` **13/13**; existing `ml/test_features.py` 14/14.
-`model-accuracy-dao.integration.test.ts` **22/22** against real local mongo
-(4 new: coverage arithmetic, coverage-matches-bands, unscored-not-zero-filled,
-empty-window-is-0%-not-100%). `app.test.ts` model-accuracy block **11/11**
-(3 new). Storybook and MSW results in the row above.
+`model-accuracy-dao.integration.test.ts` **23/23** against real local mongo
+(5 new: coverage arithmetic, coverage-matches-bands, unscored-not-zero-filled,
+empty-window-is-0%-not-100%, and absent-field-counts-as-unscored).
+`app.test.ts` model-accuracy block **11/11** (3 new). `ModelAccuracyScreen`
+Storybook **12/12** (4 new), against a plain `storybook dev --port 6126` per
+the `--ci` finding above. MSW `model-accuracy.spec.ts` **10/10** (3 new); the
+full MSW suite ran **241 passed** with the same pre-existing failure families
+this file already documents (`isp-races-month-loading`, `responsive`,
+`runner-detail`, `trainer-detail`) — none touched by this branch.
+
+**Coverage checked through the real DAO against production**: full window
+885,067 of 971,094 eligible runners (91.14%), and `overall.runners` equals
+`coverage.scoredRunners` exactly; a 2015-only window reports **0%** (nothing
+before it to learn from) and a 2024-only window **100%**. Those three numbers
+together are what prove the null-exclusion is real rather than incidental.
 
 **Not done, deliberately**: the deployed model itself is unchanged — this
 measures it honestly, it doesn't retrain it. The favourite-longshot gap is

@@ -61,10 +61,18 @@ const RACE_2 = {
   raceClass: "Class 2",
   going: "Soft",
   ran: 3,
-  runnersWithIspCount: 3,
+  runnersWithIspCount: 3, // E, F, H — G has no isp
   runners: [
     { id: 201, name: "E", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2.5, ispFraction: "6/4", isFavourite: true, modelWinProbabilityOos: 40 },
     { id: 202, name: "F", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 1.5, ispFraction: "1/2", isFavourite: false, modelWinProbabilityOos: null },
+    // No modelWinProbabilityOos KEY AT ALL, which is what a real unscored
+    // runner looks like — ml/walk_forward_score.py simply never writes the
+    // field for races it can't score. An explicit null (runner F above) is
+    // NOT the same shape, and the two behave differently in an aggregation
+    // expression: `{$ne: [<path>, null]}` counts a MISSING field as non-null.
+    // That mismatch shipped once and was caught only against production data,
+    // where it reported all 971,116 runners as scored instead of 885,089.
+    { id: 204, name: "H", num: 4, draw: 4, status: "LOSER", sortPriority: 4, isp: 12, ispFraction: "11/1", isFavourite: false },
     { id: 203, name: "G", num: 3, draw: 3, status: "LOSER", sortPriority: 3, isp: null, ispFraction: null, isFavourite: false, modelWinProbabilityOos: 30 },
   ],
 };
@@ -207,9 +215,14 @@ describe("ModelAccuracyDAO / ModelAccuracyService (integration)", () => {
 
   it("still counts unscored runners in the book when de-overrounding", async () => {
     const { bands } = await service.getPriceBandAccuracy({ ...ALL_RACES, courses: ["Kempton"] });
-    // book = 100/2.5 + 100/1.5 = 106.667, so fair for isp 2.5 is 37.5, not 100.
+    // book = 100/2.5 + 100/1.5 + 100/12 = 40 + 66.667 + 8.333 = 115, so fair
+    // for isp 2.5 is 40/115*100 = 34.78, not 40 and certainly not 100. Runners
+    // F and H are both in the book despite carrying no out-of-sample score —
+    // which is the invariant this test exists for: the market's overround is a
+    // property of the whole race, not of the runners the model happened to be
+    // able to score.
     expect(bandByLabel(bands, "2.0 – 3.0").marketMeanProbRaw).toBe(40);
-    expect(bandByLabel(bands, "2.0 – 3.0").marketMeanProbFair).toBe(37.5);
+    expect(bandByLabel(bands, "2.0 – 3.0").marketMeanProbFair).toBeCloseTo(34.78, 2);
   });
 
   it("band runner counts sum to the overall row", async () => {
@@ -245,13 +258,14 @@ describe("ModelAccuracyDAO / ModelAccuracyService (integration)", () => {
 
   it("reports coverage: how many eligible runners could actually be scored", async () => {
     const { coverage } = await service.getPriceBandAccuracy(ALL_RACES);
-    // Seven runners across the two races. Runner G has no isp at all, so it
-    // is not part of the measurable population — six eligible. Of those,
-    // runner F is priced but carries no out-of-sample score.
-    expect(coverage.eligibleRunners).toBe(6);
+    // Eight runners across the two races. Runner G has no isp at all, so it is
+    // not part of the measurable population — seven eligible. Of those, runner
+    // F carries an explicit null and runner H has no field at all; both are
+    // unscored.
+    expect(coverage.eligibleRunners).toBe(7);
     expect(coverage.scoredRunners).toBe(5);
-    expect(coverage.unscoredRunners).toBe(1);
-    expect(coverage.coveragePercent).toBeCloseTo(83.33, 2);
+    expect(coverage.unscoredRunners).toBe(2);
+    expect(coverage.coveragePercent).toBeCloseTo(71.43, 2);
   });
 
   it("the coverage scored count is exactly the population the bands describe", async () => {
@@ -259,6 +273,18 @@ describe("ModelAccuracyDAO / ModelAccuracyService (integration)", () => {
     // If these drift apart, the sentence on the screen is describing a
     // different set of runners from the table beneath it.
     expect(coverage.scoredRunners).toBe(overall.runners);
+  });
+
+  it("a runner whose OOS field is ABSENT counts as unscored, not as scored", async () => {
+    // The distinction an explicit-null fixture cannot make. Runner H has no
+    // modelWinProbabilityOos key; if the coverage counter used the aggregation
+    // expression form of a null check it would count H as scored and report
+    // 100% coverage on a window that is nothing of the sort.
+    const { coverage, overall } = await service.getPriceBandAccuracy({ ...ALL_RACES, courses: ["Kempton"] });
+    expect(coverage.eligibleRunners).toBe(3);
+    expect(coverage.scoredRunners).toBe(1);
+    expect(coverage.unscoredRunners).toBe(2);
+    expect(overall.runners).toBe(1);
   });
 
   it("an unscored runner is left out of the bands, not counted as a 0% prediction", async () => {
@@ -289,7 +315,7 @@ describe("ModelAccuracyDAO / ModelAccuracyService (integration)", () => {
 
   it("respects the field-size range", async () => {
     const bigFields = await service.getPriceBandAccuracy({ ...ALL_RACES, minRunners: 4 });
-    expect(bigFields.overall.runners).toBe(4); // race 2 has only 3 runners
+    expect(bigFields.overall.runners).toBe(4); // race 2 has only 3 priced runners
   });
 
   it("returns all-zero rows rather than NaN when nothing matches", async () => {
