@@ -71,7 +71,39 @@ aws apigatewayv2 update-stage \
 
 # Update secrets only when config/local.json is present (not committed, lives on dev machines)
 LOCAL_CONFIG="$REPO_ROOT/config/local.json"
+# ...AND only when it carries every REQUIRED section. This guard exists
+# because `update-function-configuration --environment` REPLACES the whole
+# Variables map: a local.json holding only some sections would silently blank
+# every secret it doesn't mention (JWT_SECRET, OPENAI_API_KEY, the Google/
+# Twilio/Resend/RacingAPI values) on the live function. On 2026-07-31 the
+# primary checkout's local.json had exactly three sections — betfair,
+# racingApi, mongodb — and this step died mid-deploy on `c.openai.apiKey`.
+# It failed before reaching the aws call, so nothing was wiped; that was luck,
+# not design. Now it is design: incomplete config means skip, loudly.
+#
+# Note also that this script bundles whatever checkout it is RUN FROM
+# ($REPO_ROOT is derived from its own path), not ~/betfair-nlp-deploy-develop.
+# Run it from a checkout whose HEAD is the commit you mean to ship.
+CONFIG_COMPLETE=""
 if [ -f "$LOCAL_CONFIG" ]; then
+  CONFIG_COMPLETE=$(node -e "
+    const c = require('$LOCAL_CONFIG');
+    const missing = [];
+    if (!c.mongodb || !c.mongodb.uri) missing.push('mongodb.uri');
+    if (!c.mongodb || !c.mongodb.dbName) missing.push('mongodb.dbName');
+    if (!c.openai || !c.openai.apiKey) missing.push('openai.apiKey');
+    if (!c.jwt || !c.jwt.secret) missing.push('jwt.secret');
+    console.log(missing.length ? 'MISSING:' + missing.join(',') : 'ok');
+  ")
+fi
+
+if [ -f "$LOCAL_CONFIG" ] && [ "$CONFIG_COMPLETE" != "ok" ]; then
+  echo "WARNING: config/local.json exists but is missing required sections ($CONFIG_COMPLETE)."
+  echo "         Skipping the secrets update — the live Lambda's env vars are UNCHANGED."
+  echo "         (Applying a partial config would blank every secret it omits.)"
+fi
+
+if [ -f "$LOCAL_CONFIG" ] && [ "$CONFIG_COMPLETE" = "ok" ]; then
   echo "Updating Lambda secrets from config/local.json..."
   MONGODB_URI=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.mongodb.uri)")
   MONGODB_DB_NAME=$(node -e "const c=require('$LOCAL_CONFIG'); console.log(c.mongodb.dbName)")
@@ -106,7 +138,9 @@ if [ -f "$LOCAL_CONFIG" ]; then
     --region eu-west-2 \
     --output text --query FunctionName
 else
-  echo "Skipping secrets update (config/local.json not found — existing Lambda env vars unchanged)"
+  # Reached when local.json is absent entirely, or present but incomplete (the
+  # WARNING above says which). Either way the live env vars are left alone.
+  echo "Skipping secrets update — existing Lambda env vars unchanged"
 fi
 
 echo "Done."
