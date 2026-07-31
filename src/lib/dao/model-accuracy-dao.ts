@@ -14,7 +14,31 @@ import { Collection, Db } from "mongodb";
  * logic anyway (see the comments at industry-sp-dao.ts:591-604 and :913-916).
  */
 
-// Bucketed on modelWinProbability rather than on a computed price, so the
+/**
+ * The probability this screen bands on, and the reason it is NOT
+ * `modelWinProbability`.
+ *
+ * `modelWinProbability` is written by ml/train_and_predict.py's final refit,
+ * which fits on every row including the ones it then scores — so on a
+ * historical race it is the output of a model that already knew that race's
+ * result. Measured, that is worth about 0.008 of Brier (0.0893 in-sample
+ * against 0.0968 on a held-out tail): enough to turn a screen whose entire
+ * purpose is "how accurate is the model" into an advert.
+ *
+ * `modelWinProbabilityOos` is written by ml/walk_forward_score.py, where every
+ * race is scored by a model fitted only on races that finished before it. It
+ * is absent on the earliest races (nothing to learn from yet) and that absence
+ * is load-bearing — see the $ne: null gate below.
+ *
+ * There is deliberately no per-runner version id alongside it: an out-of-sample
+ * score has no single model behind it (2019's rows come from a model fitted on
+ * 2015-2018, 2020's from one fitted on 2015-2019), so a modelVersionId filter
+ * would be meaningless here. The run's identity and its fold boundaries live
+ * once in model_evaluations instead.
+ */
+export const MODEL_ACCURACY_PROB_FIELD = "modelWinProbabilityOos";
+
+// Bucketed on the out-of-sample probability rather than on a computed price, so the
 // boundaries are exact and no division happens inside the pipeline. Each band
 // is [lower, upper) per $bucket semantics; 100.0001 as the final boundary keeps
 // a runner priced at exactly 100% inside the last band rather than in `default`.
@@ -52,7 +76,24 @@ export interface ModelAccuracyQuery {
   raceTypes: string[];
   minRunners: number;
   maxRunners: number;
-  modelVersionId: string | null;
+}
+
+/**
+ * How much of the filtered window could actually be measured. `eligible` is
+ * every runner with a real industry SP; `scored` is the subset that also
+ * carries an out-of-sample probability. The difference is not an error — the
+ * earliest races have no prior history to be scored from — but it has to be
+ * stated, or a window that is 40% unmeasurable reads exactly like one that
+ * isn't.
+ */
+export interface ModelAccuracyCoverageRaw {
+  eligibleRunners: number;
+  scoredRunners: number;
+}
+
+export interface ModelAccuracyAggregate {
+  bands: ModelAccuracyBandRaw[];
+  coverage: ModelAccuracyCoverageRaw;
 }
 
 export class ModelAccuracyDAO {
@@ -68,7 +109,7 @@ export class ModelAccuracyDAO {
    * industry-sp-service.ts:316-322 computes cumulativePnl/roiPercent outside
    * Mongo rather than inside the pipeline.
    */
-  public async getPriceBandAccuracy(p: ModelAccuracyQuery): Promise<ModelAccuracyBandRaw[]> {
+  public async getPriceBandAccuracy(p: ModelAccuracyQuery): Promise<ModelAccuracyAggregate> {
     // Leading date $match on raceTime, not raceDate — raceTime is the indexed
     // field ({raceTime: 1}) and its "YYYY-MM-DDTHH:mm:ss" prefix makes a date
     // range a plain indexed string range (same reasoning as
@@ -130,20 +171,77 @@ export class ModelAccuracyDAO {
           // (import-industry-sp.ts:139) — it also excludes null, since Mongo
           // sorts null below every number.
           "runners.isp": { $gt: 1 },
-          // $ne: null excludes missing as well as explicit null, so runners the
-          // ML pipeline has never scored drop out entirely rather than counting
-          // as a 0% band.
-          "runners.modelWinProbability": { $ne: null },
-          ...(p.modelVersionId != null ? { "runners.modelVersionId": p.modelVersionId } : {}),
         },
       },
       {
+        // One pass, two outputs. A $facet here is safe in a way it would not
+        // be in industry-sp-dao.ts's paging queries: both branches emit a
+        // handful of small documents (six bands and one counter), so the
+        // 16MB single-document ceiling that rules $facet out there never comes
+        // near being a factor. The alternative — a second aggregation for the
+        // counts — would mean unwinding ~970k runner subdocuments twice per
+        // screen load against a shared-tier cluster.
+        $facet: {
+          coverage: [
+            {
+              $group: {
+                _id: null,
+                eligibleRunners: { $sum: 1 },
+                scoredRunners: {
+                  $sum: { $cond: [{ $ne: [`$runners.${MODEL_ACCURACY_PROB_FIELD}`, null] }, 1, 0] },
+                },
+              },
+            },
+          ],
+          bands: buildBandStages(),
+        },
+      },
+    ];
+
+    // A band aggregation is inherently a runner-level narrowing across embedded
+    // arrays, so there's no index to exploit past the leading $match and no
+    // equivalent of getAllRacesByRace's precomputed raceStaked/raceReturns fast
+    // path (industry-sp-dao.ts:429-445). Allow spilling rather than risk the
+    // 100MB in-memory group limit on a full-history query.
+    const [doc] = await this.collection
+      .aggregate<{ bands: ModelAccuracyBandRaw[]; coverage: ModelAccuracyCoverageRaw[] }>(pipeline, {
+        allowDiskUse: true,
+      })
+      .toArray();
+
+    return {
+      bands: doc?.bands ?? [],
+      // An empty window produces no coverage row at all, which is zero of
+      // zero rather than a missing measurement.
+      coverage: doc?.coverage?.[0] ?? { eligibleRunners: 0, scoredRunners: 0 },
+    };
+  }
+}
+
+/**
+ * The banding half of the pipeline, from the point where a runner is already
+ * unwound and known to have a real SP. Split out only so the $facet above
+ * stays readable — it is not reused anywhere else.
+ */
+function buildBandStages(): Record<string, unknown>[] {
+  return [
+    {
+      $match: {
+        // $ne: null excludes missing as well as explicit null, so a runner
+        // with no out-of-sample score drops out entirely rather than being
+        // counted as a 0% band. This is the single most important line in
+        // the file: the unscoreable early years must not be silently
+        // folded in as certainties the model got wrong.
+        [`runners.${MODEL_ACCURACY_PROB_FIELD}`]: { $ne: null },
+      },
+    },
+    {
         // Project down to scalars BEFORE $bucket. industry-sp-dao.ts:993-1021
         // documents a real 32MB blowup from carrying runners[] further down a
         // pipeline than necessary.
         $project: {
           _id: 0,
-          modelProb: "$runners.modelWinProbability",
+          modelProb: `$runners.${MODEL_ACCURACY_PROB_FIELD}`,
           marketProbRaw: { $divide: [100, "$runners.isp"] },
           marketProbFair: {
             $cond: [
@@ -187,17 +285,5 @@ export class ModelAccuracyDAO {
           },
         },
       },
-    ];
-
-    // A band aggregation is inherently a runner-level narrowing across embedded
-    // arrays, so there's no index to exploit past the leading $match and no
-    // equivalent of getAllRacesByRace's precomputed raceStaked/raceReturns fast
-    // path (industry-sp-dao.ts:429-445). Allow spilling rather than risk the
-    // 100MB in-memory group limit on a full-history query.
-    const docs = await this.collection
-      .aggregate<ModelAccuracyBandRaw>(pipeline, { allowDiskUse: true })
-      .toArray();
-
-    return docs;
-  }
+  ];
 }

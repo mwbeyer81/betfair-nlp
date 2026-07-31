@@ -663,6 +663,30 @@ jest.mock("../../config/database", () => {
                 marketProbRawSum: 220,
                 modelSqErrSum: 0.64,
                 marketSqErrSum: 1.08,
+                // ...and the $facet wrapper that same DAO now returns, since
+                // it emits the bands and the coverage counters in one pass.
+                // The band row is repeated rather than referenced because an
+                // object literal can't refer to itself; the fields must stay
+                // in step with the ones directly above.
+                bands: [
+                  {
+                    _id: 50,
+                    runnerCount: 4,
+                    wins: 1,
+                    modelProbSum: 240,
+                    marketProbFairSum: 200,
+                    marketProbRawSum: 220,
+                    staked: 2.5,
+                    returns: 3.5,
+                    modelSqErrSum: 0.64,
+                    marketSqErrSum: 1.08,
+                  },
+                ],
+                // Six runners in the window carry a real SP; four of them also
+                // carry an out-of-sample score. The other two are the early
+                // races with no prior form behind them — the gap the coverage
+                // line on the screen exists to state.
+                coverage: [{ eligibleRunners: 6, scoredRunners: 4 }],
               },
             ]),
           }),
@@ -2057,12 +2081,53 @@ describe("API Endpoints", () => {
           raceTypes: "Flat",
           minRunners: "4",
           maxRunners: "12",
-          modelVersionId: "xgb-v1",
         })
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
       expect(response.body).toHaveProperty("success", true);
+    });
+
+    it("a stale modelVersionId in a bookmarked URL is ignored, not rejected", async () => {
+      // The filter was removed when this screen moved to out-of-sample
+      // probabilities: each year's rows come from a different model, so there
+      // is no single version to select. An old bookmark must still work.
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .query({ modelVersionId: "xgb-20260727-171521" })
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data.length).toBe(6);
+    });
+
+    it("reports how much of the window could actually be scored", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.coverage).toEqual({
+        eligibleRunners: 6,
+        scoredRunners: 4,
+        // The two runners with no prior history behind them. They are excluded
+        // from every band rather than counted as a 0% prediction the model got
+        // wrong, which is why this number has to be stated at all.
+        unscoredRunners: 2,
+        coveragePercent: 66.67,
+      });
+    });
+
+    it("the scored count matches the runners the bands were built from", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      // If these ever disagree, the coverage line is describing a different
+      // population from the table underneath it.
+      expect(response.body.overall.runners).toBe(response.body.coverage.scoredRunners);
     });
 
     it("rejects a runner range where min exceeds max", async () => {

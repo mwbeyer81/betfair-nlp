@@ -520,11 +520,23 @@ export interface ModelAccuracyBand {
   marketBrier: number;
 }
 
+// How much of the requested window could be measured at all. Runners in the
+// earliest years have no prior history to have been scored from, so they carry
+// no out-of-sample probability and are excluded from every band — this is what
+// says so out loud rather than letting the window look fully covered.
+export interface ModelAccuracyCoverage {
+  eligibleRunners: number;
+  scoredRunners: number;
+  unscoredRunners: number;
+  coveragePercent: number;
+}
+
 export interface ModelAccuracyResponse {
   success: boolean;
   data: ModelAccuracyBand[];
   count: number;
   overall: ModelAccuracyBand;
+  coverage: ModelAccuracyCoverage;
 }
 
 export interface ModelAccuracyFilters {
@@ -537,7 +549,6 @@ export interface ModelAccuracyFilters {
   countries?: string[];
   minRunners?: number | null;
   maxRunners?: number | null;
-  modelVersionId?: string | null;
 }
 
 export interface SavedFilterSetPnlStats {
@@ -1048,7 +1059,9 @@ class ChatApi {
     if (filters.countries?.length) params.set("countries", filters.countries.join(","));
     if (filters.minRunners != null) params.set("minRunners", String(filters.minRunners));
     if (filters.maxRunners != null) params.set("maxRunners", String(filters.maxRunners));
-    if (filters.modelVersionId) params.set("modelVersionId", filters.modelVersionId);
+    // No modelVersionId: this screen reads out-of-sample probabilities, where
+    // each year's rows come from a different model by construction, so there
+    // is no single version to filter on (see model-accuracy-dao.ts).
 
     const qs = params.toString();
     const response = await fetch(

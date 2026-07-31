@@ -1,7 +1,9 @@
 /**
- * Seeds SYNTHETIC modelWinProbability/modelVersionId onto every runner in
- * industry_starting_prices, so the Model Accuracy screen has something to
- * aggregate in the local-CI e2e stack.
+ * Seeds SYNTHETIC modelWinProbability/modelVersionId AND
+ * modelWinProbabilityOos onto runners in industry_starting_prices, so both the
+ * in-sample consumers (Model vs SP, Filters) and the Model Accuracy screen —
+ * which reads the out-of-sample field only — have something to aggregate in
+ * the local-CI e2e stack.
  *
  * Why synthetic: the real values are written by ml/train_and_predict.py, which
  * retrains from scratch — far too slow and non-deterministic for the local-CI
@@ -43,6 +45,16 @@ function runnerWeight(id: number): number {
   return 1 + h / 10;
 }
 
+// A DIFFERENT weight for the out-of-sample field, on purpose. Seeding both
+// fields with the same number would make the e2e pass even if the Model
+// Accuracy screen were wired back to modelWinProbability — the exact
+// regression this whole change exists to prevent. A different salt means the
+// two fields produce visibly different bands.
+function runnerWeightOos(id: number): number {
+  const h = Math.abs(Math.imul(id ^ 0x7f4a7c15, 0xc2b2ae35)) % 1000;
+  return 1 + h / 10;
+}
+
 async function main(): Promise<void> {
   const uri = process.env.MONGODB_URI;
   const dbName = process.env.MONGODB_DB_NAME;
@@ -60,6 +72,7 @@ async function main(): Promise<void> {
 
     let updated = 0;
     let scoredRunners = 0;
+    let oosScoredRunners = 0;
 
     for (const race of races) {
       const runners = race.runners ?? [];
@@ -70,6 +83,15 @@ async function main(): Promise<void> {
 
       const weights = eligible.map(r => runnerWeight(r.id));
       const total = weights.reduce((s, w) => s + w, 0);
+      const oosWeights = eligible.map(r => runnerWeightOos(r.id));
+      const oosTotal = oosWeights.reduce((s, w) => s + w, 0);
+
+      // A slice of races is deliberately left WITHOUT an out-of-sample score,
+      // standing in for the earliest real races that have no prior form behind
+      // them. Without this the e2e could never exercise the coverage line or
+      // the "unscored runners are excluded, not zero-filled" rule, both of
+      // which are the point of the field.
+      const hasOosScore = race._id % 5 !== 0;
 
       const setFields: Record<string, unknown> = {};
       const arrayFilters: Record<string, unknown>[] = [];
@@ -79,15 +101,21 @@ async function main(): Promise<void> {
         const pct = Math.round((weights[i] / total) * 100 * 100) / 100;
         setFields[`runners.$[r${i}].modelWinProbability`] = pct;
         setFields[`runners.$[r${i}].modelVersionId`] = MODEL_VERSION_ID;
+        if (hasOosScore) {
+          setFields[`runners.$[r${i}].modelWinProbabilityOos`] =
+            Math.round((oosWeights[i] / oosTotal) * 100 * 100) / 100;
+        }
         arrayFilters.push({ [`r${i}.id`]: runner.id });
       });
 
       await collection.updateOne({ _id: race._id }, { $set: setFields }, { arrayFilters });
       updated += 1;
       scoredRunners += eligible.length;
+      if (hasOosScore) oosScoredRunners += eligible.length;
     }
 
-    console.log(`Done. Scored ${scoredRunners} runners across ${updated} races as ${MODEL_VERSION_ID}.`);
+    console.log(`Done. Scored ${scoredRunners} runners across ${updated} races as ${MODEL_VERSION_ID}, ` +
+      `of which ${oosScoredRunners} also carry a synthetic out-of-sample score.`);
   } finally {
     await client.close();
   }

@@ -188,6 +188,7 @@ Ran claimed ports for this worktree (`scripts/claim-worktree-ports.sh daily-race
 | `~/betfair-nlp-matched-price-zero` | `matched-price-zero` | User reported their Betfair app showed £4 spent and a PnL loss but listed no bets. Investigated live (Atlas `bet_orders` + real `listClearedOrders`/`getAccountFunds` calls): both real bets genuinely exist and settled LOST at £2 each, balance £6, exposure £0 — the Betfair-side "missing bets" is not a bug at all, the user was looking at Sportsbook **My Bets** while these are **Exchange** bets (separate product, separate list). While reconciling, found a real bug in our own data: `placeOrders` persisted `matchedPrice: 0` for a bet that filled ~3 min after the API call returned. Backend-only fix (`betfair-api-client.ts` + `bet-order-service.ts`), plus a one-off prod data correction script. | **done — merged to `develop`, Lambda deployed, prod record corrected.** See the dated entry at the end of this file. Worktree can be removed. |
 | `~/betfair-nlp-bet-dialog-width` | `bet-dialog-width` | User reported (screenshot of a wide desktop browser on `/daily-races`) that the Bet dialog should be narrower — `PlaceBetDialog.tsx` passed no `style` to Paper's `Dialog`, which only insets itself by a fixed margin, so the two-field bet form stretched to ~1848px of a 1900px window with the Schedule/Bet now toggle halves ~898px each and Cancel/Confirm at opposite ends of the screen. Fixed with `width:100%/maxWidth:480/alignSelf:center` on the Dialog itself (no-op at phone widths). **Measure `place-bet-dialog-surface`, not `place-bet-dialog`, in any width assertion** — Paper puts the passed testID on the full-screen modal wrapper (always viewport-width) and exposes the visible card as `<testID>-surface`; the first version of this test measured the wrapper and read 1900px with the fix already in place. Also fixed a pre-existing failing `PlaceBetDialog` story (`ConfirmCallsOnSave` still asserted the pre-sandbox `onSave` payload, missing `orderType`/`sandbox`) found while running the suite. | **done — merged, deployed (web + production).** 3 new wide-viewport MSW tests in `tests-msw/bet-orders.spec.ts` (9/9 pass; verified they genuinely fail without the fix — 1848px surface, 898px toggle), `daily-races.spec.ts` 14/14, Storybook `PlaceBetDialog` 7/7, `yarn build` clean. Worktree removed. |
 | `~/betfair-nlp-mvs-narrow-overflow` | `fix/model-vs-sp-narrow-overflow` | User reported (iPhone screenshot of `app.backbet.co.uk/model-vs-sp`) that the filter card overflows on a narrow viewport. Two distinct causes, both in `ModelVsSpScreen.tsx`: (1) the filter grid is a fixed 92px label + two fixed 84px inputs + an inline hint, needing ~460px of viewport inside the card's padding — under that the longest hint (`pts apart, ± ignored`) ran past the card's right border; (2) the year/month pill `ScrollView`s carried no explicit flex, so they sized to their content and their clipping box extended past the card too. **The existing `nothing overflows a 375px viewport` MSW test passed the whole time** — it only checks `documentElement.scrollWidth`, and the overflow was clipped by an ancestor, so nothing ever scrolled. Fixed with a new `BREAKPOINTS.narrow` (480) + `useResponsive().isNarrow`: below it the hint takes its own full-width line under the inputs (`width:"100%"` **and** `flexShrink:0` — a shrinkable item gets squeezed back onto the inputs' line instead of wrapping), the inputs flex into the freed space, and each pill row stacks its label above a full-width strip. The pill `ScrollView`s get an explicit flex at every width, with a **separate narrow variant** — the stacked row is a column, so a main-axis `flexBasis:0` there would size the strip's *height* and collapse it to nothing. **Touches `ModelVsSpScreen.tsx` and `responsive.ts` (additively)** — checked this table first, no other worktree active on either. `IndustrySpScreen.tsx` has the same filter-grid shape and very likely the same defect at phone width; deliberately not touched (it's on this file's read-before-editing list and wasn't what the screenshot showed). | **done — merged to `develop` and deployed (web only, no backend change).** Verified: `client yarn build` clean; `tests-msw/model-vs-sp.spec.ts` **39/39** (8 new, in a `narrow viewport layout` describe that asserts per-element containment against the card's *padded content box* — the only kind of assertion that catches this class of bug); **4 of the 8 confirmed to fail against the pre-fix layout** (forced `isNarrow=false`, rebuilt, re-ran) rather than being assumed to; `ModelVsSpScreen` Storybook **27/27**. Storybook was run against a plain `storybook dev --port 6125` per this file's `--ci` finding. Worktree removed. |
+| `~/betfair-nlp-model-accuracy-oos` | `feat/model-accuracy-walk-forward` | User read the Model Accuracy screen's own "these figures flatter the model" caveat and called the screen misleading. It was: `ModelAccuracyDAO` banded on `modelWinProbability`, which `ml/train_and_predict.py:420-466` writes from a refit on 100% of the rows *including the ones it then scores* — so every historical race was scored by a model that already knew its result. New `ml/walk_forward_score.py` scores each year with a model fitted only on earlier races (`fit on raceDate < Y-01-01` → score Y), into a separate `modelWinProbabilityOos`; `modelWinProbability`, `ml/models/`, S3 and Daily Races are untouched (tomorrow's card is out-of-sample by definition, so the picks were never affected). The screen reads the new field, drops the now-meaningless model-version filter, and states its method plus how many runners had no prior history to be scored from. Also new: `ml/market_benchmark.py` (the de-overrounded SP probability, so `evaluate()` can finally tell the pipeline it is losing to the price — **referee, never a training target**), and a champion/challenger promotion gate reading `model_evaluations` back for the first time, so a worse retrain can no longer silently and irrecoverably overwrite a better one. **Measured on production**: overall Brier **in-sample 0.0893 → out-of-sample 0.0932, against the market's 0.0871** — the old screen understated the model's error by 0.0039, and out-of-sample the market is the more accurate of the two. Out-of-fold isotonic calibration was built and measured, improved Brier but worsened log loss, and so was **deliberately not shipped** (the script picks by log loss and recorded `calibrationHelped: false`). **Touches `model-accuracy-dao.ts`/`-service.ts`, `router.ts`, `ModelAccuracyScreen.tsx`, `chatApi.ts`, `seed-isp-model-probabilities.ts`, `train_and_predict.py`** — checked this table first, no other worktree active on any of them. | **in progress** — `tsc --noEmit` + `client yarn build` clean; `ml/test_walk_forward.py` 24/24, `ml/test_training_gate.py` 13/13, `ml/test_features.py` 14/14; `model-accuracy-dao.integration.test.ts` 22/22 (4 new); `app.test.ts` model-accuracy block 11/11 (3 new). Full 11-fold walk-forward run + write-back took 1147s and updated 100,064 races (885,089 of 971,116 runners now carry an out-of-sample score; the rest are 2015 and unpriced runners, left null on purpose). |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
@@ -5648,3 +5649,125 @@ copy of it) and almost certainly the same defect at phone width. It's on this
 file's read-before-touching list and wasn't what the user reported, so it's
 flagged here rather than fixed blind — a `useResponsive`-based fix there is a
 one-file follow-up whenever someone wants it.
+
+## 2026-07-31 (later) — Agent in `~/betfair-nlp-model-accuracy-oos` (branch `feat/model-accuracy-walk-forward`)
+
+User read the Model Accuracy screen's own "these figures flatter the model"
+caveat and called the screen misleading — its job is to say how accurate the
+model is *now*, and it could not. Plan:
+`/home/ubuntu/.claude/plans/model-accuracy-walk-forward.md`. Both design
+choices in it were the user's: **honest numbers only, no in-sample/out-of-sample
+toggle**, and **full history, one fold per year**.
+
+**The defect, precisely.** `ml/train_and_predict.py:389-418` evaluates honestly
+on a held-out tail. Then `:420-423` throws that model away, refits on ALL rows
+including the test period, and `:437-466` scores those same rows with it. So
+every stored `modelWinProbability` on a historical race is the output of a
+model that already knew that race's result — and `ModelAccuracyDAO` banded on
+exactly that field.
+
+**New `ml/walk_forward_score.py`.** One expanding-window fold per calendar year
+(`fit on raceDate < Y-01-01` → score year Y), writing a separate
+`modelWinProbabilityOos`. It imports `load_dataframe`/`FEATURE_COLS`/
+`make_model`/`normalize_within_race` from `train_and_predict.py` rather than
+forking them — a drifted feature list would silently stop describing the real
+model. `modelWinProbability` is untouched, and so are `ml/models/`, S3, and
+Daily Races.
+
+**Measured, against production (`scripts/compare-model-accuracy-oos-2026-07-31.ts`,
+read-only, two aggregations over the same rows):**
+
+| Band | in-sample says / won | out-of-sample says / won | market (fair) |
+|---|---|---|---|
+| under 2.0 | 58.2% / **75.5%** | 57.9% / **64.0%** | 61.5% |
+| 2.0-3.0 | 38.9% / 52.0% | 38.8% / 43.5% | 41.2% |
+| 3.0-5.0 | 24.7% / 30.5% | 24.7% / 26.2% | 25.3% |
+| 5.0-10.0 | 14.0% / 14.4% | 13.9% / 14.2% | 14.0% |
+| 10.0-20.0 | 7.4% / 5.6% | 7.4% / 7.0% | 7.3% |
+| 20.0+ | 3.2% / 1.4% | 3.4% / 2.6% | 3.0% |
+
+Overall Brier: **in-sample 0.0893, out-of-sample 0.0932, market 0.0871.** In
+other words the old screen understated the model's error by 0.0039 of Brier,
+and out-of-sample **the market is more accurate than the model** — over
+885,067 runners, on real data, through the real aggregation.
+
+Note what the in-sample "actually won" column was doing: 75.5% in the shortest
+band, against 64.0% honestly. It was not that the model was well calibrated
+there — it was that a model which already knows the winner puts its confident
+picks on winners.
+
+**Things worth knowing before touching any of this:**
+
+1. **A fold took 43s, not hours.** The expensive part is the one-off ~750MB
+   frame load off Atlas; the whole 11-fold run including the Mongo write-back
+   took **1147s end to end**. `WF_CACHE_PATH` pickles the frame (gitignored) so
+   a re-run doesn't pay the load twice, and `WF_FOLD_YEARS=2019` runs a single
+   fold for timing. Don't plan around this being a long job.
+2. **Calibration was built, measured, and NOT shipped.** Out-of-fold isotonic
+   regression (fitted only on prior folds' out-of-sample rows, never on the
+   fold being corrected) improved Brier 0.093169 → 0.093071 but made log loss
+   *worse*, 0.320910 → 0.321051. The script picks the stored variant by log
+   loss, so it stored the uncalibrated one and recorded
+   `calibrationHelped: false`. The code stays because the decision is re-made
+   from data on every run — the favourite-longshot gap is real and a future
+   feature set may make the correction pay. **Don't switch it on by hand.**
+3. **`$facet` is used in `model-accuracy-dao.ts`, deliberately** — and this is
+   not a contradiction of the `model-vs-sp` entry's "two queries, not one
+   `$facet`". There, a facet branch would have carried an unwound page toward
+   the 16MB ceiling. Here both branches emit a handful of tiny documents (six
+   bands, one counter), and the alternative is unwinding ~970k runner
+   subdocuments twice per screen load.
+4. **The absent score is load-bearing.** 885,089 of 971,116 runners have an
+   out-of-sample score; the rest are 2015 (no prior history) and races with no
+   usable SP. They must stay null — zero-filling would file them in the 20.0+
+   band as runners the model rated at 0% and got wrong, inventing predictions
+   that were never made. The DAO's `$ne: null` gate, a coverage counter in the
+   same pass, and a line on the screen stating the gap all exist for this.
+5. **The `modelVersionId` filter is gone from this screen.** An out-of-sample
+   score has no single model behind it (2019's rows come from a model fitted
+   on 2015-2018, 2020's from one fitted on 2015-2019). The route still accepts
+   a stale `?modelVersionId=` from an old bookmark and ignores it — there's a
+   test for that.
+6. **`current_champion`/`promotion_decision` in `train_and_predict.py` close a
+   real hole**: `model_evaluations` was written every run and never read back,
+   so a worse retrain silently overwrote a better one, irrecoverably
+   (`ml/models/` is gitignored; S3 only has the copy under the *new* id). A
+   rejected run now leaves its evaluation doc with `promoted: false` and a
+   reason, and touches nothing else. Walk-forward docs are excluded from
+   champion selection — they describe a scoring pass, not a deployable model.
+7. **`evaluate()` now scores the market too**, via the new `ml/market_benchmark.py`.
+   Its loader is deliberately separate and narrow (`raceId`/`runnerId`/`isp`
+   only) and is merged in *after* the split, so `isp` never shares a frame with
+   `FEATURE_COLS`. **SP is a referee, never a training target** — gating on
+   "beat SP's log loss" is safe; tuning toward "match SP's number" would distil
+   the market into the model through the back door. There's a unit test
+   asserting `isp` is absent from `FEATURE_COLS`.
+8. **A wrong-database run looks like a one-word `KeyError`.** The first attempt
+   died with `'raceDate'`: a worktree has no `config/local.json` (gitignored,
+   primary checkout only), so `config` resolved to **localhost:27019 /
+   betfair_nlp_dev** — 30 local CI fixture races, none of which carry
+   `raceDate`. `walk_forward_score.py` now prints its target db/collection/row
+   count before touching anything and turns that `KeyError` into a message
+   naming the likely cause. For a prod run, export the URI from the primary
+   checkout's config.
+9. **`seed-isp-model-probabilities.ts` now seeds the OOS field too, with a
+   different hash salt and a deliberate gap** (`race._id % 5 !== 0`). Same salt
+   for both fields would let the local-CI e2e keep passing even if the screen
+   were wired back to `modelWinProbability` — the exact regression this change
+   exists to prevent — and without the gap, nothing would exercise the coverage
+   line or the null-exclusion rule end to end.
+
+**Verified**: `tsc --noEmit` and `client yarn build` clean. New Python tests
+`ml/test_walk_forward.py` **24/24** (fold-boundary leakage, first-year
+exclusion, calibrator source selection, de-overrounding, degenerate blocks) and
+`ml/test_training_gate.py` **13/13**; existing `ml/test_features.py` 14/14.
+`model-accuracy-dao.integration.test.ts` **22/22** against real local mongo
+(4 new: coverage arithmetic, coverage-matches-bands, unscored-not-zero-filled,
+empty-window-is-0%-not-100%). `app.test.ts` model-accuracy block **11/11**
+(3 new). Storybook and MSW results in the row above.
+
+**Not done, deliberately**: the deployed model itself is unchanged — this
+measures it honestly, it doesn't retrain it. The favourite-longshot gap is
+still there (57.9% claimed vs 64.0% actual in the shortest band) and closing it
+is the obvious next piece of work now that there is an honest yardstick to
+judge it by.

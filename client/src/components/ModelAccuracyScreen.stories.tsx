@@ -49,14 +49,17 @@ const MOCK_OVERALL = band({
 
 const EMPTY_BANDS = MOCK_BANDS.map(b => band({ bandKey: b.bandKey, label: b.label, minPrice: b.minPrice, maxPrice: b.maxPrice }));
 
-const accuracyResponse = (bands: ModelAccuracyBand[], overall: ModelAccuracyBand) =>
-  HttpResponse.json({ success: true, data: bands, count: bands.length, overall });
+// coverage defaults to a window where a chunk of the runners had no prior
+// history to be scored from — the ordinary case for a range reaching back to
+// the start of the data, and the state the note under the table describes.
+const accuracyResponse = (
+  bands: ModelAccuracyBand[],
+  overall: ModelAccuracyBand,
+  coverage = { eligibleRunners: 1200, scoredRunners: 900, unscoredRunners: 300, coveragePercent: 75 }
+) => HttpResponse.json({ success: true, data: bands, count: bands.length, overall, coverage });
 
 const defaultHandlers = [
   http.get(`${BASE}/api/model-accuracy`, () => accuracyResponse(MOCK_BANDS, MOCK_OVERALL)),
-  http.get(`${BASE}/api/model-versions`, () =>
-    HttpResponse.json({ success: true, data: [], count: 0 })
-  ),
 ];
 
 const meta: Meta<typeof ModelAccuracyScreen> = {
@@ -111,12 +114,64 @@ export const OverRatedBandShowsBothErrors: Story = {
   },
 };
 
-export const InSampleWarningShown: Story = {
+// Replaces InSampleWarningShown. The screen used to apologise for its own
+// numbers ("these figures flatter the model") because they came from a model
+// refit on the races it then scored. It now reads modelWinProbabilityOos, so
+// the note states the method instead — and the old wording must be gone, not
+// merely supplemented, or the screen contradicts itself.
+export const MethodNoteShown: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByTestId("model-accuracy-insample-warning")).toHaveTextContent(
-      "flatter the model"
+    await expect(canvas.getByTestId("model-accuracy-method-note")).toHaveTextContent(
+      "trained only on races that finished before it"
     );
+    await expect(canvas.queryByTestId("model-accuracy-insample-warning")).not.toBeInTheDocument();
+  },
+};
+
+export const CoverageNoteStatesWhatCouldNotBeScored: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const note = await canvas.findByTestId("model-accuracy-coverage-note");
+    await expect(note).toHaveTextContent("900 of 1,200 runners");
+    await expect(note).toHaveTextContent("75.0%");
+    await expect(note).toHaveTextContent("300");
+  },
+};
+
+// Full coverage is the state where every runner in the window had prior form
+// behind it. The note would then be a distraction, so it isn't rendered at all
+// — an "everything was scored" line adds nothing.
+export const CoverageNoteHiddenWhenEverythingWasScored: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(`${BASE}/api/model-accuracy`, () =>
+          accuracyResponse(MOCK_BANDS, MOCK_OVERALL, {
+            eligibleRunners: 900,
+            scoredRunners: 900,
+            unscoredRunners: 0,
+            coveragePercent: 100,
+          })
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("model-accuracy-table");
+    await expect(canvas.getByTestId("model-accuracy-method-note")).toBeInTheDocument();
+    await expect(canvas.queryByTestId("model-accuracy-coverage-note")).not.toBeInTheDocument();
+  },
+};
+
+// The version picker was removed with the move to out-of-sample scoring: each
+// year's rows come from a different model, so there is nothing for it to select.
+export const NoModelVersionFilter: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByTestId("model-accuracy-table");
+    await expect(canvas.queryByTestId("model-accuracy-model-version-row")).not.toBeInTheDocument();
   },
 };
 
@@ -151,9 +206,6 @@ export const LoadingState: Story = {
           await new Promise(r => setTimeout(r, 60000));
           return accuracyResponse([], MOCK_OVERALL);
         }),
-        http.get(`${BASE}/api/model-versions`, () =>
-          HttpResponse.json({ success: true, data: [], count: 0 })
-        ),
       ],
     },
   },
@@ -170,9 +222,6 @@ export const ErrorState: Story = {
       handlers: [
         http.get(`${BASE}/api/model-accuracy`, () =>
           HttpResponse.json({ success: false }, { status: 500 })
-        ),
-        http.get(`${BASE}/api/model-versions`, () =>
-          HttpResponse.json({ success: true, data: [], count: 0 })
         ),
       ],
     },
@@ -192,9 +241,6 @@ export const EmptyState: Story = {
       handlers: [
         http.get(`${BASE}/api/model-accuracy`, () =>
           accuracyResponse(EMPTY_BANDS, band({ bandKey: "overall", label: "All bands" }))
-        ),
-        http.get(`${BASE}/api/model-versions`, () =>
-          HttpResponse.json({ success: true, data: [], count: 0 })
         ),
       ],
     },

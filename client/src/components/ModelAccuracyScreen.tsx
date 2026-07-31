@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { View, ScrollView, StyleSheet, SafeAreaView, TouchableOpacity } from "react-native";
 import { Text, ActivityIndicator, Surface, Button, Chip } from "react-native-paper";
-import { chatApi, ModelAccuracyBand, ModelAccuracyFilters, ModelVersion } from "../services/chatApi";
+import { chatApi, ModelAccuracyBand, ModelAccuracyCoverage, ModelAccuracyFilters } from "../services/chatApi";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
 import { DateRangePicker } from "./DateRangePicker";
@@ -110,18 +110,16 @@ export function ModelAccuracyScreen({
 
   const [bands, setBands] = useState<ModelAccuracyBand[]>([]);
   const [overall, setOverall] = useState<ModelAccuracyBand | null>(null);
+  const [coverage, setCoverage] = useState<ModelAccuracyCoverage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
-
-  const [modelVersions, setModelVersions] = useState<ModelVersion[]>([]);
 
   // Draft/applied filter pair, same convention as ModelPerformanceDashboard
   // (:158-181) — nothing refetches until Apply is pressed, except the date
   // picker, which has its own confirm step.
   const [draftFromDate, setDraftFromDate] = useState(MODEL_COVERAGE_MIN_DATE);
   const [draftToDate, setDraftToDate] = useState(ABSOLUTE_MAX_DATE);
-  const [draftModelVersionId, setDraftModelVersionId] = useState<string | null>(null);
   // Seeded with the same window the picker displays, so what's on screen is
   // always what was actually applied.
   const [appliedFilters, setAppliedFilters] = useState<ModelAccuracyFilters>({
@@ -136,10 +134,12 @@ export function ModelAccuracyScreen({
       const response = await chatApi.getModelAccuracy(filters);
       setBands(response.data);
       setOverall(response.overall);
+      setCoverage(response.coverage ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load model accuracy");
       setBands([]);
       setOverall(null);
+      setCoverage(null);
     } finally {
       setLoading(false);
     }
@@ -149,27 +149,16 @@ export function ModelAccuracyScreen({
     void load(appliedFilters);
   }, [load, appliedFilters]);
 
-  useEffect(() => {
-    // Best-effort: the version picker is a convenience, so a failure here must
-    // not blank out the table itself.
-    chatApi
-      .getModelVersions()
-      .then(r => setModelVersions(r.data))
-      .catch(() => setModelVersions([]));
-  }, []);
-
   function applyFilters() {
     setAppliedFilters({
       minDate: draftFromDate || null,
       maxDate: draftToDate || null,
-      modelVersionId: draftModelVersionId,
     });
   }
 
   function resetFilters() {
     setDraftFromDate(MODEL_COVERAGE_MIN_DATE);
     setDraftToDate(ABSOLUTE_MAX_DATE);
-    setDraftModelVersionId(null);
     setAppliedFilters({ minDate: MODEL_COVERAGE_MIN_DATE, maxDate: ABSOLUTE_MAX_DATE });
   }
 
@@ -284,17 +273,29 @@ export function ModelAccuracyScreen({
             the two error columns is closer to zero was nearer the truth.
           </Text>
 
-          {/* The stored probabilities come from a model that was refit on 100%
-              of the data, including these very races (ml/train_and_predict.py
-              :420-437), so it already knew every result it scored. Saying so
-              here is the difference between an honest instrument and a
-              flattering one. */}
-          <Surface testID="model-accuracy-insample-warning" style={styles.warningCard} elevation={0}>
-            <Text style={styles.warningText}>
-              These figures flatter the model. Each race was scored by a model trained on that same
-              race's result, so the real strike rates would be lower — most at short prices. Treat
-              this as a shape check, not a forward test.
+          {/* Replaces the old "these figures flatter the model" apology. That
+              warning was true of modelWinProbability, which comes from a refit
+              on 100% of the data including the races it then scored
+              (ml/train_and_predict.py:420-437). These figures come from
+              modelWinProbabilityOos instead — ml/walk_forward_score.py, where
+              every race is scored by a model fitted only on races that
+              finished before it — so the caveat is no longer needed and would
+              now itself be misleading. What DOES still need saying is how the
+              numbers were made and how much of the window they cover. */}
+          <Surface testID="model-accuracy-method-note" style={styles.methodCard} elevation={0}>
+            <Text style={styles.methodText}>
+              Every race here was scored by a model trained only on races that finished before it —
+              never on its own result. These are the model's real numbers, not a replay of races it
+              had already seen.
             </Text>
+            {coverage != null && coverage.unscoredRunners > 0 && (
+              <Text testID="model-accuracy-coverage-note" style={styles.methodTextMuted}>
+                {`${coverage.scoredRunners.toLocaleString()} of ${coverage.eligibleRunners.toLocaleString()} runners ` +
+                  `in this window could be scored this way (${coverage.coveragePercent.toFixed(1)}%). ` +
+                  `The other ${coverage.unscoredRunners.toLocaleString()} are the earliest races, with no prior ` +
+                  `form for the model to have learned from — they're left out rather than guessed at.`}
+              </Text>
+            )}
           </Surface>
 
           <Surface style={styles.panelCard} elevation={1}>
@@ -310,25 +311,6 @@ export function ModelAccuracyScreen({
                 setDraftToDate(to);
               }}
             />
-            {modelVersions.length > 0 && (
-              <View testID="model-accuracy-model-version-row" style={styles.chipRow}>
-                <Text style={styles.filterLabel}>Model version</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipScroll}>
-                  {modelVersions.map(v => (
-                    <Chip
-                      key={v.id}
-                      testID={`model-accuracy-model-version-${v.id}`}
-                      mode={draftModelVersionId === v.id ? "flat" : "outlined"}
-                      selected={draftModelVersionId === v.id}
-                      onPress={() => setDraftModelVersionId(draftModelVersionId === v.id ? null : v.id)}
-                      style={styles.chip}
-                    >
-                      {v.id}
-                    </Chip>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
             <View style={styles.filterActionsRow}>
               <Button testID="model-accuracy-reset" mode="text" onPress={resetFilters} style={styles.button}>
                 Reset
@@ -436,13 +418,17 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: spacing.md,
   },
-  warningCard: {
+  // Renamed from warningCard along with the copy it carries: this is now a
+  // statement of method, not an apology for one.
+  methodCard: {
     backgroundColor: colors.infoLight,
     borderRadius: radii.md,
     padding: spacing.md,
     marginBottom: spacing.lg,
+    gap: spacing.xs,
   },
-  warningText: { fontSize: 12, lineHeight: 17, color: colors.text },
+  methodText: { fontSize: 12, lineHeight: 17, color: colors.text },
+  methodTextMuted: { fontSize: 12, lineHeight: 17, color: colors.textSecondary },
   panelCard: {
     backgroundColor: colors.surface,
     borderRadius: radii.md,

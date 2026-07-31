@@ -49,9 +49,28 @@ export interface ModelAccuracyBand {
   marketBrier: number;
 }
 
+/**
+ * What share of the filtered window could be measured at all. Every figure on
+ * this screen comes from `modelWinProbabilityOos`, which only exists for races
+ * that had prior history to be scored from — so a window reaching back to the
+ * start of the data legitimately has runners with no honest score, and saying
+ * so is the difference between a caveat and a silent omission.
+ */
+export interface ModelAccuracyCoverage {
+  // Runners with a real industry SP in this window — the measurable population.
+  eligibleRunners: number;
+  // Of those, the ones carrying an out-of-sample score. This is the population
+  // every band figure is computed over.
+  scoredRunners: number;
+  // eligible - scored: no prior history, so no honest score. Never zero-filled.
+  unscoredRunners: number;
+  coveragePercent: number;
+}
+
 export interface ModelAccuracyResult {
   bands: ModelAccuracyBand[];
   overall: ModelAccuracyBand;
+  coverage: ModelAccuracyCoverage;
 }
 
 interface BandDefinition {
@@ -177,7 +196,7 @@ export class ModelAccuracyService {
   }
 
   public async getPriceBandAccuracy(p: ModelAccuracyQuery): Promise<ModelAccuracyResult> {
-    const raw = await this.dao.getPriceBandAccuracy(p);
+    const { bands: raw, coverage: rawCoverage } = await this.dao.getPriceBandAccuracy(p);
 
     const byBoundary = new Map<string, Omit<ModelAccuracyBandRaw, "_id">>();
     let unbanded: Omit<ModelAccuracyBandRaw, "_id"> | null = null;
@@ -227,6 +246,17 @@ export class ModelAccuracyService {
 
     const overall = toBand({ label: "All bands", minPrice: null, maxPrice: null }, "overall", overallRaw);
 
-    return { bands, overall };
+    const { eligibleRunners, scoredRunners } = rawCoverage;
+    const coverage: ModelAccuracyCoverage = {
+      eligibleRunners,
+      scoredRunners,
+      unscoredRunners: Math.max(0, eligibleRunners - scoredRunners),
+      // A window with nothing in it is 0% covered, not 100% — guarded because
+      // an empty result set is an ordinary state here (a narrow filter, or a
+      // date range entirely inside the unscoreable early years).
+      coveragePercent: eligibleRunners > 0 ? round((scoredRunners / eligibleRunners) * 100, 2) : 0,
+    };
+
+    return { bands, overall, coverage };
   }
 }

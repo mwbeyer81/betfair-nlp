@@ -103,7 +103,13 @@ async function main(): Promise<void> {
     headers: { Authorization: `Bearer ${token}` },
   });
   check("returns 200 when authenticated", res.status === 200, `got ${res.status}`);
-  const body = (await res.json()) as { success: boolean; data: Band[]; count: number; overall: Band };
+  const body = (await res.json()) as {
+    success: boolean;
+    data: Band[];
+    count: number;
+    overall: Band;
+    coverage?: { eligibleRunners: number; scoredRunners: number; unscoredRunners: number; coveragePercent: number };
+  };
   check("success is true", body.success === true);
   check("count matches data length", body.count === body.data.length, `${body.count} vs ${body.data.length}`);
   check(
@@ -118,6 +124,32 @@ async function main(): Promise<void> {
   check("band runner counts total the overall row", bandRunners === body.overall.runners, `${bandRunners} vs ${body.overall.runners}`);
   check("band wins total the overall row", bandWins === body.overall.wins, `${bandWins} vs ${body.overall.wins}`);
 
+  // Coverage arrived with the move to out-of-sample scoring. The banded
+  // population must be exactly the runners the coverage line claims were
+  // scored — if these drift apart, the sentence on the screen is describing a
+  // different set of runners from the table beneath it.
+  if (body.coverage) {
+    check(
+      "coverage scoredRunners equals the banded population",
+      body.coverage.scoredRunners === body.overall.runners,
+      `${body.coverage.scoredRunners} vs ${body.overall.runners}`
+    );
+    check(
+      "unscored = eligible - scored",
+      body.coverage.unscoredRunners === body.coverage.eligibleRunners - body.coverage.scoredRunners,
+      JSON.stringify(body.coverage)
+    );
+    check(
+      "some runners are genuinely unscored (the early years have no prior form)",
+      body.coverage.unscoredRunners > 0,
+      `unscored=${body.coverage.unscoredRunners} — if this is 0 over the full window, the OOS field may have been zero-filled`
+    );
+    info(`coverage: ${body.coverage.scoredRunners.toLocaleString()} of ${body.coverage.eligibleRunners.toLocaleString()} ` +
+      `eligible runners scored out-of-sample (${body.coverage.coveragePercent}%)`);
+  } else {
+    info("no coverage block in the response — deployment predates out-of-sample scoring");
+  }
+
   for (const band of [...body.data, body.overall]) {
     check(
       `pnl = returns - staked (${band.label})`,
@@ -128,7 +160,7 @@ async function main(): Promise<void> {
 
   const populated = body.data.filter(b => b.runners > 0);
   if (populated.length === 0) {
-    info("no scored runners returned — the ML pipeline has not written modelWinProbability to this database yet, so the de-overround and calibration checks below are skipped");
+    info("no scored runners returned — ml/walk_forward_score.py has not written modelWinProbabilityOos to this database yet, so the de-overround and calibration checks below are skipped");
   } else {
     console.log("\nDe-overrounding:");
     for (const band of populated) {

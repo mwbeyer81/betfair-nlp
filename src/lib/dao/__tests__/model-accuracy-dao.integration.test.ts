@@ -41,10 +41,10 @@ const RACE_1 = {
   ran: 4,
   runnersWithIspCount: 4,
   runners: [
-    { id: 101, name: "A", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, modelWinProbability: 60, modelVersionId: "xgb-v1" },
-    { id: 102, name: "B", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 4, ispFraction: "3/1", isFavourite: false, modelWinProbability: 25, modelVersionId: "xgb-v1" },
-    { id: 103, name: "C", num: 3, draw: 3, status: "LOSER", sortPriority: 3, isp: 6, ispFraction: "5/1", isFavourite: false, modelWinProbability: 12, modelVersionId: "xgb-v1" },
-    { id: 104, name: "D", num: 4, draw: 4, status: "LOSER", sortPriority: 4, isp: 8, ispFraction: "7/1", isFavourite: false, modelWinProbability: 3, modelVersionId: "xgb-v1" },
+    { id: 101, name: "A", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, modelWinProbabilityOos: 60 },
+    { id: 102, name: "B", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 4, ispFraction: "3/1", isFavourite: false, modelWinProbabilityOos: 25 },
+    { id: 103, name: "C", num: 3, draw: 3, status: "LOSER", sortPriority: 3, isp: 6, ispFraction: "5/1", isFavourite: false, modelWinProbabilityOos: 12 },
+    { id: 104, name: "D", num: 4, draw: 4, status: "LOSER", sortPriority: 4, isp: 8, ispFraction: "7/1", isFavourite: false, modelWinProbabilityOos: 3 },
   ],
 };
 
@@ -63,13 +63,13 @@ const RACE_2 = {
   ran: 3,
   runnersWithIspCount: 3,
   runners: [
-    { id: 201, name: "E", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2.5, ispFraction: "6/4", isFavourite: true, modelWinProbability: 40, modelVersionId: "xgb-v2" },
-    { id: 202, name: "F", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 1.5, ispFraction: "1/2", isFavourite: false, modelWinProbability: null, modelVersionId: null },
-    { id: 203, name: "G", num: 3, draw: 3, status: "LOSER", sortPriority: 3, isp: null, ispFraction: null, isFavourite: false, modelWinProbability: 30, modelVersionId: "xgb-v2" },
+    { id: 201, name: "E", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2.5, ispFraction: "6/4", isFavourite: true, modelWinProbabilityOos: 40 },
+    { id: 202, name: "F", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 1.5, ispFraction: "1/2", isFavourite: false, modelWinProbabilityOos: null },
+    { id: 203, name: "G", num: 3, draw: 3, status: "LOSER", sortPriority: 3, isp: null, ispFraction: null, isFavourite: false, modelWinProbabilityOos: 30 },
   ],
 };
 
-const ALL_RACES = { minRaceTime: null, maxRaceTime: null, countries: [], courses: [], goings: [], raceClasses: [], raceTypes: [], minRunners: 1, maxRunners: 100, modelVersionId: null };
+const ALL_RACES = { minRaceTime: null, maxRaceTime: null, countries: [], courses: [], goings: [], raceClasses: [], raceTypes: [], minRunners: 1, maxRunners: 100 };
 
 describe("ModelAccuracyDAO / ModelAccuracyService (integration)", () => {
   let client: MongoClient;
@@ -238,11 +238,46 @@ describe("ModelAccuracyDAO / ModelAccuracyService (integration)", () => {
     expect(overall.runners).toBe(4); // race 1 only
   });
 
-  it("scopes to a model version", async () => {
-    const v2 = await service.getPriceBandAccuracy({ ...ALL_RACES, modelVersionId: "xgb-v2" });
-    expect(v2.overall.runners).toBe(1);
-    const v1 = await service.getPriceBandAccuracy({ ...ALL_RACES, modelVersionId: "xgb-v1" });
-    expect(v1.overall.runners).toBe(4);
+  // The model-version scoping test that used to live here was removed with the
+  // filter itself: an out-of-sample probability has no single model behind it
+  // (2019's rows come from a model fitted on 2015-2018, 2020's from one fitted
+  // on 2015-2019), so there is nothing coherent for a version filter to select.
+
+  it("reports coverage: how many eligible runners could actually be scored", async () => {
+    const { coverage } = await service.getPriceBandAccuracy(ALL_RACES);
+    // Seven runners across the two races. Runner G has no isp at all, so it
+    // is not part of the measurable population — six eligible. Of those,
+    // runner F is priced but carries no out-of-sample score.
+    expect(coverage.eligibleRunners).toBe(6);
+    expect(coverage.scoredRunners).toBe(5);
+    expect(coverage.unscoredRunners).toBe(1);
+    expect(coverage.coveragePercent).toBeCloseTo(83.33, 2);
+  });
+
+  it("the coverage scored count is exactly the population the bands describe", async () => {
+    const { overall, coverage } = await service.getPriceBandAccuracy(ALL_RACES);
+    // If these drift apart, the sentence on the screen is describing a
+    // different set of runners from the table beneath it.
+    expect(coverage.scoredRunners).toBe(overall.runners);
+  });
+
+  it("an unscored runner is left out of the bands, not counted as a 0% prediction", async () => {
+    const { bands, overall } = await service.getPriceBandAccuracy({ ...ALL_RACES, courses: ["Kempton"] });
+    // Race 2's runner F has a real SP (1.5) but no out-of-sample score. If it
+    // were zero-filled it would land in the 20.0+ band as a runner the model
+    // supposedly rated at 0% — inventing a prediction that was never made.
+    expect(bandByLabel(bands, "20.0+").runners).toBe(0);
+    expect(overall.runners).toBe(1);
+  });
+
+  it("a window with nothing scoreable reports 0% coverage rather than 100%", async () => {
+    const { coverage } = await service.getPriceBandAccuracy({
+      ...ALL_RACES,
+      courses: ["Nowhere"],
+    });
+    expect(coverage.eligibleRunners).toBe(0);
+    expect(coverage.scoredRunners).toBe(0);
+    expect(coverage.coveragePercent).toBe(0);
   });
 
   it("scopes to going and race class", async () => {

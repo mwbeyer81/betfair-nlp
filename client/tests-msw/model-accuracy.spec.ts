@@ -29,10 +29,29 @@ test.describe("Model Accuracy — MSW mocked network", () => {
     await expect(row).toContainText("+3.2");
   });
 
-  test("warns that the figures are in-sample", async ({ page }) => {
-    await expect(page.getByTestId("model-accuracy-insample-warning")).toContainText(
-      "flatter the model"
+  // Was "warns that the figures are in-sample". The figures no longer are:
+  // they come from modelWinProbabilityOos, where each race was scored by a
+  // model fitted only on earlier races. The old apology must be gone rather
+  // than sitting alongside the new claim.
+  test("states the method instead of apologising for it", async ({ page }) => {
+    await expect(page.getByTestId("model-accuracy-method-note")).toContainText(
+      "trained only on races that finished before it"
     );
+    await expect(page.getByTestId("model-accuracy-insample-warning")).toHaveCount(0);
+  });
+
+  test("says how many runners could not be scored, and why", async ({ page }) => {
+    const note = page.getByTestId("model-accuracy-coverage-note");
+    await expect(note).toContainText("11,182 of 12,000 runners");
+    await expect(note).toContainText("93.2%");
+    await expect(note).toContainText("818");
+    await expect(note).toContainText("no prior form");
+  });
+
+  test("the model-version filter is gone", async ({ page }) => {
+    // Each year's rows come from a different model by construction, so there
+    // is no single version to filter on.
+    await expect(page.getByTestId("model-accuracy-model-version-row")).toHaveCount(0);
   });
 
   test("states which of the model and market was more accurate overall", async ({ page }) => {

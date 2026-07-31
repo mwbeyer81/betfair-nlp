@@ -716,12 +716,13 @@ router.get("/api/model-accuracy", async (req, res) => {
     if (minRunners > maxRunners) {
       return res.status(400).json({ success: false, error: "minRunners cannot exceed maxRunners" });
     }
-    const modelVersionIdRaw = req.query.modelVersionId;
-    const modelVersionId = typeof modelVersionIdRaw === "string" && modelVersionIdRaw.trim() !== ""
-      ? modelVersionIdRaw.trim()
-      : null;
-
-    const { bands, overall } = await modelAccuracyService.getPriceBandAccuracy({
+    // No modelVersionId filter any more, deliberately. This screen now reads
+    // modelWinProbabilityOos, where each year's rows come from a different
+    // model (2019's from one fitted on 2015-2018, 2020's from one fitted on
+    // 2015-2019), so "show me version X" has no answer. The run's identity
+    // and fold boundaries live in model_evaluations; a stale ?modelVersionId=
+    // in a bookmarked URL is ignored rather than silently narrowing anything.
+    const { bands, overall, coverage } = await modelAccuracyService.getPriceBandAccuracy({
       minRaceTime,
       maxRaceTime,
       countries: parseCsvListParam(req.query.countries),
@@ -731,11 +732,10 @@ router.get("/api/model-accuracy", async (req, res) => {
       raceTypes: parseCsvListParam(req.query.raceTypes),
       minRunners,
       maxRunners,
-      modelVersionId,
     });
 
     res.set("Cache-Control", "public, max-age=60");
-    res.status(200).json({ success: true, data: bands, count: bands.length, overall });
+    res.status(200).json({ success: true, data: bands, count: bands.length, overall, coverage });
   } catch (error) {
     console.error("getModelAccuracy error:", error);
     res.status(500).json({ success: false, error: "Failed to fetch model accuracy" });

@@ -890,7 +890,15 @@ async function setupApiMocks(page: Page) {
       { bandKey: "0.0000", label: "20.0+", minPrice: 20, maxPrice: null, runners: 3900, wins: 66, modelMeanProb: 2.9, actualWinRate: 1.7, marketMeanProbFair: 2.2, marketMeanProbRaw: 2.9, staked: 180, returns: 85, pnl: -95, roiPercent: -52.78, modelErrorPp: 1.2, marketErrorPp: 0.5, modelBrier: 0.017, marketBrier: 0.016 },
     ];
     const overall = { bandKey: "overall", label: "All bands", minPrice: null, maxPrice: null, runners: 11182, wins: 1280, modelMeanProb: 11.4, actualWinRate: 11.4, marketMeanProbFair: 11, marketMeanProbRaw: 12.9, staked: 2408.2, returns: 2230.4, pnl: -177.8, roiPercent: -7.38, modelErrorPp: 0, marketErrorPp: -0.4, modelBrier: 0.0921, marketBrier: 0.0904 };
-    route.fulfill({ json: { success: true, data: bands, count: bands.length, overall } });
+    // 11,182 of 12,000 eligible runners could be scored out-of-sample; the
+    // remaining 818 are the earliest races, with no prior form behind them.
+    const coverage = {
+      eligibleRunners: 12000,
+      scoredRunners: 11182,
+      unscoredRunners: 818,
+      coveragePercent: 93.18,
+    };
+    route.fulfill({ json: { success: true, data: bands, count: bands.length, overall, coverage } });
   });
 
   await page.route((url) => url.pathname === "/api/model-versions", (route) =>
