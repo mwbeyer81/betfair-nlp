@@ -187,6 +187,7 @@ Ran claimed ports for this worktree (`scripts/claim-worktree-ports.sh daily-race
 | `~/betfair-nlp-daily-race-model-factors` | `daily-race-model-factors` | User asked whether the Model % pill can "explain itself" — follow-up to the three rows above. Adds a plain-language "top factors" list (top 3, e.g. "Strong recent form", "In-form trainer") to the existing Model % tooltip on `DailyRaceScreen.tsx`, computed via XGBoost's native `pred_contribs=True` (exact SHAP values, no new Python dependency) in `apps/ml-api/handler.py`, restricted to the 22 `NUM_COLS` (skips the 8 `CAT_COLS` identity columns — no clean "helped/hurt" phrasing for those). Threads a new `topFactors`/`modelTopFactors` field through `prediction-api-client.ts` → `daily-race-service.ts` → `daily-race-dao.ts` → `chatApi.ts` → the tooltip. Scoped to the live Daily Race pipeline only — historical ISP screens (`RunnerDetailScreen`, `IndustryRaceScreen`, `IndustrySpScreen`, `IndustryMeetingScreen`) use a separate write path and are out of scope. Plan: `/home/ubuntu/.claude/plans/atomic-purring-puffin.md`. | **done — merged (`85d203b`), deployed (ml-api Lambda + `hello-api` + web), live-verified**: prototyped `pred_contribs` against the CI-fixture model first (contributions reconstruct the exact margin score, diff ~2e-7); `apps/ml-api/test_handler.py` 13/13 pass; backend `tsc --noEmit` clean, Supertest `app.test.ts` daily-races block 14/14 pass; `yarn build` clean; Storybook 16/16 pass; MSW suite 195/195 pass after 3 successive `origin/develop` merges (this repo is very active — several concurrent branches landed mid-task). **Merging `fix/daily-race-pill-wrap`'s `pillGroup` change surfaced a real regression**: giving `hrs_1` (the runner the shared drill-down test clicks by its whole-row testID) Model/Fair-odds badges shifted the row's real-browser click point onto a nested pill (`onPress` calls `stopPropagation`), silently breaking navigation 3/3 on repeat — Storybook's `NavigationTriggered` story still passed throughout since Testing Library's `userEvent.click` doesn't do real coordinate hit-testing, confirming this is specific to genuine browser clicks. A later concurrent merge (`daily-races-filters`, adding the Today's Picks feature) independently fixed the same collision by clicking the horse-name testID instead of the row — adopted that version and moved the model/factors fixture data onto `hrs_1` (which that branch already gives a `modelWinProbability`) rather than inventing a second fix. **Heads-up for anyone touching `DailyRaceScreen.tsx`'s row tap target**: worth double-checking the horse-name click fix if this file changes again — a runner with all three badges can still have its row-tap swallowed if the click lands elsewhere. Reverted an unrelated, unexplained root `yarn.lock` rewrite `npm install` produced in this fresh worktree. `ml-prediction-api` rebuilt with the existing model (`xgb-20260727-171521`, no retraining needed — `topFactors` is computed from the already-trained booster) and live-invoked directly post-deploy, confirming real `topFactors` output; `hello-api` verified healthy (401 on unauthenticated `/api/stats`, not a crash); web verified live at `develop@85d203b` (`build-commit` meta tag). **Not yet re-verified in the actual app UI against fresh prod data** — today's `daily_racecards` were scored by the old handler before this deploy, so they won't carry `modelTopFactors` until the next 06:00 UTC cron run (or a manual trigger, see `.claude/commands/daily-races-cron.md`) refreshes them. Worktree can be removed. |
 | `~/betfair-nlp-matched-price-zero` | `matched-price-zero` | User reported their Betfair app showed £4 spent and a PnL loss but listed no bets. Investigated live (Atlas `bet_orders` + real `listClearedOrders`/`getAccountFunds` calls): both real bets genuinely exist and settled LOST at £2 each, balance £6, exposure £0 — the Betfair-side "missing bets" is not a bug at all, the user was looking at Sportsbook **My Bets** while these are **Exchange** bets (separate product, separate list). While reconciling, found a real bug in our own data: `placeOrders` persisted `matchedPrice: 0` for a bet that filled ~3 min after the API call returned. Backend-only fix (`betfair-api-client.ts` + `bet-order-service.ts`), plus a one-off prod data correction script. | **done — merged to `develop`, Lambda deployed, prod record corrected.** See the dated entry at the end of this file. Worktree can be removed. |
 | `~/betfair-nlp-bet-dialog-width` | `bet-dialog-width` | User reported (screenshot of a wide desktop browser on `/daily-races`) that the Bet dialog should be narrower — `PlaceBetDialog.tsx` passed no `style` to Paper's `Dialog`, which only insets itself by a fixed margin, so the two-field bet form stretched to ~1848px of a 1900px window with the Schedule/Bet now toggle halves ~898px each and Cancel/Confirm at opposite ends of the screen. Fixed with `width:100%/maxWidth:480/alignSelf:center` on the Dialog itself (no-op at phone widths). **Measure `place-bet-dialog-surface`, not `place-bet-dialog`, in any width assertion** — Paper puts the passed testID on the full-screen modal wrapper (always viewport-width) and exposes the visible card as `<testID>-surface`; the first version of this test measured the wrapper and read 1900px with the fix already in place. Also fixed a pre-existing failing `PlaceBetDialog` story (`ConfirmCallsOnSave` still asserted the pre-sandbox `onSave` payload, missing `orderType`/`sandbox`) found while running the suite. | **done — merged, deployed (web + production).** 3 new wide-viewport MSW tests in `tests-msw/bet-orders.spec.ts` (9/9 pass; verified they genuinely fail without the fix — 1848px surface, 898px toggle), `daily-races.spec.ts` 14/14, Storybook `PlaceBetDialog` 7/7, `yarn build` clean. Worktree removed. |
+| `~/betfair-nlp-mvs-narrow-overflow` | `fix/model-vs-sp-narrow-overflow` | User reported (iPhone screenshot of `app.backbet.co.uk/model-vs-sp`) that the filter card overflows on a narrow viewport. Two distinct causes, both in `ModelVsSpScreen.tsx`: (1) the filter grid is a fixed 92px label + two fixed 84px inputs + an inline hint, needing ~460px of viewport inside the card's padding — under that the longest hint (`pts apart, ± ignored`) ran past the card's right border; (2) the year/month pill `ScrollView`s carried no explicit flex, so they sized to their content and their clipping box extended past the card too. **The existing `nothing overflows a 375px viewport` MSW test passed the whole time** — it only checks `documentElement.scrollWidth`, and the overflow was clipped by an ancestor, so nothing ever scrolled. Fixed with a new `BREAKPOINTS.narrow` (480) + `useResponsive().isNarrow`: below it the hint takes its own full-width line under the inputs (`width:"100%"` **and** `flexShrink:0` — a shrinkable item gets squeezed back onto the inputs' line instead of wrapping), the inputs flex into the freed space, and each pill row stacks its label above a full-width strip. The pill `ScrollView`s get an explicit flex at every width, with a **separate narrow variant** — the stacked row is a column, so a main-axis `flexBasis:0` there would size the strip's *height* and collapse it to nothing. **Touches `ModelVsSpScreen.tsx` and `responsive.ts` (additively)** — checked this table first, no other worktree active on either. `IndustrySpScreen.tsx` has the same filter-grid shape and very likely the same defect at phone width; deliberately not touched (it's on this file's read-before-editing list and wasn't what the screenshot showed). | **done — merged to `develop` and deployed (web only, no backend change).** Verified: `client yarn build` clean; `tests-msw/model-vs-sp.spec.ts` **39/39** (8 new, in a `narrow viewport layout` describe that asserts per-element containment against the card's *padded content box* — the only kind of assertion that catches this class of bug); **4 of the 8 confirmed to fail against the pre-fix layout** (forced `isNarrow=false`, rebuilt, re-ran) rather than being assumed to; `ModelVsSpScreen` Storybook **27/27**. Storybook was run against a plain `storybook dev --port 6125` per this file's `--ci` finding. |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
@@ -5585,3 +5586,65 @@ Plus one stale assertion (`-100` for the difference floor, left from before the 
 **Verified**: backend jest **660 passed / 43 failed / 710** (baseline 524/43/574 — same 8 failing suites). Storybook **472 passed / 7 failed / 479**, up from 454/25, with all 32 of this feature's stories now green and only the long-standing 7 left. MSW **231 passed / 41 failed**, my 31 all green alongside model-accuracy's 8. `tsc --noEmit` and `client yarn build` clean.
 
 **`yarn test:e2e:local-ci` 72/72**, up from 54 — **18 new tests** in `model-vs-sp-api.spec.ts` and `model-vs-sp-ui.spec.ts`, all passing first run. These only became possible because of the other agent's Step 3f (seeding `modelWinProbability` onto the ISP slice); before it they could only have asserted the empty state. This is the one tier where the `$abs` difference filter, the summary aggregation and the paging pipeline run together against a real database through real HTTP — it proves on real data that the summary's bands tile the population exactly and that walking every page never repeats a row. One unrelated flake seen on the first run (`daily-races-ui.spec.ts`'s pick-badge navigation); passed on re-run, twice.
+
+## 2026-07-31 — Agent in `~/betfair-nlp-mvs-narrow-overflow` (branch `fix/model-vs-sp-narrow-overflow`)
+
+User sent an iPhone screenshot of `app.backbet.co.uk/model-vs-sp` and asked to
+fix the narrow-viewport overflow, add a CI mock test, deploy, and work in a new
+worktree.
+
+**The bug the existing test couldn't see.** `tests-msw/model-vs-sp.spec.ts`
+already had a test called `nothing overflows a 375px viewport`, and it passed
+on the broken layout — it asserts only
+`documentElement.scrollWidth <= clientWidth`. The overflowing content was
+clipped by an ancestor, so the document never gained scroll width and the check
+was vacuous for this class of defect. Measured directly instead: the
+`pts apart, ± ignored` hint's right edge sat at **370px against a card whose
+padded content box ends at 346px**, and the year/month pill scrollers' own
+clipping boxes ended at ~375px — i.e. the strips visibly bled past the card's
+border to the screen edge, which is exactly what the screenshot showed.
+
+**If you write a layout test in this repo, assert per-element against the
+container's padded content box.** A document-level scroll check will keep
+passing through anything an ancestor clips. The new `narrow viewport layout`
+describe does this via a `cardContentBox()` helper (border + padding subtracted
+from the card's client rect), and it distinguishes a horizontal `ScrollView`'s
+**viewport** (must stay inside the card) from its **content container** (whose
+children legitimately extend beyond — that is what scrollable means). Finding
+the viewport means looking for the descendant with `overflowX: scroll|auto`;
+asserting on the content container instead would fail on a perfectly good strip.
+
+**Two RN-Web flexbox specifics worth keeping:**
+
+- Moving the hint to its own line needs `width: "100%"` **and**
+  `flexShrink: 0`. With the base style's `flexShrink: 1` still in play, a
+  100%-wide item can be squeezed back onto the inputs' line rather than
+  starting a new one.
+- The narrow pill row is `flexDirection: "column"`, so flex on the strip is
+  **main-axis vertical** there. The wide layout's `flexGrow:1/flexBasis:0`
+  (which is what bounds the strip to the card in a row) would size the strip's
+  *height* to zero when stacked — hence a separate `pillScrollViewNarrow`
+  variant rather than one shared style. This is a general trap for any style
+  reused across a direction switch.
+
+`BREAKPOINTS.narrow = 480` is new in `responsive.ts` (additive; the existing
+`isTablet`/`isDesktop`/`isWide` are untouched). It is not a device class — it's
+the measured width below which this filter grid stops fitting. Phones sit well
+under it and desktops well over, so nothing lands on the boundary.
+
+**Verified**: `client yarn build` (tsc) clean; `tests-msw/model-vs-sp.spec.ts`
+**39/39**, up from 31 — and the 8 new ones were checked for teeth rather than
+assumed: forcing `isNarrow = false`, rebuilding and re-running failed 4 of them
+(all three hint-containment cases plus the stacking case) with the exact
+overflow the screenshot showed. `ModelVsSpScreen` Storybook **27/27**, run
+against a plain `storybook dev --port 6125` (no `--ci`, per the 2026-07-30
+finding above). Per the standing "UI-only changes don't need the full e2e
+tiers" note, the backend jest / local-CI / full MSW suites were not re-run —
+this branch changes no backend code and no shared component.
+
+**Not done, deliberately**: `IndustrySpScreen.tsx` has the same
+label+inputs+hint filter-grid shape (this screen's `renderFilterRow` is a
+copy of it) and almost certainly the same defect at phone width. It's on this
+file's read-before-touching list and wasn't what the user reported, so it's
+flagged here rather than fixed blind — a `useResponsive`-based fix there is a
+one-file follow-up whenever someone wants it.
