@@ -326,6 +326,127 @@ test.describe("Model vs SP screen (MSW mocked)", () => {
   });
 });
 
+// The document-level check above passed all along on the broken layout: the
+// filter hints spilled past the card's right border but still landed inside the
+// 375px viewport, and the pill strips overflowed into an ancestor that clips.
+// Nothing scrolled, so nothing failed — while on a real phone the "Difference"
+// hint visibly ran off the edge of the card. These assertions are per-element
+// against the card's own box, which is the only thing that catches that.
+test.describe("Model vs SP — narrow viewport layout", () => {
+  const PHONE = { width: 375, height: 812 };
+  const DESKTOP = { width: 1280, height: 900 };
+
+  // The card's padded content box, not its border box — content sitting on the
+  // border is still wrong, so the padding is included in the bound.
+  async function cardContentBox(page: import("@playwright/test").Page) {
+    return page.evaluate(() => {
+      const el = document.querySelector('[data-testid="model-vs-sp-filter-bar"]') as HTMLElement;
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      return {
+        left: r.left + parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth),
+        right: r.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth),
+      };
+    });
+  }
+
+  async function boxOf(page: import("@playwright/test").Page, testId: string) {
+    const box = await page.getByTestId(testId).boundingBox();
+    if (!box) throw new Error(`no bounding box for ${testId}`);
+    return { ...box, right: box.x + box.width, bottom: box.y + box.height };
+  }
+
+  // The clipping element of a horizontal ScrollView — the strip's own viewport,
+  // as distinct from its content container, whose children legitimately extend
+  // beyond it (that is what "scrollable" means).
+  async function stripViewportBox(page: import("@playwright/test").Page, rowTestId: string) {
+    return page.evaluate(rowId => {
+      const row = document.querySelector(`[data-testid="${rowId}"]`) as HTMLElement;
+      const el = Array.from(row.querySelectorAll("*")).find(node =>
+        ["scroll", "auto"].includes(getComputedStyle(node).overflowX)
+      ) as HTMLElement | undefined;
+      if (!el) throw new Error(`no horizontal scroller inside ${rowId}`);
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right };
+    }, rowTestId);
+  }
+
+  for (const filterKey of ["modelProb", "impliedSp", "edge"]) {
+    test(`the ${filterKey} hint stays inside the filter card at 375px`, async ({ page }) => {
+      await page.setViewportSize(PHONE);
+      await openScreen(page);
+      const card = await cardContentBox(page);
+      const hint = await boxOf(page, `model-vs-sp-filter-hint-${filterKey}`);
+      // 0.5px of tolerance for sub-pixel layout, not enough to hide the ~11px
+      // the "pts apart, ± ignored" hint used to escape by.
+      expect(hint.right).toBeLessThanOrEqual(card.right + 0.5);
+      expect(hint.x).toBeGreaterThanOrEqual(card.left - 0.5);
+    });
+  }
+
+  test("the longest hint drops below the inputs at 375px instead of squeezing beside them", async ({ page }) => {
+    await page.setViewportSize(PHONE);
+    await openScreen(page);
+    const maxInput = await boxOf(page, "model-vs-sp-max-edge");
+    const hint = await boxOf(page, "model-vs-sp-filter-hint-edge");
+    expect(hint.y).toBeGreaterThanOrEqual(maxInput.bottom);
+    // Its whole reason for moving: the full text is still there, on one line.
+    await expect(page.getByTestId("model-vs-sp-filter-hint-edge")).toHaveText("pts apart, ± ignored");
+  });
+
+  test("both number inputs still fit side by side at 375px", async ({ page }) => {
+    await page.setViewportSize(PHONE);
+    await openScreen(page);
+    const min = await boxOf(page, "model-vs-sp-min-edge");
+    const max = await boxOf(page, "model-vs-sp-max-edge");
+    const card = await cardContentBox(page);
+    // Same line, min then max, both inside the card.
+    expect(Math.abs(min.y - max.y)).toBeLessThanOrEqual(1);
+    expect(min.right).toBeLessThanOrEqual(max.x);
+    expect(max.right).toBeLessThanOrEqual(card.right + 0.5);
+    // Wide enough to still read a three-digit value.
+    expect(min.width).toBeGreaterThanOrEqual(56);
+  });
+
+  test("the year and month pill strips are clipped by the card, not by the screen edge", async ({ page }) => {
+    await page.setViewportSize(PHONE);
+    await openScreen(page);
+    const card = await cardContentBox(page);
+    for (const row of ["model-vs-sp-year-pills", "model-vs-sp-month-pills"]) {
+      const strip = await stripViewportBox(page, row);
+      expect(strip.right).toBeLessThanOrEqual(card.right + 0.5);
+      expect(strip.left).toBeGreaterThanOrEqual(card.left - 0.5);
+    }
+    // Still a scroller, not a truncation — the earliest year is reachable.
+    await page.getByTestId("model-vs-sp-year-pill-2015").scrollIntoViewIfNeeded();
+    await expect(page.getByTestId("model-vs-sp-year-pill-2015")).toBeVisible();
+  });
+
+  test("the pills still apply their date range at 375px", async ({ page }) => {
+    await page.setViewportSize(PHONE);
+    await openScreen(page);
+    await page.getByTestId("model-vs-sp-month-pill-2025-06").click();
+    await expect(page).toHaveURL(/minDate=2025-06-01/);
+    await expect(page).toHaveURL(/maxDate=2025-06-30/);
+    await expect(page.getByTestId("model-vs-sp-result-count")).toHaveText("2 runners");
+  });
+
+  test("the desktop layout keeps the hint inline beside the inputs", async ({ page }) => {
+    await page.setViewportSize(DESKTOP);
+    await openScreen(page);
+    const maxInput = await boxOf(page, "model-vs-sp-max-edge");
+    const hint = await boxOf(page, "model-vs-sp-filter-hint-edge");
+    // Guards the other direction: the stacked phone layout must not leak into
+    // widths that have room for the original single-line grid.
+    expect(hint.x).toBeGreaterThanOrEqual(maxInput.right);
+    expect(hint.y).toBeLessThan(maxInput.bottom);
+    const yearRow = await boxOf(page, "model-vs-sp-year-pills");
+    const yearStrip = await stripViewportBox(page, "model-vs-sp-year-pills");
+    // Label to the left of the strip, both on one line.
+    expect(yearStrip.left).toBeGreaterThan(yearRow.x);
+  });
+});
+
 test.describe("Model vs SP — auth gating", () => {
   anonTest("an anonymous visit lands on the auth screen, not the runner list", async ({ page }) => {
     await page.goto("/model-vs-sp");

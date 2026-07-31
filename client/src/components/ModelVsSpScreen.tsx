@@ -16,6 +16,7 @@ import { PaginationControls } from "./PaginationControls";
 import { AppHeader } from "./AppHeader";
 import type { Route } from "../hooks/useRouter";
 import { colors, radii, spacing, statusPill } from "../theme";
+import { useResponsive } from "../utils/responsive";
 import { formatEdgePts, formatRaceTime, yearsInRange, monthsInRange } from "../utils/ispFormat";
 import { urlIntParam, urlFloatParam, urlStringParam, updateUrlParams, urlHasAnyModelVsSpParams } from "../utils/ispUrlParams";
 
@@ -104,6 +105,14 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
   onBack,
   onNavigateToRunner,
 }) => {
+  // Phone-width layout switch. The filter grid is a fixed-width label + two
+  // fixed-width number inputs + an inline hint; below ~460px of viewport that
+  // no longer fits inside the card's padding, and the hint (the longest of
+  // them, "pts apart, ± ignored") spilled past the card's right border rather
+  // than wrapping — the document itself never scrolled horizontally, which is
+  // why the existing 375px overflow test never saw it.
+  const { isNarrow } = useResponsive();
+
   // Applied (committed) filter state — what the last fetch actually used, and
   // what the URL reflects.
   const [minModelProb, setMinModelProb] = useState(() => urlFloatParam("minModelProb", FILTER_DEFAULTS.minModelProb));
@@ -421,15 +430,19 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
       <View
         key={opts.filterKey}
         testID={`model-vs-sp-filter-row-${opts.filterKey}`}
-        style={[styles.filterGridRow, openTooltip === opts.filterKey && styles.filterGridRowElevated]}
+        style={[
+          styles.filterGridRow,
+          isNarrow && styles.filterGridRowNarrow,
+          openTooltip === opts.filterKey && styles.filterGridRowElevated,
+        ]}
       >
-        <View style={styles.filterGridLabel}>
+        <View style={[styles.filterGridLabel, isNarrow && styles.filterGridLabelNarrow]}>
           <Text style={styles.filterGridLabelText}>{opts.label}</Text>
           {renderTooltipToggle(opts.filterKey)}
         </View>
         <RNTextInput
           testID={opts.minTestId}
-          style={styles.gridInput}
+          style={[styles.gridInput, isNarrow && styles.gridInputNarrow]}
           value={opts.minValue}
           onChangeText={opts.onMinChange}
           keyboardType={opts.keyboardType ?? "numeric"}
@@ -438,13 +451,21 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
         <Text style={styles.filterGridDash}>–</Text>
         <RNTextInput
           testID={opts.maxTestId}
-          style={styles.gridInput}
+          style={[styles.gridInput, isNarrow && styles.gridInputNarrow]}
           value={opts.maxValue}
           onChangeText={opts.onMaxChange}
           keyboardType={opts.keyboardType ?? "numeric"}
           maxLength={7}
         />
-        <Text style={styles.filterGridHint}>{opts.hint ?? ""}</Text>
+        {/* Own testID so the layout tests can assert on where this actually
+            lands: inline beside the inputs on a wide viewport, on its own
+            full-width line beneath them on a phone. */}
+        <Text
+          testID={`model-vs-sp-filter-hint-${opts.filterKey}`}
+          style={[styles.filterGridHint, isNarrow && styles.filterGridHintNarrow]}
+        >
+          {opts.hint ?? ""}
+        </Text>
         {renderTooltipText(opts.filterKey)}
       </View>
     );
@@ -567,8 +588,11 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
                 hint: "pts apart, ± ignored",
               })}
 
-              <View testID="model-vs-sp-filter-row-date" style={styles.filterGridRow}>
-                <View style={styles.filterGridLabel}>
+              <View
+                testID="model-vs-sp-filter-row-date"
+                style={[styles.filterGridRow, isNarrow && styles.filterGridRowNarrow]}
+              >
+                <View style={[styles.filterGridLabel, isNarrow && styles.filterGridLabelNarrow]}>
                   <Text style={styles.filterGridLabelText}>Dates</Text>
                 </View>
                 <DateRangePicker
@@ -584,9 +608,18 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
                 />
               </View>
 
-              <View testID="model-vs-sp-year-pills" style={styles.pillRow}>
-                <Text style={styles.pillRowLabel}>Year</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillScroll}>
+              <View testID="model-vs-sp-year-pills" style={[styles.pillRow, isNarrow && styles.pillRowNarrow]}>
+                <Text style={[styles.pillRowLabel, isNarrow && styles.pillRowLabelNarrow]}>Year</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  // Without an explicit flex the scroller sizes itself to its
+                  // content and pushes its right edge past the card's border,
+                  // so the strip appeared to bleed out of the card instead of
+                  // scrolling inside it.
+                  style={[styles.pillScrollView, isNarrow && styles.pillScrollViewNarrow]}
+                  contentContainerStyle={styles.pillScroll}
+                >
                   {years.map(year => {
                     const active = selectedYear === year;
                     return (
@@ -614,9 +647,17 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
                 </ScrollView>
               </View>
 
-              <View testID="model-vs-sp-month-pills" style={styles.pillRow}>
-                <Text style={styles.pillRowLabel}>{`Month (${pillYear})`}</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillScroll}>
+              <View testID="model-vs-sp-month-pills" style={[styles.pillRow, isNarrow && styles.pillRowNarrow]}>
+                <Text style={[styles.pillRowLabel, isNarrow && styles.pillRowLabelNarrow]}>
+                  {`Month (${pillYear})`}
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  // See the year row above.
+                  style={[styles.pillScrollView, isNarrow && styles.pillScrollViewNarrow]}
+                  contentContainerStyle={styles.pillScroll}
+                >
                   {months.map(month => {
                     const active = selectedMonth === month;
                     return (
@@ -836,6 +877,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  // Phone width: the hint drops onto its own line (it carries width:"100%",
+  // which can never share a flex line), and the inputs take the space the hint
+  // gave up instead of staying pinned at 84px each.
+  filterGridRowNarrow: {
+    flexWrap: "wrap",
+    rowGap: 2,
+  },
   filterGridRowElevated: {
     zIndex: 30,
   },
@@ -844,6 +892,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
+  },
+  // 84, not less: "Model %" plus its 18px tooltip toggle needs it to stay on
+  // one line, and a label wrapping to two lines makes the rows unequal heights.
+  filterGridLabelNarrow: {
+    width: 84,
   },
   filterGridLabelText: {
     fontSize: 13,
@@ -864,6 +917,13 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
     paddingHorizontal: 4,
   },
+  gridInputNarrow: {
+    width: "auto",
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 56,
+  },
   filterGridDash: {
     fontSize: 16,
     color: colors.textSecondary,
@@ -872,6 +932,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textTertiary,
     flexShrink: 1,
+  },
+  filterGridHintNarrow: {
+    width: "100%",
+    // flexShrink:0 as well as width:100% — a shrinkable item could otherwise be
+    // squeezed back onto the inputs' line instead of starting a new one.
+    flexShrink: 0,
+    textAlign: "right",
   },
   tooltipToggle: {
     width: 18,
@@ -908,11 +975,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
+  // Phone width: a 92px label beside the strip costs a third of the row, and
+  // "Month (2024)" wrapped onto two lines inside it. Stacked, the strip gets
+  // the card's full width.
+  pillRowNarrow: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 2,
+  },
   pillRowLabel: {
     width: 92,
     fontSize: 13,
     fontWeight: "600",
     color: colors.textSecondary,
+  },
+  pillRowLabelNarrow: {
+    width: "auto",
+  },
+  pillScrollView: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+  },
+  // The stacked row is a column, so main-axis flex here would size the
+  // strip's HEIGHT (a flexBasis of 0 would collapse it entirely) — the
+  // narrow variant only needs the full width of its parent.
+  pillScrollViewNarrow: {
+    flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: "auto",
+    width: "100%",
   },
   pillScroll: {
     gap: spacing.xs,
