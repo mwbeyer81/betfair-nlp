@@ -5827,3 +5827,76 @@ already says about Lambda deploys, both verified today:
    are missing, leaving the live env vars untouched. **If you need to update
    Lambda secrets, the local.json you run it against must carry every section
    the function needs — a partial file is now ignored rather than applied.**
+
+## 2026-08-01 — primary checkout, directly on `develop` — the model has no backing edge at SP, and its disagreements point the wrong way
+
+Read-only analysis prompted by a user question about the Model Accuracy screen
+("what Brier score gives me profit?"). No app code touched — one new script,
+`scripts/model-market-disagreement-2026-08-01.ts`, following the
+`compare-model-accuracy-oos-2026-07-31.ts` precedent (config-driven
+`MongoClient`, aggregations only, no writes).
+
+**What it measures.** Every walk-forward-scored runner (`modelWinProbabilityOos`,
+never `modelWinProbability` — see `model-accuracy-dao.ts:17-38`) bucketed by
+`ratio = modelProb / marketProbFair`, i.e. how far the model's price disagrees
+with the de-overrounded ISP. Reports strike rate, both mean probabilities,
+Brier contributions and P&L under two staking conventions: flat £1 level stakes
+**and** the repo's to-win-£1 convention. Level stakes is the one to read for
+"is there an edge" — to-win-£1 stakes ~£2 on an evens shot and ~£0.05 on a 21.0
+shot, so its ROI is dominated by favourites.
+
+**The finding, on 885,067 runners, 2015-2026.** Nothing is profitable at SP, and
+the loss grows monotonically with the size of the disagreement *in the backing
+direction*:
+
+| model vs market | runners | won | model said | market said | level ROI |
+|---|---|---|---|---|---|
+| 2x+ longer | 58,476 | 25.3% | 9.4% | 23.8% | -11.4% |
+| agree (±5%) | 54,476 | 13.0% | 13.0% | 13.1% | -17.9% |
+| 40-80% shorter | 110,662 | 6.6% | 11.2% | 7.1% | -25.6% |
+| 1.8x+ shorter | 249,345 | 2.9% | 9.1% | 3.4% | -39.2% |
+
+Backing everything blind is -23.7%. **In every disagreement bucket the market is
+closer to the truth than the model, and the gap widens the more the model
+disagrees.** The bottom row is the headline: a quarter of a million runners the
+model rated ~2.7x more likely than the market, where the market said 3.4% and
+**2.9% won**. The model's disagreements are not edge; selecting on them is
+actively worse than betting at random.
+
+**Why the Model Accuracy screen doesn't show this.** Aggregate calibration over
+the full population is near-perfect — mean prediction 11.3%, actual strike rate
+11.3%. That headline is large errors in opposite directions cancelling out. Split
+by disagreement and it falls apart. **Aggregate calibration cannot be the
+acceptance test for this model**; conditional-on-disagreement P&L can.
+
+**Stability**: the `ratio >= 1.2` subset loses 28-35% at level stakes in *all
+eleven years* (2016-2026, ~43k runners/yr). Structural, not variance — don't
+re-litigate this with a shorter window.
+
+**Traps for whoever picks this up.**
+- A `$push` of per-runner subdocs into a `$bucket` blows the memory limit even
+  with `allowDiskUse` — build the price-band × ratio grid as one aggregation
+  *per band* instead. Cost me a run.
+- `modelProbSum` is already in 0-100 units; the mean is `sum/count` with no
+  further scaling. Easy 100x display bug.
+- Roughly 54 grid cells means a few land positive by chance. The two that do
+  are noise: one is 162 runners, and the other (2.0-3.0 band, `1.8x+ shorter`)
+  has +2.0% level ROI but **-1.5% to-win ROI on the same bets**. Contradictory
+  signs on one bet set = noise. Don't build on them.
+- Market fair probability is de-vigged **proportionally** (`prob / bookSum`),
+  which is known to understate longshots. The small market errors in the extreme
+  buckets are partly methodological — do not read them as a lay signal.
+
+**Blocked, and worth fixing.** The BSP half of this could not be run: there is no
+Betfair SP anywhere in the DB — `market_definitions` and `price_updates` are both
+**0 documents** (exchange data trimmed to the 5-event POC, see the industry-SP
+reseed entries above). Everything here is ISP, carrying the 15-20% bookmaker
+margin. Loading BSP for even a couple of years is the single highest-value thing
+someone could do next: it is the only way to answer the profitability question at
+prices a punter could actually get.
+
+**Relation to the previous entry.** That one closed by naming the
+favourite-longshot gap (57.9% claimed vs 64.0% actual under 2.0) as the obvious
+next work. This says the problem is wider than that band — the model is
+miscalibrated *conditional on disagreeing with the market* across the whole book,
+and the shortest-price band is simply where it is most visible.
