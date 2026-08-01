@@ -1634,6 +1634,38 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
+    it("accepts a minModelSpEdgePts param and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?minModelSpEdgePts=5")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("tolerates a non-numeric or out-of-range minModelSpEdgePts instead of erroring", async () => {
+      // The router clamps to 0-100 and falls back to 0 on NaN, so a
+      // hand-edited or stale URL degrades to "no edge threshold" rather
+      // than a 500 — same contract as every other numeric filter param.
+      for (const value of ["abc", "-5", "9999", ""]) {
+        const response = await request(app)
+          .get(`/api/industry-sp?minModelSpEdgePts=${value}`)
+          .set("Authorization", `Bearer ${authToken}`)
+          .expect(200);
+        expect(response.body.success).toBe(true);
+      }
+    });
+
+    it("serves minModelSpEdgePts anonymously too, under the anonymous race cap", async () => {
+      // /api/industry-sp is behind optionalJwtAuth, not a hard gate — an
+      // anonymous caller gets a smaller race cap, not a 401. Asserted
+      // explicitly so a future auth change to this route has to come past
+      // this test.
+      const response = await request(app).get("/api/industry-sp?minModelSpEdgePts=5").expect(200);
+      expect(response.body.success).toBe(true);
+    });
+
     it("each race includes raceClass and going", async () => {
       const response = await request(app)
         .get("/api/industry-sp")
@@ -3091,12 +3123,35 @@ describe("API Endpoints", () => {
       expect(response.body.success).toBe(true);
     });
 
+    it("accepts a minModelSpEdgePts param and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?minModelSpEdgePts=7.5")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
+
   });
 
   describe("GET /api/industry-sp/race-convergence", () => {
     it("returns 200 with success, a data array, and count matching data.length", async () => {
       const response = await request(app)
         .get("/api/industry-sp/race-convergence?toRow=1000")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    it("accepts a minModelSpEdgePts param and returns 200 with success", async () => {
+      // The graph has to honour the same filter the split card it was
+      // opened from used, or the two disagree about which runners are in
+      // the sample — the exact class of mismatch the pnlStats fast-path
+      // regression above was about.
+      const response = await request(app)
+        .get("/api/industry-sp/race-convergence?toRow=1000&minModelSpEdgePts=5")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
       expect(response.body.success).toBe(true);

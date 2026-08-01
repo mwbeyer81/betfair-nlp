@@ -96,6 +96,12 @@ const FILTER_DEFAULTS = {
   // runner (no cold-start gap), so this alone (no separate "has" checkbox
   // needed) is enough to gate the filter on/off.
   minModelWinProbability: 0,
+  // Percentage POINTS of model-vs-SP edge required, not a relative %: a
+  // runner the model gives 25% and whose SP implies 20% has an edge of 5.
+  // Same "0 is a true no-op" convention as the two above — at 0 the
+  // "Model beats SP" checkbox alone decides, exactly as before this
+  // field existed.
+  minModelSpEdgePts: 0,
 };
 
 // Loose client-side guardrails for the date inputs — not round-tripped
@@ -124,6 +130,7 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   hasTrainerForm: "Only show races with at least one runner whose trainer has a recent-form sample available (they've run at least once in the last 14 days). Runners with \"No recent form sample\" are excluded.",
   minModelWinProbability: "Only show races with a runner whose XGBoost-predicted win probability is at least this percentage. The model is trained on course/going/class/distance/draw/trainer-form/jockey — deliberately not on ISP, so it's an independent view, not a recalibration of the market's own price.",
   onlyModelBeatsSp: "Only show races with a runner whose model win probability is higher than the win probability implied by their own industry SP (100/isp) — i.e. the model rates them a better chance than the market's own price does.",
+  minModelSpEdgePts: "Tightens \"Model beats SP\" to a minimum size of edge, in percentage points: the model's win probability minus the one the runner's own ISP implies (100/isp). A runner the model gives 25% whose ISP implies 20% has an edge of 5 points. This is the same number shown on each runner as \"+5.0 pts\". Any value above 0 applies on its own — the checkbox above doesn't also need ticking. Note points, not a relative percentage: at long odds even a small points edge is a big overlay, so a high value here concentrates on shorter prices.",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -331,6 +338,15 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // it's boolean-only, same shape as hasTrainerForm.
   const [draftOnlyModelBeatsSp, setDraftOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
   const [onlyModelBeatsSp, setOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
+  // The size of that edge, in percentage points — see FILTER_DEFAULTS'
+  // comment. Text-field state (a string) like every other numeric filter
+  // here, so a half-typed "1." doesn't get coerced mid-keystroke.
+  const [draftMinModelSpEdgePts, setDraftMinModelSpEdgePts] = useState(() =>
+    String(urlFloatParam("minModelSpEdgePts", FILTER_DEFAULTS.minModelSpEdgePts))
+  );
+  const [minModelSpEdgePts, setMinModelSpEdgePts] = useState(() =>
+    urlFloatParam("minModelSpEdgePts", FILTER_DEFAULTS.minModelSpEdgePts)
+  );
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
@@ -561,6 +577,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
     setOnlyModelBeatsSp(draftOnlyModelBeatsSp);
 
+    // Clamped to 0-100 like every other percentage field here — 100 is the
+    // widest two probabilities can possibly be apart, so anything above it
+    // could only ever match zero runners.
+    const modelSpEdgePts = Math.min(100, Math.max(0, parseFloat(draftMinModelSpEdgePts) || 0));
+    setDraftMinModelSpEdgePts(String(modelSpEdgePts));
+    setMinModelSpEdgePts(modelSpEdgePts);
+
     // Commit every chip filter's draft (pending) selection to the applied
     // set actually used for fetching — this is the point where a chip's
     // visual flips from "pending" (gray) to "applied" (solid).
@@ -679,6 +702,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMinTrainerFormRunners(FILTER_DEFAULTS.minTrainerFormRunners);
     setDraftMinModelWinProbability(String(FILTER_DEFAULTS.minModelWinProbability));
     setMinModelWinProbability(FILTER_DEFAULTS.minModelWinProbability);
+    setDraftMinModelSpEdgePts(String(FILTER_DEFAULTS.minModelSpEdgePts));
+    setMinModelSpEdgePts(FILTER_DEFAULTS.minModelSpEdgePts);
     setDraftOnlyModelBeatsSp(false);
     setOnlyModelBeatsSp(false);
 
@@ -784,6 +809,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         hasTrainerForm: hasTrainerForm ? "true" : undefined,
         minModelWinProbability: minModelWinProbability !== FILTER_DEFAULTS.minModelWinProbability ? String(minModelWinProbability) : undefined,
         onlyModelBeatsSp: onlyModelBeatsSp ? "true" : undefined,
+        minModelSpEdgePts: minModelSpEdgePts !== FILTER_DEFAULTS.minModelSpEdgePts ? String(minModelSpEdgePts) : undefined,
         // Only write the split boundaries once the user has explicitly
         // applied a custom split — writing the auto-computed default here
         // too would make the *next* mount think a custom split was already
@@ -826,7 +852,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         courses: [...selectedCourses], goings: [...selectedGoings],
         raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
         trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp,
+        minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts,
         isAuthenticated,
       });
 
@@ -876,7 +902,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
           trainerSearch || undefined, jockeySearch || undefined,
           trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp
+          minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts
         );
         if (cancelled) return;
         // An explicit (non-default) split's row numbers are only meaningful
@@ -920,7 +946,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           courses: [...selectedCourses], goings: [...selectedGoings],
           raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
           trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp,
+          minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts,
           isAuthenticated,
         });
         writeSplitsCache(writeCacheKey, result);
@@ -1218,7 +1244,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     if (minModelWinProbability > 0) {
       summary.push({ key: "modelWinProbability", label: `Model win probability: ≥${minModelWinProbability}%` });
     }
-    if (onlyModelBeatsSp) {
+    if (minModelSpEdgePts > 0) {
+      summary.push({ key: "modelBeatsSp", label: `Model beats SP by ≥${minModelSpEdgePts} pts` });
+    } else if (onlyModelBeatsSp) {
       summary.push({ key: "modelBeatsSp", label: "Model beats SP" });
     }
     return summary;
@@ -1250,7 +1278,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         minDate, maxDate, [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
         trainerSearch || undefined, jockeySearch || undefined,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp
+        minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts
       );
       setConvergencePoints(result.data);
     } catch (err) {
@@ -1619,6 +1647,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           testId: "industry-sp-only-model-beats-sp",
           checked: draftOnlyModelBeatsSp,
           onToggle: () => setDraftOnlyModelBeatsSp(v => !v),
+        })}
+        {renderTextFilterRow({
+          filterKey: "minModelSpEdgePts",
+          label: "Beats SP by (pts)",
+          value: draftMinModelSpEdgePts,
+          onChange: setDraftMinModelSpEdgePts,
+          testId: "industry-sp-min-model-sp-edge-pts",
         })}
         <View
           testID="industry-sp-filter-row-date"

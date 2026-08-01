@@ -945,7 +945,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string, subMinDate?: string, subMaxDate?: string): Promise<IspPage> {
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string, subMinDate?: string, subMaxDate?: string, minModelSpEdgePts?: number): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -974,6 +974,7 @@ class ChatApi {
     if (runnerName) params.set("runnerName", runnerName);
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     if (modelVersionId) params.set("modelVersionId", modelVersionId);
     // Restricts an already row-ranged (fromRow/toRow) window to a calendar
     // sub-range without changing what "row N" means — see the DAO's own
@@ -1158,7 +1159,8 @@ class ChatApi {
     minTrainerFormRunners?: number,
     maxTrainerFormRunners?: number,
     minModelWinProbability?: number,
-    onlyModelBeatsSp?: boolean
+    onlyModelBeatsSp?: boolean,
+    minModelSpEdgePts?: number
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -1186,6 +1188,7 @@ class ChatApi {
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
       { headers: this.authHeader() }
@@ -1220,7 +1223,8 @@ class ChatApi {
     minTrainerFormRunners?: number,
     maxTrainerFormRunners?: number,
     minModelWinProbability?: number,
-    onlyModelBeatsSp?: boolean
+    onlyModelBeatsSp?: boolean,
+    minModelSpEdgePts?: number
   ): Promise<{ success: boolean; data: RaceConvergencePoint[]; count: number }> {
     const params = new URLSearchParams({
       toRow: String(toRow),
@@ -1246,6 +1250,7 @@ class ChatApi {
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/race-convergence?${params}`,
       { headers: this.authHeader() }

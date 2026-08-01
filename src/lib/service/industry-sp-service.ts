@@ -47,7 +47,8 @@ export class IndustrySpService {
     onlyModelBeatsSp = false,
     modelVersionId: string | null = null,
     subMinRaceTime: string | null = null,
-    subMaxRaceTime: string | null = null
+    subMaxRaceTime: string | null = null,
+    minModelSpEdgePts = 0
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -83,7 +84,8 @@ export class IndustrySpService {
       onlyModelBeatsSp,
       modelVersionId,
       subMinRaceTime,
-      subMaxRaceTime
+      subMaxRaceTime,
+      minModelSpEdgePts
     );
   }
 
@@ -143,7 +145,8 @@ export class IndustrySpService {
     // fromRowA/toRowA/fromRowB/toRowB the caller supplies — an anonymous
     // caller can't just ask for a bigger window directly, since the whole
     // point of the cap is that it's enforced server-side.
-    raceCap = 10000
+    raceCap = 10000,
+    minModelSpEdgePts = 0
   ): Promise<{
     totalRaces: number;
     totalRunners: number;
@@ -178,7 +181,7 @@ export class IndustrySpService {
           1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null,
           minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
           trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-          onlyModelBeatsSp
+          onlyModelBeatsSp, null, null, null, minModelSpEdgePts
         ),
         // Deliberately dataset-global, not date-scoped — these are slider/
         // dropdown bounds (available countries, runner/ISP ranges), and
@@ -249,13 +252,13 @@ export class IndustrySpService {
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromA, effToA,
         minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-        onlyModelBeatsSp
+        onlyModelBeatsSp, null, null, null, minModelSpEdgePts
       ),
       this.industrySpDAO.getAllRacesByRace(
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromB, effToB,
         minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-        onlyModelBeatsSp
+        onlyModelBeatsSp, null, null, null, minModelSpEdgePts
       ),
     ]);
 
@@ -305,13 +308,14 @@ export class IndustrySpService {
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
     fromRow = 1,
-    toRow: number
+    toRow: number,
+    minModelSpEdgePts = 0
   ): Promise<{ raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[]> {
     const points = await this.industrySpDAO.getRaceConvergenceSeries(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-      minModelWinProbability, onlyModelBeatsSp, Math.max(1, fromRow), toRow
+      minModelWinProbability, onlyModelBeatsSp, Math.max(1, fromRow), toRow, minModelSpEdgePts
     );
 
     return points.map(p => ({
@@ -343,6 +347,7 @@ export class IndustrySpService {
     maxTrainerFormRunners: number;
     minModelWinProbability: number;
     onlyModelBeatsSp: boolean;
+    minModelSpEdgePts?: number;
   }): Promise<
     {
       raceId: number;

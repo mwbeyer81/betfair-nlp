@@ -26,6 +26,7 @@ import {
   toFormCategory,
   OddsMode,
   modelBeatsSp,
+  modelBeatsSpBy,
   impliedProbabilityPct,
 } from "../utils/ispFormat";
 import {
@@ -301,6 +302,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const maxTrainerFormRunners = 100;
   const minModelWinProbability = urlFloatParam("minModelWinProbability", 0);
   const onlyModelBeatsSp = urlStringParam("onlyModelBeatsSp", "") === "true";
+  const minModelSpEdgePts = urlFloatParam("minModelSpEdgePts", 0);
 
   // Absent minDate/maxDate means "unbounded" (see IspRacesScreen's own
   // fallback of "" — deliberately not FILTER_DEFAULTS' arbitrary
@@ -349,7 +351,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         // own literal start (e.g. a Jan-Dec 2024 filter whose earliest
         // qualifying race happens to be in July doesn't mean January isn't
         // still the natural place a user expects to land).
-        const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
+        const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, undefined, undefined, minModelSpEdgePts);
         if (cancelled) return;
         setTotalRaces(probe.total);
         if (probe.data.length === 0) {
@@ -398,7 +400,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     }));
     try {
       const { from, to } = dayBounds(dayKey, effectiveMinDate, effectiveMaxDate);
-      const result = await chatApi.getIndustrySp(nextPage, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to);
+      const result = await chatApi.getIndustrySp(nextPage, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
       setDayStates(prev => {
         const prevRaces = prev[dayKey]?.races ?? [];
         const seen = new Set(prevRaces.map(r => r.raceId));
@@ -429,7 +431,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     setInitializedMonths(prev => new Set(prev).add(monthKey));
     const { from, to } = monthBounds(monthKey, effectiveMinDate, effectiveMaxDate);
     try {
-      const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to);
+      const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
       if (probe.data.length === 0) return;
       const startDays = [...new Set(probe.data.map(r => raceDayKey(r.raceTime)))].sort();
       // Only the *first* day with data gets loaded, even when this probe's
@@ -478,7 +480,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     setInitializedYears(prev => new Set(prev).add(year));
     const { from, to } = yearBounds(year, effectiveMinDate, effectiveMaxDate);
     try {
-      const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to);
+      const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
       if (probe.data.length === 0) return;
       const startMonths = new Set(probe.data.map(r => raceMonthKey(r.raceTime)));
       // Every month strictly before the earliest one actually present is
@@ -525,6 +527,9 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         return false;
       }
       if (onlyModelBeatsSp && !modelBeatsSp(r)) {
+        return false;
+      }
+      if (minModelSpEdgePts > 0 && !modelBeatsSpBy(r, minModelSpEdgePts)) {
         return false;
       }
       return true;

@@ -717,6 +717,29 @@ export const OnlyModelBeatsSpFilterVisible: Story = {
   },
 };
 
+export const MinModelSpEdgePtsFilterVisible: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitForLoaded(canvas);
+    await expect(canvas.getByTestId("industry-sp-min-model-sp-edge-pts")).toBeInTheDocument();
+    await expect(canvas.getByTestId("industry-sp-min-model-sp-edge-pts")).toHaveValue("0");
+  },
+};
+
+export const MinModelSpEdgePtsAcceptsTypedValue: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitForLoaded(canvas);
+    const field = canvas.getByTestId("industry-sp-min-model-sp-edge-pts");
+    await userEvent.clear(field);
+    await userEvent.type(field, "7.5");
+    // Draft state only — the value must survive typing without being
+    // coerced mid-keystroke (a "7." intermediate would round-trip to "7"
+    // if this field parsed on every change instead of on Apply).
+    await expect(field).toHaveValue("7.5");
+  },
+};
+
 export const RestrictiveFilterZeroesOutMatches: Story = {
   parameters: {
     msw: {

@@ -141,6 +141,28 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// The per-runner "model beats SP" condition, in the `$$r`-bound $filter form
+// every pipeline in this file applies it in. Previously written out inline at
+// four separate call sites; shared here so a change to what "beats SP" means
+// can't land in three of them and miss the fourth.
+//
+// minEdgePts is the minimum signed gap, in percentage POINTS, between the
+// model's win probability and the one the runner's industry SP implies
+// (100/isp) — the Mongo counterpart of modelSpEdge() in
+// client/src/utils/ispFormat.ts, which the client-side filter and the "+5.0 pts"
+// runner badges both go through. At the default 0 this stays exactly the
+// strict "any positive edge" test it has always been ($gt 0, not $gte): a
+// runner the model rates level with the market isn't beating it.
+export function modelBeatsSpCond(minEdgePts: number): Record<string, unknown>[] {
+  const edgeExpr = { $subtract: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] };
+  return [
+    { $ne: ["$$r.modelWinProbability", null] },
+    { $ne: ["$$r.isp", null] },
+    { $gt: ["$$r.isp", 0] },
+    minEdgePts > 0 ? { $gte: [edgeExpr, minEdgePts] } : { $gt: [edgeExpr, 0] },
+  ];
+}
+
 interface IspRaceDocument extends IspRace {
   _id: number;
 }
@@ -183,6 +205,13 @@ export class IndustrySpDAO {
     maxTrainerFormRunners: number;
     minModelWinProbability: number;
     onlyModelBeatsSp: boolean;
+    // Minimum model-vs-SP edge in percentage points. > 0 activates the
+    // model-beats-SP filter on its own, without onlyModelBeatsSp also being
+    // set — unlike the trainerFormMinWinRate/minTrainerFormRunners pair above,
+    // where the checkbox tests a different thing (does form exist at all) from
+    // the number. Here the two are the same dimension, so a threshold with the
+    // checkbox left off would otherwise silently do nothing.
+    minModelSpEdgePts: number;
     modelVersionId: string | null;
   }): Record<string, unknown>[] {
     const countryMatch = p.countries.length > 0 ? { countryCode: { $in: p.countries } } : {};
@@ -247,15 +276,10 @@ export class IndustrySpDAO {
       ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: modelCond } } } }
       : 0;
 
-    const modelBeatsSpFilterActive = p.onlyModelBeatsSp;
-    const modelBeatsSpCond = [
-      { $ne: ["$$r.modelWinProbability", null] },
-      { $ne: ["$$r.isp", null] },
-      { $gt: ["$$r.isp", 0] },
-      { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
-    ];
+    const modelBeatsSpFilterActive = p.onlyModelBeatsSp || p.minModelSpEdgePts > 0;
+    const beatsSpCond = modelBeatsSpCond(p.minModelSpEdgePts);
     const modelBeatsSpQualifyingCountExpr = modelBeatsSpFilterActive
-      ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: modelBeatsSpCond } } } }
+      ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: beatsSpCond } } } }
       : 0;
 
     // Which training run scored a runner — set alongside modelWinProbability
@@ -292,7 +316,7 @@ export class IndustrySpDAO {
                   { $lte: ["$$r.isp", p.maxIsp] },
                   ...(trainerFormFilterActive ? trainerFormCond : []),
                   ...(modelFilterActive ? modelCond : []),
-                  ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
+                  ...(modelBeatsSpFilterActive ? beatsSpCond : []),
                   ...(modelVersionFilterActive ? modelVersionCond : []),
                 ],
               },
@@ -384,7 +408,8 @@ export class IndustrySpDAO {
     // walking the whole row range forward from page 1 to "discover" a
     // distant year (the isp-year-walk-error/isp-year-direct-load history).
     subMinRaceTime: string | null = null,
-    subMaxRaceTime: string | null = null
+    subMaxRaceTime: string | null = null,
+    minModelSpEdgePts = 0
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -509,7 +534,7 @@ export class IndustrySpDAO {
     // those filters at all) would silently include disqualified runners.
     const trainerFormFilterActive = minTrainerFormRunners > 0 || maxTrainerFormRunners < 100;
     const modelFilterActive = minModelWinProbability > 0;
-    const modelBeatsSpFilterActive = onlyModelBeatsSp;
+    const modelBeatsSpFilterActive = onlyModelBeatsSp || minModelSpEdgePts > 0;
     const modelVersionFilterActive = modelVersionId != null;
     const qualifyingRunnersFilterActive =
       trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive || modelVersionFilterActive;
@@ -530,7 +555,7 @@ export class IndustrySpDAO {
         countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
         courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp, modelVersionId,
+        minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, modelVersionId,
       }),
       {
         $project: {
@@ -696,14 +721,7 @@ export class IndustrySpDAO {
                                     { $gte: ["$$r.modelWinProbability", minModelWinProbability] },
                                   ]
                                 : []),
-                              ...(modelBeatsSpFilterActive
-                                ? [
-                                    { $ne: ["$$r.modelWinProbability", null] },
-                                    { $ne: ["$$r.isp", null] },
-                                    { $gt: ["$$r.isp", 0] },
-                                    { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
-                                  ]
-                                : []),
+                              ...(modelBeatsSpFilterActive ? modelBeatsSpCond(minModelSpEdgePts) : []),
                               ...(modelVersionFilterActive ? [{ $eq: ["$$r.modelVersionId", modelVersionId] }] : []),
                             ],
                           },
@@ -787,6 +805,7 @@ export class IndustrySpDAO {
     maxTrainerFormRunners: number;
     minModelWinProbability: number;
     onlyModelBeatsSp: boolean;
+    minModelSpEdgePts?: number;
   }): Promise<
     {
       raceId: number;
@@ -801,7 +820,8 @@ export class IndustrySpDAO {
   > {
     const trainerFormFilterActive = p.minTrainerFormRunners > 0 || p.maxTrainerFormRunners < 100;
     const modelFilterActive = p.minModelWinProbability > 0;
-    const modelBeatsSpFilterActive = p.onlyModelBeatsSp;
+    const minModelSpEdgePts = p.minModelSpEdgePts ?? 0;
+    const modelBeatsSpFilterActive = p.onlyModelBeatsSp || minModelSpEdgePts > 0;
 
     const pipeline: Record<string, unknown>[] = [
       { $match: { raceTime: { $gte: `${p.raceDate}T00:00:00`, $lte: `${p.raceDate}T23:59:59` } } },
@@ -825,6 +845,7 @@ export class IndustrySpDAO {
         maxTrainerFormRunners: p.maxTrainerFormRunners,
         minModelWinProbability: p.minModelWinProbability,
         onlyModelBeatsSp: p.onlyModelBeatsSp,
+        minModelSpEdgePts,
         modelVersionId: null,
       }),
       // Same qualifying-runner condition as getAllRacesByRace's pnlStats slow
@@ -855,14 +876,7 @@ export class IndustrySpDAO {
                         { $gte: ["$$r.modelWinProbability", p.minModelWinProbability] },
                       ]
                     : []),
-                  ...(modelBeatsSpFilterActive
-                    ? [
-                        { $ne: ["$$r.modelWinProbability", null] },
-                        { $ne: ["$$r.isp", null] },
-                        { $gt: ["$$r.isp", 0] },
-                        { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
-                      ]
-                    : []),
+                  ...(modelBeatsSpFilterActive ? modelBeatsSpCond(minModelSpEdgePts) : []),
                 ],
               },
             },
@@ -960,7 +974,8 @@ export class IndustrySpDAO {
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
     fromRowRaw = 1,
-    toRow: number
+    toRow: number,
+    minModelSpEdgePts = 0
   ): Promise<{ raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number }[]> {
     const fromRow = Math.max(1, fromRowRaw);
     if (toRow < fromRow) return [];
@@ -993,13 +1008,8 @@ export class IndustrySpDAO {
       { $ne: ["$$r.modelWinProbability", null] },
       { $gte: ["$$r.modelWinProbability", minModelWinProbability] },
     ];
-    const modelBeatsSpFilterActive = onlyModelBeatsSp;
-    const modelBeatsSpCond = [
-      { $ne: ["$$r.modelWinProbability", null] },
-      { $ne: ["$$r.isp", null] },
-      { $gt: ["$$r.isp", 0] },
-      { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
-    ];
+    const modelBeatsSpFilterActive = onlyModelBeatsSp || minModelSpEdgePts > 0;
+    const beatsSpCond = modelBeatsSpCond(minModelSpEdgePts);
     const qualifyingRunnersFilterActive = trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive;
     const qualifyingRunnersArrayExpr = {
       $filter: {
@@ -1013,7 +1023,7 @@ export class IndustrySpDAO {
             { $lte: ["$$r.isp", maxIsp] },
             ...(trainerFormFilterActive ? trainerFormCond : []),
             ...(modelFilterActive ? modelCond : []),
-            ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
+            ...(modelBeatsSpFilterActive ? beatsSpCond : []),
           ],
         },
       },
@@ -1099,7 +1109,7 @@ export class IndustrySpDAO {
             countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
             courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName: null,
             trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-            minModelWinProbability, onlyModelBeatsSp, modelVersionId: null,
+            minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, modelVersionId: null,
           }),
           { $addFields: { _staked: stakedFieldExpr, _returns: returnsFieldExpr } },
           { $project: { _id: 1, raceTime: 1, _staked: 1, _returns: 1 } },
@@ -1321,6 +1331,7 @@ export class IndustrySpDAO {
       // Subsumed by the edge range (minEdge >= 0 IS "model beats SP"), so
       // applying it again would be redundant work.
       onlyModelBeatsSp: false,
+      minModelSpEdgePts: 0,
       modelVersionId: null,
     });
   }

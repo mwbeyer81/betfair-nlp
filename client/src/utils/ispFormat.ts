@@ -81,6 +81,11 @@ export interface QualifyingFilterParams {
   trainerFormMinWinRate: number;
   minModelWinProbability: number;
   onlyModelBeatsSp: boolean;
+  // Minimum model-vs-SP edge in percentage POINTS (see modelSpEdge below).
+  // > 0 implies onlyModelBeatsSp — a positive required edge is a strictly
+  // tighter "beats SP", so the checkbox needn't also be ticked for it to
+  // apply. Optional so callers predating this field still typecheck.
+  minModelSpEdgePts?: number;
 }
 
 // True when at least one qualifying condition is actually active — lets a
@@ -89,7 +94,14 @@ export interface QualifyingFilterParams {
 // "narrow to just what this filter selected" (reached from a saved filter's
 // Live Performance section).
 export function hasActiveQualifyingFilter(p: QualifyingFilterParams): boolean {
-  return p.minIsp > 1 || p.maxIsp < 1000 || p.hasTrainerForm || p.minModelWinProbability > 0 || p.onlyModelBeatsSp;
+  return (
+    p.minIsp > 1 ||
+    p.maxIsp < 1000 ||
+    p.hasTrainerForm ||
+    p.minModelWinProbability > 0 ||
+    p.onlyModelBeatsSp ||
+    (p.minModelSpEdgePts ?? 0) > 0
+  );
 }
 
 // Same per-runner condition as IspRacesScreen.tsx's own local
@@ -110,6 +122,7 @@ export function runnerQualifies(r: IspRunner, p: QualifyingFilterParams): boolea
     return false;
   }
   if (p.onlyModelBeatsSp && !modelBeatsSp(r)) return false;
+  if ((p.minModelSpEdgePts ?? 0) > 0 && !modelBeatsSpBy(r, p.minModelSpEdgePts as number)) return false;
   return true;
 }
 
@@ -157,6 +170,17 @@ export function formatEdgePts(edge: number): string {
 export function modelBeatsSp(runner: IspRunner): boolean {
   const edge = modelSpEdge(runner);
   return edge != null && edge > 0;
+}
+
+// modelBeatsSp with a size requirement: the model must rate the runner at
+// least minEdgePts percentage POINTS above the market, not merely above it.
+// >= (not >) so a filter of "5" includes a runner sitting exactly 5 points
+// clear, matching how every other minimum on the Filters screen reads. The
+// Mongo counterpart is modelBeatsSpCond() in src/lib/dao/industry-sp-dao.ts.
+export function modelBeatsSpBy(runner: IspRunner, minEdgePts: number): boolean {
+  if (minEdgePts <= 0) return modelBeatsSp(runner);
+  const edge = modelSpEdge(runner);
+  return edge != null && edge >= minEdgePts;
 }
 
 export function formatRaceTime(isoTime: string): string {
@@ -345,7 +369,10 @@ export function buildFilterSummaryFromParams(params: Record<string, string>): { 
   if (params.minModelWinProbability) {
     summary.push({ key: "modelWinProbability", label: `Model win probability: ≥${params.minModelWinProbability}%` });
   }
-  if (params.onlyModelBeatsSp === "true") {
+  const edgePts = parseFloat(params.minModelSpEdgePts ?? "0");
+  if (edgePts > 0) {
+    summary.push({ key: "modelBeatsSp", label: `Model beats SP by ≥${edgePts} pts` });
+  } else if (params.onlyModelBeatsSp === "true") {
     summary.push({ key: "modelBeatsSp", label: "Model beats SP" });
   }
   return summary;

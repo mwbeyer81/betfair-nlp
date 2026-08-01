@@ -83,6 +83,7 @@ export class LiveFilterResultService {
         maxTrainerFormRunners: params.maxTrainerFormRunners,
         minModelWinProbability: params.minModelWinProbability,
         onlyModelBeatsSp: params.onlyModelBeatsSp,
+        minModelSpEdgePts: params.minModelSpEdgePts,
       });
 
       if (races.length === 0) continue;

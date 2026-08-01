@@ -485,6 +485,11 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const maxTrainerFormRunners = Math.min(100, Math.max(0, parseInt(req.query.maxTrainerFormRunners as string) || 100));
     const minModelWinProbability = Math.min(100, Math.max(0, parseFloat(req.query.minModelWinProbability as string) || 0));
     const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
+    // Minimum model-vs-SP edge in percentage points (model win% minus the
+    // 100/isp the SP implies). Capped at 100 — the largest gap two
+    // probabilities can have. > 0 implies onlyModelBeatsSp, so the DAO
+    // treats it as activating that filter on its own.
+    const minModelSpEdgePts = Math.min(100, Math.max(0, parseFloat(req.query.minModelSpEdgePts as string) || 0));
 
     // Set by optionalJwtAuth (registered on /api/industry-sp above) —
     // decides the Split A/Split B race cap: 100 anonymous, 10000 logged in.
@@ -495,7 +500,7 @@ router.get("/api/industry-sp/splits", async (req, res) => {
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
-      raceCap
+      raceCap, minModelSpEdgePts
     );
     // Smoke-tested live: combined into one request and warm (no cold
     // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
@@ -538,6 +543,11 @@ router.get("/api/industry-sp/race-convergence", async (req, res) => {
     const maxTrainerFormRunners = Math.min(100, Math.max(0, parseInt(req.query.maxTrainerFormRunners as string) || 100));
     const minModelWinProbability = Math.min(100, Math.max(0, parseFloat(req.query.minModelWinProbability as string) || 0));
     const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
+    // Minimum model-vs-SP edge in percentage points (model win% minus the
+    // 100/isp the SP implies). Capped at 100 — the largest gap two
+    // probabilities can have. > 0 implies onlyModelBeatsSp, so the DAO
+    // treats it as activating that filter on its own.
+    const minModelSpEdgePts = Math.min(100, Math.max(0, parseFloat(req.query.minModelSpEdgePts as string) || 0));
 
     const toRowRaw = parseInt(req.query.toRow as string);
     if (isNaN(toRowRaw) || toRowRaw < 1) {
@@ -566,7 +576,7 @@ router.get("/api/industry-sp/race-convergence", async (req, res) => {
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
-      fromRow, toRow
+      fromRow, toRow, minModelSpEdgePts
     );
     res.set("Cache-Control", "public, max-age=60");
     res.status(200).json({ success: true, data, count: data.length });
@@ -620,6 +630,11 @@ router.get("/api/industry-sp", async (req, res) => {
     const runnerName = typeof req.query.runnerName === "string" && req.query.runnerName.trim() ? req.query.runnerName.trim() : null;
     const minModelWinProbability = Math.min(100, Math.max(0, parseFloat(req.query.minModelWinProbability as string) || 0));
     const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
+    // Minimum model-vs-SP edge in percentage points (model win% minus the
+    // 100/isp the SP implies). Capped at 100 — the largest gap two
+    // probabilities can have. > 0 implies onlyModelBeatsSp, so the DAO
+    // treats it as activating that filter on its own.
+    const minModelSpEdgePts = Math.min(100, Math.max(0, parseFloat(req.query.minModelSpEdgePts as string) || 0));
     const modelVersionId = typeof req.query.modelVersionId === "string" && req.query.modelVersionId.trim() ? req.query.modelVersionId.trim() : null;
     // Restricts an already-row-ranged window to a calendar sub-range —
     // see the DAO's own comment on subMinRaceTime/subMaxRaceTime. Distinct
@@ -629,7 +644,7 @@ router.get("/api/industry-sp", async (req, res) => {
     // collapsed year -> a normal small paginated request scoped to that
     // year, instead of walking the whole row range forward to reach it).
     const { minRaceTime: subMinRaceTime, maxRaceTime: subMaxRaceTime } = parseDateRangeParams(req.query.subMinDate, req.query.subMaxDate);
-    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime);
+    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime, minModelSpEdgePts);
     res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
   } catch (error) {
     console.error("getAllRacesByRace error:", error);

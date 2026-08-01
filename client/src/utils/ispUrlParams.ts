@@ -50,6 +50,7 @@ const ISP_FILTER_PARAM_NAMES = [
   "countries", "courses", "goings", "raceClasses", "raceTypes", "trainer", "jockey",
   "fromRowA", "toRowA", "fromRowB", "toRowB",
   "trainerFormMinWinRate", "hasTrainerForm", "minModelWinProbability", "onlyModelBeatsSp",
+  "minModelSpEdgePts",
 ];
 
 // True if the URL carries any of IndustrySpScreen's own filter params —
@@ -119,6 +120,7 @@ export function urlQualifyingFilterParams(): QualifyingFilterParams {
     trainerFormMinWinRate: urlFloatParam("trainerFormMinWinRate", 0),
     minModelWinProbability: urlFloatParam("minModelWinProbability", 0),
     onlyModelBeatsSp: urlStringParam("onlyModelBeatsSp", "") === "true",
+    minModelSpEdgePts: urlFloatParam("minModelSpEdgePts", 0),
   };
 }
 
@@ -130,6 +132,7 @@ export function urlQualifyingFilterParams(): QualifyingFilterParams {
 // already-identified meeting/race.
 const QUALIFYING_FILTER_PARAM_NAMES = [
   "minIsp", "maxIsp", "hasTrainerForm", "trainerFormMinWinRate", "minModelWinProbability", "onlyModelBeatsSp",
+  "minModelSpEdgePts",
 ];
 
 export function qualifyingFilterQueryFromParams(params: URLSearchParams): string {

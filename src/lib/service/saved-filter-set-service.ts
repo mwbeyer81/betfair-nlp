@@ -66,6 +66,7 @@ export interface ComputeSnapshotParams {
   maxTrainerFormRunners: number;
   minModelWinProbability: number;
   onlyModelBeatsSp: boolean;
+  minModelSpEdgePts: number;
 }
 
 // filters/name/courses/etc placed first in the auto-name search order
@@ -151,6 +152,7 @@ export function computeSnapshotParamsFromFilters(filters: Record<string, string>
     maxTrainerFormRunners: 100,
     minModelWinProbability: Math.min(100, Math.max(0, parseFloat(filters.minModelWinProbability) || 0)),
     onlyModelBeatsSp: filters.onlyModelBeatsSp === "true",
+    minModelSpEdgePts: Math.min(100, Math.max(0, parseFloat(filters.minModelSpEdgePts) || 0)),
   };
 }
 
@@ -202,7 +204,8 @@ export class SavedFilterSetService {
       computeParams.maxTrainerFormRunners,
       computeParams.minModelWinProbability,
       computeParams.onlyModelBeatsSp,
-      SAVE_SNAPSHOT_MAX_ROWS
+      SAVE_SNAPSHOT_MAX_ROWS,
+      computeParams.minModelSpEdgePts
     );
 
     const [pointsA, pointsB] = await Promise.all([
@@ -214,7 +217,7 @@ export class SavedFilterSetService {
         computeParams.trainerSearch, computeParams.jockeySearch,
         computeParams.trainerFormMinWinRate, computeParams.minTrainerFormRunners, computeParams.maxTrainerFormRunners,
         computeParams.minModelWinProbability, computeParams.onlyModelBeatsSp,
-        splits.splitA.fromRow, splits.splitA.toRow ?? splits.totalRaces
+        splits.splitA.fromRow, splits.splitA.toRow ?? splits.totalRaces, computeParams.minModelSpEdgePts
       ),
       this.industrySpService.getRaceConvergenceSeries(
         computeParams.minRunners, computeParams.maxRunners, computeParams.countries,
@@ -224,7 +227,7 @@ export class SavedFilterSetService {
         computeParams.trainerSearch, computeParams.jockeySearch,
         computeParams.trainerFormMinWinRate, computeParams.minTrainerFormRunners, computeParams.maxTrainerFormRunners,
         computeParams.minModelWinProbability, computeParams.onlyModelBeatsSp,
-        splits.splitB.fromRow, splits.splitB.toRow ?? splits.totalRaces
+        splits.splitB.fromRow, splits.splitB.toRow ?? splits.totalRaces, computeParams.minModelSpEdgePts
       ),
     ]);
 
