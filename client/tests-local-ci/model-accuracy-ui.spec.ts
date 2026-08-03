@@ -34,12 +34,19 @@ test.describe("Model Accuracy screen (real stack)", () => {
     await expect(page.getByTestId("model-accuracy-overall-row")).toBeVisible();
   });
 
-  test("always warns that the figures are in-sample", async ({ page }) => {
+  // Was "always warns that the figures are in-sample". Since a7efb1e the
+  // screen reads modelWinProbabilityOos — every race scored by a model fitted
+  // only on races that finished before it — so the old "these figures flatter
+  // the model" apology is not merely outdated, it would now be misleading.
+  // Asserting the old node is *absent* is the point: the new claim and the old
+  // apology must never be on screen together.
+  test("states the method instead of apologising for it", async ({ page }) => {
     await page.goto("/model-accuracy");
-    await expect(page.getByTestId("model-accuracy-insample-warning")).toContainText(
-      "flatter the model",
+    await expect(page.getByTestId("model-accuracy-method-note")).toContainText(
+      "trained only on races that finished before it",
       { timeout: 20000 }
     );
+    await expect(page.getByTestId("model-accuracy-insample-warning")).toHaveCount(0);
   });
 
   test("the rendered strike rate matches what the API returned", async ({ page, request }) => {

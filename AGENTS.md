@@ -5942,3 +5942,53 @@ badge came from the shared header and not from one screen.
   `dist/index.html` by hand.
 - It is read during render, not cached at module scope, so a test that injects
   the meta tag after load still sees it.
+
+---
+
+## 2026-08-03 (later) — primary checkout — local-CI E2E now runs on the WSL box
+
+`yarn test:e2e:local-ci` runs green on `lbs-wsl`: **72/72**, ~110s end to end
+(throwaway mongod → seed → backend → Expo build → Playwright → teardown).
+
+**Mongo was already there** — `mongod` 7.0.37 from the distro package, a
+**systemd service**, enabled and listening on `127.0.0.1:27019` with the dev
+databases restored. Nothing to install. Note the suite still forks its **own**
+throwaway mongod on **27020** and never reuses that one; 27019/3000/8081 stay
+deliberately untouched so a run can't disturb a dev session.
+
+**What actually needed fixing was environment resolution, not Mongo.**
+`MONGOD_BIN` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` live in
+`/etc/profile.d/betfair-nlp.sh`, which **only login shells source**. The script
+now resolves both itself — explicit env var → `command -v mongod` / a list of
+known browser paths → the old EC2 tarball and `/snap/bin/chromium` defaults.
+Verified by running the whole suite with `env -u MONGOD_BIN -u
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, which is the case that matters: a cron
+job or a bare `ssh host 'yarn test:e2e:local-ci'` gets no profile.d and would
+otherwise have died on the EC2 path with a confusing "not found" on a box where
+mongod is installed fine. There is also now an up-front guard that says so
+plainly, placed before the `rm -rf "$SCRATCH_DIR"` in Step 0 so a bad
+`MONGOD_BIN` costs nothing.
+
+**Two specs were stale, not broken by the environment.** Both were left behind
+by `a7efb1e` (Model Accuracy moved to out-of-sample scoring); its MSW
+counterparts were updated at the time and its local-CI ones were not — worth
+remembering that these two suites cover the same screens and drift apart
+silently.
+
+- `model-accuracy-ui.spec.ts` asserted the old `model-accuracy-insample-warning`
+  / "flatter the model" apology. That node is gone, replaced by
+  `model-accuracy-method-note`. The spec now asserts the new note **and** that
+  the old node has `toHaveCount(0)` — the claim and the apology contradict each
+  other and must never both be on screen.
+- `model-accuracy-api.spec.ts` asserted an unknown `?modelVersionId=` yields
+  **zero** runners. `router.ts:724` deliberately dropped that filter (each
+  year's rows come from a different model, so "version X" has no answer) and
+  documents that a stale param is **ignored**. The old assertion would have
+  locked in exactly the silent-narrowing behaviour that comment rules out; it
+  now compares against an unfiltered call, which is what makes "ignored"
+  testable rather than assumed.
+
+**Trap.** `ml/venv/bin/python` is a **symlink to `/usr/bin/python3`** and the
+preflight's "not symlinked" warning reads like a fault. It isn't — this is a
+real `uv` venv (`pyvenv.cfg`, `lib/`, `.lock` all present) and imports resolve
+to its own site-packages (xgboost 3.3.0, pandas 3.0.5). Don't rebuild it.

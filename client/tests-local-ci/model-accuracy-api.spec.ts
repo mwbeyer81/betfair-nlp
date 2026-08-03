@@ -138,11 +138,24 @@ test.describe("GET /api/model-accuracy (real backend)", () => {
     expect(all.overall.runners).toBeGreaterThan(narrowed.overall.runners);
   });
 
-  test("an unknown model version yields zero runners rather than an error", async ({ request }) => {
+  // Was "an unknown model version yields zero runners". Since a7efb1e there is
+  // no modelVersionId filter on this endpoint at all: the screen reads
+  // modelWinProbabilityOos, where each year's rows come from a different model
+  // by construction, so "show me version X" has no answer (router.ts:724).
+  // A stale ?modelVersionId= left in a bookmarked URL must therefore be
+  // IGNORED, not silently narrow the result set to nothing — which is exactly
+  // what the old assertion would have locked in. Comparing against an
+  // unfiltered call is what makes "ignored" testable rather than assumed.
+  test("a stale model-version param is ignored, not silently applied", async ({ request }) => {
     const t = await token(request);
-    const body = await fetchAccuracy(request, t, { modelVersionId: "xgb-does-not-exist" });
-    expect(body.overall.runners).toBe(0);
-    expect(body.data.map(b => b.label)).toEqual(BAND_LABELS);
+    const unfiltered = await fetchAccuracy(request, t, {});
+    const withStaleParam = await fetchAccuracy(request, t, {
+      modelVersionId: "xgb-does-not-exist",
+    });
+
+    expect(unfiltered.overall.runners).toBeGreaterThan(0);
+    expect(withStaleParam.overall.runners).toBe(unfiltered.overall.runners);
+    expect(withStaleParam.data.map(b => b.label)).toEqual(BAND_LABELS);
   });
 
   test("rejects an inverted runner range", async ({ request }) => {
