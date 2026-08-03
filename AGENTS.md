@@ -5900,3 +5900,45 @@ favourite-longshot gap (57.9% claimed vs 64.0% actual under 2.0) as the obvious
 next work. This says the problem is wider than that band — the model is
 miscalibrated *conditional on disagreeing with the market* across the whole book,
 and the shortest-price band is simply where it is most visible.
+
+---
+
+## 2026-08-03 — worktree `build-badge` — deployed-commit badge in `AppHeader`
+
+Small UI addition, but its real purpose is to make a deploy **self-evidencing**
+from the browser: a pill next to the BackBet brand reading `build <sha>`.
+
+**How it knows the commit.** It doesn't — it reads it back. `apps/web/deploy.sh`
+already stamps `<meta name="build-commit">` / `<meta name="build-branch">` into
+`dist/index.html` as its last step before the S3 sync. The new
+`client/src/utils/getBuildCommit()` (`client/src/utils/buildInfo.ts`) queries that
+tag at runtime. **Deliberately not an `EXPO_PUBLIC_*` build arg** — a build-time
+env var would mean touching `deploy.sh` and would bake the SHA into the bundle,
+so a bundle could then disagree with the `index.html` referencing it and nobody
+would see it. Reading the tag keeps the deploy pipeline unchanged and makes
+badge-vs-meta agreement a *testable invariant* instead of a tautology.
+
+**That invariant is the point.** `deploy.sh`'s three-step S3 sync (additive
+upload → cut over `index.html` → prune) exists because a single
+`sync --delete` once deleted the previous hashed JS bundle before the new
+`index.html` went up. The failure mode that guards against — a stale bundle
+served behind a fresh `index.html` — now shows up as a **badge/meta mismatch**,
+which `client/tests-live/build-badge-live.spec.ts` asserts on directly. Set
+`EXPECTED_COMMIT=$(git rev-parse --short HEAD)` to additionally pin a run to one
+specific deploy; unset, the test still checks agreement, so it stays useful as a
+permanent regression test rather than being a one-shot smoke test.
+
+**Renders on every screen for free** — `AppHeader` is shared, and the badge's
+`testID` follows the component's existing per-screen namespacing, so it is
+`industry-sp-build-badge` on `/isp`, `chat-build-badge` on `/chat`, and so on.
+The second test in the spec checks two different prefixes precisely to prove the
+badge came from the shared header and not from one screen.
+
+**Traps.**
+- `getBuildCommit()` returns `null` off-web and in **any local build** —
+  `yarn build:web` does not stamp anything, only `deploy.sh` does. The badge
+  correctly renders nothing there, so don't go hunting for a bug when it is
+  absent locally. To exercise it locally, apply `deploy.sh`'s `sed` to
+  `dist/index.html` by hand.
+- It is read during render, not cached at module scope, so a test that injects
+  the meta tag after load still sees it.

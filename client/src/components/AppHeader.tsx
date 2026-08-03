@@ -5,6 +5,7 @@ import { HeaderActionsContainer } from "./HeaderActionsContainer";
 import { useHeaderMenu } from "../utils/useHeaderMenu";
 import { chatApi } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
+import { getBuildCommit } from "../utils/buildInfo";
 import type { Route } from "../hooks/useRouter";
 
 export interface AppHeaderProps {
@@ -58,6 +59,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const [accountPhone, setAccountPhone] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
+  // null in local dev and on native — only a deployed build has a stamped
+  // commit, and the badge is simply omitted when there is nothing to show.
+  const buildCommit = getBuildCommit();
 
   // Centralized here (was previously duplicated inside IndustrySpScreen
   // alone) now that every screen shares this one header's Account item.
@@ -246,6 +250,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 <View style={styles.syncIcon}>
                   <Icon source="sync" size={16} color="white" />
                 </View>
+                {buildCommit != null && (
+                  <View style={styles.buildBadge}>
+                    <Text
+                      testID={`${testIdPrefix}-build-badge`}
+                      style={styles.buildBadgeText}
+                    >
+                      build {buildCommit}
+                    </Text>
+                  </View>
+                )}
               </View>
               {subtitle != null && (
                 <Text style={styles.subtitle} numberOfLines={1}>
@@ -339,6 +353,18 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 18,
     fontWeight: "700",
+  },
+  buildBadge: {
+    marginLeft: spacing.sm,
+    paddingHorizontal: spacing.xs + 2,
+    paddingVertical: 1,
+    borderRadius: radii.pill,
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  buildBadgeText: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 10,
+    fontWeight: "600",
   },
   subtitle: {
     color: "rgba(255,255,255,0.8)",
