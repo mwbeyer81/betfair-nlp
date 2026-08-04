@@ -14,6 +14,7 @@ import { DateRangePicker } from "./DateRangePicker";
 import { PageContainer } from "./PageContainer";
 import { PaginationControls } from "./PaginationControls";
 import { AppHeader } from "./AppHeader";
+import { BrierScore } from "./BrierScore";
 import type { Route } from "../hooks/useRouter";
 import { colors, radii, spacing, statusPill } from "../theme";
 import { useResponsive } from "../utils/responsive";
@@ -763,6 +764,17 @@ export const ModelVsSpScreen: React.FC<ModelVsSpScreenProps> = ({
                 })}
               </View>
 
+              {/* The gap the bands measure is "how far apart are the two", which
+                  says nothing about WHICH of them is right. This does: over the
+                  runners the difference filter actually selects, whose
+                  probabilities were closer to what happened. A wide mean gap
+                  paired with a model Brier ABOVE the market's is the signature
+                  of a filter that has found disagreement rather than an edge —
+                  and that combination is easy to produce here by accident. */}
+              <View testID="model-vs-sp-summary-brier" style={styles.summaryBrier}>
+                <BrierScore brier={summary.brier} testID="model-vs-sp-brier" label="Brier (selected)" />
+              </View>
+
               {/* Only meaningful once the difference filter is actually narrowing
                   something — at the full 0-100 default it would just restate the
                   total as 100%. */}
@@ -1053,6 +1065,9 @@ const styles = StyleSheet.create({
   summaryHeadline: {
     fontSize: 12,
     color: colors.textSecondary,
+  },
+  summaryBrier: {
+    marginTop: spacing.sm,
   },
   summaryBands: {
     gap: 4,

@@ -1,4 +1,5 @@
 import { Collection, Db, ObjectId } from "mongodb";
+import type { BrierStats } from "../service/brier";
 
 export interface SavedFilterSetPnlStats {
   staked: number;
@@ -27,6 +28,12 @@ export interface SavedFilterSetSplit {
   totalRunners: number;
   pnlStats: SavedFilterSetPnlStats;
   graphPoints: SavedFilterSetGraphPoint[];
+  // A finished score, not raw sums (unlike LiveFilterResultDocument's
+  // per-race brierSums): a snapshot split is already the whole set, computed
+  // in one aggregation, so there is nothing left to add it to. Optional for
+  // the same reason splitA/splitB themselves are optional on the frontend —
+  // documents saved before this field existed are real and are not migrated.
+  brier?: BrierStats;
 }
 
 // filters is stored as the exact URL-param string map IndustrySpScreen's own

@@ -42,6 +42,39 @@ export interface PnlStats {
   count?: number;
 }
 
+// Brier score for a filtered set of horses — mean squared error of a win
+// probability against the 0/1 result, model and market scored over the same
+// runners. See src/lib/service/brier.ts (backend) for the full derivation and
+// the caveats; the short version is that lower is better, and the number worth
+// reading is the GAP between model and market rather than either alone.
+//
+// Optional wherever it appears on a response type: this arrived after the
+// endpoints did, and a stale service worker / an in-flight deploy can hand the
+// client a response without it. Every render path treats undefined the same as
+// "no runners scored" and shows an em dash.
+export interface BrierStats {
+  // Runners the model scored — the denominator of `model`. Always <= the
+  // qualifying-runner count beside it: the pre-ML years of the dataset carry
+  // no model probability at all.
+  scored: number;
+  // Runners with a usable price — the denominator of `market`. Equal to
+  // `scored` on every industry-SP surface (both scores deliberately cover the
+  // same horses); larger on the Betfair-SP screen, which has no model column.
+  priced: number;
+  model: number | null;
+  market: number | null;
+}
+
+// Raw per-race squared-error sums, as the live-results capture stores them.
+// Summed across races BEFORE being divided — see sumBrierSums/brierFromSums in
+// client/src/utils/brierFormat.ts, and the same reasoning on the backend.
+export interface BrierSums {
+  scored: number;
+  priced: number;
+  modelSqErrSum: number;
+  marketSqErrSum: number;
+}
+
 export interface RunnerFilterBounds {
   maxRunnersPerRace: number;
   maxBsp: number;
@@ -58,6 +91,9 @@ export interface RunnersPage {
   totalPages: number;
   totalRunners: number;
   pnlStats: PnlStats;
+  // Market-only on this screen: the Betfair-SP dataset carries no model
+  // probability, so brier.scored is 0 and brier.model is null.
+  brier?: BrierStats;
 }
 
 export interface IspRunner {
@@ -339,6 +375,7 @@ export interface IspPage {
   totalPages: number;
   totalRunners: number;
   pnlStats: PnlStats;
+  brier?: BrierStats;
 }
 
 export type ModelVsSpSort = "date_desc" | "date_asc" | "edge_desc" | "edge_asc";
@@ -397,6 +434,9 @@ export interface ModelVsSpSummary {
   matchedPercent: number;
   meanAbsEdge: number;
   bands: ModelVsSpBand[];
+  // Scored over the MATCHED runners (the rows listed below), not the wider
+  // `allRunners` denominator the bands describe.
+  brier?: BrierStats;
 }
 
 export interface ModelVsSpQuery {
@@ -578,6 +618,9 @@ export interface SavedFilterSetSplit {
   totalRunners: number;
   pnlStats: SavedFilterSetPnlStats;
   graphPoints: SavedFilterSetGraphPoint[];
+  // Absent on results saved before Brier scores were computed — same
+  // no-migration reality as splitA/splitB themselves (see the comment above).
+  brier?: BrierStats;
 }
 
 // filters is the raw ISP_FILTER_PARAM_NAMES string map — the exact query
@@ -634,6 +677,8 @@ export interface LiveFilterResult {
   meetingName: string;
   modelVersionId: string | null;
   pnlStats: { staked: number; returns: number; pnl: number; count: number };
+  // Absent on days captured before Brier scores were recorded.
+  brierSums?: BrierSums;
 }
 
 export interface LiveFilterResultsResponse {
@@ -657,6 +702,7 @@ export interface IspSplitResult {
   total: number;
   totalRunners: number;
   pnlStats: PnlStats;
+  brier?: BrierStats;
 }
 
 export interface RaceConvergencePoint {
@@ -681,6 +727,9 @@ export interface IspSplitsResponse {
   goings: string[];
   raceClasses: string[];
   raceTypes: string[];
+  // The whole filtered set's Brier, before either split window narrows it —
+  // the number the header shows beside the race/runner totals.
+  brier?: BrierStats;
   splitA: IspSplitResult;
   splitB: IspSplitResult;
 }

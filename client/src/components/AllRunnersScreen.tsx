@@ -16,7 +16,8 @@ import {
   Dialog,
   Surface,
 } from "react-native-paper";
-import { chatApi, RaceWithEvent, Runner, PnlStats, RunnerFilterBounds } from "../services/chatApi";
+import { chatApi, RaceWithEvent, Runner, PnlStats, BrierStats, RunnerFilterBounds } from "../services/chatApi";
+import { BrierScore } from "./BrierScore";
 import { exportToCsv, exportToXlsx } from "../utils/exportRunners";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
@@ -126,6 +127,10 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   const [totalRaces, setTotalRaces] = useState(0);
   const [totalRunners, setTotalRunners] = useState(0);
   const [pnlStats, setPnlStats] = useState<PnlStats>({ staked: 0, returns: 0, pnl: 0 });
+  // Market-only on this screen: the Betfair-SP dataset has no model column
+  // (ml/train_and_predict.py scores the industry-SP collection), so this is
+  // how well the exchange's own closing prices predicted the results.
+  const [brier, setBrier] = useState<BrierStats | undefined>(undefined);
   const [filterBounds, setFilterBounds] = useState<RunnerFilterBounds | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -186,6 +191,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
         setTotalRaces(result.total);
         setTotalRunners(result.totalRunners);
         setPnlStats(result.pnlStats ?? { staked: 0, returns: 0, pnl: 0 });
+        setBrier(result.brier);
         if (toRow == null) setDraftTo(String(result.total));
       } catch {
         setError("Failed to load runners");
@@ -526,6 +532,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
             <Text testID="all-runners-pnl" style={[styles.pnlValue, displayPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
               {formatPnl(displayPnl.pnl)} <Text style={styles.pnlPct}>({formatPct(displayPnl.pnl, displayPnl.staked)})</Text>
             </Text>
+            <BrierScore brier={brier} tone="dark" testID="all-runners-brier" label="Brier (SP)" />
           </View>
         </View>
       )}

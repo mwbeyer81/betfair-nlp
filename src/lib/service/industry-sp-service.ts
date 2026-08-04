@@ -1,4 +1,5 @@
 import { IndustrySpDAO, IspRace, IspFilterBounds, ModelVsSpParams, ModelVsSpRow } from "../dao/industry-sp-dao";
+import type { BrierStats, BrierSums } from "./brier";
 import type { ModelVsSpSummary } from "./model-vs-sp-summary";
 import { DatabaseConnection } from "../../config/database";
 
@@ -54,6 +55,7 @@ export class IndustrySpService {
     total: number;
     totalRunners: number;
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    brier: BrierStats;
   }> {
     return this.industrySpDAO.getAllRacesByRace(
       page,
@@ -157,12 +159,16 @@ export class IndustrySpService {
     goings: string[];
     raceClasses: string[];
     raceTypes: string[];
+    // The grand total's own Brier — over every race the filters match, before
+    // either split window narrows it. The splits carry their own below.
+    brier: BrierStats;
     splitA: {
       fromRow: number;
       toRow: number | null;
       total: number;
       totalRunners: number;
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
+      brier: BrierStats;
     };
     splitB: {
       fromRow: number;
@@ -170,6 +176,7 @@ export class IndustrySpService {
       total: number;
       totalRunners: number;
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
+      brier: BrierStats;
     };
   }> {
     // filterBounds/countryCodes are independent of every filter param and
@@ -272,8 +279,9 @@ export class IndustrySpService {
       goings: goingValues,
       raceClasses: raceClassValues,
       raceTypes: raceTypeValues,
-      splitA: { fromRow: effFromA, toRow: effToA, total: resultA.total, totalRunners: resultA.totalRunners, pnlStats: resultA.pnlStats },
-      splitB: { fromRow: effFromB, toRow: effToB, total: resultB.total, totalRunners: resultB.totalRunners, pnlStats: resultB.pnlStats },
+      brier: grand.brier,
+      splitA: { fromRow: effFromA, toRow: effToA, total: resultA.total, totalRunners: resultA.totalRunners, pnlStats: resultA.pnlStats, brier: resultA.brier },
+      splitB: { fromRow: effFromB, toRow: effToB, total: resultB.total, totalRunners: resultB.totalRunners, pnlStats: resultB.pnlStats, brier: resultB.brier },
     };
   }
 
@@ -358,6 +366,7 @@ export class IndustrySpService {
       raceDate: string;
       modelVersionId: string | null;
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
+      brierSums: BrierSums;
     }[]
   > {
     return this.industrySpDAO.getQualifyingRacesForDate(p);

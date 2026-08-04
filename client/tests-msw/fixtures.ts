@@ -1,6 +1,17 @@
 import { test as base, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+// Brier scores the mocked endpoints return. 0.0871 model vs 0.0902 market —
+// the model ahead by 0.0031, the order of magnitude a real edge has on this
+// data, and far enough from a round number that a hardcoded fallback in the
+// app would stand out in a failure. `scored === priced` mirrors the real
+// industry-SP endpoints, where both scores always cover the same runners.
+const MOCK_BRIER = { scored: 1240, priced: 1240, model: 0.0871, market: 0.0902 };
+// What the backend returns when the filters match nothing: null, never 0 — 0
+// is the BEST possible Brier score, so a zero here would render a flawless
+// forecast on a screen showing no horses.
+const EMPTY_MOCK_BRIER = { scored: 0, priced: 0, model: null, market: null };
+
 async function setupApiMocks(page: Page) {
   await page.route("**/api/stats", (route) =>
     route.fulfill({ json: { success: true, data: { totalRaces: 8, totalRunners: 109 } } })
@@ -113,6 +124,7 @@ async function setupApiMocks(page: Page) {
         totalPages: 1,
         totalRunners: raceData.length > 0 ? 3 : 0,
         pnlStats: { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 },
+        brier: MOCK_BRIER,
         data: raceData,
       },
     });
@@ -466,6 +478,7 @@ async function setupApiMocks(page: Page) {
         totalPages: 1,
         totalRunners: raceData.length > 0 ? 3 : 0,
         pnlStats: { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 },
+        brier: MOCK_BRIER,
         data: raceData,
       },
     });
@@ -641,6 +654,10 @@ async function setupApiMocks(page: Page) {
               matchedPercent: pct(total),
               meanAbsEdge: all > 0 ? round1(absEdges.reduce((a, b) => a + b, 0) / all) : 0,
               bands,
+              // Scored over the MATCHED runners, not `all` — the summary's
+              // bands and its Brier deliberately have different denominators
+              // (see the `brier` comment on ModelVsSpSummary).
+              brier: total > 0 ? MOCK_BRIER : EMPTY_MOCK_BRIER,
             }
           : null,
       },
@@ -678,6 +695,7 @@ async function setupApiMocks(page: Page) {
     const matches = maxInIspRange >= 3;
     const totalRaces = matches ? 1 : 0;
     const pnlStats = matches ? { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 } : { staked: 0, returns: 0, pnl: 0, count: 0 };
+    const brier = matches ? MOCK_BRIER : EMPTY_MOCK_BRIER;
 
     const fromRowARaw = reqUrl.searchParams.get("fromRowA");
     const toRowARaw = reqUrl.searchParams.get("toRowA");
@@ -722,8 +740,9 @@ async function setupApiMocks(page: Page) {
         goings: ["Good", "Soft"],
         raceClasses: ["Class 1", "Class 2"],
         raceTypes: ["Chase", "Hurdle"],
-        splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: totalA > 0 ? 3 : 0, pnlStats: totalA > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 } },
-        splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: totalB > 0 ? 3 : 0, pnlStats: totalB > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 } },
+        brier,
+        splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: totalA > 0 ? 3 : 0, pnlStats: totalA > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 }, brier: totalA > 0 ? MOCK_BRIER : EMPTY_MOCK_BRIER },
+        splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: totalB > 0 ? 3 : 0, pnlStats: totalB > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 }, brier: totalB > 0 ? MOCK_BRIER : EMPTY_MOCK_BRIER },
       },
     });
   });
@@ -779,6 +798,7 @@ async function setupApiMocks(page: Page) {
     totalRunners: number;
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
     graphPoints: { raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[];
+    brier?: { scored: number; priced: number; model: number | null; market: number | null };
   }
   const mockSavedResults: {
     id: string;
@@ -798,6 +818,10 @@ async function setupApiMocks(page: Page) {
         total: 2,
         totalRunners: 6,
         pnlStats: { staked: 10, returns: 11, pnl: 1, count: 2 },
+        // Split A: model ahead of the market. Split B (below) has it behind,
+        // so the two cards on the detail screen render opposite verdicts from
+        // one fixture — the case a single shared number could never cover.
+        brier: { scored: 6, priced: 6, model: 0.08, market: 0.09 },
         graphPoints: [
           { raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 6, cumulativePnl: 1, roiPercent: 20 },
           { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 11, cumulativePnl: 1, roiPercent: 10 },
@@ -809,6 +833,7 @@ async function setupApiMocks(page: Page) {
         total: 2,
         totalRunners: 6,
         pnlStats: { staked: 10, returns: 6, pnl: -4, count: 2 },
+        brier: { scored: 6, priced: 6, model: 0.11, market: 0.09 },
         graphPoints: [
           { raceRowNumber: 3, cumulativeStaked: 5, cumulativeReturns: 5, cumulativePnl: 0, roiPercent: 0 },
           { raceRowNumber: 4, cumulativeStaked: 10, cumulativeReturns: 6, cumulativePnl: -4, roiPercent: -40 },

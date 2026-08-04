@@ -4,6 +4,8 @@
 // every percentage, cumulative total and label is derived here, where it can be
 // unit-tested without a database.
 
+import { BrierStats, BrierSums, brierFromSums } from "./brier";
+
 // Cut points for |model% - implied SP%|, in percentage points. Chosen from the
 // real distribution rather than round numbers for their own sake: production
 // measures a mean absolute gap of 5.28 points (see
@@ -40,6 +42,15 @@ export interface ModelVsSpSummary {
   // Mean |edge| across allRunners, in percentage points, 1dp.
   meanAbsEdge: number;
   bands: EdgeBand[];
+  // Brier score of the model and of the market, over the MATCHED runners —
+  // the rows the screen is actually listing, not the wider `allRunners`
+  // denominator the bands describe. Deliberately so: the bands answer "how
+  // far apart are model and market across the population", while this answers
+  // "on the runners this difference range selects, which of the two is closer
+  // to what happened". A large mean edge with a model Brier *above* the
+  // market's is the signature of a filter that has found disagreement rather
+  // than an edge.
+  brier: BrierStats;
 }
 
 // Raw tallies as the aggregation emits them: one count per band, in
@@ -50,6 +61,7 @@ export interface RawEdgeBandCounts {
   sumAbsEdge: number;
   // Length must be EDGE_BAND_BOUNDS.length + 1.
   bandCounts: number[];
+  brierSums?: Partial<BrierSums> | null;
 }
 
 function round1(n: number): number {
@@ -104,5 +116,6 @@ export function buildEdgeSummary(raw: RawEdgeBandCounts): ModelVsSpSummary {
     matchedPercent: pct(raw.matchedRunners),
     meanAbsEdge: all > 0 ? round1(raw.sumAbsEdge / all) : 0,
     bands,
+    brier: brierFromSums(raw.brierSums),
   };
 }
