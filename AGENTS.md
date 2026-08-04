@@ -106,6 +106,50 @@ on **clean `origin/develop`** (63 pass). Measured on 2026-08-04 by running the
 identical file from `~/betfair-nlp-brier-scores` and from the primary checkout
 back to back — identical 22/63 both sides. Baseline before you debug.
 
+## Reproduce a reported bug before you fix it — against production, in a one-off script
+
+When a user reports something broken on the live app, **your first move should
+usually be a script that reproduces it against the deployed bundle**, not a
+patch. The full convention (naming, config, why it's separate from every other
+test category here) is in `.claude/commands/prod-repro-scripts.md`; this section
+exists so it's the default rather than something you only find if you happen to
+invoke that command.
+
+```bash
+# client/scripts/prod-repro/<short-bug-slug>-<YYYY-MM-DD>.spec.ts
+cd client && npx playwright test --config playwright.prod-repro.config.ts \
+  scripts/prod-repro/<file>.spec.ts
+```
+
+- **These are run-once documents, not tests.** They are never added to a
+  `yarn test:*` script or to CI, and they are not maintained: the exact
+  condition often can't be reached again once the fix ships (a legacy data
+  shape, a since-corrected field). They are kept as a record of what was
+  checked and when, like a commit message. See the dozen already in
+  `client/scripts/prod-repro/` for the shape.
+- **It should FAIL on the first run.** That failure is the deliverable — it's
+  the evidence the diagnosis is right, rather than a plausible story about the
+  code. Quote the real failure output in your `AGENTS.md` entry.
+- **Then, separately, add the durable test** in `tests-msw` / Storybook /
+  `tests-live` as usual. The prod-repro script's job ends once it has confirmed
+  the fix reached production; the deterministic, repeatable, CI-style test is
+  what stops the bug coming back, and it is a different artifact. Do not
+  conflate the two, and do not skip the second one because the first went green.
+
+**"Where appropriate"** is doing real work in that first sentence. Reach for a
+prod-repro script when the bug is *behavioural and reported against the live
+app* — a screen rendering wrong, a button doing nothing, a number that
+disagrees with another number on screen — especially when a fresh local build
+might not even carry the bug (stale bundle, undeployed fix, environment-only
+config). Don't reach for it when the shortest honest path to proof is a
+different layer: a wrong aggregation is best proven with a read-only query
+against the real database, and a wrong endpoint response with a `curl` against
+the deployed API. On 2026-08-04 the leaking-model-field bug was proven by
+re-running the same P&L two ways against Atlas (+4.5% vs -18.8% ROI on
+identical rows), which was the right tool; the "my date range reverted" report
+on the same day was a screen-behaviour bug and should have had a prod-repro
+script before any code changed, and didn't.
+
 ## Working in a worktree
 
 Do non-trivial work in its own git worktree, not in the primary checkout —
