@@ -19,6 +19,7 @@ import {
   toFormCategory,
   OddsMode,
   modelBeatsSp,
+  modelProb,
   impliedProbabilityPct,
   runnerQualifies,
   hasActiveQualifyingFilter,
@@ -226,9 +227,9 @@ export const IndustryMeetingScreen: React.FC<IndustryMeetingScreenProps> = ({
                         </Text>
                       </TouchableOpacity>
                     )}
-                    {runner.modelWinProbability != null && (
+                    {modelProb(runner) != null && (
                       <Text testID={`industry-meeting-item-model-${runner.id}`} style={styles.modelBadge}>
-                        Model {runner.modelWinProbability.toFixed(0)}%
+                        Model {(modelProb(runner) as number).toFixed(0)}%
                         {runner.isp != null && runner.isp > 0 && (
                           <Text testID={`industry-meeting-item-implied-sp-${runner.id}`} style={styles.impliedSpBadge}>
                             {` · SP ${impliedProbabilityPct(runner.isp).toFixed(0)}%`}

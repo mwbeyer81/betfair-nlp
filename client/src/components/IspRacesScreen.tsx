@@ -28,6 +28,7 @@ import {
   OddsMode,
   modelBeatsSp,
   modelBeatsSpBy,
+  modelProb,
   impliedProbabilityPct,
 } from "../utils/ispFormat";
 import {
@@ -531,7 +532,15 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       if (hasTrainerForm && !(r.trainerFormWinRate != null && r.trainerFormWinRate >= trainerFormMinWinRate)) {
         return false;
       }
-      if (minModelWinProbability > 0 && !(r.modelWinProbability != null && r.modelWinProbability >= minModelWinProbability)) {
+      // modelProb(), never r.modelWinProbability — the server matched these
+      // races on MODEL_PROB_FIELD (the out-of-sample estimate), so re-filtering
+      // its runners on the in-sample field selects a *different* set from the
+      // one the race list was built from. Reported live via screenshot: the
+      // same saved result read -25.8% on the Filters screen (server, honest
+      // field) and +30.6% in this screen's year rollup (client, in-sample
+      // field) — reproduced against prod as -11.2% vs +12.3% ROI over an
+      // identical 100 races. See modelProb()'s own comment in ispFormat.ts.
+      if (minModelWinProbability > 0 && !((modelProb(r) ?? -1) >= minModelWinProbability)) {
         return false;
       }
       if (onlyModelBeatsSp && !modelBeatsSp(r)) {
@@ -720,8 +729,20 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // where there is, walking it at every level on every render is the exact
   // cost that padding-out was removed to avoid. `probed` answers the only
   // question the label actually needs: has anything gone and looked?
+  // "loaded", not a bare count, because the P&L badge rendered immediately to
+  // its right is a groupPnl() over exactly these races — and a group can only
+  // ever roll up what has actually been fetched (days load one at a time, and
+  // paginate within themselves). Reported live via screenshot: a year header
+  // reading "2024 · 20 races · +£2.55 (+30.6%)" directly under a filter whose
+  // own card said 675 races and -25.8%; the +30.6% was a true number over 20
+  // races wearing the clothes of a year total. The exact per-level shortfall
+  // isn't knowable cheaply (only days carry a server-side `total`, and a
+  // collapsed month doesn't even build its day list — see the hierarchy
+  // comment above for why that padding-out was removed), but "loaded" is
+  // unconditionally true at every level and is the part that was missing.
+  // The screen header's own `N/total races` supplies the magnitude.
   function rollupCountLabel(loadedRaces: number, probed: boolean, anyLoading: boolean): string {
-    if (loadedRaces > 0) return `${loadedRaces} races`;
+    if (loadedRaces > 0) return `${loadedRaces} races loaded`;
     if (anyLoading) return "Loading…";
     if (!probed) return "Tap to load";
     return "0 races";
@@ -744,8 +765,19 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // and there's genuinely nothing here". Days are where the real fetch state
   // now lives, so this is the one level that reads it directly.
   function dayCountLabel(day: DayNode<IspRace>): string {
-    if (day.items.length > 0) return `${day.items.length} races`;
-    const state = dayStates[day.key];
+    const dayState = dayStates[day.key];
+    if (day.items.length > 0) {
+      // The one level that can say this precisely rather than just flagging
+      // it (see rollupCountLabel): a day owns the server-side `total` for its
+      // own sub-date range, so a day that has fetched every page of itself is
+      // genuinely complete and its P&L badge needs no qualifier. Compared on
+      // state.races (everything fetched) rather than day.items (what survives
+      // the client-side qualifyingRunners narrowing) — total counts the
+      // former, so anything else would read as permanently short.
+      const complete = dayState?.total != null && dayState.races.length >= dayState.total;
+      return complete ? `${day.items.length} races` : `${day.items.length} races loaded`;
+    }
+    const state = dayState;
     if (state?.isLoading) return "Loading…";
     // A failed fetch leaves state.total unset (see loadDayPage's catch) —
     // check error before the generic "state exists" fallback below, or a
@@ -1006,9 +1038,9 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                                                 </Text>
                                               </TouchableOpacity>
                                             )}
-                                            {runner.modelWinProbability != null && (
+                                            {modelProb(runner) != null && (
                                               <Text testID={`industry-sp-item-model-${runner.id}`} style={styles.modelBadge}>
-                                                Model {runner.modelWinProbability.toFixed(0)}%
+                                                Model {(modelProb(runner) as number).toFixed(0)}%
                                                 {runner.isp != null && runner.isp > 0 && (
                                                   <Text testID={`industry-sp-item-implied-sp-${runner.id}`} style={styles.impliedSpBadge}>
                                                     {` · SP ${impliedProbabilityPct(runner.isp).toFixed(0)}%`}
