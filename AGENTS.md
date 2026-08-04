@@ -6214,3 +6214,22 @@ The invariant that makes this a clean swap rather than a date heuristic: **`mode
 4. **The staking plan is sound and was ruled out as the cause.** `stake = 1/(isp-1)`, return `stake+1` on a win, is target-profit staking with zero expectation at fair odds; the −11.7% no-filter baseline is just the ISP overround.
 5. **Local dev DBs predating this need reseeding** — `npx ts-node src/commands/seed-isp-model-probabilities.ts` (already wired into `scripts/local-ci-e2e.sh:221`). A DB with in-sample values but no Oos values makes the ISP integration suites fail on empty selections rather than on logic.
 6. **Test-suite baselines, measured by stashing the change and re-running:** backend 7 failing suites before and after (bet-orders, price-updates, market-definitions, OpenAI key, betfair-service, simple, runner-price-updates — all unrelated); MSW `industry-sp.spec.ts` the identical 22 failures before and after; Storybook 8 failures before, 7 after (`IspRacesScreen › CollapseAllTogglesEverything` now passes). No regressions.
+
+---
+
+## 2026-08-04 (later still) — primary checkout, directly on `develop` — "the results revert to maximum 1 month even if I chose bigger"
+
+Reported live via screenshot, right after the out-of-sample fix above went out. A `2015-01-01 → 2016-01-01` range with "Model beats SP" + "Beats SP by 10 pts" returned **11 races, all on the single day `2016-01-01`**.
+
+Not a date bug. The only clamp on that screen is one *year* (`IndustrySpScreen.tsx`), and a year is what was asked for. The cause is coverage: model filters read `MODEL_PROB_FIELD`, which `ml/walk_forward_score.py` only produces between `coverageMinDate` and `coverageMaxDate` (`2016-01-01`..`2026-07-30` in production). The earliest year has no prior history to fit on, so ~86k runners are deliberately unscored. Before the fix the filters read the in-sample field, which *does* exist for 2015, so that year looked full — of leaky rows.
+
+So the behaviour was right and the presentation was silent. Fixed by explaining, not clamping (the user's call): the dates stay theirs, and a note names the window and which end of the range falls outside it.
+
+### Things worth knowing
+
+1. **Coverage was already recorded** — the walk-forward evaluation doc carries `coverageMinDate`/`coverageMaxDate`/`scoredRows`/`unscoredRows`. New public `GET /api/model-score-coverage` is one `findOne`, not an aggregation over 972k runners. `ModelVersionDAO`'s two queries key on disjoint fields (`modelVersionId` vs `evaluationType: "walk_forward"`), so neither can return the other's shape.
+2. **The client call never throws.** A database with no walk-forward run is normal (every fresh local stack); it shows no note rather than a broken one.
+3. **Same cliff at the far end.** Races after the last walk-forward pass are equally invisible to model filters until it is re-run — the note covers both edges.
+4. **Second bug in the same screenshot:** Split B read `64 – 11` against 11 matched races. `isStaleSplit` already guarded the cache path; the freshly-fetched path needed it too, because the race count can collapse under a split without the split itself changing.
+5. **Comparing test baselines by line number stopped working** once the spec grew — adding 4 MSW cases shifted every later `file:line`, making a naive diff show 22 "new" failures and 22 "fixed" ones. Compare by test *name*. Same 22 failures before and after; 63 → 67 passing.
+6. **`apps/lambda/build.sh` still dies on API Gateway throttling** (`AccessDenied`, `apigateway:PATCH` for `user/lbs-dev`) *after* the code deploy succeeds. Pre-existing IAM gap, hit on both deploys today. Also: `apps/web/deploy.sh` prunes root `node_modules` at the end, so the lambda build needs `yarn install` first on any run that follows a web deploy.
