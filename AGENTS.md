@@ -5992,3 +5992,193 @@ silently.
 preflight's "not symlinked" warning reads like a fault. It isn't — this is a
 real `uv` venv (`pyvenv.cfg`, `lib/`, `.lock` all present) and imports resolve
 to its own site-packages (xgboost 3.3.0, pandas 3.0.5). Don't rebuild it.
+
+---
+
+## 2026-08-04 — primary checkout, directly on `develop` — the model's Brier deficit against SP is entirely discrimination, not calibration
+
+User asked, plainly: "compare results against SP, compare Brier score, how good
+is the model?" The headline was already on record (2026-07-31: model 0.0932 vs
+market 0.0871). What was not established was *why* the model loses, whether the
+gap is significant once the dependence between runners in a race is accounted
+for, and whether it survives the de-vig choice. New read-only script
+`scripts/model-vs-sp-brier-2026-08-04.ts` — one streaming pass over
+`industry_starting_prices`, no writes, deterministic (ran twice, byte-identical
+output).
+
+**Population.** 885,067 matched runner-rows over 100,043 races, 2016-2026. Only
+22 rows dropped (no usable SP). Base rate 11.3%.
+
+### The answer
+
+| | Brier | AUC | skill vs base rate |
+|---|---|---|---|
+| model, out-of-sample | 0.093171 | 0.7186 | 0.0726 |
+| **industry SP (fair)** | **0.087109** | **0.7862** | **0.1330** |
+| model, in-sample | 0.089228 | — | — |
+| baseline: predict 11.3% for everything | 0.100468 | — | 0 |
+| baseline: 1/fieldSize | 0.098515 | — | — |
+
+**Brier Skill Score vs SP: −0.0696.** The model is ~7% worse than the price it
+is trying to beat. Framed the other way: the market extracts 13.3% of the
+available uncertainty, the model 7.3% — the model captures **just over half the
+market's skill**. It is not a bad forecaster in absolute terms (it beats both
+naive baselines comfortably); it is a worse one than the SP.
+
+### Why — the Murphy decomposition is the whole story
+
+Brier = reliability − resolution + uncertainty, over 100 equal-count bins,
+debiased for bin-sampling noise:
+
+| | reliability (calibration, lower better) | resolution (discrimination, higher better) |
+|---|---|---|
+| model | 0.000098 | 0.007336 |
+| market / SP | 0.000085 | 0.013368 |
+
+- **calibration accounts for 0.2% of the gap.** Both forecasters are almost
+  perfectly calibrated in aggregate — reliability is ~0.1% of total Brier for
+  each, and the model's mean prediction (11.3%) matches the actual win rate
+  (11.3%) to the decimal.
+- **discrimination accounts for 99.2%.** The market's resolution is **1.8x**
+  the model's. The model cannot separate winners from losers nearly as well,
+  which the AUC gap (0.719 vs 0.786) says independently.
+
+This is the single most important number in this entry, because it inverts the
+obvious remedy. **Calibration work cannot close this gap** — there is almost no
+calibration error to remove. That is now the explanation for something already
+observed and unexplained: `ml/walk_forward_score.py`'s out-of-fold isotonic
+correction moved Brier by 0.0001 and made log loss worse. It was not a
+mis-specified correction. There was nothing there to correct. Closing this gap
+needs **new information in the feature set**, not post-processing.
+
+### The gap is real, and stable
+
+Paired per-runner Brier differences (model − market), **clustered by race** —
+exactly one runner wins each race, so per-runner differences within a race are
+strongly dependent and a naive SE overstates precision:
+
+- mean difference **+6.0624e-3** (positive = model worse)
+- race-clustered SE 6.58e-5, **z = 92.1**, 95% CI [5.93e-3, 6.19e-3]
+- naive per-runner SE 6.22e-5 (z = 97.5) — clustering costs ~6% of the z, so in
+  this case it does not change the verdict, but it is the honest denominator
+
+Stable in **every one of eleven years** (BSS −0.065 to −0.073, no trend), and in
+**every field-size bucket** (−0.087 at 2-6 runners to −0.036 at 20+). Brier
+falls mechanically as fields grow — 0.145 at 2-6 runners vs 0.044 at 20+ — so a
+pooled Brier is confounded by field-size mix; the sign of the gap holds inside
+each bucket regardless.
+
+### It is not a de-vig artefact
+
+Proportional de-overrounding understates longshots, so it is fair to ask how
+much of the market's edge is methodological. Under **power/odds-ratio de-vig**
+(solve per race for k with Σ(1/isp)^k = 1) the market's Brier *improves* to
+**0.086973**. The market beats the model under both methods; the choice of
+de-vig is not doing the work.
+
+### The one table that shows what the model is actually getting wrong
+
+By SP band — banding on the price rather than on the model, so it does not
+condition on the thing under judgement:
+
+| SP band | n | model says | **actual** | market says | BSS |
+|---|---|---|---|---|---|
+| under 2.0 | 15,839 | 32.8% | **59.5%** | 54.6% | −0.344 |
+| 2.0 - 3.0 | 39,630 | 23.2% | 38.1% | 35.7% | −0.123 |
+| 3.0 - 5.0 | 117,167 | 17.4% | 23.7% | 22.8% | −0.049 |
+| 5.0 - 10.0 | 244,856 | 12.6% | 12.6% | 12.7% | −0.026 |
+| 10.0 - 20.0 | 213,474 | 9.3% | 6.0% | 6.4% | −0.049 |
+| 20.0+ | 254,101 | 5.7% | **1.7%** | 2.3% | −0.150 |
+
+The model **compresses toward the middle of the book**. On odds-on shots it
+says 32.8% where 59.5% win; on 20/1+ shots it says 5.7% where 1.7% win. It is
+right on the money only in the 5.0-10.0 band, which is also where most of the
+mass sits — which is precisely why the aggregate calibration number is
+flawless while the model is badly wrong nearly everywhere. **Aggregate
+reliability is worthless as an acceptance test for this model**; the 2026-08-01
+entry said the same thing from the P&L side and this is the same failure seen
+through the scoring rule.
+
+Note also the market's own imperfection in this table (54.6% claimed vs 59.5%
+actual on favourites, 2.3% vs 1.7% on longshots) — the residual
+favourite-longshot signature of proportional de-vigging, which is why the
+sensitivity check above matters.
+
+### Things worth knowing before touching this
+
+1. **The Murphy identity does not hold on raw forecasts, and an assertion that
+   it does will fail.** It is exact only for the *binned* forecast; the
+   remainder is within-bin discrimination the binning discarded. The first
+   version of the script asserted `|rel − res + unc − Brier| < 1e-6` against
+   the raw Brier and failed at 2.4e-4 — and printed "identity holds" anyway,
+   because the success line was unconditional. The script now asserts against
+   the binned forecast's own Brier (holds to <1e-9) and *reports* the within-bin
+   term (−5.9e-5 model, −7.6e-5 market) rather than hiding it.
+2. **Bin count is a real bias-variance tradeoff, not a free parameter.** Too
+   coarse and within-bin variance swamps reliability; too fine and each bin's
+   observed rate is noisy, which inflates reliability by ~(bins/N)·p(1−p) —
+   at 1000 equal-width bins that bias is *larger than reliability itself*
+   (~1e-4). Equal-**count** bins plus an explicit noise debias is what makes
+   the 0.2%/99.2% split trustworthy.
+3. **The stored walk-forward evaluation scores model and market on different
+   populations** — `overall.raw.n` 885,089 vs `overall.market.n` 885,067. Small,
+   but it means the headline pair in that doc is not strictly like-for-like.
+   This script intersects first and scores both on the same 885,067 rows.
+4. **Independent cross-check passed.** Model Brier 0.093171 here vs 0.093169
+   stored (delta 2.1e-6, explained by the 22-row intersection); market
+   0.087109 vs 0.087109; market AUC 0.786202 exact to six places. Those came
+   from sklearn over a pandas frame in Python, these from a streaming Node
+   pass — agreement validates both pipelines.
+5. **Still ISP only.** `market_definitions` and `price_updates` re-checked at
+   0 documents. Every "market" number here carries a 15-20% bookmaker margin
+   removed by an assumed model. Loading BSP for a couple of years remains the
+   highest-value next step, exactly as the 2026-08-01 entry said.
+6. **Coverage ends 2026-07-30** and 2026 has only 33,495 scored rows. Races
+   since then have no `modelWinProbabilityOos` — re-run
+   `ml/walk_forward_score.py` before quoting these numbers as current.
+7. **Unrelated, but noticed while doing this**: `.claude/commands/seed-atlas.md`
+   contains the Atlas username and password in plaintext and is committed. That
+   is a live production credential in git history. Worth rotating and moving to
+   `config/local.json` (already gitignored).
+
+**What this does and does not say.** It does not say the model is useless — it
+beats a base-rate forecast and a 1/fieldSize forecast by a clear margin, and its
+ranking ability is real (AUC 0.719). It says the model is a *worse* probability
+forecaster than the SP, by a margin that is significant, stable across eleven
+years and every field size, and robust to the de-vig method — and that the
+deficit is discrimination, so the fix is features, not calibration. Combined
+with the 2026-08-01 finding that the disagreements lose money monotonically in
+the direction of the disagreement, there is still no evidence of an edge at SP.
+
+---
+
+## 2026-08-04 (later) — primary checkout, directly on `develop` — the Filters screen was scoring itself with a model that already knew the winners
+
+Reported live via screenshot: a saved result named "Foobar1" (2016, `onlyModelBeatsSp=true`, `maxIsp=751`) showing **+£246.21 / +7.0%**, one hour after the Brier entry above concluded the model has no edge at SP. Both could not be true.
+
+They weren't. `modelBeatsSpCond` in `src/lib/dao/industry-sp-dao.ts` read **`modelWinProbability`** — the field `ml/train_and_predict.py`'s final refit writes, having been fitted on the very races it then scored. "Model beats SP" therefore meant "runners that a model which had already seen the result rated above the market", which selects winners by construction.
+
+Reproduced against production on the same rows, same staking (`stake = 1/(isp-1)`), same window:
+
+| selection (2016, isp ≤ 751) | bets | win% | staked | pnl | ROI |
+|---|---|---|---|---|---|
+| no model filter | 87,955 | 11.2 | £16,326 | −£1,891 | −11.6% |
+| `modelWinProbability` (the bug) | 40,946 | 7.8 | £3,510 | **+£247** | **+7.0%** |
+| `modelWinProbabilityOos` (honest) | 44,045 | 5.5 | £3,493 | **−£680** | **−19.5%** |
+
+Across all scored history the same filter goes from **+4.48% to −18.75%**, negative in all eleven years (−15.6% to −21.5%), against −11.67% for backing every runner. The selection is ~7 points *worse* than no filter — it doesn't just fail to beat the overround, it actively picks worse-than-random bets, consistent with the 2026-08-01 disagreement finding.
+
+### The fix
+
+One field, named once: `MODEL_PROB_FIELD = "modelWinProbabilityOos"` in `industry-sp-dao.ts`, with all 20 read sites routed through `MODEL_PROB_R` / `MODEL_PROB_MVS`. Client side, `modelProb()` in `client/src/utils/ispFormat.ts` is the single accessor, since the races endpoint returns whole runner subdocuments and the client recomputes badges itself — reading two different fields would leave badges contradicting the list they sit in.
+
+The invariant that makes this a clean swap rather than a date heuristic: **`modelWinProbabilityOos` means "produced without sight of this race's result"**. That is true of walk-forward scores *and* of live pre-race predictions, so `industry-sp-results-capture-service.ts` now writes the daily prediction to both fields. Without that, the 1,040 post-cutoff 2026 rows would have dropped out of every model filter and the daily live-results capture that hangs off those filters would have silently stopped returning rows.
+
+### Things worth knowing
+
+1. **Coverage is why the fallback isn't needed.** Of runners with `isp > 1`: 885,067 have a numeric Oos value; 86,027 are 2015, which `walk_forward_score.py` deliberately leaves unscored (no prior history), and which therefore *must not* qualify for a model filter; 1,040 are post-cutoff 2026 live-captured rows, now covered by the capture-path write above.
+2. **Every saved result created before this is contaminated** if it used `onlyModelBeatsSp`, `minModelSpEdgePts` or `minModelWinProbability`. Their `splitA`/`splitB` snapshots are baked in and are NOT recomputed by this change. That includes the 2026-07-27 doc named "…held-out test period" — Split B was never held out from anything, since the final refit trained on both halves.
+3. **`$ne: [field, null]` does not exclude a missing field in `$expr`** — a missing path compares equal to null there. It cost a mislabeled diagnostic row while investigating. Edge comparisons still exclude such rows (arithmetic on missing yields null), so the P&L numbers above are unaffected.
+4. **The staking plan is sound and was ruled out as the cause.** `stake = 1/(isp-1)`, return `stake+1` on a win, is target-profit staking with zero expectation at fair odds; the −11.7% no-filter baseline is just the ISP overround.
+5. **Local dev DBs predating this need reseeding** — `npx ts-node src/commands/seed-isp-model-probabilities.ts` (already wired into `scripts/local-ci-e2e.sh:221`). A DB with in-sample values but no Oos values makes the ISP integration suites fail on empty selections rather than on logic.
+6. **Test-suite baselines, measured by stashing the change and re-running:** backend 7 failing suites before and after (bet-orders, price-updates, market-definitions, OpenAI key, betfair-service, simple, runner-price-updates — all unrelated); MSW `industry-sp.spec.ts` the identical 22 failures before and after; Storybook 8 failures before, 7 after (`IspRacesScreen › CollapseAllTogglesEverything` now passes). No regressions.

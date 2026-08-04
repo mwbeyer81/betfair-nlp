@@ -41,6 +41,10 @@ export interface IspRunner {
   // Populated for every runner (no cold-start gap like trainerForm), so
   // undefined only means the precompute hasn't been run at all yet.
   modelWinProbability?: number | null;
+  // The same estimate, but produced WITHOUT sight of this race's result —
+  // see MODEL_PROB_FIELD below for why every filter on this collection reads
+  // this field and never modelWinProbability.
+  modelWinProbabilityOos?: number | null;
   // Which training run produced modelWinProbability — set alongside it in
   // ml/train_and_predict.py's per-runner array_filters update. Only ever
   // reflects the MOST RECENT run that scored this runner (each run
@@ -48,6 +52,37 @@ export interface IspRunner {
   // reconstructed for runners scored before this field existed.
   modelVersionId?: string | null;
 }
+
+// THE field every model-vs-SP filter, band and P&L on this collection judges
+// on. Same field ml/walk_forward_score.py writes and model-accuracy-dao.ts's
+// MODEL_ACCURACY_PROB_FIELD already reads — the two must never diverge, or
+// the Filters screen and the Model Accuracy screen would be scoring different
+// models under the same name.
+//
+// Why not modelWinProbability: that field carries two different meanings
+// depending on who wrote it. On a historical row it is the FINAL REFIT's
+// score from ml/train_and_predict.py, which was fitted on the very races it
+// then scored — so it already knows which horse won. Filtering on it (e.g.
+// onlyModelBeatsSp, minModelSpEdgePts) therefore selects winners by
+// construction rather than by skill. Measured on production over 2016-2026:
+// the "model beats SP" selection returns +4.5% ROI read through
+// modelWinProbability and -18.8% read through this field, against -11.7% for
+// betting every runner. The first number is leakage; only the second is real.
+// See AGENTS.md 2026-08-04.
+//
+// A row missing this field has no honest number and must not qualify for a
+// model filter. That is exactly right for pre-2016 runners, which
+// walk_forward_score.py deliberately leaves unscored (no prior history to fit
+// on). Live-captured runners are NOT in that group: their prediction was made
+// before the race ran, which is out-of-sample by construction, so
+// industry-sp-results-capture-service.ts writes it to this field too.
+export const MODEL_PROB_FIELD = "modelWinProbabilityOos";
+
+// The same field as an aggregation path, under the two variable bindings this
+// file's pipelines use: `$$r` inside every $filter/$map over `runners`, and
+// `$mvsRunner` after getModelVsSpRunners has unwound its filtered array.
+const MODEL_PROB_R = `$$r.${MODEL_PROB_FIELD}`;
+const MODEL_PROB_MVS = `$mvsRunner.${MODEL_PROB_FIELD}`;
 
 export interface IspRace {
   raceId: number;
@@ -80,7 +115,7 @@ export interface ModelVsSpParams {
   minImpliedProb: number;
   maxImpliedProb: number;
   // The SIZE of the gap between the model and the market, in percentage points,
-  // ignoring direction: |modelWinProbability - (100 / isp)|. A range of 10-20
+  // ignoring direction: |modelWinProbabilityOos - (100 / isp)|. A range of 10-20
   // therefore matches a runner the model rates 12 points above its SP and one it
   // rates 12 points below equally — the question this screen answers is "how far
   // apart are they", not "which way". The signed value is still carried on every
@@ -102,7 +137,7 @@ export interface ModelVsSpParams {
 // One row per qualifying RUNNER, not per race — the whole point of this query,
 // and why it can't reuse getAllRacesByRace's race-shaped IspRace output. Every
 // runner-level field here is non-null by construction: the filter requires
-// isp > 1 and a non-null modelWinProbability, so impliedSpProbability and edge
+// isp > 1 and a non-null out-of-sample model probability, so impliedSpProbability and edge
 // are always computable.
 export interface ModelVsSpRow {
   raceId: number;
@@ -147,16 +182,17 @@ function escapeRegex(str: string): string {
 // can't land in three of them and miss the fourth.
 //
 // minEdgePts is the minimum signed gap, in percentage POINTS, between the
-// model's win probability and the one the runner's industry SP implies
-// (100/isp) — the Mongo counterpart of modelSpEdge() in
+// model's out-of-sample win probability (MODEL_PROB_FIELD — read its comment
+// before ever pointing this at modelWinProbability again) and the one the
+// runner's industry SP implies (100/isp) — the Mongo counterpart of modelSpEdge() in
 // client/src/utils/ispFormat.ts, which the client-side filter and the "+5.0 pts"
 // runner badges both go through. At the default 0 this stays exactly the
 // strict "any positive edge" test it has always been ($gt 0, not $gte): a
 // runner the model rates level with the market isn't beating it.
 export function modelBeatsSpCond(minEdgePts: number): Record<string, unknown>[] {
-  const edgeExpr = { $subtract: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] };
+  const edgeExpr = { $subtract: [MODEL_PROB_R, { $divide: [100, "$$r.isp"] }] };
   return [
-    { $ne: ["$$r.modelWinProbability", null] },
+    { $ne: [MODEL_PROB_R, null] },
     { $ne: ["$$r.isp", null] },
     { $gt: ["$$r.isp", 0] },
     minEdgePts > 0 ? { $gte: [edgeExpr, minEdgePts] } : { $gt: [edgeExpr, 0] },
@@ -269,8 +305,8 @@ export class IndustrySpDAO {
 
     const modelFilterActive = p.minModelWinProbability > 0;
     const modelCond = [
-      { $ne: ["$$r.modelWinProbability", null] },
-      { $gte: ["$$r.modelWinProbability", p.minModelWinProbability] },
+      { $ne: [MODEL_PROB_R, null] },
+      { $gte: [MODEL_PROB_R, p.minModelWinProbability] },
     ];
     const modelQualifyingCountExpr = modelFilterActive
       ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: modelCond } } } }
@@ -717,8 +753,8 @@ export class IndustrySpDAO {
                                 : []),
                               ...(modelFilterActive
                                 ? [
-                                    { $ne: ["$$r.modelWinProbability", null] },
-                                    { $gte: ["$$r.modelWinProbability", minModelWinProbability] },
+                                    { $ne: [MODEL_PROB_R, null] },
+                                    { $gte: [MODEL_PROB_R, minModelWinProbability] },
                                   ]
                                 : []),
                               ...(modelBeatsSpFilterActive ? modelBeatsSpCond(minModelSpEdgePts) : []),
@@ -872,8 +908,8 @@ export class IndustrySpDAO {
                     : []),
                   ...(modelFilterActive
                     ? [
-                        { $ne: ["$$r.modelWinProbability", null] },
-                        { $gte: ["$$r.modelWinProbability", p.minModelWinProbability] },
+                        { $ne: [MODEL_PROB_R, null] },
+                        { $gte: [MODEL_PROB_R, p.minModelWinProbability] },
                       ]
                     : []),
                   ...(modelBeatsSpFilterActive ? modelBeatsSpCond(minModelSpEdgePts) : []),
@@ -1005,8 +1041,8 @@ export class IndustrySpDAO {
     ];
     const modelFilterActive = minModelWinProbability > 0;
     const modelCond = [
-      { $ne: ["$$r.modelWinProbability", null] },
-      { $gte: ["$$r.modelWinProbability", minModelWinProbability] },
+      { $ne: [MODEL_PROB_R, null] },
+      { $gte: [MODEL_PROB_R, minModelWinProbability] },
     ];
     const modelBeatsSpFilterActive = onlyModelBeatsSp || minModelSpEdgePts > 0;
     const beatsSpCond = modelBeatsSpCond(minModelSpEdgePts);
@@ -1260,7 +1296,7 @@ export class IndustrySpDAO {
    * there are" can never drift apart.
    *
    * `isp > 1` isn't only the usual "has a real SP" guard here: it's what makes
-   * the $divide safe. `modelWinProbability != null` excludes both an explicit
+   * the $divide safe. `modelWinProbabilityOos != null` excludes both an explicit
    * null and an absent field in one check (a missing path compares equal to
    * null in an aggregation expression), which is what drops the CSV-imported
    * historical runners that were never model-scored — a model-vs-SP gap is
@@ -1281,16 +1317,16 @@ export class IndustrySpDAO {
     opts: { applyAbsEdge: boolean } = { applyAbsEdge: true }
   ): Record<string, unknown> {
     const impliedExpr = { $divide: [100, "$$r.isp"] };
-    const absEdgeExpr = { $abs: { $subtract: ["$$r.modelWinProbability", impliedExpr] } };
+    const absEdgeExpr = { $abs: { $subtract: [MODEL_PROB_R, impliedExpr] } };
     return {
       $and: [
         { $ifNull: ["$$r.isp", false] },
         { $gt: ["$$r.isp", 1] },
         { $gte: ["$$r.isp", p.minIsp] },
         { $lte: ["$$r.isp", p.maxIsp] },
-        { $ne: ["$$r.modelWinProbability", null] },
-        { $gte: ["$$r.modelWinProbability", p.minModelProb] },
-        { $lte: ["$$r.modelWinProbability", p.maxModelProb] },
+        { $ne: [MODEL_PROB_R, null] },
+        { $gte: [MODEL_PROB_R, p.minModelProb] },
+        { $lte: [MODEL_PROB_R, p.maxModelProb] },
         { $gte: [impliedExpr, p.minImpliedProb] },
         { $lte: [impliedExpr, p.maxImpliedProb] },
         ...(opts.applyAbsEdge
@@ -1373,7 +1409,7 @@ export class IndustrySpDAO {
    *    second; see that constant for the full measurement table.
    *
    *    createIndexes() is deliberately left untouched. A multikey index on
-   *    runners.modelWinProbability wouldn't help: the race-level pre-filter is an
+   *    runners.modelWinProbabilityOos wouldn't help: the race-level pre-filter is an
    *    $expr over a computed count, which can't use an index, so it would cost
    *    ~1M index entries against M0's tight storage quota and never be read.
    *
@@ -1420,7 +1456,7 @@ export class IndustrySpDAO {
       isFavourite: { $ifNull: ["$mvsRunner.isFavourite", false] },
       jockey: { $ifNull: ["$mvsRunner.jockey", null] },
       trainer: { $ifNull: ["$mvsRunner.trainer", null] },
-      modelWinProbability: "$mvsRunner.modelWinProbability",
+      modelWinProbability: MODEL_PROB_MVS,
       impliedSpProbability: impliedFromRunner,
       modelVersionId: { $ifNull: ["$mvsRunner.modelVersionId", null] },
     };
@@ -1445,7 +1481,7 @@ export class IndustrySpDAO {
                   as: "r",
                   in: {
                     id: "$$r.id",
-                    edge: { $subtract: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
+                    edge: { $subtract: [MODEL_PROB_R, { $divide: [100, "$$r.isp"] }] },
                   },
                 },
               },
@@ -1545,7 +1581,7 @@ export class IndustrySpDAO {
           { $skip: skip },
           { $limit: p.limit },
           { $addFields: { mvsRunner: "$mvsRunners" } },
-          { $project: { ...rowFields, edge: { $subtract: ["$mvsRunner.modelWinProbability", impliedFromRunner] } } },
+          { $project: { ...rowFields, edge: { $subtract: [MODEL_PROB_MVS, impliedFromRunner] } } },
         ];
 
     const rows = await this.collection.aggregate<ModelVsSpRow>(dataPipeline, { allowDiskUse: true }).toArray();
@@ -1614,7 +1650,7 @@ export class IndustrySpDAO {
                 $map: {
                   input: "$mvsAll",
                   as: "r",
-                  in: { $abs: { $subtract: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] } },
+                  in: { $abs: { $subtract: [MODEL_PROB_R, { $divide: [100, "$$r.isp"] }] } },
                 },
               },
             },

@@ -85,6 +85,11 @@ export interface IspRunner {
   // runners sum to 100) — precomputed in ml/train_and_predict.py,
   // deliberately trained without isp/ispFraction/isFavourite as inputs.
   modelWinProbability?: number | null;
+  // The same estimate produced WITHOUT sight of this race's result — the only
+  // one any filter or badge may read. Go through modelProb() in
+  // utils/ispFormat.ts rather than touching either field directly; its comment
+  // explains why the in-sample field above must never drive a selection.
+  modelWinProbabilityOos?: number | null;
   // Which training run produced modelWinProbability — set alongside it in
   // ml/train_and_predict.py. Only ever reflects the MOST RECENT run that
   // scored this runner (each run overwrites both fields together);

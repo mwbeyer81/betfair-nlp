@@ -371,12 +371,12 @@ describe("IndustrySpDAO (integration)", () => {
   });
 
   it("minModelWinProbability narrows (or matches) the result vs. no threshold, when model predictions are seeded", async () => {
-    // Guarded like the trainer-form test above — modelWinProbability only
+    // Guarded like the trainer-form test above — modelWinProbabilityOos only
     // exists once ml/train_and_predict.py has been run against this
     // environment's data; skip rather than fail if it hasn't.
     const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
     const hasModelData = sample[0]?.runners.some(
-      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+      r => (r as unknown as { modelWinProbabilityOos?: number | null }).modelWinProbabilityOos != null
     );
     if (!hasModelData) return;
 
@@ -388,8 +388,8 @@ describe("IndustrySpDAO (integration)", () => {
     expect(narrowed.total).toBeLessThanOrEqual(unfiltered.total);
     for (const race of narrowed.data) {
       const qualifying = race.runners.filter(
-        r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null &&
-          (r as unknown as { modelWinProbability: number }).modelWinProbability >= 30
+        r => (r as unknown as { modelWinProbabilityOos?: number | null }).modelWinProbabilityOos != null &&
+          (r as unknown as { modelWinProbabilityOos: number }).modelWinProbabilityOos >= 30
       );
       expect(qualifying.length).toBeGreaterThanOrEqual(1);
     }
@@ -400,7 +400,7 @@ describe("IndustrySpDAO (integration)", () => {
     // than fail if the model precompute hasn't been run in this environment.
     const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
     const hasModelData = sample[0]?.runners.some(
-      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+      r => (r as unknown as { modelWinProbabilityOos?: number | null }).modelWinProbabilityOos != null
     );
     if (!hasModelData) return;
 
@@ -412,9 +412,9 @@ describe("IndustrySpDAO (integration)", () => {
     expect(narrowed.total).toBeLessThanOrEqual(unfiltered.total);
     for (const race of narrowed.data) {
       const qualifying = race.runners.filter(r => {
-        const runner = r as unknown as { modelWinProbability?: number | null; isp?: number | null };
-        return runner.modelWinProbability != null && runner.isp != null && runner.isp > 0 &&
-          runner.modelWinProbability > 100 / runner.isp;
+        const runner = r as unknown as { modelWinProbabilityOos?: number | null; isp?: number | null };
+        return runner.modelWinProbabilityOos != null && runner.isp != null && runner.isp > 0 &&
+          runner.modelWinProbabilityOos > 100 / runner.isp;
       });
       expect(qualifying.length).toBeGreaterThanOrEqual(1);
     }
@@ -434,7 +434,7 @@ describe("IndustrySpDAO (integration)", () => {
     // than fail if the model precompute hasn't been run in this environment.
     const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
     const hasModelData = sample[0]?.runners.some(
-      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+      r => (r as unknown as { modelWinProbabilityOos?: number | null }).modelWinProbabilityOos != null
     );
     if (!hasModelData) return;
 
@@ -450,9 +450,9 @@ describe("IndustrySpDAO (integration)", () => {
     expect(narrowed.total).toBeLessThanOrEqual(unfiltered.total);
     for (const race of narrowed.data) {
       const qualifying = race.runners.filter(r => {
-        const runner = r as unknown as { modelWinProbability?: number | null; isp?: number | null };
-        return runner.modelWinProbability != null && runner.isp != null && runner.isp > 0 &&
-          runner.modelWinProbability - 100 / runner.isp >= 10;
+        const runner = r as unknown as { modelWinProbabilityOos?: number | null; isp?: number | null };
+        return runner.modelWinProbabilityOos != null && runner.isp != null && runner.isp > 0 &&
+          runner.modelWinProbabilityOos - 100 / runner.isp >= 10;
       });
       expect(qualifying.length).toBeGreaterThanOrEqual(1);
     }
@@ -461,7 +461,7 @@ describe("IndustrySpDAO (integration)", () => {
   it("a larger minModelSpEdgePts is monotonically at least as narrow as a smaller one, and both are at most onlyModelBeatsSp alone", async () => {
     const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
     const hasModelData = sample[0]?.runners.some(
-      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+      r => (r as unknown as { modelWinProbabilityOos?: number | null }).modelWinProbabilityOos != null
     );
     if (!hasModelData) return;
 
@@ -515,7 +515,7 @@ describe("IndustrySpDAO (integration)", () => {
   it("qualifyingRunnersCount-based totalRunners strictly narrows (or matches) as trainer-form/model filters stack, when seeded", async () => {
     const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
     const hasModelData = sample[0]?.runners.some(
-      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+      r => (r as unknown as { modelWinProbabilityOos?: number | null }).modelWinProbabilityOos != null
     );
     if (!hasModelData) return;
 
@@ -570,7 +570,7 @@ describe("IndustrySpDAO (integration)", () => {
   it("getRaceConvergenceSeries' slow path (a model filter active) still reconciles with getAllRacesByRace's own pnlStats for the same range, when seeded", async () => {
     const { data: sample } = await dao.getAllRacesByRace(1, 1, 1, 100);
     const hasModelData = sample[0]?.runners.some(
-      r => (r as unknown as { modelWinProbability?: number | null }).modelWinProbability != null
+      r => (r as unknown as { modelWinProbabilityOos?: number | null }).modelWinProbabilityOos != null
     );
     if (!hasModelData) return;
 

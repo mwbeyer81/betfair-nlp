@@ -41,8 +41,8 @@ describe("IndustrySpDAO modelVersionId filter (integration)", () => {
         ran: 2,
         runnersWithIspCount: 2,
         runners: [
-          { id: 101, name: "Runner A", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, modelWinProbability: 60, modelVersionId: "xgb-v1" },
-          { id: 102, name: "Runner B", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 4, ispFraction: "3/1", isFavourite: false, modelWinProbability: 40, modelVersionId: "xgb-v1" },
+          { id: 101, name: "Runner A", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, modelWinProbabilityOos: 60, modelVersionId: "xgb-v1" },
+          { id: 102, name: "Runner B", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 4, ispFraction: "3/1", isFavourite: false, modelWinProbabilityOos: 40, modelVersionId: "xgb-v1" },
         ],
       },
       {
@@ -60,8 +60,8 @@ describe("IndustrySpDAO modelVersionId filter (integration)", () => {
         ran: 2,
         runnersWithIspCount: 2,
         runners: [
-          { id: 201, name: "Runner C", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 3, ispFraction: "2/1", isFavourite: true, modelWinProbability: 55, modelVersionId: "xgb-v2" },
-          { id: 202, name: "Runner D", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbability: 45, modelVersionId: "xgb-v2" },
+          { id: 201, name: "Runner C", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 3, ispFraction: "2/1", isFavourite: true, modelWinProbabilityOos: 55, modelVersionId: "xgb-v2" },
+          { id: 202, name: "Runner D", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbabilityOos: 45, modelVersionId: "xgb-v2" },
         ],
       },
     ] as any[]);

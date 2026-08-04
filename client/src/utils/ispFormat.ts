@@ -57,8 +57,8 @@ export function computeModelFilteredPnl(races: IspRace[], minModelWinProbability
       if (
         runner.isp != null &&
         runner.isp > 1 &&
-        runner.modelWinProbability != null &&
-        runner.modelWinProbability >= minModelWinProbability &&
+        modelProb(runner) != null &&
+        (modelProb(runner) as number) >= minModelWinProbability &&
         modelBeatsSp(runner)
       ) {
         count++;
@@ -118,7 +118,7 @@ export function runnerQualifies(r: IspRunner, p: QualifyingFilterParams): boolea
   if (p.hasTrainerForm && !(r.trainerFormWinRate != null && r.trainerFormWinRate >= p.trainerFormMinWinRate)) {
     return false;
   }
-  if (p.minModelWinProbability > 0 && !(r.modelWinProbability != null && r.modelWinProbability >= p.minModelWinProbability)) {
+  if (p.minModelWinProbability > 0 && !((modelProb(r) ?? -1) >= p.minModelWinProbability)) {
     return false;
   }
   if (p.onlyModelBeatsSp && !modelBeatsSp(r)) return false;
@@ -148,9 +148,27 @@ export function impliedProbabilityPct(isp: number): number {
 // src/lib/dao/industry-sp-dao.ts. The two can't share code (one is an expression
 // tree), so that DAO's integration test pins both to the same hand-derived
 // numbers.
+// The model's win probability for a runner, as every filter and badge on this
+// screen must read it: the out-of-sample estimate, produced without sight of
+// this race's result.
+//
+// modelWinProbability is deliberately NOT used. On a historical runner it is
+// the final refit's in-sample score — fitted on the very race it scored, so it
+// already knows the winner, and filtering on it picks winners by construction
+// rather than by skill (+4.5% ROI read that way vs -18.8% read honestly; see
+// AGENTS.md 2026-08-04). This must stay the same field
+// MODEL_PROB_FIELD names in src/lib/dao/industry-sp-dao.ts: the server filters
+// the race list on that field, and these helpers decide which runners inside a
+// returned race get highlighted, so reading two different fields would leave
+// the badges contradicting the list they sit in.
+export function modelProb(runner: IspRunner): number | null {
+  return runner.modelWinProbabilityOos ?? null;
+}
+
 export function modelSpEdge(runner: IspRunner): number | null {
-  if (runner.modelWinProbability == null || runner.isp == null || runner.isp <= 0) return null;
-  return runner.modelWinProbability - impliedProbabilityPct(runner.isp);
+  const prob = modelProb(runner);
+  if (prob == null || runner.isp == null || runner.isp <= 0) return null;
+  return prob - impliedProbabilityPct(runner.isp);
 }
 
 // Always signed, and always suffixed "pts" — the value is a difference of two

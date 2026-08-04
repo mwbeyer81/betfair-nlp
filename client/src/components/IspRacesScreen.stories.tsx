@@ -20,7 +20,7 @@ const MOCK_RACES: Array<{
     id: number; name: string; num: number | null; draw: number | null; status: string; sortPriority: number;
     isp: number; ispFraction: string; isFavourite: boolean;
     trainer?: string; trainerFormRuns?: number; trainerFormWins?: number; trainerFormWinRate?: number | null;
-    modelWinProbability?: number | null;
+    modelWinProbabilityOos?: number | null;
   }>;
 }> = [
   {
@@ -72,9 +72,9 @@ const FILTERED_RACE_MOCK = [
     raceType: "Chase",
     ran: 3,
     runners: [
-      { id: 31001, name: "Red Stripes", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbability: 26 },
-      { id: 31002, name: "Aqlette", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 17, ispFraction: "16/1", isFavourite: false, modelWinProbability: 21 },
-      // No modelWinProbability → modelBeatsSp is false, so this runner is
+      { id: 31001, name: "Red Stripes", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbabilityOos: 26 },
+      { id: 31002, name: "Aqlette", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 17, ispFraction: "16/1", isFavourite: false, modelWinProbabilityOos: 21 },
+      // No out-of-sample model probability → modelBeatsSp is false, so this runner is
       // filtered out of the list — but its -£1.00 loser stake used to still
       // get folded into the race's P&L total.
       { id: 31003, name: "Filtered Favourite", num: 3, draw: null, status: "LOSER", sortPriority: 3, isp: 2, ispFraction: "1/1", isFavourite: true },

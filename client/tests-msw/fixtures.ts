@@ -351,9 +351,9 @@ async function setupApiMocks(page: Page) {
     going: "Good",
     ran: 3,
     runners: [
-      { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, ispFraction: "7/2", isFavourite: false, trainer: "W P Mullins", modelWinProbability: 12.5 },
-      { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, ispFraction: "41/5", isFavourite: false, trainer: "G Elliott", trainerFormRuns: 0, modelWinProbability: 8.3 },
-      { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, ispFraction: "11/10", isFavourite: true, trainer: "W P Mullins", trainerFormRuns: 14, trainerFormWins: 3, trainerFormWinRate: 21.43, modelWinProbability: 39.2 },
+      { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, ispFraction: "7/2", isFavourite: false, trainer: "W P Mullins", modelWinProbabilityOos: 12.5 },
+      { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, ispFraction: "41/5", isFavourite: false, trainer: "G Elliott", trainerFormRuns: 0, modelWinProbabilityOos: 8.3 },
+      { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, ispFraction: "11/10", isFavourite: true, trainer: "W P Mullins", trainerFormRuns: 14, trainerFormWins: 3, trainerFormWinRate: 21.43, modelWinProbabilityOos: 39.2 },
     ],
   };
 
@@ -375,7 +375,7 @@ async function setupApiMocks(page: Page) {
     going: "Good",
     ran: 1,
     runners: [
-      { id: 99001, name: "Teston (FR)", num: 1, draw: 2, status: "PLACED", sortPriority: 1, isp: 11, ispFraction: "10/1", isFavourite: false, trainer: "Ivan Furtado", trainerFormRuns: 0, modelWinProbability: 100 },
+      { id: 99001, name: "Teston (FR)", num: 1, draw: 2, status: "PLACED", sortPriority: 1, isp: 11, ispFraction: "10/1", isFavourite: false, trainer: "Ivan Furtado", trainerFormRuns: 0, modelWinProbabilityOos: 100 },
     ],
   };
 
@@ -402,9 +402,9 @@ async function setupApiMocks(page: Page) {
       // once — the real-world worst case reported live where a runner with
       // ISP + Bet + PnL + trainer/form + Model + Value + status badges all
       // present squeezed the runner name down to an illegible sliver.
-      { id: 55501, name: "Value Bet Horse With A Longer Name", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 10, ispFraction: "9/1", isFavourite: false, trainer: "Henry Daly", trainerFormRuns: 13, trainerFormWins: 4, trainerFormWinRate: 30.77, modelWinProbability: 25 },
+      { id: 55501, name: "Value Bet Horse With A Longer Name", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 10, ispFraction: "9/1", isFavourite: false, trainer: "Henry Daly", trainerFormRuns: 13, trainerFormWins: 4, trainerFormWinRate: 30.77, modelWinProbabilityOos: 25 },
       // isp 1.5 -> implied 66.7%, model 20% -> doesn't beat SP.
-      { id: 55502, name: "Market Favourite", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 1.5, ispFraction: "1/2", isFavourite: true, modelWinProbability: 20 },
+      { id: 55502, name: "Market Favourite", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 1.5, ispFraction: "1/2", isFavourite: true, modelWinProbabilityOos: 20 },
     ],
   };
 
@@ -437,12 +437,12 @@ async function setupApiMocks(page: Page) {
       });
     }
     // Mirrors the real DAO's modelQualifyingCount check — a race qualifies
-    // if at least 1 runner has modelWinProbability >= minModelWinProbability.
+    // if at least 1 runner has modelWinProbabilityOos >= minModelWinProbability.
     if (minModelWinProbability > 0) {
       raceData = raceData.filter((race) =>
         race.runners.some(
-          (r) => (r as { modelWinProbability?: number }).modelWinProbability != null &&
-            (r as { modelWinProbability: number }).modelWinProbability >= minModelWinProbability
+          (r) => (r as { modelWinProbabilityOos?: number }).modelWinProbabilityOos != null &&
+            (r as { modelWinProbabilityOos: number }).modelWinProbabilityOos >= minModelWinProbability
         )
       );
     }
@@ -452,9 +452,9 @@ async function setupApiMocks(page: Page) {
     if (onlyModelBeatsSp) {
       raceData = raceData.filter((race) =>
         race.runners.some((r) => {
-          const runner = r as { modelWinProbability?: number; isp?: number };
-          return runner.modelWinProbability != null && runner.isp != null && runner.isp > 0 &&
-            runner.modelWinProbability > 100 / runner.isp;
+          const runner = r as { modelWinProbabilityOos?: number; isp?: number };
+          return runner.modelWinProbabilityOos != null && runner.isp != null && runner.isp > 0 &&
+            runner.modelWinProbabilityOos > 100 / runner.isp;
         })
       );
     }
@@ -490,8 +490,8 @@ async function setupApiMocks(page: Page) {
     going: "Firm",
     ran: 2,
     runners: [
-      { id: 66601, name: "June Value Runner", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false, trainer: "A Balding", modelWinProbability: 45 },
-      { id: 66602, name: "June Outsider", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 20, ispFraction: "19/1", isFavourite: false, trainer: "A Balding", modelWinProbability: 1 },
+      { id: 66601, name: "June Value Runner", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false, trainer: "A Balding", modelWinProbabilityOos: 45 },
+      { id: 66602, name: "June Outsider", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 20, ispFraction: "19/1", isFavourite: false, trainer: "A Balding", modelWinProbabilityOos: 1 },
     ],
   };
 
@@ -516,7 +516,7 @@ async function setupApiMocks(page: Page) {
       const runner = r as {
         id: number; name: string; num: number | null; draw: number | null;
         status: string; sortPriority: number; isp: number; ispFraction: string;
-        isFavourite: boolean; trainer?: string; modelWinProbability: number;
+        isFavourite: boolean; trainer?: string; modelWinProbabilityOos: number;
       };
       const implied = 100 / runner.isp;
       return {
@@ -542,9 +542,9 @@ async function setupApiMocks(page: Page) {
         isFavourite: runner.isFavourite,
         jockey: null,
         trainer: runner.trainer ?? null,
-        modelWinProbability: runner.modelWinProbability,
+        modelWinProbability: runner.modelWinProbabilityOos,
         impliedSpProbability: implied,
-        edge: runner.modelWinProbability - implied,
+        edge: runner.modelWinProbabilityOos - implied,
         modelVersionId: "xgb-msw",
       };
     })

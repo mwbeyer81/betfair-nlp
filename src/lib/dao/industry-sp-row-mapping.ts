@@ -50,6 +50,15 @@ export interface RunnerDoc {
   // recomputed here, so a live-captured runner's modelWinProbability always
   // matches exactly what the pre-race Daily Races screen showed for it.
   modelWinProbability?: number | null;
+  // Set to the same pre-race number as modelWinProbability on this path, and
+  // that is not redundancy: a prediction made before the race ran is
+  // out-of-sample by construction, which is exactly what
+  // industry-sp-dao.ts's MODEL_PROB_FIELD means by the name. Without it a
+  // live-captured runner would be invisible to every model filter, and the
+  // daily live-results capture that hangs off those filters would silently
+  // stop returning rows. On historical CSV-imported runners this field comes
+  // from ml/walk_forward_score.py instead, never from here.
+  modelWinProbabilityOos?: number | null;
   modelVersionId?: string | null;
 }
 

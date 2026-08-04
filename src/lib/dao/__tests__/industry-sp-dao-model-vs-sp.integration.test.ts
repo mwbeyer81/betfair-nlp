@@ -85,31 +85,31 @@ describe("IndustrySpDAO.getModelVsSpRunners (integration)", () => {
     await db.collection("industry_starting_prices").insertMany([
       race(1, "2024-01-10T14:00:00.000Z", [
         // edge +15
-        { id: 101, name: "Edge Plus Fifteen", num: 1, draw: 1, status: "WINNER", sortPriority: 2, isp: 4, ispFraction: "3/1", isFavourite: false, jockey: "J One", trainer: "T One", modelWinProbability: 40, modelVersionId: "xgb-v1" },
+        { id: 101, name: "Edge Plus Fifteen", num: 1, draw: 1, status: "WINNER", sortPriority: 2, isp: 4, ispFraction: "3/1", isFavourite: false, jockey: "J One", trainer: "T One", modelWinProbabilityOos: 40, modelVersionId: "xgb-v1" },
         // edge exactly 0 — must be RETURNED, not silently dropped
-        { id: 102, name: "Edge Exactly Zero", num: 2, draw: 2, status: "LOSER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, jockey: "J Two", trainer: "T Two", modelWinProbability: 50, modelVersionId: "xgb-v1" },
+        { id: 102, name: "Edge Exactly Zero", num: 2, draw: 2, status: "LOSER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, jockey: "J Two", trainer: "T Two", modelWinProbabilityOos: 50, modelVersionId: "xgb-v1" },
       ]),
       race(2, "2024-02-20T15:30:00.000Z", [
         // edge -60
-        { id: 201, name: "Edge Minus Sixty", num: 1, draw: 1, status: "LOSER", sortPriority: 1, isp: 1.25, ispFraction: "1/4", isFavourite: true, modelWinProbability: 20, modelVersionId: "xgb-v1" },
+        { id: 201, name: "Edge Minus Sixty", num: 1, draw: 1, status: "LOSER", sortPriority: 1, isp: 1.25, ispFraction: "1/4", isFavourite: true, modelWinProbabilityOos: 20, modelVersionId: "xgb-v1" },
         // edge +10
-        { id: 202, name: "Edge Plus Ten", num: 2, draw: 2, status: "PLACED", sortPriority: 2, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbability: 30, modelVersionId: "xgb-v2" },
-        // Excluded: no modelWinProbability field at all (a CSV-imported runner)
+        { id: 202, name: "Edge Plus Ten", num: 2, draw: 2, status: "PLACED", sortPriority: 2, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbabilityOos: 30, modelVersionId: "xgb-v2" },
+        // Excluded: no modelWinProbabilityOos field at all (a CSV-imported runner)
         { id: 203, name: "No Model Field", num: 3, draw: 3, status: "LOSER", sortPriority: 3, isp: 6, ispFraction: "5/1", isFavourite: false },
-        // Excluded: modelWinProbability explicitly null
-        { id: 204, name: "Model Null", num: 4, draw: 4, status: "LOSER", sortPriority: 4, isp: 7, ispFraction: "6/1", isFavourite: false, modelWinProbability: null },
+        // Excluded: modelWinProbabilityOos explicitly null
+        { id: 204, name: "Model Null", num: 4, draw: 4, status: "LOSER", sortPriority: 4, isp: 7, ispFraction: "6/1", isFavourite: false, modelWinProbabilityOos: null },
         // Excluded: no isp
-        { id: 205, name: "No Isp", num: 5, draw: 5, status: "NON_FINISHER", sortPriority: 5, isp: null, ispFraction: null, isFavourite: false, modelWinProbability: 25 },
+        { id: 205, name: "No Isp", num: 5, draw: 5, status: "NON_FINISHER", sortPriority: 5, isp: null, ispFraction: null, isFavourite: false, modelWinProbabilityOos: 25 },
         // Excluded: isp === 1 (would make 100/isp = 100 and the $divide degenerate)
-        { id: 206, name: "Isp Exactly One", num: 6, draw: 6, status: "LOSER", sortPriority: 6, isp: 1, ispFraction: null, isFavourite: false, modelWinProbability: 30 },
+        { id: 206, name: "Isp Exactly One", num: 6, draw: 6, status: "LOSER", sortPriority: 6, isp: 1, ispFraction: null, isFavourite: false, modelWinProbabilityOos: 30 },
       ]),
       race(3, "2025-03-05T16:00:00.000Z", [
         // edge -5
-        { id: 301, name: "Edge Minus Five", num: 1, draw: 1, status: "LOSER", sortPriority: 1, isp: 10, ispFraction: "9/1", isFavourite: false, modelWinProbability: 5, modelVersionId: "xgb-v2" },
+        { id: 301, name: "Edge Minus Five", num: 1, draw: 1, status: "LOSER", sortPriority: 1, isp: 10, ispFraction: "9/1", isFavourite: false, modelWinProbabilityOos: 5, modelVersionId: "xgb-v2" },
       ]),
       // An IE race, so the country filter has something to exclude.
       race(4, "2025-03-06T16:00:00.000Z", [
-        { id: 401, name: "Irish Runner", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 4, ispFraction: "3/1", isFavourite: true, modelWinProbability: 40, modelVersionId: "xgb-v2" },
+        { id: 401, name: "Irish Runner", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 4, ispFraction: "3/1", isFavourite: true, modelWinProbabilityOos: 40, modelVersionId: "xgb-v2" },
       ], { countryCode: "IE", course: "Irishcourse" }),
     ] as any[]);
   }, 20000);
@@ -131,12 +131,12 @@ describe("IndustrySpDAO.getModelVsSpRunners (integration)", () => {
       expect(rows.filter(r => r.raceId === 1)).toHaveLength(2);
     });
 
-    it("excludes a runner with no modelWinProbability field at all", async () => {
+    it("excludes a runner with no modelWinProbabilityOos field at all", async () => {
       const { rows } = await dao.getModelVsSpRunners(params());
       expect(rows.map(r => r.runnerId)).not.toContain(203);
     });
 
-    it("excludes a runner whose modelWinProbability is explicitly null", async () => {
+    it("excludes a runner whose modelWinProbabilityOos is explicitly null", async () => {
       const { rows } = await dao.getModelVsSpRunners(params());
       expect(rows.map(r => r.runnerId)).not.toContain(204);
     });
