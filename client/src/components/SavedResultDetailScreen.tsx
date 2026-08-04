@@ -253,6 +253,13 @@ interface SavedResultDetailScreenProps {
   onRestore: (filters: Record<string, string>) => void;
   onNavigateToMeeting: (meetingId: string, filterQuery: string) => void;
   onNavigateToRace: (raceId: number, filterQuery: string) => void;
+  // The saved result's own filters, plus the clicked split's race range —
+  // everything /isp/races needs to list exactly the races that split
+  // covered. Deliberately takes `filters` as a parameter rather than
+  // letting the caller read window.location.search the way App.tsx's /isp
+  // branch does: this screen's URL is only ?id=<savedId>, so the filters
+  // exist nowhere but inside the loaded SavedFilterSet.
+  onViewRaces: (filters: Record<string, string>, fromRow: number, toRow: number | null) => void;
 }
 
 // The live Filters screen's own Split A/Split B card look (see
@@ -326,6 +333,7 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
   onRestore,
   onNavigateToMeeting,
   onNavigateToRace,
+  onViewRaces,
 }) => {
   const [result, setResult] = useState<SavedFilterSet | null>(null);
   const [loading, setLoading] = useState(true);
@@ -453,7 +461,18 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
               pnl={detailedSplit.pnlStats}
               brier={detailedSplit.brier}
               onClose={() => setDetailSplit(null)}
-              onViewRaces={() => {}}
+              // Was `() => {}` — the panel renders its "View N Races →"
+              // button unconditionally, so a dead handler here read as a
+              // button that silently does nothing (reported 2026-08-04,
+              // see scripts/prod-repro/saved-result-view-races-noop-2026-08-04.spec.ts).
+              // Sends the RAW toRow (null when the split was open-ended),
+              // not the `?? total` fallback the panel displays — same
+              // distinction IndustrySpScreen draws between what it shows
+              // and what it navigates with.
+              onViewRaces={() => {
+                setDetailSplit(null);
+                onViewRaces(result.filters, detailedSplit.fromRow, detailedSplit.toRow);
+              }}
             />
           )}
           <ScrollView contentContainerStyle={styles.scrollContent}>

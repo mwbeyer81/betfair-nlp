@@ -407,6 +407,20 @@ export default function App() {
           onNavigateToRace={(raceId, filterQuery) =>
             navigate("/isp/race", `id=${raceId}&${filterQuery}&${buildReturnParams(route)}`)
           }
+          // The saved-result counterpart to the /isp branch's own
+          // onViewRaces above. It can't reuse that implementation: there
+          // the applied filters live in window.location.search, here the
+          // URL is only ?id=<savedId> and the filters come out of the
+          // fetched SavedFilterSet, so they're passed in explicitly.
+          // Everything downstream is identical — /isp/races reads the same
+          // param names off the query string either way.
+          onViewRaces={(filters, fromRow, toRow) => {
+            const params = new URLSearchParams(filters);
+            params.set("fromRow", String(fromRow));
+            if (toRow != null) params.set("toRow", String(toRow));
+            else params.delete("toRow");
+            navigate("/isp/races", params.toString());
+          }}
         />
       );
     }

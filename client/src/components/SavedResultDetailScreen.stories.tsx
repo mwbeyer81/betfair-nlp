@@ -78,6 +78,7 @@ const meta: Meta<typeof SavedResultDetailScreen> = {
     onRestore: fn(),
     onNavigateToMeeting: fn(),
     onNavigateToRace: fn(),
+    onViewRaces: fn(),
   },
 };
 
@@ -181,6 +182,32 @@ export const SplitDetailsButtonOpensSplitDetailPanel: Story = {
     const closeBtn = await canvas.findByTestId("split-detail-panel-filters-a");
     await userEvent.click(closeBtn);
     await expect(canvas.queryByTestId("split-detail-panel-a")).not.toBeInTheDocument();
+  },
+};
+
+// Reported live 2026-08-04: this button was rendered by the shared
+// SplitDetailPanel but wired to `onViewRaces={() => {}}` here, so tapping
+// it did nothing at all — no navigation, no error, no hint anything was
+// wrong. It must hand back the saved result's OWN filters (this screen's
+// URL only carries ?id=, so they exist nowhere else) plus the clicked
+// split's raw race range.
+export const ViewRacesButtonNavigatesWithThisSplitsRangeAndFilters: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByTestId("saved-result-split-details-button-b"));
+
+    const viewRacesBtn = await canvas.findByTestId("split-detail-view-races-button-b");
+    await expect(viewRacesBtn).toHaveTextContent("View 2 Races");
+    await userEvent.click(viewRacesBtn);
+
+    // Split B's own 3–4, not Split A's 1–2 — the whole point of the button
+    // living inside a per-split panel.
+    await expect(args.onViewRaces).toHaveBeenCalledTimes(1);
+    await expect(args.onViewRaces).toHaveBeenLastCalledWith(MOCK_RESULT.filters, 3, 4);
+
+    // And the panel closes behind it, so returning here later doesn't land
+    // back on a stale overlay — same as IndustrySpScreen's own handler.
+    await expect(canvas.queryByTestId("split-detail-panel-b")).not.toBeInTheDocument();
   },
 };
 

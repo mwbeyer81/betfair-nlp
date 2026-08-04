@@ -6317,3 +6317,87 @@ file).
    showed `67 passed` and no failure count, because the `22 failed` line had
    been erased by the terminal control codes. Use `--reporter=json` and count
    from the parsed result when the number matters.
+
+---
+
+## 2026-08-04 (later still, again²) — primary checkout, directly on `develop` — "View Races" from a saved Result did nothing
+
+User, on a phone, with three screenshots of build `7beb6d8` (same session and
+same saved result — "Goop" — as the `isp-oos-model-field` entry above): open a
+Result from the Results view, tap **Details** on a split card, then tap the
+full-width **"View 675 Races →"** button at the bottom of the panel. Nothing
+happens. No navigation, no error, no spinner — the panel just sits there.
+
+**The button was inert by construction, not broken by data.**
+`SavedResultDetailScreen.tsx` renders the shared `SplitDetailPanel` — the same
+component `IndustrySpScreen` uses — and wired its `onViewRaces` prop to
+`() => {}`. The panel renders that button unconditionally, so from a saved
+Result it drew perfectly and did nothing. On `/isp` the identical prop
+navigates to `/isp/races` carrying the applied filters plus the clicked split's
+`fromRow`/`toRow` (`App.tsx`'s `/isp` branch); nobody ever supplied an
+equivalent for the saved-result path when this screen reused the panel.
+
+Confirmed against the deployed bundle before touching any code —
+`client/scripts/prod-repro/saved-result-view-races-noop-2026-08-04.spec.ts`,
+which failed exactly as reported:
+
+```
+Expected pattern: /\/isp\/races/
+Received string:  "https://app.backbet.co.uk/results/detail?id=prod-repro-goop"
+14 × unexpected value (the URL never changes)
+```
+
+### The fix
+
+`SavedResultDetailScreen` gained a real
+`onViewRaces(filters, fromRow, toRow)` prop, wired in `App.tsx`'s
+`/results/detail` branch to `/isp/races`.
+
+It deliberately does **not** reuse the `/isp` implementation. There the applied
+filters live in `window.location.search`; here the URL is only `?id=<savedId>`,
+so the filters exist nowhere but inside the fetched `SavedFilterSet` and have to
+be passed in explicitly. Everything downstream is identical — `/isp/races` reads
+the same param names off the query string either way.
+
+### Things worth knowing
+
+1. **It sends the raw `toRow`, not the `?? total` fallback the panel
+   *displays*.** A split saved open-ended has `toRow: null`; the panel shows the
+   grand total in its "Races N–M" subtitle, but navigating with that number
+   would silently convert an open-ended split into a capped one. Same
+   distinction `IndustrySpScreen` already draws between what it shows and what
+   it navigates with.
+2. **Back from `/isp/races` lands on `/isp` with the saved filters applied**,
+   not on the Result — `IspRacesScreen`'s `onBack` is hardcoded to `/isp` and
+   does not use `resolveReturn`. Left alone: changing it would touch the far
+   busier `/isp` path, and landing on the Filters screen with exactly those
+   filters is the same thing "Restore filters" gives. If someone wants a true
+   return-nav here, that is the `buildReturnParams`/`resolveReturn` pattern the
+   meeting/race/runner screens already use.
+3. **A concurrent session committed on `develop` mid-task and swept this
+   worktree's untracked prod-repro script into its commit** (`9a9c066`, "docs:
+   AGENTS.md entry for the model-coverage note and stale-split fix" — almost
+   certainly a `git add -A`). The file is fine and lives in the right place;
+   naming it here because the commit message gives no hint it contains another
+   agent's work. **In a shared checkout, `git add -A` is not safe.**
+4. **A sibling worktree owned MSW port 3737, and Playwright silently reused its
+   server.** `playwright.msw.config.ts` sets `reuseExistingServer: !CI`, so
+   `yarn test:msw` attached to `~/betfair-nlp-isp-oos-model-field/client`'s
+   `npx serve` and tested *that* worktree's stale `dist/` — the new test failed
+   showing pre-fix behaviour, and two unrelated tests died with
+   `ERR_CONNECTION_REFUSED` when that server wandered. Diagnosed by comparing
+   the md5 of the served bundle against the local one. `MSW_PORT=3741
+   yarn test:msw` → 15/15. **Claim a port per the worktree-ports skill; a
+   green/red result on the default port proves nothing about your own code.**
+5. **`/isp/races` still has no working MSW race-row coverage** (point 3 of the
+   entry above). The new test asserts only that `industry-sp-races-screen` and
+   the query string are right, which does hold — the screen *shell* renders
+   fine, it is the race rows inside it that the stale fixtures can't produce.
+   Enough to pin this bug, not enough to call that screen covered.
+
+**Verified:** `yarn build` clean; Storybook 22/22 on `SavedResultDetailScreen`
+(new `ViewRacesButtonNavigatesWithThisSplitsRangeAndFilters` pins Split B's own
+3–4 range *and* the saved filters riding along); `tests-msw/saved-results.spec.ts`
+15/15 on a claimed port. **Not yet deployed** — the prod-repro script still
+fails against production until `/deploy-web` runs; re-run it once to confirm the
+fix landed, then leave it.
