@@ -399,6 +399,27 @@ router.get("/api/industry-sp/race-types", async (_req, res) => {
   }
 });
 
+// Public, like /api/model-versions above — it exposes two dates and two row
+// counts, nothing per-user. The Filters screen calls it once on mount so it can
+// say *why* a model-filtered range came back empty, rather than leaving the
+// user to conclude their date picker was ignored (reported live via screenshot:
+// a 2015-2016 range returning 11 races, all of them on the single day
+// 2016-01-01, because the whole of 2015 is deliberately unscored).
+//
+// `data: null` is a normal response, not an error: a database with no
+// walk-forward run recorded yet simply has no window to report, and the client
+// shows no note at all in that case.
+router.get("/api/model-score-coverage", async (_req, res) => {
+  try {
+    if (!modelVersionService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const data = await modelVersionService.getModelScoreCoverage();
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error("getModelScoreCoverage error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch model score coverage" });
+  }
+});
+
 router.get("/api/model-versions", async (_req, res) => {
   try {
     if (!modelVersionService) return res.status(503).json({ success: false, error: "Service not initialized" });

@@ -305,6 +305,19 @@ jest.mock("../../config/database", () => {
                   },
                 ]),
               }),
+              // The walk-forward doc lives in the same collection but is a
+              // different shape (oosVersionId + coverage dates, no
+              // modelVersionId), which is exactly why ModelVersionDAO keys its
+              // two queries on disjoint fields — find() above must never see
+              // this one, and findOne() here must never see those.
+              findOne: jest.fn().mockResolvedValue({
+                evaluationType: "walk_forward",
+                oosVersionId: "wf-20260731-074825",
+                coverageMinDate: "2016-01-01",
+                coverageMaxDate: "2026-07-30",
+                scoredRows: 885089,
+                unscoredRows: 86027,
+              }),
             };
           }
           if (name === "saved_filter_sets") {
@@ -2045,6 +2058,34 @@ describe("API Endpoints", () => {
       expect(params.minRunners).toBe(6);
       expect(params.maxRunners).toBe(12);
       expect(params.countries).toEqual(["GB", "IE"]);
+    });
+  });
+
+  describe("GET /api/model-score-coverage", () => {
+    it("returns 200 with success and the walk-forward coverage window", async () => {
+      const response = await request(app)
+        .get("/api/model-score-coverage")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data.coverageMinDate).toBe("2016-01-01");
+      expect(response.body.data.coverageMaxDate).toBe("2026-07-30");
+    });
+
+    it("each field has the required type", async () => {
+      const response = await request(app).get("/api/model-score-coverage").expect(200);
+      const d = response.body.data;
+      expect(typeof d.oosVersionId).toBe("string");
+      expect(typeof d.coverageMinDate).toBe("string");
+      expect(typeof d.coverageMaxDate).toBe("string");
+      expect(typeof d.scoredRows).toBe("number");
+      expect(typeof d.unscoredRows).toBe("number");
+    });
+
+    it("is public — returns 200 without auth", async () => {
+      const response = await request(app).get("/api/model-score-coverage").expect(200);
+      expect(response.body).toHaveProperty("success", true);
     });
   });
 

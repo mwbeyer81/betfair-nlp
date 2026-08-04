@@ -183,6 +183,49 @@ test.describe("Industry SP filters screen — bare load applies nothing (MSW moc
     expect(capturedToRowA).toBe("1589");
   });
 
+  // The bug these cover, reported live via screenshot: a 2015-01-01..2016-01-01
+  // range with "Model beats SP" on returned 11 races, every one of them on the
+  // single day 2016-01-01, because the whole of 2015 is deliberately left
+  // unscored by the walk-forward pass. Nothing said so, and "my date range was
+  // ignored" is the only conclusion available. The fix is a note, not a clamp —
+  // so the assertions below check the note appears, NOT that the dates changed.
+  test("a model-filtered range starting before the scored window explains itself", async ({ page }) => {
+    await page.goto("/isp?minDate=2015-01-01&maxDate=2016-01-01&onlyModelBeatsSp=true");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    const note = page.getByTestId("industry-sp-model-coverage-note-text");
+    await expect(note).toBeVisible();
+    await expect(note).toContainText("2016-01-01");
+    await expect(note).toContainText("before 2016-01-01");
+  });
+
+  test("a model-filtered range ending after the scored window explains itself", async ({ page }) => {
+    await page.goto("/isp?minDate=2016-01-01&maxDate=2026-12-31&minModelSpEdgePts=10");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    await expect(page.getByTestId("industry-sp-model-coverage-note-text")).toContainText("after 2026-07-30");
+  });
+
+  test("no coverage note when the range sits inside the scored window", async ({ page }) => {
+    await page.goto("/isp?minDate=2017-01-01&maxDate=2018-01-01&onlyModelBeatsSp=true");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    await expect(page.getByTestId("industry-sp-model-coverage-note")).not.toBeVisible();
+  });
+
+  test("no coverage note when no model filter is active, however wide the range", async ({ page }) => {
+    // The window only constrains the model filters — every other filter works
+    // perfectly well outside it, so warning there would be crying wolf.
+    await page.goto("/isp?minDate=2015-01-01&maxDate=2026-12-31");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    await expect(page.getByTestId("industry-sp-model-coverage-note")).not.toBeVisible();
+  });
+
   test("a URL that already carries filter params fetches immediately, without an extra Apply", async ({ page }) => {
     // Distinguishes a genuinely bare load from one arriving via a
     // bookmark/shared link/back-navigation, which already represents

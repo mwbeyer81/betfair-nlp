@@ -25,6 +25,25 @@ async function setupApiMocks(page: Page) {
   await page.route("**/api/auth/me", (route) =>
     route.fulfill({ json: { success: true, email: "matthew@backbet.co.uk", emailVerified: true } })
   );
+  // IndustrySpScreen fetches this once on mount to explain why a model-filtered
+  // date range outside the walk-forward window comes back empty. The dates are
+  // the real production ones, so a test picking a range before 2016 or after
+  // 2026-07-30 exercises the same edges a user hits.
+  await page.route("**/api/model-score-coverage", (route) =>
+    route.fulfill({
+      json: {
+        success: true,
+        data: {
+          oosVersionId: "wf-msw",
+          coverageMinDate: "2016-01-01",
+          coverageMaxDate: "2026-07-30",
+          scoredRows: 885089,
+          unscoredRows: 86027,
+        },
+      },
+    })
+  );
+
   await page.route("**/api/auth/resend-verification", (route) =>
     route.fulfill({ json: { success: true, alreadyVerified: false } })
   );

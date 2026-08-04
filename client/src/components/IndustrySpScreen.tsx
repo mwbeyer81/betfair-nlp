@@ -15,7 +15,7 @@ import {
   Checkbox,
   ActivityIndicator,
 } from "react-native-paper";
-import { chatApi, IspFilterBounds, PnlStats, BrierStats, RaceConvergencePoint, IspRace, ModelVersion } from "../services/chatApi";
+import { chatApi, IspFilterBounds, PnlStats, BrierStats, RaceConvergencePoint, IspRace, ModelVersion, ModelScoreCoverage } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
 import { BrierScore } from "./BrierScore";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
@@ -163,6 +163,42 @@ const AUTHENTICATED_RACE_CAP = 10000;
 // effect), never a legitimate "empty split" the user asked for on purpose.
 function isStaleSplit(splitBFromRow: number, totalRaces: number): boolean {
   return splitBFromRow > totalRaces && totalRaces > 0;
+}
+
+/**
+ * The line explaining why a model-filtered date range came back thinner than
+ * the dates suggest — or null when there is nothing to explain.
+ *
+ * Every model filter reads the out-of-sample probability, which only exists
+ * between the walk-forward run's own coverage dates. Outside that window no
+ * runner can qualify, so the range silently contributes nothing: reported live
+ * as a 2015-01-01..2016-01-01 range returning 11 races, every one of them on
+ * 2016-01-01, because the whole of 2015 is deliberately unscored (the earliest
+ * year has no prior history to fit on).
+ *
+ * Deliberately a note and not a clamp. The dates are the user's; silently
+ * rewriting them is the same surprise this exists to remove, and the range is
+ * still perfectly valid for the non-model filters.
+ */
+export function modelScoreCoverageNote(p: {
+  coverage: { coverageMinDate: string; coverageMaxDate: string } | null;
+  modelFilterActive: boolean;
+  minDate: string;
+  maxDate: string;
+}): string | null {
+  if (!p.coverage || !p.modelFilterActive) return null;
+  const { coverageMinDate, coverageMaxDate } = p.coverage;
+  const before = p.minDate < coverageMinDate;
+  const after = p.maxDate > coverageMaxDate;
+  if (!before && !after) return null;
+
+  const outside = before && after
+    ? `before ${coverageMinDate} and after ${coverageMaxDate}`
+    : before
+      ? `before ${coverageMinDate}`
+      : `after ${coverageMaxDate}`;
+  return `Model scores only exist for ${coverageMinDate} to ${coverageMaxDate}. ` +
+    `A model filter is on, so races ${outside} can't match and are excluded from these results.`;
 }
 
 // Resolves a Split A/B draft box pair (a "from"/"to" string) into the
@@ -350,6 +386,18 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   );
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
+  // Where an out-of-sample model score actually exists. Fetched once, never
+  // blocking: null (no walk-forward run recorded, or the call failed) simply
+  // means no note is shown.
+  const [modelCoverage, setModelCoverage] = useState<ModelScoreCoverage | null>(null);
+  // Applied (not draft) values — the note must describe the results on screen,
+  // not what the user is midway through typing.
+  const modelCoverageNote = modelScoreCoverageNote({
+    coverage: modelCoverage,
+    modelFilterActive: onlyModelBeatsSp || minModelSpEdgePts > 0 || minModelWinProbability > 0,
+    minDate,
+    maxDate,
+  });
   const [totalRunners, setTotalRunners] = useState(0);
   // 100 for an anonymous caller, 10000 once logged in — see
   // IndustrySpService.getSplitStats. Drives the cap banner below.
@@ -733,6 +781,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
   useEffect(() => {
     let cancelled = false;
+    chatApi.getModelScoreCoverage().then(c => {
+      if (!cancelled) setModelCoverage(c);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
 
     function applyResult(result: CachedSplitsResult) {
       setHasLoadedOnce(true);
@@ -746,20 +802,36 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       setAvailableRaceClasses(result.raceClasses);
       setAvailableRaceTypes(result.raceTypes);
 
-      setFromRowA(result.splitA.fromRow);
-      setToRowA(result.splitA.toRow);
-      setFromRowB(result.splitB.fromRow);
-      setToRowB(result.splitB.toRow);
+      // A split carried over from a much larger result set can land entirely
+      // beyond the new one — reported live via screenshot as "Split B  64 - 11"
+      // against 11 matched races, a range that can never match anything. The
+      // cache path below already refuses a stale split via isStaleSplit; a
+      // freshly fetched result needs the identical guard, because the race
+      // count can collapse under a split without the split itself changing
+      // (tightening a filter, or moving the dates into a stretch the model
+      // never scored). Falling back to the default half/half divide is the
+      // same thing Reset would give, over the set that actually matched.
+      const staleSplit = isStaleSplit(result.splitB.fromRow, result.totalRaces);
+      const half = Math.max(1, Math.ceil(result.totalRaces / 2));
+      const splitA = staleSplit ? { fromRow: 1, toRow: half } : result.splitA;
+      const splitB = staleSplit
+        ? { fromRow: Math.min(half + 1, result.totalRaces), toRow: result.totalRaces }
+        : result.splitB;
+
+      setFromRowA(splitA.fromRow);
+      setToRowA(splitA.toRow);
+      setFromRowB(splitB.fromRow);
+      setToRowB(splitB.toRow);
 
       // Keep the draft boxes in sync with whatever range was actually
       // queried — including filling in an open-ended ("no cap") upper
       // bound with the grand total, so a box never shows a stale
       // placeholder value (e.g. when a bookmarked URL set fromRowA/
       // fromRowB explicitly but left the upper bound uncapped).
-      setDraftFromA(String(result.splitA.fromRow));
-      setDraftToA(String(result.splitA.toRow ?? result.totalRaces));
-      setDraftFromB(String(result.splitB.fromRow));
-      setDraftToB(String(result.splitB.toRow ?? result.totalRaces));
+      setDraftFromA(String(splitA.fromRow));
+      setDraftToA(String(splitA.toRow ?? result.totalRaces));
+      setDraftFromB(String(splitB.fromRow));
+      setDraftToB(String(splitB.toRow ?? result.totalRaces));
 
       setTotalRacesA(result.splitA.total);
       setTotalRunnersA(result.splitA.totalRunners);
@@ -1814,6 +1886,18 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           </Button>
         </View>
       </View>
+      )}
+
+      {modelCoverageNote && (
+        <View testID="industry-sp-model-coverage-note" style={styles.capBanner}>
+          <Text
+            testID="industry-sp-model-coverage-note-text"
+            variant="bodyMedium"
+            style={styles.capBannerText}
+          >
+            {modelCoverageNote}
+          </Text>
+        </View>
       )}
 
       {!isAuthenticated && hasLoadedOnce && totalRaces > raceCap && (

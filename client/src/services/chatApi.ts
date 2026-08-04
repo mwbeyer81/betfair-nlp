@@ -529,6 +529,17 @@ export interface ModelVersion {
   performanceMetrics: ModelPerformanceMetrics;
 }
 
+// Where an out-of-sample model score actually exists. Both edges matter to the
+// Filters screen: every model filter reads the out-of-sample field, so a date
+// range extending past either edge silently returns nothing for that stretch.
+export interface ModelScoreCoverage {
+  oosVersionId: string;
+  coverageMinDate: string;
+  coverageMaxDate: string;
+  scoredRows: number;
+  unscoredRows: number;
+}
+
 export interface ModelVersionsResponse {
   success: boolean;
   data: ModelVersion[];
@@ -1097,6 +1108,22 @@ class ChatApi {
     );
     if (!response.ok) throw new Error("Failed to fetch model versions");
     return response.json();
+  }
+
+  // The date window over which an out-of-sample model score exists. `data` is
+  // null when no walk-forward run has been recorded — a normal state, not an
+  // error, and the caller should then show nothing rather than a broken note.
+  // Never throws: this only ever decorates a screen with an explanatory line,
+  // so a failure here must not take the Filters screen down with it.
+  async getModelScoreCoverage(): Promise<ModelScoreCoverage | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/model-score-coverage`, { headers: this.authHeader() });
+      if (!response.ok) return null;
+      const body = (await response.json()) as { success?: boolean; data?: ModelScoreCoverage | null };
+      return body?.data ?? null;
+    } catch {
+      return null;
+    }
   }
 
   // Model win-probability accuracy, bucketed by the model's own implied price
