@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
 import { Text, Button, ActivityIndicator } from "react-native-paper";
-import { chatApi, IspRace, IspRunner } from "../services/chatApi";
+import { chatApi, IspRace, IspRunner, BrierStats } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
+import { BrierScore } from "./BrierScore";
 import type { Route } from "../hooks/useRouter";
 import {
   stakeToWin1,
@@ -226,6 +227,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [totalRaces, setTotalRaces] = useState(0);
+  const [brier, setBrier] = useState<BrierStats | undefined>(undefined);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">(() => urlSortParam());
   const [oddsMode, setOddsMode] = useState<OddsMode>("fraction");
   // Every year header renders immediately from the filter's own date range
@@ -354,6 +356,12 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, undefined, undefined, minModelSpEdgePts);
         if (cancelled) return;
         setTotalRaces(probe.total);
+        // Covers the WHOLE row range, not this one probe page: the Brier
+        // branch of the aggregation runs over the row-ranged document stream
+        // before the $facet's data branch pages it, so it is page-independent
+        // exactly like `total` beside it. That is what makes it safe to set
+        // once here and never touch again as the tree loads more days.
+        setBrier(probe.brier);
         if (probe.data.length === 0) {
           setIsLoading(false);
           return;
@@ -796,6 +804,18 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         </Button>
       </View>
 
+      {/*
+        Scores the entire filtered row range, not the days currently expanded
+        below — the same set the header's race/runner counts describe. Placed
+        above the tree so it reads as a property of the filter, not of
+        whichever year happens to be open.
+      */}
+      {!isLoading && !error && (
+        <View testID="industry-sp-races-brier-row" style={styles.brierRow}>
+          <BrierScore brier={brier} testID="industry-sp-races-brier" label="Brier (filtered)" />
+        </View>
+      )}
+
       <View style={styles.body}>
         {isLoading && (
           <View testID="industry-sp-loading" style={styles.centered}>
@@ -1101,6 +1121,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: colors.primary,
+  },
+  brierRow: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
   },
   body: {
     flex: 1,

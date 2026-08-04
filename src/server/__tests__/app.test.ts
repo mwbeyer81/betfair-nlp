@@ -57,6 +57,7 @@ interface MockSavedFilterSetSplit {
   totalRunners: number;
   pnlStats: { staked: number; returns: number; pnl: number; count: number };
   graphPoints: unknown[];
+  brier?: { scored: number; priced: number; model: number | null; market: number | null };
 }
 interface MockSavedFilterSetDoc {
   _id: InstanceType<typeof ObjectId>;
@@ -83,6 +84,7 @@ interface MockLiveFilterResultDoc {
   meetingId: string;
   meetingName: string;
   pnlStats: { staked: number; returns: number; pnl: number; count: number };
+  brierSums?: { scored: number; priced: number; modelSqErrSum: number; marketSqErrSum: number };
   capturedAt: string;
 }
 const mockLiveFilterResults: MockLiveFilterResultDoc[] = [];
@@ -604,7 +606,24 @@ jest.mock("../../config/database", () => {
                 // collapse to 1 regardless of raceCap, defeating the point
                 // of those tests).
                 total: [{ count: 50000 }],
-                pnlStats: [{ staked: 1, returns: 2, count: 1 }],
+                // brierPriced/brierMarketSqErrSum ride along inside pnlStats
+                // because market-definition-dao.ts accumulates the Betfair-SP
+                // screen's market Brier in that same $group (it has already
+                // $unwound to exactly the runners the P&L covers). The
+                // industry-SP side reads its own `brier` branch below instead.
+                pnlStats: [{ staked: 1, returns: 2, count: 1, brierPriced: 4, brierMarketSqErrSum: 0.6 }],
+                // $facet branch added by the Brier feature — four raw
+                // squared-error sums, deliberately NOT a finished score, since
+                // brierFromSums does the division. 0.4/4 = 0.1 model,
+                // 0.6/4 = 0.15 market, so the assertions downstream are
+                // checkable by hand rather than snapshotted.
+                brier: [{ scored: 4, priced: 4, modelSqErrSum: 0.4, marketSqErrSum: 0.6 }],
+                // Flat counterparts for the Model vs SP summary aggregation,
+                // which groups into scalars rather than a $facet branch.
+                brierScored: 4,
+                brierPriced: 4,
+                brierModelSqErrSum: 0.4,
+                brierMarketSqErrSum: 0.6,
                 staked: 1,
                 returns: 2,
                 runnerCounts: [{ maxRunners: 12 }],
@@ -1428,6 +1447,19 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
+    it("returns a market-only Brier score — this dataset has no model column", async () => {
+      // The Betfair-SP collection is not what ml/train_and_predict.py scores,
+      // so there is no model probability to compare against here. model must
+      // be null, NOT 0 — 0 is the best possible Brier score and would render a
+      // perfect model on a screen that has no model at all.
+      const response = await request(app)
+        .get("/api/runners")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.brier).toEqual({ scored: 0, priced: 4, model: null, market: 0.15 });
+    });
+
     it("response includes pnlStats with staked, returns, pnl", async () => {
       const response = await request(app)
         .get("/api/runners")
@@ -1486,6 +1518,35 @@ describe("API Endpoints", () => {
     it("is public — returns 200 without auth", async () => {
       const response = await request(app).get("/api/industry-sp").expect(200);
       expect(response.body).toHaveProperty("success", true);
+    });
+
+    describe("brier", () => {
+      it("returns model and market Brier scores alongside pnlStats", async () => {
+        const response = await request(app)
+          .get("/api/industry-sp")
+          .set("Authorization", `Bearer ${authToken}`)
+          .expect(200);
+
+        // 0.4/4 and 0.6/4 from the shared aggregate mock's `brier` branch —
+        // the endpoint must DIVIDE the raw sums, not pass them through.
+        expect(response.body.brier).toEqual({ scored: 4, priced: 4, model: 0.1, market: 0.15 });
+      });
+
+      it("scores the model and the market over the same runner count", async () => {
+        // The invariant that makes the two safe to show side by side on one
+        // card. They are only allowed to differ on the Betfair-SP screen,
+        // which has no model column at all.
+        const response = await request(app).get("/api/industry-sp").expect(200);
+        expect(response.body.brier.scored).toBe(response.body.brier.priced);
+      });
+
+      it("is present on the anonymous response too", async () => {
+        // The Filters screen renders it before login, so a missing field here
+        // would show an em dash to every logged-out visitor.
+        const response = await request(app).get("/api/industry-sp").expect(200);
+        expect(response.body.brier).toBeDefined();
+        expect(typeof response.body.brier.model).toBe("number");
+      });
     });
 
     it("clamps an explicit toRow to a 100-race span when anonymous", async () => {
@@ -1938,6 +1999,11 @@ describe("API Endpoints", () => {
       expect(typeof summary.matchedPercent).toBe("number");
       expect(typeof summary.meanAbsEdge).toBe("number");
       expect(Array.isArray(summary.bands)).toBe(true);
+      // Scored over the MATCHED runners (the rows listed below the summary),
+      // not the wider allRunners denominator the bands describe — the bands
+      // say how far apart model and market are, this says which of them was
+      // closer to what actually happened.
+      expect(summary.brier).toEqual({ scored: 4, priced: 4, model: 0.1, market: 0.15 });
     });
 
     it("each summary band carries a label, a count and a share", async () => {
@@ -2995,7 +3061,13 @@ describe("API Endpoints", () => {
         expect(response.body[split].pnlStats).toHaveProperty("staked");
         expect(response.body[split].pnlStats).toHaveProperty("returns");
         expect(response.body[split].pnlStats).toHaveProperty("pnl");
+        // Each split carries its own score, and the grand total carries a
+        // third — the whole-set number is NOT recoverable from the two split
+        // ones on the client (a Brier is a mean, and the splits' denominators
+        // are not exposed separately), which is why the response sends it.
+        expect(response.body[split].brier).toEqual({ scored: 4, priced: 4, model: 0.1, market: 0.15 });
       }
+      expect(response.body.brier).toEqual({ scored: 4, priced: 4, model: 0.1, market: 0.15 });
     });
 
     it("splitA defaults to fromRow 1 when no explicit range is given", async () => {

@@ -4,6 +4,8 @@ import {
   MarketDefinition,
   MarketStatus,
 } from "../../types/betfair";
+import { BrierStats, brierFromSums } from "../service/brier";
+import { bookSumExpr, fairProbPctExpr, sqErrPctExpr } from "./brier-expr";
 
 export interface EventGroup {
   eventId: string;
@@ -275,7 +277,13 @@ export class MarketDefinitionDAO {
     maxInSp = 1000,
     fromRow = 1,
     toRow: number | null = null
-  ): Promise<{ data: RaceWithEvent[]; total: number; totalRunners: number; pnlStats: { staked: number; returns: number; pnl: number; count: number } }> {
+  ): Promise<{
+    data: RaceWithEvent[];
+    total: number;
+    totalRunners: number;
+    pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    brier: BrierStats;
+  }> {
     const countryMatch = countries.length > 0 ? { countryCode: { $in: countries } } : {};
     const marketTimeSortDir = sortOrder === "desc" ? -1 : 1;
 
@@ -309,6 +317,14 @@ export class MarketDefinitionDAO {
       // Both use the original runners array from $group — $addFields evaluates from pre-stage state.
       {
         $addFields: {
+          // The market's total implied probability, over the FULL field —
+          // deliberately read from the pre-stage `runners` (this stage
+          // narrows that same field to the BSP-range subset below), because
+          // an overround is a property of the whole book. A Betfair SP book
+          // sits near 100-102% rather than a bookmaker's 115-125%, but
+          // normalising by it is still what makes the implied probabilities
+          // this screen scores actual probabilities.
+          _bookSum: bookSumExpr("$runners", "bsp"),
           allRunnersCount: {
             $size: {
               $filter: {
@@ -365,7 +381,7 @@ export class MarketDefinitionDAO {
         data: RaceWithEvent[];
         total: [{ count: number }];
         totalRunners: [{ count: number }];
-        pnlStats: [{ staked: number; returns: number; count: number }];
+        pnlStats: [{ staked: number; returns: number; count: number; brierPriced: number; brierMarketSqErrSum: number }];
       }>([
         ...basePipeline,
         {
@@ -438,6 +454,18 @@ export class MarketDefinitionDAO {
                     },
                   },
                   count: { $sum: 1 },
+                  // Market-only: this collection carries no model probability
+                  // (the XGBoost run scores the industry-SP dataset, not the
+                  // Betfair one), so there is nothing to compare the market
+                  // against here — brierFromSums reports a null model score
+                  // rather than a perfect one. Accumulated in the P&L $group
+                  // itself, not a separate branch, because this pipeline's
+                  // $unwind has already fanned out to exactly the runners the
+                  // P&L covers.
+                  brierPriced: { $sum: 1 },
+                  brierMarketSqErrSum: {
+                    $sum: sqErrPctExpr(fairProbPctExpr("$runners.bsp", "$_bookSum"), "$runners.status"),
+                  },
                 },
               },
             ],
@@ -455,6 +483,12 @@ export class MarketDefinitionDAO {
       total: result?.total?.[0]?.count ?? 0,
       totalRunners: result?.totalRunners?.[0]?.count ?? 0,
       pnlStats: { staked, returns, pnl: returns - staked, count },
+      brier: brierFromSums({
+        scored: 0,
+        priced: result?.pnlStats?.[0]?.brierPriced ?? 0,
+        modelSqErrSum: 0,
+        marketSqErrSum: result?.pnlStats?.[0]?.brierMarketSqErrSum ?? 0,
+      }),
     };
   }
 

@@ -1,6 +1,8 @@
 import { Collection, Db } from "mongodb";
 import { RaceDoc, synthRaceId } from "./industry-sp-row-mapping";
 import { EDGE_BAND_BOUNDS, buildEdgeSummary, ModelVsSpSummary } from "../service/model-vs-sp-summary";
+import { BrierStats, BrierSums, EMPTY_BRIER, brierFromSums } from "../service/brier";
+import { MODEL_PROB_FIELD, bookSumExpr, brierGroupAccumulators, raceBrierSumsExpr } from "./brier-expr";
 
 export interface IspFilterBounds {
   maxRunnersPerRace: number;
@@ -249,6 +251,12 @@ export class IndustrySpDAO {
     // checkbox left off would otherwise silently do nothing.
     minModelSpEdgePts: number;
     modelVersionId: string | null;
+    // Adds the two per-race Brier accumulator fields (`_bookSum`, `_brier`)
+    // to the emitted $addFields. Opt-in rather than always-on because each is
+    // an extra pass over every matched race's runners array, and the
+    // convergence-graph query — the one caller that reads none of it — runs
+    // over the same ~109k-race scale as the rest.
+    includeBrier?: boolean;
   }): Record<string, unknown>[] {
     const countryMatch = p.countries.length > 0 ? { countryCode: { $in: p.countries } } : {};
     const courseMatch = p.courses.length > 0 ? { course: { $in: p.courses } } : {};
@@ -338,28 +346,36 @@ export class IndustrySpDAO {
     // inRangeRunnersCount when none of the three optional filters are active.
     const qualifyingRunnersFilterActive =
       trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive || modelVersionFilterActive;
+    // The single definition of "this runner is in the filtered set", in the
+    // $$r-bound form. Previously written out inline for the count below; now
+    // also handed to raceBrierSumsExpr, so the Brier score can never end up
+    // describing a different set of horses from the one the P&L and the
+    // "Runners" count describe.
+    const qualifyingRunnerCond = {
+      $and: [
+        { $ifNull: ["$$r.isp", false] },
+        { $gt: ["$$r.isp", 1] },
+        { $gte: ["$$r.isp", p.minIsp] },
+        { $lte: ["$$r.isp", p.maxIsp] },
+        ...(trainerFormFilterActive ? trainerFormCond : []),
+        ...(modelFilterActive ? modelCond : []),
+        ...(modelBeatsSpFilterActive ? beatsSpCond : []),
+        ...(modelVersionFilterActive ? modelVersionCond : []),
+      ],
+    };
     const qualifyingRunnersCountExpr = qualifyingRunnersFilterActive
-      ? {
-          $size: {
-            $filter: {
-              input: "$runners",
-              as: "r",
-              cond: {
-                $and: [
-                  { $ifNull: ["$$r.isp", false] },
-                  { $gt: ["$$r.isp", 1] },
-                  { $gte: ["$$r.isp", p.minIsp] },
-                  { $lte: ["$$r.isp", p.maxIsp] },
-                  ...(trainerFormFilterActive ? trainerFormCond : []),
-                  ...(modelFilterActive ? modelCond : []),
-                  ...(modelBeatsSpFilterActive ? beatsSpCond : []),
-                  ...(modelVersionFilterActive ? modelVersionCond : []),
-                ],
-              },
-            },
-          },
-        }
+      ? { $size: { $filter: { input: "$runners", as: "r", cond: qualifyingRunnerCond } } }
       : inRangeRunnersCountExpr;
+
+    // Its own stage, ahead of the one below, because $addFields cannot
+    // reference a field it is defining in the same stage and a fair (overround-
+    // normalised) probability is undefined until the race's book total is
+    // known. Inlining the book sum into _brier instead would recompute it once
+    // per runner — O(runners^2) per race, for a number that is constant across
+    // the race.
+    const bookSumStage: Record<string, unknown>[] = p.includeBrier
+      ? [{ $addFields: { _bookSum: bookSumExpr("$runners", "isp") } }]
+      : [];
 
     return [
       {
@@ -373,6 +389,7 @@ export class IndustrySpDAO {
           runnersWithIspCount: { $gte: p.minRunners, $lte: p.maxRunners },
         },
       },
+      ...bookSumStage,
       {
         $addFields: {
           allRunnersCount: "$runnersWithIspCount",
@@ -382,6 +399,17 @@ export class IndustrySpDAO {
           modelBeatsSpQualifyingCount: modelBeatsSpQualifyingCountExpr,
           modelVersionQualifyingCount: modelVersionQualifyingCountExpr,
           qualifyingRunnersCount: qualifyingRunnersCountExpr,
+          ...(p.includeBrier
+            ? {
+                _brier: raceBrierSumsExpr({
+                  runnersPath: "$runners",
+                  priceField: "isp",
+                  modelProbField: MODEL_PROB_FIELD,
+                  qualifyingCondExpr: qualifyingRunnerCond,
+                  bookSumPath: "$_bookSum",
+                }),
+              }
+            : {}),
         },
       },
       {
@@ -451,6 +479,7 @@ export class IndustrySpDAO {
     total: number;
     totalRunners: number;
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    brier: BrierStats;
   }> {
     // fromRow < 1 would make rowSkip negative below — another shape
     // MongoDB's $skip rejects outright, same class of bug as the inverted
@@ -468,7 +497,7 @@ export class IndustrySpDAO {
     // industry SP" whenever a stale or hand-edited fromRow/toRow (or
     // fromRowA/toRowA — see getSplitStats, which calls this) reached here.
     if (toRow !== null && toRow < fromRow) {
-      return { data: [], total: 0, totalRunners: 0, pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 } };
+      return { data: [], total: 0, totalRunners: 0, pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 }, brier: EMPTY_BRIER };
     }
 
     const raceTimeSortDir = sortOrder === "desc" ? -1 : 1;
@@ -592,6 +621,7 @@ export class IndustrySpDAO {
         courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
         minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, modelVersionId,
+        includeBrier: true,
       }),
       {
         $project: {
@@ -602,6 +632,11 @@ export class IndustrySpDAO {
           qualifyingRunnersCount: 1,
           raceStaked: 1,
           raceReturns: 1,
+          // Four scalars per race, already reduced from the runners array
+          // above — carrying these through the sort costs the same order of
+          // bytes as raceStaked/raceReturns beside them, and saves the Brier
+          // branch below from needing its own $lookup back to the full doc.
+          _brier: 1,
         },
       },
     ];
@@ -650,6 +685,7 @@ export class IndustrySpDAO {
         total: [{ count: number }];
         totalRunners: [{ count: number }];
         pnlStats: [{ staked: number; returns: number; count: number }];
+        brier: [BrierSums];
       }>([
         ...basePipeline,
         // Applied once, ahead of $facet, when a row range is active — see
@@ -783,6 +819,16 @@ export class IndustrySpDAO {
                     },
                   },
                 ],
+            // Its own branch rather than extra accumulators on pnlStats above,
+            // for two independent reasons. First, pnlStats has two shapes and
+            // the slow one $unwinds — the per-race _brier scalars would be
+            // duplicated once per qualifying runner and silently multiplied.
+            // Second, this branch is identical either way, so the Brier score
+            // cannot drift depending on which P&L path a given filter
+            // combination happens to take. $facet feeds every branch the same
+            // (already row-ranged, already sub-date-filtered) documents, so
+            // this covers exactly the runner set pnlStats does.
+            brier: [{ $group: { _id: null, ...brierGroupAccumulators("_brier") } }],
           },
         },
       ], { allowDiskUse: true })
@@ -797,6 +843,7 @@ export class IndustrySpDAO {
       total: result?.total?.[0]?.count ?? 0,
       totalRunners: result?.totalRunners?.[0]?.count ?? 0,
       pnlStats: { staked, returns, pnl: returns - staked, count },
+      brier: brierFromSums(result?.brier?.[0]),
     };
   }
 
@@ -852,6 +899,11 @@ export class IndustrySpDAO {
       raceDate: string;
       modelVersionId: string | null;
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
+      // Raw sums, not a scored BrierStats, precisely because this is per-race:
+      // the Live Performance rollup adds these up across every captured day
+      // before dividing once (see sumBrierSums). Storing per-race means and
+      // averaging them would weight a 5-runner race like a 16-runner one.
+      brierSums: BrierSums;
     }[]
   > {
     const trainerFormFilterActive = p.minTrainerFormRunners > 0 || p.maxTrainerFormRunners < 100;
@@ -883,6 +935,7 @@ export class IndustrySpDAO {
         onlyModelBeatsSp: p.onlyModelBeatsSp,
         minModelSpEdgePts,
         modelVersionId: null,
+        includeBrier: true,
       }),
       // Same qualifying-runner condition as getAllRacesByRace's pnlStats slow
       // path (see the comment there) — duplicated for the same reason: this
@@ -941,6 +994,14 @@ export class IndustrySpDAO {
             },
           },
           count: { $sum: 1 },
+          // $first, not $sum: _brier is a per-RACE total computed before the
+          // $unwind above, so it arrives already duplicated onto each of that
+          // race's qualifying runners. Summing it would multiply every race's
+          // Brier contribution by its own runner count.
+          brierScored: { $first: "$_brier.scored" },
+          brierPriced: { $first: "$_brier.priced" },
+          brierModelSqErrSum: { $first: "$_brier.modelSqErrSum" },
+          brierMarketSqErrSum: { $first: "$_brier.marketSqErrSum" },
         },
       },
     ];
@@ -957,6 +1018,10 @@ export class IndustrySpDAO {
         staked: number;
         returns: number;
         count: number;
+        brierScored: number | null;
+        brierPriced: number | null;
+        brierModelSqErrSum: number | null;
+        brierMarketSqErrSum: number | null;
       }>(pipeline, { allowDiskUse: true })
       .toArray();
 
@@ -969,6 +1034,12 @@ export class IndustrySpDAO {
       raceDate: r.raceDate,
       modelVersionId: r.modelVersionId ?? null,
       pnlStats: { staked: r.staked, returns: r.returns, pnl: r.returns - r.staked, count: r.count },
+      brierSums: {
+        scored: r.brierScored ?? 0,
+        priced: r.brierPriced ?? 0,
+        modelSqErrSum: r.brierModelSqErrSum ?? 0,
+        marketSqErrSum: r.brierMarketSqErrSum ?? 0,
+      },
     }));
   }
 
@@ -1636,11 +1707,19 @@ export class IndustrySpDAO {
         allRunners: number;
         matchedRunners: number;
         sumAbsEdge: number;
+        brierScored: number;
+        brierPriced: number;
+        brierModelSqErrSum: number;
+        brierMarketSqErrSum: number;
         [band: string]: number;
       }>(
         [
           dateMatch,
           ...this.buildModelVsSpRaceStages(p),
+          // Its own stage for the same reason buildQualifyingRaceStages splits
+          // one out: a fair probability needs the race's book total, and
+          // $addFields cannot read a field it is defining.
+          { $addFields: { _bookSum: bookSumExpr("$runners", "isp") } },
           { $addFields: { mvsAll: { $filter: { input: "$runners", as: "r", cond: condWithoutAbsEdge } } } },
           { $match: { mvsAll: { $ne: [] } } },
           {
@@ -1653,6 +1732,17 @@ export class IndustrySpDAO {
                   in: { $abs: { $subtract: [MODEL_PROB_R, { $divide: [100, "$$r.isp"] }] } },
                 },
               },
+              // Scored over `runnerCond` — the MATCHED runners, the ones the
+              // list below the summary is showing — not the wider
+              // condWithoutAbsEdge population the bands describe. See the
+              // `brier` comment on ModelVsSpSummary.
+              _brier: raceBrierSumsExpr({
+                runnersPath: "$runners",
+                priceField: "isp",
+                modelProbField: MODEL_PROB_FIELD,
+                qualifyingCondExpr: runnerCond,
+                bookSumPath: "$_bookSum",
+              }),
             },
           },
           {
@@ -1662,6 +1752,13 @@ export class IndustrySpDAO {
               matchedRunners: { $sum: "$mvsMatchedCount" },
               sumAbsEdge: { $sum: { $sum: "$mvsAbsEdges" } },
               ...bandAccumulators,
+              // Flattened to four scalars rather than nested under one field,
+              // to stay inside this result type's `[band: string]: number`
+              // index signature — the band tallies use the same trick.
+              brierScored: { $sum: "$_brier.scored" },
+              brierPriced: { $sum: "$_brier.priced" },
+              brierModelSqErrSum: { $sum: "$_brier.modelSqErrSum" },
+              brierMarketSqErrSum: { $sum: "$_brier.marketSqErrSum" },
             },
           },
         ],
@@ -1677,6 +1774,12 @@ export class IndustrySpDAO {
         { length: bandBounds.length + 1 },
         (_, i) => (summaryResult?.[`band${i}`] as number) ?? 0
       ),
+      brierSums: {
+        scored: summaryResult?.brierScored ?? 0,
+        priced: summaryResult?.brierPriced ?? 0,
+        modelSqErrSum: summaryResult?.brierModelSqErrSum ?? 0,
+        marketSqErrSum: summaryResult?.brierMarketSqErrSum ?? 0,
+      },
     });
 
     return { rows, total: summary.matchedRunners, summary };

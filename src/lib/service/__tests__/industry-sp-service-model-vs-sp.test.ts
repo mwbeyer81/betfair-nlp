@@ -75,6 +75,10 @@ const SUMMARY: ModelVsSpSummary = {
     { minAbs: 20, maxAbs: 50, label: "±20 to ±50 pts", count: 4, percent: 4, cumulativePercent: 99 },
     { minAbs: 50, maxAbs: null, label: "beyond ±50 pts", count: 1, percent: 1, cumulativePercent: null },
   ],
+  // Scored over the 40 MATCHED runners, not all 100 — see the `brier` comment
+  // on ModelVsSpSummary. The service under test only passes the summary
+  // through, so the numbers here just need to be a valid shape.
+  brier: { scored: 40, priced: 40, model: 0.0871, market: 0.0902 },
 };
 
 describe("IndustrySpService.getModelVsSpRunners", () => {

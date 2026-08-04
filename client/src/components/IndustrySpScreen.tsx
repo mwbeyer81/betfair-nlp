@@ -15,8 +15,9 @@ import {
   Checkbox,
   ActivityIndicator,
 } from "react-native-paper";
-import { chatApi, IspFilterBounds, PnlStats, RaceConvergencePoint, IspRace, ModelVersion } from "../services/chatApi";
+import { chatApi, IspFilterBounds, PnlStats, BrierStats, RaceConvergencePoint, IspRace, ModelVersion } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
+import { BrierScore } from "./BrierScore";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
 import { ModelPerformanceDashboard, ModelPerformanceFilters } from "./ModelPerformanceDashboard";
 import { SaveResultDialog } from "./SaveResultDialog";
@@ -452,6 +453,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
   const [totalRacesA, setTotalRacesA] = useState(0);
   const [totalRunnersA, setTotalRunnersA] = useState(0);
+  // undefined, not a zeroed BrierStats: "no score yet" and "scored 0.0000"
+  // must stay distinguishable, since 0 is the best Brier score there is.
+  const [brierA, setBrierA] = useState<BrierStats | undefined>(undefined);
+  const [brierB, setBrierB] = useState<BrierStats | undefined>(undefined);
+  // The whole filtered set, before either split window narrows it.
+  const [brierTotal, setBrierTotal] = useState<BrierStats | undefined>(undefined);
   const [pnlStatsA, setPnlStatsA] = useState<PnlStats>(EMPTY_PNL);
   const [totalRacesB, setTotalRacesB] = useState(0);
   const [totalRunnersB, setTotalRunnersB] = useState(0);
@@ -757,9 +764,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       setTotalRacesA(result.splitA.total);
       setTotalRunnersA(result.splitA.totalRunners);
       setPnlStatsA(result.splitA.pnlStats ?? EMPTY_PNL);
+      setBrierA(result.splitA.brier);
       setTotalRacesB(result.splitB.total);
       setTotalRunnersB(result.splitB.totalRunners);
       setPnlStatsB(result.splitB.pnlStats ?? EMPTY_PNL);
+      setBrierB(result.splitB.brier);
+      setBrierTotal(result.brier);
     }
 
     // Keeps the URL query string in sync with the currently *applied*
@@ -1369,13 +1379,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     totalRaces: number;
     totalRunners: number;
     pnl: PnlStats;
+    brier: BrierStats | undefined;
     // idle: no fetch has ever run (bare page load, Apply never pressed) —
     // nothing to show, waiting on the user. pending: a fetch is currently
     // in flight (first-ever load of a URL that already carries filters, or
     // any Apply/Reset refetch). loaded: real numbers are in.
     status: "idle" | "pending" | "loaded";
   }) {
-    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl, status } = opts;
+    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl, brier, status } = opts;
     const effectiveTo = toRow ?? totalRaces;
     const notReady = status !== "loaded";
     return (
@@ -1408,6 +1419,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           <Text testID={`industry-sp-split-empty-${id}`} style={styles.splitEmptyText}>
             {splitTotalRunners > 0 ? "No qualifying bets in this split." : "No races match this split."}
           </Text>
+        )}
+        {/*
+          Sits under the P&L headline rather than replacing it: over a split of
+          a few hundred races the P&L is the volatile number and the Brier is
+          the stable one, so seeing them together is the point — a split can be
+          +8% on luck while the model is scoring worse than the market on the
+          very same horses.
+        */}
+        {status === "loaded" && (
+          <BrierScore brier={brier} tone="dark" testID={`industry-sp-brier-${id}`} />
         )}
         <View style={styles.splitButtonRow}>
           <Button
@@ -1814,6 +1835,20 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         </View>
       )}
 
+      {/*
+        The whole filtered set's score, above the two splits that divide it.
+        Worth its own line rather than being left to the split cards: the
+        splits exist to show that a P&L holds up out of sample, and the
+        equivalent question for a Brier score — "does the model beat the
+        market across everything this filter selects" — is answered by the
+        combined number, which is neither of the two split figures.
+      */}
+      {hasLoadedOnce && !isLoading && (
+        <View testID="industry-sp-brier-total-row" style={styles.brierTotalRow}>
+          <BrierScore brier={brierTotal} testID="industry-sp-brier-total" label="Brier (all races)" />
+        </View>
+      )}
+
       <View
         testID="industry-sp-split-cards"
         style={[styles.splitCards, isDesktop && styles.splitCardsRow]}
@@ -1853,6 +1888,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               totalRaces: totalRacesA,
               totalRunners: totalRunnersA,
               pnl: pnlStatsA,
+              brier: brierA,
               status: splitCardStatus,
             })}
             {renderSplitCard({
@@ -1863,6 +1899,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               totalRaces: totalRacesB,
               totalRunners: totalRunnersB,
               pnl: pnlStatsB,
+              brier: brierB,
               status: splitCardStatus,
             })}
           </>
@@ -1880,6 +1917,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           totalRaces={detailSplit === "a" ? totalRacesA : totalRacesB}
           totalRunners={detailSplit === "a" ? totalRunnersA : totalRunnersB}
           pnl={detailSplit === "a" ? pnlStatsA : pnlStatsB}
+          brier={detailSplit === "a" ? brierA : brierB}
           onClose={() => setDetailSplit(null)}
           onViewRaces={() => {
             const fromRow = detailSplit === "a" ? fromRowA : fromRowB;
@@ -2164,6 +2202,10 @@ const styles = StyleSheet.create({
   },
   countryChipTextPending: {
     color: "#fff",
+  },
+  brierTotalRow: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
   },
   splitCards: {
     padding: spacing.md,

@@ -1,9 +1,10 @@
 import React from "react";
 import { View, StyleSheet } from "react-native";
 import { Text, Button, Surface, Divider } from "react-native-paper";
-import { PnlStats } from "../services/chatApi";
+import { PnlStats, BrierStats } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import { formatGbp, formatPnl, formatPct } from "../utils/ispFormat";
+import { BrierScore } from "./BrierScore";
 
 interface SplitDetailPanelProps {
   id: "a" | "b";
@@ -13,6 +14,7 @@ interface SplitDetailPanelProps {
   totalRaces: number;
   totalRunners: number;
   pnl: PnlStats;
+  brier: BrierStats | undefined;
   onClose: () => void;
   onViewRaces: () => void;
 }
@@ -29,6 +31,7 @@ export const SplitDetailPanel: React.FC<SplitDetailPanelProps> = ({
   totalRaces,
   totalRunners,
   pnl,
+  brier,
   onClose,
   onViewRaces,
 }) => {
@@ -94,6 +97,16 @@ export const SplitDetailPanel: React.FC<SplitDetailPanelProps> = ({
             </Text>
           </Text>
         </View>
+
+        <Divider style={styles.pnlDivider} />
+
+        {/*
+          Below the P&L, not above it: this panel is read top-down as
+          "what did this split contain, and what did betting it return" —
+          the calibration question comes after that, as the check on whether
+          the return was skill or variance.
+        */}
+        <BrierScore brier={brier} variant="rows" testID={`split-detail-brier-${id}`} />
       </View>
 
       <Button

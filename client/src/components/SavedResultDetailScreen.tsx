@@ -7,6 +7,8 @@ import { PnlConvergencePanel } from "./PnlConvergencePanel";
 import { AppHeader } from "./AppHeader";
 import { PageContainer } from "./PageContainer";
 import { buildFilterSummaryFromParams, formatPnl, formatPct, formatRaceTime } from "../utils/ispFormat";
+import { BrierScore } from "./BrierScore";
+import { brierFromParts } from "../utils/brierFormat";
 import { buildHierarchy, collectHierarchyNodeKeys } from "../utils/raceHierarchy";
 import { qualifyingFilterQueryFromParams } from "../utils/ispUrlParams";
 import { colors, radii, spacing } from "../theme";
@@ -98,6 +100,21 @@ function LivePerformanceSection({
         <TouchableOpacity testID="saved-result-live-collapse-all" onPress={toggleCollapseAll}>
           <Text style={styles.liveCollapseAllText}>{isAllCollapsed ? "Expand all" : "Collapse all"}</Text>
         </TouchableOpacity>
+      </View>
+      {/*
+        Rebuilt from the per-race squared-error SUMS each captured day stores,
+        never from per-race Brier scores — see brierFromParts. This is the one
+        number on this screen computed from real results as they came in
+        rather than from a backtest, which makes it the honest counterpart to
+        the two snapshot cards above: the backtest chose these filters knowing
+        the outcomes, this did not.
+      */}
+      <View testID="saved-result-live-brier-row" style={styles.liveBrierRow}>
+        <BrierScore
+          brier={brierFromParts(results.map(r => r.brierSums))}
+          testID="saved-result-live-brier"
+          label="Brier (live)"
+        />
       </View>
       {hierarchy.map(year => {
         const yearKey = `year:${year.key}`;
@@ -273,6 +290,7 @@ function SplitCard({
           No qualifying bets in this split.
         </Text>
       )}
+      <BrierScore brier={split.brier} tone="dark" testID={`saved-result-brier-${id}`} />
       <View style={styles.splitButtonRow}>
         <Button
           testID={`saved-result-split-details-button-${id}`}
@@ -433,6 +451,7 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
               totalRaces={detailedSplit.total}
               totalRunners={detailedSplit.totalRunners}
               pnl={detailedSplit.pnlStats}
+              brier={detailedSplit.brier}
               onClose={() => setDetailSplit(null)}
               onViewRaces={() => {}}
             />
@@ -553,6 +572,10 @@ const styles = StyleSheet.create({
   liveStateContainer: { alignItems: "center", padding: spacing.md },
   liveEmptyContainer: { padding: spacing.md },
   liveEmptyText: { fontSize: 13, color: colors.textSecondary, textAlign: "center" },
+  liveBrierRow: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
   liveSectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
