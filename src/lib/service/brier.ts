@@ -12,7 +12,7 @@
  *
  * Two scores are reported together, over exactly the same runners:
  *
- * - `model` — the XGBoost win probability (`runners.modelWinProbability`).
+ * - `model` — the XGBoost win probability (`runners.modelWinProbabilityOos`).
  * - `market` — the probability the runner's starting price implies, normalised
  *   by the race's own book sum so it is comparable to a model column that
  *   ml/train_and_predict.py's `normalize_within_race()` has already forced to
@@ -40,21 +40,22 @@
  *    exactly the right number for "on the horses this filter picks, who is
  *    closer to the truth", which is what a filter screen asks.
  *
- * 2. **This scores `modelWinProbability`, which is not out-of-sample.** That is
- *    the field ml/train_and_predict.py writes, and it is the field the filters
- *    themselves select on — so scoring anything else would describe a different
- *    forecast from the one the user filtered by, and the Brier would no longer
- *    be about the horses on screen. But it means that over years the model was
- *    trained on, the model's score here is optimistic. `/model-accuracy` scores
- *    `modelWinProbabilityOos` instead (ml/walk_forward_score.py: every race
- *    scored by a model fitted only on races that finished before it), which is
- *    the honest number for "is the model actually any good" — and the two
- *    therefore will NOT agree, by design. See MODEL_ACCURACY_PROB_FIELD in
- *    model-accuracy-dao.ts.
+ * 2. **This scores the same field the filters select on** — MODEL_PROB_FIELD in
+ *    brier-expr.ts — which is the rule that keeps the number about the horses
+ *    actually on screen rather than about some other forecast.
  *
- *    The one place on these screens where the caveat does not apply is a saved
- *    result's Live Performance rollup: those races were captured after the
- *    filter was saved, so nothing there was in any training set.
+ *    That field is now `modelWinProbabilityOos` (ml/walk_forward_score.py: every
+ *    race scored by a model fitted only on races that finished before it). It
+ *    used to be `modelWinProbability`, and this note used to warn that the score
+ *    here was therefore optimistic over years the model was trained on, and would
+ *    NOT agree with `/model-accuracy` by design. Both halves of that are gone:
+ *    the filters moved to the out-of-sample field (they were selecting winners by
+ *    construction — see AGENTS.md 2026-08-04), the Brier followed them by the
+ *    rule above, and this score and `/model-accuracy` are now the same kind of
+ *    number. The rule did not change; the field it points at did.
+ *
+ *    Expect the displayed model Brier to get WORSE than it was before that
+ *    change, on the same filters. It was flattered; it no longer is.
  */
 
 /**

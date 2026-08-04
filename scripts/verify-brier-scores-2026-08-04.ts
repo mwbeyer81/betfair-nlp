@@ -38,7 +38,7 @@ const DB_NAME = process.env.MONGODB_DB || config.get<string>("database.name");
 interface RunnerLike {
   isp?: number | null;
   status?: string;
-  modelWinProbability?: number | null;
+  modelWinProbabilityOos?: number | null;
   trainerFormWinRate?: number | null;
 }
 
@@ -68,11 +68,11 @@ function handBrier(
 
     for (const r of runners) {
       if (typeof r.isp !== "number" || r.isp <= 1) continue;
-      if (typeof r.modelWinProbability !== "number") continue;
+      if (typeof r.modelWinProbabilityOos !== "number") continue;
       if (!keep(r)) continue;
 
       const y = r.status === "WINNER" ? 1 : 0;
-      const modelP = r.modelWinProbability / 100;
+      const modelP = r.modelWinProbabilityOos / 100;
       const marketPct = bookSum > 0 ? ((100 / r.isp) / bookSum) * 100 : 100 / r.isp;
       const marketP = marketPct / 100;
 
@@ -192,7 +192,7 @@ async function main(): Promise<void> {
   // which is the case the doc comment in src/lib/service/brier.ts warns about —
   // and the case most likely to expose a mismatch between what the filter keeps
   // and what the Brier scores, since the condition itself involves both isp and
-  // modelWinProbability.
+  // modelWinProbabilityOos.
   {
     const res = await dao.getAllRacesByRace(
       1, 1, 1, 30, [], 1, 1000, "asc", 1, 10000, 1, null, null, null, [], [], [], [], null, null,
@@ -203,8 +203,8 @@ async function main(): Promise<void> {
       r =>
         typeof r.isp === "number" &&
         r.isp > 0 &&
-        typeof r.modelWinProbability === "number" &&
-        r.modelWinProbability - 100 / r.isp > 0
+        typeof r.modelWinProbabilityOos === "number" &&
+        r.modelWinProbabilityOos - 100 / r.isp > 0
     );
     check(
       "model-beats-SP: model Brier matches",

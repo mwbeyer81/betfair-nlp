@@ -49,10 +49,10 @@ const RACE_1 = {
   raceStaked: 1 + 1 / 3 + 0.25 + 1 / 19,
   raceReturns: 1 + 1,
   runners: [
-    { id: 101, name: "A", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, modelWinProbability: 55 },
-    { id: 102, name: "B", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 4, ispFraction: "3/1", isFavourite: false, modelWinProbability: 20 },
-    { id: 103, name: "C", num: 3, draw: 3, status: "LOSER", sortPriority: 3, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbability: 15 },
-    { id: 104, name: "D", num: 4, draw: 4, status: "LOSER", sortPriority: 4, isp: 20, ispFraction: "19/1", isFavourite: false, modelWinProbability: 10 },
+    { id: 101, name: "A", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, modelWinProbabilityOos: 55 },
+    { id: 102, name: "B", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 4, ispFraction: "3/1", isFavourite: false, modelWinProbabilityOos: 20 },
+    { id: 103, name: "C", num: 3, draw: 3, status: "LOSER", sortPriority: 3, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbabilityOos: 15 },
+    { id: 104, name: "D", num: 4, draw: 4, status: "LOSER", sortPriority: 4, isp: 20, ispFraction: "19/1", isFavourite: false, modelWinProbabilityOos: 10 },
   ],
 };
 
@@ -62,7 +62,7 @@ const RACE_1 = {
 //   model:       50, 30, 20 on the three SCORED runners.
 //   Runner E (isp 2) WINS.
 //
-//   The fourth runner (H) has NO modelWinProbability key at all — the shape a
+//   The fourth runner (H) has NO modelWinProbabilityOos key at all — the shape a
 //   real unscored runner has, and not the same thing as an explicit null (see
 //   the incident recorded in model-accuracy-dao.integration.test.ts). It is
 //   excluded from BOTH scores, while STILL counting towards the book sum,
@@ -96,9 +96,9 @@ const RACE_2 = {
   raceStaked: 1 + 1 + 0.25 + 1 / 9,
   raceReturns: 1 + 1,
   runners: [
-    { id: 201, name: "E", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, modelWinProbability: 50 },
-    { id: 202, name: "F", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 2, ispFraction: "1/1", isFavourite: false, modelWinProbability: 30 },
-    { id: 203, name: "G", num: 3, draw: 3, status: "LOSER", sortPriority: 3, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbability: 20 },
+    { id: 201, name: "E", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, modelWinProbabilityOos: 50 },
+    { id: 202, name: "F", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 2, ispFraction: "1/1", isFavourite: false, modelWinProbabilityOos: 30 },
+    { id: 203, name: "G", num: 3, draw: 3, status: "LOSER", sortPriority: 3, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbabilityOos: 20 },
     { id: 204, name: "H", num: 4, draw: 4, status: "LOSER", sortPriority: 4, isp: 10, ispFraction: "9/1", isFavourite: false },
   ],
 };
@@ -148,7 +148,7 @@ describe("IndustrySpDAO Brier scores (integration)", () => {
   });
 
   it("excludes a runner the model never scored, but still counts it in the book", async () => {
-    // Runner H has no modelWinProbability field at all. Excluded from the
+    // Runner H has no modelWinProbabilityOos field at all. Excluded from the
     // score: 3 scored, not 4. Still in the book: race 2's bookSum includes its
     // 10 (100/10), which is what makes the fair probabilities above sum to 100
     // — drop it and every other runner's fair probability inflates.

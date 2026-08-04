@@ -55,31 +55,12 @@ export interface IspRunner {
   modelVersionId?: string | null;
 }
 
-// THE field every model-vs-SP filter, band and P&L on this collection judges
-// on. Same field ml/walk_forward_score.py writes and model-accuracy-dao.ts's
-// MODEL_ACCURACY_PROB_FIELD already reads — the two must never diverge, or
-// the Filters screen and the Model Accuracy screen would be scoring different
-// models under the same name.
+// MODEL_PROB_FIELD — the one field every model-vs-SP filter, band, P&L and
+// Brier score on this collection judges on — is defined in ./brier-expr and
+// imported above, so the filters and the Brier score displayed beside them can
+// never drift onto different forecasts. Read its comment there before changing
+// anything here.
 //
-// Why not modelWinProbability: that field carries two different meanings
-// depending on who wrote it. On a historical row it is the FINAL REFIT's
-// score from ml/train_and_predict.py, which was fitted on the very races it
-// then scored — so it already knows which horse won. Filtering on it (e.g.
-// onlyModelBeatsSp, minModelSpEdgePts) therefore selects winners by
-// construction rather than by skill. Measured on production over 2016-2026:
-// the "model beats SP" selection returns +4.5% ROI read through
-// modelWinProbability and -18.8% read through this field, against -11.7% for
-// betting every runner. The first number is leakage; only the second is real.
-// See AGENTS.md 2026-08-04.
-//
-// A row missing this field has no honest number and must not qualify for a
-// model filter. That is exactly right for pre-2016 runners, which
-// walk_forward_score.py deliberately leaves unscored (no prior history to fit
-// on). Live-captured runners are NOT in that group: their prediction was made
-// before the race ran, which is out-of-sample by construction, so
-// industry-sp-results-capture-service.ts writes it to this field too.
-export const MODEL_PROB_FIELD = "modelWinProbabilityOos";
-
 // The same field as an aggregation path, under the two variable bindings this
 // file's pipelines use: `$$r` inside every $filter/$map over `runners`, and
 // `$mvsRunner` after getModelVsSpRunners has unwound its filtered array.

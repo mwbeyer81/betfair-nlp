@@ -12,8 +12,35 @@ import { BrierSums } from "../service/brier";
  * filtered set.
  */
 
-/** Field name of the per-runner model probability, 0-100. */
-export const MODEL_PROB_FIELD = "modelWinProbability";
+/**
+ * Field name of the per-runner model probability, 0-100 — and THE single
+ * definition of which forecast this whole collection is judged on. Every
+ * model-vs-SP filter, band, P&L and Brier score reads it, including
+ * industry-sp-dao.ts's filter conditions, so a filtered set and the Brier score
+ * shown beside it can never describe different forecasts.
+ *
+ * Why not `modelWinProbability`: that field carries two different meanings
+ * depending on who wrote it. On a historical row it is the FINAL REFIT's score
+ * from ml/train_and_predict.py, which was fitted on the very races it then
+ * scored — so it already knows which horse won. Filtering on it (onlyModelBeatsSp,
+ * minModelSpEdgePts, minModelWinProbability) selects winners by construction
+ * rather than by skill: measured on production over 2016-2026, the "model beats
+ * SP" selection returns +4.5% ROI read through `modelWinProbability` and -18.8%
+ * read through this field, against -11.7% for backing every runner. The first
+ * number is leakage; only the second is real. See AGENTS.md 2026-08-04.
+ *
+ * A row missing this field has no honest number and must not qualify for a
+ * model filter. That is exactly right for pre-2016 runners, which
+ * ml/walk_forward_score.py deliberately leaves unscored (no prior history to
+ * fit on). Live-captured runners are NOT in that group: their prediction was
+ * made before the race ran, which is out-of-sample by construction, so
+ * industry-sp-results-capture-service.ts writes it to this field too.
+ *
+ * Must stay the same field as model-accuracy-dao.ts's MODEL_ACCURACY_PROB_FIELD,
+ * or /model-accuracy and the Filters screen would score different models under
+ * the same name.
+ */
+export const MODEL_PROB_FIELD = "modelWinProbabilityOos";
 
 /**
  * The race's total implied probability, in percent, over every runner with a
@@ -125,7 +152,7 @@ export function raceBrierSumsExpr(p: {
   // buildModelVsSpRunnerCond says a missing path compares equal to null;
   // model-accuracy-dao.ts's `scoredRunners` says it does not), and this
   // expression must be right regardless of which reading is correct: a runner
-  // whose modelWinProbability is missing, explicitly null, or somehow
+  // whose modelWinProbabilityOos is missing, explicitly null, or somehow
   // non-numeric must never contribute a squared error, because the only value
   // arithmetic could give it is 0 — a confident, wrong forecast the model never
   // actually made.
