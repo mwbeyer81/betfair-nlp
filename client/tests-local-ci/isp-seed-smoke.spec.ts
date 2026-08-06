@@ -5,7 +5,9 @@ import { test, expect } from "@playwright/test";
 // shared-dev-DB specs in client/tests/, which must sample a large,
 // slow-changing dataset, this DB is fully known and rebuilt from scratch
 // every run, so assertions here can be exact rather than best-effort.
-const API_URL = "http://localhost:3050";
+// Same reasoning as LOCAL_CI_APP_URL above: overridable so concurrent
+// worktrees can claim their own backend port (LOCAL_CI_BACKEND_PORT).
+const API_URL = process.env.LOCAL_CI_API_URL ?? "http://localhost:3050";
 
 async function token(request: import("@playwright/test").APIRequestContext): Promise<string> {
   const res = await request.post(`${API_URL}/api/auth/login`, {

@@ -5,7 +5,12 @@ import { test, expect } from "@playwright/test";
 // URL-login convention. Exercises the full save -> list -> detail -> graph
 // -> restore -> delete loop against the seeded 2026-06-03 slice (Newton
 // Abbot/Nottingham/Ripon/Warwick, anchor raceId 919979).
-const APP_URL = "http://localhost:8090/";
+// Overridable via LOCAL_CI_APP_URL so a second worktree can run this suite
+// concurrently on its own claimed ports (see .claude/commands/worktree-ports.md
+// and scripts/local-ci-e2e.sh's LOCAL_CI_FRONTEND_PORT). The script already
+// let mongo/backend move; this hardcoded URL was what still forced every
+// concurrent run onto the same frontend port. Default unchanged.
+const APP_URL = process.env.LOCAL_CI_APP_URL ?? "http://localhost:8090/";
 
 async function gotoIspForNottingham(page: import("@playwright/test").Page) {
   await page.goto(
