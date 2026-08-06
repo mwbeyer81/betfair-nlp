@@ -6636,3 +6636,21 @@ here, still worth someone's time): it is all one shape — specs that expect rac
 rows straight after `goto("/isp/races")`, from before the collapsed-by-default
 hierarchy. They need a Year -> Month -> Day -> Meeting drill-down, exactly like
 the specs in this branch do.
+
+**Merged, pushed and deployed** (2026-08-06). Merge `924fb98` on `develop`
+(`fix/isp-races-rollup-mismatch` branched from `28b117b`; `develop` had moved
+to `3455d1c` meanwhile — merged clean, no conflicts). `/deploy-web` shipped
+`develop@924fb98` to `app.backbet.co.uk`; `build-commit` meta confirms it live.
+
+**The prod-repro script now passes against the deployed bundle**, having failed
+by design a few hours earlier on `28b117b`:
+`2016 header reads: "1118 races"  "-£48.25 (-17.3%)"` — the server's own answer
+for that window, where the same script previously printed
+`"11 races loaded"  "-£2.75 (-100.0%)"`. Left in place per the prod-repro
+convention; not maintained going forward.
+
+Also sanity-checked live with **real** data (signed out, so the 100-race
+anonymous cap applies): `Races · 174/887 runners · 20/100 races` with a 2024
+header of `100 races · -£27.59 (-16.8%)` — a year captioned by its whole
+window while 20 of its races are loaded, which is the entire point. Worktree
+can be removed.
