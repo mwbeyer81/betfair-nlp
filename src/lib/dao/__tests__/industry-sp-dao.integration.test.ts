@@ -188,6 +188,60 @@ describe("IndustrySpDAO (integration)", () => {
     expect(restricted.total).toBe(rowRanged.total);
   });
 
+  // The contract IspRacesScreen's year/month/day headers now render directly
+  // (isp-races-rollup-mismatch): a sub-ranged response's pnlStats/totalRunners
+  // describe THAT WINDOW, not the whole row range and not the returned page.
+  // Reported live as a 2016 header reading "-£1.14 (-100.0%)" under a saved
+  // result whose own card said 1118 races and -20.2% — the screen was rolling
+  // up its own loaded races because it discarded these.
+  it("pnlStats/totalRunners are scoped to the sub-range, and partition exactly across two halves of a row range", async () => {
+    const whole = await dao.getAllRacesByRace(1, 50, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, 50);
+    expect(whole.data.length).toBeGreaterThan(3);
+    const midIndex = Math.floor(whole.data.length / 2);
+    const midRaceTime = whole.data[midIndex].raceTime;
+
+    // Same row range every time, varying only the sub-window.
+    const window = (subMin: string | null, subMax: string | null) =>
+      dao.getAllRacesByRace(1, 50, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, 50,
+        null, null, [], [], [], [], null, null, 0, 0, 100, null, 0, false, null, subMin, subMax);
+
+    // Two disjoint, exhaustive halves of the same row range. Splitting on a
+    // raceTime means the boundary race itself belongs to the upper half, so
+    // the lower half stops strictly before it.
+    const lower = await window(null, midRaceTime);
+    const upper = await window(midRaceTime, null);
+    // The boundary raceTime can be shared by several races (same meeting,
+    // same minute), so the halves overlap on exactly those — count them once.
+    const boundary = await window(midRaceTime, midRaceTime);
+
+    expect(lower.total).toBeGreaterThan(0);
+    expect(upper.total).toBeGreaterThan(0);
+    expect(lower.total + upper.total - boundary.total).toBe(whole.total);
+    expect(lower.totalRunners + upper.totalRunners - boundary.totalRunners).toBe(whole.totalRunners);
+    expect(lower.pnlStats.count + upper.pnlStats.count - boundary.pnlStats.count).toBe(whole.pnlStats.count);
+    expect(lower.pnlStats.staked + upper.pnlStats.staked - boundary.pnlStats.staked).toBeCloseTo(whole.pnlStats.staked, 6);
+    expect(lower.pnlStats.returns + upper.pnlStats.returns - boundary.pnlStats.returns).toBeCloseTo(whole.pnlStats.returns, 6);
+  });
+
+  it("a sub-range's pnlStats/total are page-independent — page 2 reports the same window numbers as page 1", async () => {
+    // The screen stores these from whichever page happens to arrive (a day's
+    // first page on open, or any later "Load more" page), so a page-dependent
+    // pnlStats would make a header's numbers drift as the user paged.
+    const nthPage = (pageNum: number) =>
+      dao.getAllRacesByRace(pageNum, 2, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, 200);
+    const page1 = await nthPage(1);
+    if (page1.total < 3) return; // dataset too small to have a second page
+    const page2 = await nthPage(2);
+
+    expect(page2.total).toBe(page1.total);
+    expect(page2.totalRunners).toBe(page1.totalRunners);
+    expect(page2.pnlStats.staked).toBeCloseTo(page1.pnlStats.staked, 6);
+    expect(page2.pnlStats.returns).toBeCloseTo(page1.pnlStats.returns, 6);
+    expect(page2.pnlStats.count).toBe(page1.pnlStats.count);
+    // ...while the page itself genuinely moved.
+    expect(page2.data[0]?.raceId).not.toBe(page1.data[0]?.raceId);
+  });
+
   it("a subMinRaceTime after every race in the row range returns an empty result", async () => {
     const restricted = await dao.getAllRacesByRace(
       1, 50, 1, 100, [], 1, 100000, "asc", 1, 10000, 1, 50,

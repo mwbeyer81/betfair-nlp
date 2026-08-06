@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
 import { Text, Button, ActivityIndicator } from "react-native-paper";
-import { chatApi, IspRace, IspRunner, BrierStats } from "../services/chatApi";
+import { chatApi, IspRace, IspRunner, BrierStats, IspPage, PnlStats } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
@@ -140,6 +140,22 @@ interface RangeLoadState {
   error: boolean;
 }
 
+// What the server said about one node's entire date window, lifted verbatim
+// out of whichever response probed it (see rangeStats). `races`/`runners` are
+// the response's own `total`/`totalRunners`; `pnl` is its `pnlStats`.
+interface RangeStats {
+  races: number;
+  runners: number;
+  pnl: PnlStats;
+}
+
+// Pulls the window-level numbers off any response. Deliberately reads them
+// from the SAME response whose `data` seeded the node — no second request,
+// and no risk of the caption describing a different window from the rows.
+function rangeStatsOf(page: IspPage): RangeStats {
+  return { races: page.total, runners: page.totalRunners, pnl: page.pnlStats };
+}
+
 // Clips `year`'s own Jan1->Dec31 span to the filter's actual effective
 // range — e.g. a filter of 2024-06-01 -> 2025-03-01 shouldn't let 2024's
 // "own" span reach back to 2024-01-01, or 2025's reach past 2025-03-01.
@@ -225,9 +241,36 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // first one that actually has data — and leaves the rest tappable and
   // visibly unloaded. Same shape as the year->month change before it.
   const [dayStates, setDayStates] = useState<Record<string, RangeLoadState>>({});
+  // The server's own answer for a node's whole window, keyed by the same
+  // "year:2016" / "month:2016-01" / "day:2016-01-01" keys expandedKeys uses.
+  //
+  // Every request this screen makes is already scoped to exactly one node's
+  // date window (subMinDate/subMaxDate), and the response's `total`,
+  // `totalRunners` and `pnlStats` describe that whole window, not the page it
+  // returned — the DAO puts its subDateMatchStage ahead of the $facet
+  // precisely so they do. The screen used to throw all three away and caption
+  // each header with a rollup over whatever races had been paged in instead.
+  //
+  // Reported live via three screenshots: saved result "Hoop", Split A —
+  // 1118 races, -£28.82 (-20.2%) on its own card — opened its Races view as
+  // "2016 · 11 races loaded · -£1.14 (-100.0%)", because the mount chain
+  // loads exactly one day and that day's 11 races all lost. The -100.0% was a
+  // true number over 11 races wearing a year's clothing, and the server had
+  // already said 1118/-20.2% in the very response that produced it.
+  //
+  // A node's stats are page-independent, so a later page for the same day
+  // simply overwrites with the same numbers. Absence means "never probed" —
+  // the same thing initializedYears/initializedMonths mean, kept separate so
+  // a probe that fails can clear one without disturbing the other.
+  const [rangeStats, setRangeStats] = useState<Record<string, RangeStats>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [totalRaces, setTotalRaces] = useState(0);
+  // The whole row range's qualifying-runner count, straight off the mount
+  // probe — the same number the saved result's own card shows. Paired with
+  // visibleRunners in the subtitle as "loaded/total", matching both the
+  // races count beside it and AllRunnersScreen's identical subtitle.
+  const [totalRunners, setTotalRunners] = useState(0);
   const [brier, setBrier] = useState<BrierStats | undefined>(undefined);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">(() => urlSortParam());
   const [oddsMode, setOddsMode] = useState<OddsMode>("fraction");
@@ -357,6 +400,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, undefined, undefined, minModelSpEdgePts);
         if (cancelled) return;
         setTotalRaces(probe.total);
+        setTotalRunners(probe.totalRunners);
         // Covers the WHOLE row range, not this one probe page: the Brier
         // branch of the aggregation runs over the row-ranged document stream
         // before the $facet's data branch pages it, so it is page-independent
@@ -410,6 +454,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     try {
       const { from, to } = dayBounds(dayKey, effectiveMinDate, effectiveMaxDate);
       const result = await chatApi.getIndustrySp(nextPage, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
+      setRangeStats(prev => ({ ...prev, [`day:${dayKey}`]: rangeStatsOf(result) }));
       setDayStates(prev => {
         const prevRaces = prev[dayKey]?.races ?? [];
         const seen = new Set(prevRaces.map(r => r.raceId));
@@ -441,6 +486,10 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     const { from, to } = monthBounds(monthKey, effectiveMinDate, effectiveMaxDate);
     try {
       const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
+      // Recorded BEFORE the empty-data bail-out below: a probe that came back
+      // with nothing is exactly the case where the header most needs the
+      // server's own "0 races" rather than a guess.
+      setRangeStats(prev => ({ ...prev, [`month:${monthKey}`]: rangeStatsOf(probe) }));
       if (probe.data.length === 0) return;
       const startDays = [...new Set(probe.data.map(r => raceDayKey(r.raceTime)))].sort();
       // Only the *first* day with data gets loaded, even when this probe's
@@ -490,6 +539,11 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     const { from, to } = yearBounds(year, effectiveMinDate, effectiveMaxDate);
     try {
       const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
+      // Same as the month level below: recorded before the empty bail-out, so
+      // a year the row range genuinely can't reach (Split A stopping in 2016
+      // while the filter's own range runs into 2017) reports the server's
+      // "0 races" rather than staying ambiguous.
+      setRangeStats(prev => ({ ...prev, [`year:${year}`]: rangeStatsOf(probe) }));
       if (probe.data.length === 0) return;
       const startMonths = new Set(probe.data.map(r => raceMonthKey(r.raceTime)));
       // Every month strictly before the earliest one actually present is
@@ -746,62 +800,72 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // where there is, walking it at every level on every render is the exact
   // cost that padding-out was removed to avoid. `probed` answers the only
   // question the label actually needs: has anything gone and looked?
-  // "loaded", not a bare count, because the P&L badge rendered immediately to
-  // its right is a groupPnl() over exactly these races — and a group can only
-  // ever roll up what has actually been fetched (days load one at a time, and
-  // paginate within themselves). Reported live via screenshot: a year header
-  // reading "2024 · 20 races · +£2.55 (+30.6%)" directly under a filter whose
-  // own card said 675 races and -25.8%; the +30.6% was a true number over 20
-  // races wearing the clothes of a year total. The exact per-level shortfall
-  // isn't knowable cheaply (only days carry a server-side `total`, and a
-  // collapsed month doesn't even build its day list — see the hierarchy
-  // comment above for why that padding-out was removed), but "loaded" is
-  // unconditionally true at every level and is the part that was missing.
-  // The screen header's own `N/total races` supplies the magnitude.
-  function rollupCountLabel(loadedRaces: number, probed: boolean, anyLoading: boolean): string {
-    if (loadedRaces > 0) return `${loadedRaces} races loaded`;
-    if (anyLoading) return "Loading…";
-    if (!probed) return "Tap to load";
-    return "0 races";
+  // Once a node has been probed the count is the SERVER's count for that whole
+  // window (rangeStats), not a tally of what's been paged in — so a year header
+  // reads "1118 races" the moment it is asked, and keeps reading it however few
+  // of those races the client has actually fetched. That is the number the
+  // saved result's own card shows, which is the whole point: the two now agree
+  // by construction instead of by coincidence.
+  //
+  // The older "N races loaded" phrasing is gone with the thing that made it
+  // necessary. It existed because the count and the P&L badge beside it were
+  // both rollups over loaded races only, so the count had to disclaim itself;
+  // both now describe the same real window, so there is nothing to disclaim.
+  // "Loading…" still wins while a probe is in flight, and an unprobed node
+  // still says "Tap to load" (its own tap target — see loadWithoutExpanding).
+  // `probed` (initializedYears/initializedMonths) minus stats is precisely
+  // "this node's own probe is in flight": both are set together when it
+  // resolves, and a failed probe clears `probed` again so a retry stays
+  // offered. That pairing is also what keeps the label honest with the tap
+  // target beside it — an unprobed node is the one that says "Tap to load",
+  // and it is exactly the one that renders as tappable.
+  function rollupCountLabel(stats: RangeStats | undefined, probed: boolean, anyLoading: boolean): string {
+    if (stats) return `${stats.races} races`;
+    if (probed || anyLoading) return "Loading…";
+    return "Tap to load";
   }
 
   function yearCountLabel(year: YearNode<IspRace>): string {
-    const probed = initializedYears.has(year.key);
     const anyLoading = year.months.some(m => m.days.some(d => dayStates[d.key]?.isLoading));
-    return rollupCountLabel(year.items.length, probed, anyLoading);
+    return rollupCountLabel(rangeStats[`year:${year.key}`], initializedYears.has(year.key), anyLoading);
   }
 
   function monthCountLabel(month: MonthNode<IspRace>): string {
-    const probed = initializedMonths.has(month.key);
     const anyLoading = month.days.some(d => dayStates[d.key]?.isLoading);
-    return rollupCountLabel(month.items.length, probed, anyLoading);
+    return rollupCountLabel(rangeStats[`month:${month.key}`], initializedMonths.has(month.key), anyLoading);
   }
 
-  // A placeholder day (no races loaded for it yet) is ambiguous the way a
-  // placeholder month used to be — it could mean "never tapped" or "checked,
-  // and there's genuinely nothing here". Days are where the real fetch state
-  // now lives, so this is the one level that reads it directly.
+  // A day that has never been fetched says so explicitly rather than "Tap to
+  // load" — the one level whose label predates the tap-to-load affordance and
+  // the one where a tap opens the races themselves, not just a count.
   function dayCountLabel(day: DayNode<IspRace>): string {
-    const dayState = dayStates[day.key];
-    if (day.items.length > 0) {
-      // The one level that can say this precisely rather than just flagging
-      // it (see rollupCountLabel): a day owns the server-side `total` for its
-      // own sub-date range, so a day that has fetched every page of itself is
-      // genuinely complete and its P&L badge needs no qualifier. Compared on
-      // state.races (everything fetched) rather than day.items (what survives
-      // the client-side qualifyingRunners narrowing) — total counts the
-      // former, so anything else would read as permanently short.
-      const complete = dayState?.total != null && dayState.races.length >= dayState.total;
-      return complete ? `${day.items.length} races` : `${day.items.length} races loaded`;
-    }
-    const state = dayState;
-    if (state?.isLoading) return "Loading…";
-    // A failed fetch leaves state.total unset (see loadDayPage's catch) —
-    // check error before the generic "state exists" fallback below, or a
-    // failure reads as "confirmed zero races" instead of "tap to retry".
+    const state = dayStates[day.key];
+    // A failed fetch leaves no stats behind (see loadDayPage's catch) — check
+    // error first, or a failure reads as "confirmed zero races" instead of
+    // "tap to retry".
     if (state?.error) return "Failed to load — tap to retry";
-    if (state) return "0 races";
+    const stats = rangeStats[`day:${day.key}`];
+    if (stats) return `${stats.races} races`;
+    if (state?.isLoading) return "Loading…";
     return "Not loaded yet";
+  }
+
+  // The number every header actually wants: the server's own P&L for that
+  // node's whole window, falling back to a rollup over loaded races only while
+  // the node has never been probed (a meeting, which has no window of its own,
+  // always takes that path — it exists entirely inside an already-loaded day).
+  //
+  // A header describes its window; the rows under it are whatever has been
+  // paged in, which is normally far less. So the two are not meant to add up,
+  // and the count beside the badge says which window it means. The one case
+  // where a *fully* loaded node can still differ slightly is the documented
+  // both-filters-active edge in qualifyingRunners (trainer form AND model
+  // probability): the server guarantees each filter independently per race,
+  // while the client requires a single runner to satisfy both. The server's
+  // number is the one the saved result's card shows, so it stays the header's.
+  function nodePnl(key: string | null, races: IspRace[]) {
+    const stats = key ? rangeStats[key] : undefined;
+    return stats ? stats.pnl : groupPnl(races);
   }
 
   return (
@@ -814,7 +878,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         onBack={onBack}
         subtitle={
           !isLoading
-            ? `Races · ${visibleRunners} runners · ${visibleRaces.length}/${totalRaces} races`
+            ? `Races · ${visibleRunners}/${totalRunners} runners · ${visibleRaces.length}/${totalRaces} races`
             : "Races"
         }
         testIdPrefix="industry-sp-races"
@@ -890,7 +954,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
             {hierarchy.map(year => {
               const yearKey = `year:${year.key}`;
               const yearCollapsed = !expandedKeys.has(yearKey);
-              const yearPnl = groupPnl(year.items);
+              const yearPnl = nodePnl(yearKey, year.items);
               return (
                 <View key={year.key} testID={`industry-sp-year-${year.key}`}>
                   <View style={styles.yearHeader}>
@@ -932,7 +996,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                   {year.months.map(month => {
                     const monthKey = `month:${month.key}`;
                     const monthCollapsed = !expandedKeys.has(monthKey);
-                    const monthPnl = groupPnl(month.items);
+                    const monthPnl = nodePnl(monthKey, month.items);
                     return (
                       <View key={month.key} testID={`industry-sp-month-${month.key}`}>
                         <View style={styles.monthHeader}>
@@ -974,7 +1038,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                         {month.days.map(day => {
                           const dayKey = `day:${day.key}`;
                           const dayCollapsed = !expandedKeys.has(dayKey);
-                          const dayPnl = groupPnl(day.items);
+                          const dayPnl = nodePnl(dayKey, day.items);
                           return (
                             <View key={day.key} testID={`industry-sp-day-${day.key}`}>
                               <TouchableOpacity
@@ -997,7 +1061,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                               {!dayCollapsed && day.meetings.map(meeting => {
                                 const meetingKey = `meeting:${meeting.meetingId}`;
                                 const meetingCollapsed = !expandedKeys.has(meetingKey);
-                                const meetingPnl = groupPnl(meeting.items);
+                                const meetingPnl = nodePnl(null, meeting.items);
                                 return (
                                   <View key={meeting.meetingId} testID={`industry-sp-meeting-${meeting.meetingId}`}>
                                     <View style={styles.eventHeader}>

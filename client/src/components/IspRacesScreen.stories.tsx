@@ -190,20 +190,58 @@ const AT_LEOPARDSTOWN = { year: "2026", month: "2026-02", day: "2026-02-01", mee
 const AT_WETHERBY = { year: "2026", month: "2026-03", day: "2026-03-01", meeting: "Wetherby|2026-03-01" };
 const AT_MUSSELBURGH = { year: "2015", month: "2015-01", day: "2015-01-01", meeting: "Musselburgh|2015-01-01" };
 
+// Every handler below answers with total/totalRunners/pnlStats computed over
+// the races it actually matched — never a hardcoded constant, and never the
+// whole dataset's numbers for a narrower window. That is what the real
+// pipeline does (subDateMatchStage sits ahead of the $facet), and since the
+// isp-races-rollup-mismatch fix it is also what every year/month/day header on
+// this screen renders directly, so a mock that lied here would let the screen
+// silently go back to counting only the races it had paged in.
+type MockRace = { raceTime: string; runners: { isp?: number | null; status: string }[] };
+
+function pnlOver(races: MockRace[]) {
+  let staked = 0, returns = 0, count = 0;
+  for (const race of races) {
+    for (const runner of race.runners) {
+      if (runner.isp != null && runner.isp > 1) {
+        count++;
+        const stake = 1 / (runner.isp - 1);
+        staked += stake;
+        if (runner.status === "WINNER") returns += stake + 1;
+      }
+    }
+  }
+  return { staked, returns, pnl: returns - staked, count };
+}
+
+// Narrows by the sub-date window the caller asked for, then pages what's left
+// — the same order the real aggregation applies them in.
+function ispPage<T extends MockRace>(all: T[], request: Request) {
+  const url = new URL(request.url);
+  const page = parseInt(url.searchParams.get("page") || "1", 10);
+  const limit = parseInt(url.searchParams.get("limit") || "20", 10);
+  const subMinDate = url.searchParams.get("subMinDate");
+  const subMaxDate = url.searchParams.get("subMaxDate");
+  let matched = all;
+  if (subMinDate) matched = matched.filter(r => r.raceTime.slice(0, 10) >= subMinDate);
+  if (subMaxDate) matched = matched.filter(r => r.raceTime.slice(0, 10) <= subMaxDate);
+  const data = matched.slice((page - 1) * limit, (page - 1) * limit + limit);
+  const stats = pnlOver(matched);
+  return {
+    success: true,
+    data,
+    count: data.length,
+    total: matched.length,
+    page,
+    limit,
+    totalPages: Math.ceil(matched.length / limit),
+    totalRunners: stats.count,
+    pnlStats: stats,
+  };
+}
+
 const defaultHandlers = [
-  http.get(`${BASE}/api/industry-sp`, () =>
-    HttpResponse.json({
-      success: true,
-      data: MOCK_RACES,
-      count: MOCK_RACES.length,
-      total: MOCK_RACES.length,
-      page: 1,
-      limit: 20,
-      totalPages: 1,
-      totalRunners: TOTAL_RUNNERS_IN_DB,
-      pnlStats: { staked: 3.97, returns: 5.55, pnl: 1.58, count: 4 },
-    })
-  ),
+  http.get(`${BASE}/api/industry-sp`, ({ request }) => HttpResponse.json(ispPage(MOCK_RACES, request))),
 ];
 
 const meta: Meta<typeof IspRacesScreen> = {
@@ -295,7 +333,7 @@ export const ScreenLoaded: Story = {
     // rather than being its own Appbar title. Matched via the subtitle's
     // own "Races · N runners" shape — a bare /Races/ also hits the burger
     // menu's "Daily Races" button and fails as ambiguous.
-    await expect(canvas.findByText(/Races · \d+ runners/)).resolves.toBeInTheDocument();
+    await expect(canvas.findByText(/Races · \d+\/\d+ runners/)).resolves.toBeInTheDocument();
   },
 };
 
@@ -602,19 +640,7 @@ export const LoadMoreVisibleWhenMorePagesExist: Story = {
 };
 
 const hierarchyHandlers = [
-  http.get(`${BASE}/api/industry-sp`, () =>
-    HttpResponse.json({
-      success: true,
-      data: HIERARCHY_MOCK_RACES,
-      count: HIERARCHY_MOCK_RACES.length,
-      total: HIERARCHY_MOCK_RACES.length,
-      page: 1,
-      limit: 20,
-      totalPages: 1,
-      totalRunners: HIERARCHY_MOCK_RACES.reduce((s, r) => s + r.runners.length, 0),
-      pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
-    })
-  ),
+  http.get(`${BASE}/api/industry-sp`, ({ request }) => HttpResponse.json(ispPage(HIERARCHY_MOCK_RACES, request))),
 ];
 
 export const HierarchyLevelsVisible: Story = {
@@ -885,22 +911,7 @@ const perYearHandlers = [
     const subMinDate = url.searchParams.get("subMinDate");
     const subMaxDate = url.searchParams.get("subMaxDate");
     perYearRequests.push({ page, limit, subMinDate, subMaxDate });
-    let matched = PER_YEAR_RACES;
-    if (subMinDate) matched = matched.filter(r => r.raceTime.slice(0, 10) >= subMinDate);
-    if (subMaxDate) matched = matched.filter(r => r.raceTime.slice(0, 10) <= subMaxDate);
-    const skip = (page - 1) * limit;
-    const data = matched.slice(skip, skip + limit);
-    return HttpResponse.json({
-      success: true,
-      data,
-      count: data.length,
-      total: matched.length,
-      page,
-      limit,
-      totalPages: Math.ceil(matched.length / limit),
-      totalRunners: matched.length,
-      pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
-    });
+    return HttpResponse.json(ispPage(PER_YEAR_RACES, request));
   }),
 ];
 
@@ -917,11 +928,12 @@ export const LazyYearPlaceholdersRenderFromDateRangeImmediately: Story = {
       await expect(canvas.getByTestId("industry-sp-year-2024")).toBeInTheDocument();
       await expect(canvas.getByTestId("industry-sp-year-2025")).toBeInTheDocument();
 
-      // 2024's count comes from its first day alone (2 races on 1 June) —
-      // the mount chain resolves year -> first month -> first day and stops
-      // there. It is emphatically NOT a 20-race month page anymore.
+      // 2024's count is the SERVER's count for the whole year (45 races),
+      // even though the mount chain only paged in its first day (2 races on
+      // 1 June) — see rangeStats/isp-races-rollup-mismatch. The count is the
+      // window's truth; the rows under it are what's been fetched.
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("2 races");
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("45 races");
       }, { timeout: 10000 });
 
       // Those races are loaded but shut, so 2024's day rows only appear once
@@ -948,7 +960,7 @@ export const TappingACollapsedYearFetchesItDirectlyWithoutTouchingOtherYears: St
     try {
       await canvas.findByTestId("industry-sp-list");
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("2 races");
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("45 races");
       }, { timeout: 10000 });
 
       // Regression proof for the user's report ("2024's numbers changed
@@ -957,21 +969,35 @@ export const TappingACollapsedYearFetchesItDirectlyWithoutTouchingOtherYears: St
       // forward from 2024 (which would re-touch/append to 2024's own
       // state), and not fetch more than a small, fixed number of
       // requests regardless of how large 2024's own dataset is.
+      // The year count now resolves as soon as the YEAR probe answers, while
+      // that year's month probe and first-day page are still in flight — so
+      // wait for DOM evidence that the mount chain's last request (2024's
+      // first day) has landed before clearing, or its tail gets attributed to
+      // the 2025 tap below. Opening these two rows fires nothing itself:
+      // loadYearDefaultMonth/loadMonthDefaultDay are both idempotent for an
+      // already-initialized node.
+      await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2024"));
+      await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2024-06"));
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-day-count-2024-06-01")).toHaveTextContent("2 races");
+      }, { timeout: 10000 });
       perYearRequests = [];
       await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2025"));
 
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("1 races");
+        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("3 races");
       }, { timeout: 10000 });
 
       // 2024 is completely untouched — same count as before the tap.
-      await expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("2 races");
+      await expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("45 races");
 
       // Three requests, and every one of them scoped inside 2025: the year
       // probe that finds which month to land in, that month's probe for its
       // first day, and that day's own page. Narrowing at each hop rather
-      // than walking forward through 2024's ~45 races.
-      expect(perYearRequests).toHaveLength(3);
+      // than walking forward through 2024's ~45 races. The count above
+      // resolves on the first of the three (the year probe answers with the
+      // whole year's total now), so wait for the other two to land.
+      await waitFor(() => expect(perYearRequests).toHaveLength(3), { timeout: 10000 });
       expect(perYearRequests.map(r => `${r.subMinDate}..${r.subMaxDate}`)).toEqual([
         "2025-01-01..2025-12-31",
         "2025-06-01..2025-06-30",
@@ -991,7 +1017,7 @@ export const TappingAYearsTapToLoadCountLoadsItWithoutExpanding: Story = {
     try {
       await canvas.findByTestId("industry-sp-list");
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("2 races");
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("45 races");
       }, { timeout: 10000 });
 
       // The count itself is a separate tap target from the row, and taps it
@@ -1001,7 +1027,7 @@ export const TappingAYearsTapToLoadCountLoadsItWithoutExpanding: Story = {
       await userEvent.click(canvas.getByTestId("industry-sp-year-load-2025"));
 
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("1 races");
+        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("3 races");
       }, { timeout: 10000 });
 
       // Loaded, and still shut — none of 2025's months rendered.
@@ -1052,27 +1078,7 @@ const TWO_MONTH_RACES = [
 
 const twoMonthHandlers = [
   http.get(`${BASE}/api/industry-sp`, ({ request }) => {
-    const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get("page") || "1", 10);
-    const limit = parseInt(url.searchParams.get("limit") || "20", 10);
-    const subMinDate = url.searchParams.get("subMinDate");
-    const subMaxDate = url.searchParams.get("subMaxDate");
-    let matched = TWO_MONTH_RACES;
-    if (subMinDate) matched = matched.filter(r => r.raceTime.slice(0, 10) >= subMinDate);
-    if (subMaxDate) matched = matched.filter(r => r.raceTime.slice(0, 10) <= subMaxDate);
-    const skip = (page - 1) * limit;
-    const data = matched.slice(skip, skip + limit);
-    return HttpResponse.json({
-      success: true,
-      data,
-      count: data.length,
-      total: matched.length,
-      page,
-      limit,
-      totalPages: Math.ceil(matched.length / limit),
-      totalRunners: matched.length,
-      pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
-    });
+    return HttpResponse.json(ispPage(TWO_MONTH_RACES, request));
   }),
 ];
 
@@ -1150,22 +1156,7 @@ const busyDayHandlers = [
     const subMinDate = url.searchParams.get("subMinDate");
     const subMaxDate = url.searchParams.get("subMaxDate");
     busyDayRequests.push({ page, subMinDate, subMaxDate });
-    let matched = BUSY_DAY_RACES;
-    if (subMinDate) matched = matched.filter(r => r.raceTime.slice(0, 10) >= subMinDate);
-    if (subMaxDate) matched = matched.filter(r => r.raceTime.slice(0, 10) <= subMaxDate);
-    const skip = (page - 1) * limit;
-    const data = matched.slice(skip, skip + limit);
-    return HttpResponse.json({
-      success: true,
-      data,
-      count: data.length,
-      total: matched.length,
-      page,
-      limit,
-      totalPages: Math.ceil(matched.length / limit),
-      totalRunners: matched.length,
-      pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
-    });
+    return HttpResponse.json(ispPage(BUSY_DAY_RACES, request));
   }),
 ];
 
@@ -1176,9 +1167,12 @@ export const DayLoadMorePaginatesThatDayAlone: Story = {
     const canvas = within(canvasElement);
     try {
       await canvas.findByTestId("industry-sp-list");
-      // The mount chain lands on 1 June and pulls its first page: 20 of 45.
+      // The mount chain lands on 1 June and pulls its first page — 20 of the
+      // day's 45. The header says 45 from that very first response, because a
+      // count is the window's own total now, not a tally of fetched rows
+      // (isp-races-rollup-mismatch); what "Load more" grows is the rows.
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("20 races");
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("45 races");
       }, { timeout: 10000 });
 
       await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2024"));
@@ -1190,11 +1184,16 @@ export const DayLoadMorePaginatesThatDayAlone: Story = {
       // paging more races into a collapsed row would be invisible work.
       await userEvent.click(canvas.getByTestId("industry-sp-day-toggle-2024-06-01"));
 
+      // Rendered race rows are what pagination actually moves, so they are
+      // what this story counts — which needs the day's one meeting open too,
+      // since races live under it.
+      await userEvent.click(await canvas.findByTestId("industry-sp-meeting-toggle-Ascot|2024-06-01"));
+      const raceRows = () => canvasElement.querySelectorAll('[data-testid^="industry-sp-race-6"]').length;
+      await waitFor(() => expect(raceRows()).toBe(20), { timeout: 10000 });
+
       busyDayRequests = [];
       await userEvent.click(canvas.getByTestId("industry-sp-day-load-more-2024-06-01"));
-      await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-day-count-2024-06-01")).toHaveTextContent("40 races");
-      }, { timeout: 10000 });
+      await waitFor(() => expect(raceRows()).toBe(40), { timeout: 10000 });
 
       // Page 2, still scoped to that one day — never widened to the month.
       expect(busyDayRequests).toHaveLength(1);
@@ -1205,9 +1204,10 @@ export const DayLoadMorePaginatesThatDayAlone: Story = {
       // One more page (5 remaining of 45) exhausts the day — the button
       // disappears once state.races.length >= state.total.
       await userEvent.click(canvas.getByTestId("industry-sp-day-load-more-2024-06-01"));
-      await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-day-count-2024-06-01")).toHaveTextContent("45 races");
-      }, { timeout: 10000 });
+      await waitFor(() => expect(raceRows()).toBe(45), { timeout: 10000 });
+      // Every row the header promised is now on screen, and the button is
+      // gone once state.races.length >= state.total.
+      await expect(canvas.getByTestId("industry-sp-day-count-2024-06-01")).toHaveTextContent("45 races");
       await expect(canvas.queryByTestId("industry-sp-day-load-more-2024-06-01")).not.toBeInTheDocument();
     } finally {
       window.history.pushState({}, "", window.location.pathname);
@@ -1223,7 +1223,7 @@ export const ExpandAllLoadsEveryCollapsedYearIndependently: Story = {
     try {
       await canvas.findByTestId("industry-sp-list");
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("2 races");
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("45 races");
       }, { timeout: 10000 });
       const btn = canvas.getByTestId("industry-sp-collapse-all-toggle");
       // Nothing expands on load, so the tree is already fully collapsed —
@@ -1237,7 +1237,7 @@ export const ExpandAllLoadsEveryCollapsedYearIndependently: Story = {
       await userEvent.click(btn); // -> Expand All
 
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("1 races");
+        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("3 races");
       }, { timeout: 15000 });
       // 2024 was already probed on mount — Expand All doesn't re-probe the
       // year (initializedYears makes that a no-op), only years with no
