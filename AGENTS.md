@@ -6717,3 +6717,13 @@ run may have been lost. **Match on the dbpath/worktree, never on the port** —
 27020/3050/8090 are shared defaults, so a port pattern cannot tell your process
 from someone else's. This is exactly what this file's "don't kill another
 agent's Storybook to free a port" warning is about, one directory over.
+
+**Merged, pushed and deployed** (2026-08-06). Merge `57f1bf4` on `develop`;
+`/deploy-web` shipped it to `app.backbet.co.uk`, `build-commit` meta confirms
+`57f1bf4` live. **Verified against the deployed bundle with real data** (signed
+out, so the 100-race anonymous cap applies): 30 day rows offering "Tap to
+load"; tapping 3 Jan's count turned it into `8 races · -£2.91 (-23.9%)` with
+meeting rows still at **0 before and 0 after** — P&L loaded, row not expanded.
+That is the same day, count and P&L the user's own screenshot showed one row at
+a time, which is a nice independent check that the numbers are the server's.
+Worktree can be removed.
