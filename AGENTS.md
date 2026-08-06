@@ -6454,6 +6454,16 @@ deployed bundle — the button navigates to `/isp/races` with `fromRow=1`,
 `toRow=675` and every saved filter carried through. Left in place per the
 prod-repro convention; not maintained going forward.
 
-`main`/`backbet.co.uk` was deliberately **not** promoted — the user scoped this
-to `app.backbet.co.uk` only when asked, so the public site is still on its
-previous build and does not have this fix.
+**`develop` → `main` promoted afterwards** (user asked, reversing the earlier
+app-only scoping). Merge `3be3c50`, conflict-free: `main`'s only divergence was
+4 old `Merge branch 'develop'` commits carrying no unique work, so the merged
+tree came out byte-identical to `develop` (`git diff origin/develop HEAD` empty).
+Done in a throwaway worktree rather than flipping the shared primary checkout off
+`develop` — concurrent agents are working in it.
+
+**`backbet.co.uk` itself is still on the pre-merge build `4d3265e`.**
+`apps/web-cf/deploy.sh` hard-requires `CLOUDFLARE_API_TOKEN`, which is not in
+this box's environment and has no `~/.wrangler` credentials to fall back on —
+unlike the AWS path `/deploy-web` uses, which is already authenticated. `main` is
+pushed and ready; the Cloudflare deploy is the only step outstanding, and it
+needs a human with the token.
