@@ -983,6 +983,134 @@ export const TappingACollapsedYearFetchesItDirectlyWithoutTouchingOtherYears: St
   },
 };
 
+export const TappingAYearsTapToLoadCountLoadsItWithoutExpanding: Story = {
+  parameters: { msw: { handlers: perYearHandlers } },
+  decorators: [withQueryParams("minDate=2024-01-01&maxDate=2025-12-31")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    try {
+      await canvas.findByTestId("industry-sp-list");
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("2 races");
+      }, { timeout: 10000 });
+
+      // The count itself is a separate tap target from the row, and taps it
+      // to mean only what it says: fetch. Reported live via screenshot — a
+      // year of "Tap to load" rows where asking one for its number opened it
+      // and pushed everything else off-screen.
+      await userEvent.click(canvas.getByTestId("industry-sp-year-load-2025"));
+
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("1 races");
+      }, { timeout: 10000 });
+
+      // Loaded, and still shut — none of 2025's months rendered.
+      await expect(canvas.queryByTestId("industry-sp-month-2025-06")).not.toBeInTheDocument();
+
+      // Its own tap target is gone now that it has a real count; the row
+      // toggle still opens it, as it always did.
+      await expect(canvas.queryByTestId("industry-sp-year-load-2025")).not.toBeInTheDocument();
+      await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2025"));
+      await expect(canvas.getByTestId("industry-sp-month-2025-06")).toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  },
+};
+
+// 25 races in June 2024 and 3 in August, deliberately sized so the year's own
+// probe (one page, PAGE_SIZE=20) sees June only: August stays a genuinely
+// unprobed "Tap to load" month with real data behind it, which is the exact
+// state the month-level test below needs. Distinct raceId range (660000+) per
+// the by-raceId-collision lesson noted elsewhere in this file.
+// August's three races deliberately share one day: a month only ever loads
+// its first day with data (see loadMonthDefaultDay), so this is what makes
+// the count it lands on a whole, unambiguous "3 races loaded".
+function twoMonthRace(month: string, index: number, idOffset: number, fixedDay?: number) {
+  const day = fixedDay ?? (index % 25) + 1;
+  const date = `2024-${month}-${String(day).padStart(2, "0")}`;
+  return {
+    raceId: 660000 + idOffset + index,
+    meetingId: `Ascot|${date}`,
+    meetingName: `Ascot — ${day}/${month} 2024`,
+    course: "Ascot",
+    countryCode: "GB",
+    raceTime: `${date}T13:00:00`,
+    raceName: "Ascot 13:00",
+    raceType: "Flat",
+    ran: 1,
+    runners: [
+      { id: 66100 + idOffset + index, name: `Runner ${month}-${index}`, num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false },
+    ],
+  };
+}
+
+const TWO_MONTH_RACES = [
+  ...Array.from({ length: 25 }, (_, i) => twoMonthRace("06", i, 0)),
+  ...Array.from({ length: 3 }, (_, i) => twoMonthRace("08", i, 1000, 5)),
+];
+
+const twoMonthHandlers = [
+  http.get(`${BASE}/api/industry-sp`, ({ request }) => {
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get("page") || "1", 10);
+    const limit = parseInt(url.searchParams.get("limit") || "20", 10);
+    const subMinDate = url.searchParams.get("subMinDate");
+    const subMaxDate = url.searchParams.get("subMaxDate");
+    let matched = TWO_MONTH_RACES;
+    if (subMinDate) matched = matched.filter(r => r.raceTime.slice(0, 10) >= subMinDate);
+    if (subMaxDate) matched = matched.filter(r => r.raceTime.slice(0, 10) <= subMaxDate);
+    const skip = (page - 1) * limit;
+    const data = matched.slice(skip, skip + limit);
+    return HttpResponse.json({
+      success: true,
+      data,
+      count: data.length,
+      total: matched.length,
+      page,
+      limit,
+      totalPages: Math.ceil(matched.length / limit),
+      totalRunners: matched.length,
+      pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 },
+    });
+  }),
+];
+
+export const TappingAMonthsTapToLoadCountLoadsItWithoutExpanding: Story = {
+  parameters: { msw: { handlers: twoMonthHandlers } },
+  decorators: [withQueryParams("minDate=2024-01-01&maxDate=2024-12-31")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    try {
+      await canvas.findByTestId("industry-sp-list");
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("races");
+      }, { timeout: 10000 });
+
+      await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2024"));
+      // August is past the year probe's first page, so it's still unprobed —
+      // the screenshotted state, with real races behind it.
+      await expect(canvas.getByTestId("industry-sp-month-count-2024-08")).toHaveTextContent("Tap to load");
+
+      await userEvent.click(canvas.getByTestId("industry-sp-month-load-2024-08"));
+
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-month-count-2024-08")).toHaveTextContent("3 races");
+      }, { timeout: 10000 });
+
+      // The whole point: a real count, with no wall of day rows under it.
+      await expect(canvas.queryByTestId("industry-sp-day-2024-08-05")).not.toBeInTheDocument();
+
+      // And the row toggle still opens it, now showing days that know what
+      // they hold rather than a month of "Not loaded yet".
+      await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2024-08"));
+      await expect(canvas.getByTestId("industry-sp-day-2024-08-05")).toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  },
+};
+
 // 45 races all on the SAME day (1 June 2024), so a single day genuinely spans
 // three pages at PAGE_SIZE=20 (20/20/5) and day-level "Load more" is actually
 // exercised. The per-year fixture above can't do this — it spreads its races

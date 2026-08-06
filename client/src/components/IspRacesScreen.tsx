@@ -665,6 +665,23 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     }
   }
 
+  // The "Tap to load" count on a year/month header is its own tap target,
+  // separate from the row's expand toggle, and it does exactly what it says:
+  // fetches, and leaves the row shut. Tapping the row itself still expands
+  // (and loads) as before — this is only for the case the label advertises.
+  // Reported live via screenshot: a 2024 with ten "Tap to load" months, where
+  // tapping one to see its number opened it onto a wall of "Not loaded yet"
+  // day rows, pushing every other month off-screen for a count the header
+  // could have shown in place.
+  // setExpandAllActive(false) for the same reason toggleNode does it: while
+  // "Expand All" is armed, its effect opens every node that arrives, so
+  // without this the rows this fetch discovers would spring open — the exact
+  // thing the user tapped this target to avoid.
+  function loadWithoutExpanding(load: () => void) {
+    setExpandAllActive(false);
+    load();
+  }
+
   function toggleCollapseAll() {
     if (isAllCollapsed) {
       setExpandAllActive(true);
@@ -876,24 +893,39 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
               const yearPnl = groupPnl(year.items);
               return (
                 <View key={year.key} testID={`industry-sp-year-${year.key}`}>
-                  <TouchableOpacity
-                    testID={`industry-sp-year-toggle-${year.key}`}
-                    style={styles.yearHeader}
-                    onPress={() => toggleNode(yearKey)}
-                    accessibilityRole="button"
-                    accessibilityState={{ expanded: !yearCollapsed }}
-                  >
-                    <Text style={[styles.groupChevron, styles.groupChevronLight]}>{yearCollapsed ? "▸" : "▾"}</Text>
-                    <Text style={styles.yearLabel}>{year.key}</Text>
-                    <Text testID={`industry-sp-year-count-${year.key}`} style={[styles.groupCount, styles.groupCountLight]}>
-                      {yearCountLabel(year)}
-                    </Text>
+                  <View style={styles.yearHeader}>
+                    <TouchableOpacity
+                      testID={`industry-sp-year-toggle-${year.key}`}
+                      style={styles.groupHeaderMain}
+                      onPress={() => toggleNode(yearKey)}
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: !yearCollapsed }}
+                    >
+                      <Text style={[styles.groupChevron, styles.groupChevronLight]}>{yearCollapsed ? "▸" : "▾"}</Text>
+                      <Text style={styles.yearLabel}>{year.key}</Text>
+                    </TouchableOpacity>
+                    {initializedYears.has(year.key) ? (
+                      <Text testID={`industry-sp-year-count-${year.key}`} style={[styles.groupCount, styles.groupCountLight]}>
+                        {yearCountLabel(year)}
+                      </Text>
+                    ) : (
+                      <TouchableOpacity
+                        testID={`industry-sp-year-load-${year.key}`}
+                        style={styles.groupCountButton}
+                        onPress={() => loadWithoutExpanding(() => loadYearDefaultMonth(year.key))}
+                        accessibilityRole="button"
+                      >
+                        <Text testID={`industry-sp-year-count-${year.key}`} style={[styles.groupCount, styles.groupCountLight, styles.groupCountInButton]}>
+                          {yearCountLabel(year)}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                     {yearPnl.staked > 0 && (
                       <Text testID={`industry-sp-year-pnl-${year.key}`} style={[styles.groupPnl, yearPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
                         {formatPnl(yearPnl.pnl)} ({formatPct(yearPnl.pnl, yearPnl.staked)})
                       </Text>
                     )}
-                  </TouchableOpacity>
+                  </View>
 
                   {!yearCollapsed && (
                   <>
@@ -903,24 +935,39 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                     const monthPnl = groupPnl(month.items);
                     return (
                       <View key={month.key} testID={`industry-sp-month-${month.key}`}>
-                        <TouchableOpacity
-                          testID={`industry-sp-month-toggle-${month.key}`}
-                          style={styles.monthHeader}
-                          onPress={() => toggleNode(monthKey)}
-                          accessibilityRole="button"
-                          accessibilityState={{ expanded: !monthCollapsed }}
-                        >
-                          <Text style={[styles.groupChevron, styles.groupChevronLight]}>{monthCollapsed ? "▸" : "▾"}</Text>
-                          <Text style={styles.monthLabel}>{month.label}</Text>
-                          <Text testID={`industry-sp-month-count-${month.key}`} style={[styles.groupCount, styles.groupCountLight]}>
-                            {monthCountLabel(month)}
-                          </Text>
+                        <View style={styles.monthHeader}>
+                          <TouchableOpacity
+                            testID={`industry-sp-month-toggle-${month.key}`}
+                            style={styles.groupHeaderMain}
+                            onPress={() => toggleNode(monthKey)}
+                            accessibilityRole="button"
+                            accessibilityState={{ expanded: !monthCollapsed }}
+                          >
+                            <Text style={[styles.groupChevron, styles.groupChevronLight]}>{monthCollapsed ? "▸" : "▾"}</Text>
+                            <Text style={styles.monthLabel}>{month.label}</Text>
+                          </TouchableOpacity>
+                          {initializedMonths.has(month.key) ? (
+                            <Text testID={`industry-sp-month-count-${month.key}`} style={[styles.groupCount, styles.groupCountLight]}>
+                              {monthCountLabel(month)}
+                            </Text>
+                          ) : (
+                            <TouchableOpacity
+                              testID={`industry-sp-month-load-${month.key}`}
+                              style={styles.groupCountButton}
+                              onPress={() => loadWithoutExpanding(() => loadMonthDefaultDay(month.key))}
+                              accessibilityRole="button"
+                            >
+                              <Text testID={`industry-sp-month-count-${month.key}`} style={[styles.groupCount, styles.groupCountLight, styles.groupCountInButton]}>
+                                {monthCountLabel(month)}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
                           {monthPnl.staked > 0 && (
                             <Text testID={`industry-sp-month-pnl-${month.key}`} style={[styles.groupPnl, monthPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
                               {formatPnl(monthPnl.pnl)} ({formatPct(monthPnl.pnl, monthPnl.staked)})
                             </Text>
                           )}
-                        </TouchableOpacity>
+                        </View>
 
                         {!monthCollapsed && (
                         <>
@@ -1237,10 +1284,32 @@ const styles = StyleSheet.create({
   groupChevronLight: {
     color: "rgba(255,255,255,0.8)",
   },
+  // The chevron + label half of a year/month header row: the part that still
+  // toggles the row open. Split out of the header itself so the count beside
+  // it can be its own load-only tap target (see loadWithoutExpanding) —
+  // siblings rather than nested Touchables, so a tap on one can never also
+  // fire the other the way a nested press bubbles to its parent on web.
+  groupHeaderMain: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
   groupCount: {
     fontSize: 11,
     color: colors.textTertiary,
     marginLeft: "auto",
+  },
+  // Carries the right-alignment groupCount would otherwise do itself, plus
+  // enough padding to be a real finger target for 11px text. Padding only
+  // leftward/vertically: the row's own vertical padding is taller than this,
+  // so nothing grows, and the label stays flush right where it always was.
+  groupCountButton: {
+    marginLeft: "auto",
+    paddingLeft: spacing.lg,
+    paddingVertical: 4,
+  },
+  groupCountInButton: {
+    marginLeft: 0,
   },
   groupCountLight: {
     color: "rgba(255,255,255,0.7)",

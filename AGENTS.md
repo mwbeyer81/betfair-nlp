@@ -6467,3 +6467,60 @@ this box's environment and has no `~/.wrangler` credentials to fall back on —
 unlike the AWS path `/deploy-web` uses, which is already authenticated. `main` is
 pushed and ready; the Cloudflare deploy is the only step outstanding, and it
 needs a human with the token.
+
+## 2026-08-06 — primary checkout, directly on `develop` — "when I tap 'tap to load' it should not expand"
+
+User, on a phone (screenshot of `app.backbet.co.uk/isp/races`, build `6e077d7`):
+2024 open, January and February carrying real counts, and March through
+December all reading **"Tap to load"**. Tapping one of those to find out what
+was in it also *opened* it — onto ~31 "Not loaded yet" day rows, pushing every
+other month off-screen, for an answer that fits in the header.
+
+**Fix, in `IspRacesScreen.tsx` only**: the count on a year/month header is now
+its own tap target while it reads "Tap to load", and it does exactly what it
+says — `loadWithoutExpanding` fires the same `loadYearDefaultMonth` /
+`loadMonthDefaultDay` probe the row toggle would, and never touches
+`expandedKeys`. New testIDs `industry-sp-year-load-<year>` /
+`industry-sp-month-load-<month>`, present only in that state; once the row has
+a real count the plain `Text` comes back and the count is inert again.
+
+Three things worth knowing:
+1. **Row behaviour is unchanged.** Tapping the row still expands *and* loads,
+   exactly as before, so every existing test that clicks
+   `industry-sp-year-toggle-*` / `industry-sp-month-toggle-*` still passes. The
+   header became a `View` wrapping the toggle (chevron + label) and the count as
+   **siblings** — deliberately not a nested Touchable, since a nested press
+   bubbles to its parent on web and a tap on the count would have expanded the
+   row anyway, which is the entire thing being fixed.
+2. `loadWithoutExpanding` also clears `expandAllActive`, for the same reason
+   `toggleNode` does: while "Expand All" is armed its effect opens every node
+   that arrives, so without this the rows *this* fetch discovers would spring
+   open — the exact outcome the user tapped this target to avoid.
+3. `groupCount`'s `marginLeft: "auto"` moved to the wrapper
+   (`groupCountButton`, with `groupCountInButton` resetting it on the inner
+   text), plus left/vertical padding so 11px text is a real finger target. The
+   row's own vertical padding is taller, so no row grew.
+
+**Verified**: `yarn build` clean; Storybook `IspRacesScreen` **38/38** on port
+6011 (2 new: `TappingAYearsTapToLoadCountLoadsItWithoutExpanding` and
+`TappingAMonthsTapToLoadCountLoadsItWithoutExpanding` — the month one needs a
+month that is unprobed *and* has real data behind it, so its fixture puts 25
+races in June and 3 in August: the year's own one-page probe sees June only,
+leaving August genuinely "Tap to load"). 2 new MSW tests in
+`tests-msw/isp-races-month-loading.spec.ts` pass on a claimed port
+(`MSW_PORT=3747`). Full `test:msw` suite: 257 passed / 20 failed, and **the
+same 20 fail on clean `HEAD`** — baselined in a throwaway worktree with
+`node_modules` symlinked in (7 in `isp-races-month-loading.spec.ts`, plus 13
+across `runner-detail` / `trainer-detail` / `responsive` / `live-performance-
+race-filter`, all of which need race rows the collapsed-by-default hierarchy no
+longer renders without a drill-down). Zero regressions.
+
+**Pre-existing MSW breakage found, not fixed, flagged for whoever owns it**:
+all 7 original tests in `tests-msw/isp-races-month-loading.spec.ts` fail on
+clean `develop` — **confirmed by stash-and-rerun, not assumed**. They still
+assume the pre-`isp-day-lazy-load` auto-expansion (`"20 races"` for a month the
+mount chain now loads one day of; `"Not loaded yet"` for a month header that now
+says `"Tap to load"`; month rows asserted visible while the year is collapsed).
+Same family as the `industry-sp.spec.ts` races-screen breakage already recorded
+in this file. My two new tests in that file are written against current
+behaviour and drill down explicitly.

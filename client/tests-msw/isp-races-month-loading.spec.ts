@@ -180,6 +180,46 @@ test.describe("Industry SP races screen — per-month direct loading, data-drive
     await expect(page.getByTestId("industry-sp-month-count-2024-07")).toHaveText("0 races");
   });
 
+  // The "Tap to load" count on a year/month header is its own tap target,
+  // separate from the row's expand toggle, and does only what it says.
+  // Reported live via screenshot: a 2024 with ten "Tap to load" months, where
+  // tapping one just to see its number opened it onto a wall of "Not loaded
+  // yet" day rows and pushed every other month off-screen.
+  //
+  // Written against the current collapsed-on-load behaviour, unlike the older
+  // tests in this file — see the note in AGENTS.md.
+  test("tapping a year's Tap to load count fetches it and leaves the row collapsed", async ({ page }) => {
+    await page.goto("/isp/races?minDate=2024-01-01&maxDate=2025-12-31");
+    await expect(page.getByTestId("industry-sp-year-count-2025")).toHaveText("Tap to load", { timeout: 10000 });
+
+    await page.getByTestId("industry-sp-year-load-2025").click();
+
+    await expect(page.getByTestId("industry-sp-year-count-2025")).toHaveText("1 races loaded", { timeout: 10000 });
+    // Loaded, and still shut — none of 2025's months rendered.
+    await expect(page.getByTestId("industry-sp-month-2025-06")).not.toBeVisible();
+    // Its own tap target is gone now it has a real count; the row toggle
+    // still opens it, exactly as before.
+    await expect(page.getByTestId("industry-sp-year-load-2025")).not.toBeVisible();
+    await page.getByTestId("industry-sp-year-toggle-2025").click();
+    await expect(page.getByTestId("industry-sp-month-2025-06")).toBeVisible();
+  });
+
+  test("tapping a month's Tap to load count fetches it and leaves the row collapsed", async ({ page }) => {
+    await page.goto("/isp/races?minDate=2024-01-01&maxDate=2025-12-31");
+    await expect(page.getByTestId("industry-sp-year-count-2024")).toHaveText("2 races loaded", { timeout: 10000 });
+    await page.getByTestId("industry-sp-year-toggle-2024").click();
+    await expect(page.getByTestId("industry-sp-month-count-2024-07")).toHaveText("Tap to load");
+
+    await page.getByTestId("industry-sp-month-load-2024-07").click();
+
+    // July genuinely has nothing in this fixture — the point is that the
+    // answer arrives in place, with no day rows unfurled to deliver it.
+    await expect(page.getByTestId("industry-sp-month-count-2024-07")).toHaveText("0 races", { timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-day-2024-07-01")).not.toBeVisible();
+    // June, the month the mount chain landed on, is untouched by the tap.
+    await expect(page.getByTestId("industry-sp-month-count-2024-06")).toHaveText("2 races loaded");
+  });
+
   test("Expand All loads every year's own real starting month, not its calendar-first one", async ({ page }) => {
     await page.goto("/isp/races?minDate=2024-01-01&maxDate=2025-12-31");
     await expect(page.getByTestId("industry-sp-month-count-2024-06")).toHaveText("20 races", { timeout: 10000 });
