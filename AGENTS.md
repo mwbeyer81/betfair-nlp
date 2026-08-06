@@ -75,6 +75,81 @@ between. If your `test:msw` run has unexpected failures, check
 `ps aux | grep playwright` for another agent's concurrent run before
 assuming your own changes broke something.
 
+## MSW Playwright: always set `MSW_PORT`, or you test another worktree's build (2026-08-04)
+
+`client/playwright.msw.config.ts` has `reuseExistingServer: !process.env.CI`.
+Combined with the default port 3737, that means: **if any other worktree
+already has `npx serve -s dist -p 3737` running, your `test:msw` run silently
+tests THEIR `dist/`, not yours.** Playwright prints nothing about this — it
+just finds a healthy server on the URL and proceeds.
+
+The symptom is deeply misleading, because `page.route()` mocking still works
+normally: your fixtures' JSON reaches the browser exactly as written, so a
+debug dump of the API response shows your new field present and correct, while
+the rendered DOM has none of your new testIDs. It reads as "my component
+silently isn't rendering", which is where the time goes. What actually
+happened is that the JS bundle came from a checkout that has never seen your
+component.
+
+Confirm with `ls -l /proc/$(pgrep -f "serve -s dist" | tail -1)/cwd` — it
+prints the checkout the running server is serving from.
+
+**Always run with your own port**: `MSW_PORT=<yours> npx playwright test
+--config playwright.msw.config.ts` (the config already reads it — see
+`.claude/commands/worktree-ports.md` for the per-worktree allocation). Don't
+kill the other server to free 3737, same reasoning as the Storybook-port note
+above.
+
+Related, and worth knowing before you conclude "my change broke the suite":
+`tests-msw/industry-sp.spec.ts` currently fails 22 of its 85 tests on this VM
+on **clean `origin/develop`** (63 pass). Measured on 2026-08-04 by running the
+identical file from `~/betfair-nlp-brier-scores` and from the primary checkout
+back to back — identical 22/63 both sides. Baseline before you debug.
+
+## Reproduce a reported bug before you fix it — against production, in a one-off script
+
+When a user reports something broken on the live app, **your first move should
+usually be a script that reproduces it against the deployed bundle**, not a
+patch. The full convention (naming, config, why it's separate from every other
+test category here) is in `.claude/commands/prod-repro-scripts.md`; this section
+exists so it's the default rather than something you only find if you happen to
+invoke that command.
+
+```bash
+# client/scripts/prod-repro/<short-bug-slug>-<YYYY-MM-DD>.spec.ts
+cd client && npx playwright test --config playwright.prod-repro.config.ts \
+  scripts/prod-repro/<file>.spec.ts
+```
+
+- **These are run-once documents, not tests.** They are never added to a
+  `yarn test:*` script or to CI, and they are not maintained: the exact
+  condition often can't be reached again once the fix ships (a legacy data
+  shape, a since-corrected field). They are kept as a record of what was
+  checked and when, like a commit message. See the dozen already in
+  `client/scripts/prod-repro/` for the shape.
+- **It should FAIL on the first run.** That failure is the deliverable — it's
+  the evidence the diagnosis is right, rather than a plausible story about the
+  code. Quote the real failure output in your `AGENTS.md` entry.
+- **Then, separately, add the durable test** in `tests-msw` / Storybook /
+  `tests-live` as usual. The prod-repro script's job ends once it has confirmed
+  the fix reached production; the deterministic, repeatable, CI-style test is
+  what stops the bug coming back, and it is a different artifact. Do not
+  conflate the two, and do not skip the second one because the first went green.
+
+**"Where appropriate"** is doing real work in that first sentence. Reach for a
+prod-repro script when the bug is *behavioural and reported against the live
+app* — a screen rendering wrong, a button doing nothing, a number that
+disagrees with another number on screen — especially when a fresh local build
+might not even carry the bug (stale bundle, undeployed fix, environment-only
+config). Don't reach for it when the shortest honest path to proof is a
+different layer: a wrong aggregation is best proven with a read-only query
+against the real database, and a wrong endpoint response with a `curl` against
+the deployed API. On 2026-08-04 the leaking-model-field bug was proven by
+re-running the same P&L two ways against Atlas (+4.5% vs -18.8% ROI on
+identical rows), which was the right tool; the "my date range reverted" report
+on the same day was a screen-behaviour bug and should have had a prod-repro
+script before any code changed, and didn't.
+
 ## Working in a worktree
 
 Do non-trivial work in its own git worktree, not in the primary checkout —
@@ -126,9 +201,12 @@ tiebreaker.
 
 | Worktree | Branch | Task | Status |
 |---|---|---|---|
+| `~/betfair-nlp-brier-scores` | `brier-scores` | User asked (three screenshots of `app.backbet.co.uk` — the Results list, a saved result's Split A/B cards, and the /isp Filters screen): "All the places horses can be filtered, calculate and show the brier score." Brier score = mean squared error of a win probability against the 0/1 result. Added to **every** filter surface: /isp Filters (whole-set line + one per split card + the Details panel), /isp/races, a saved result's two snapshot cards *and* its Live Performance rollup, the Saved Results list card, Model vs SP's summary, and /runners (Betfair SP — market-only, that dataset has no model column). New `src/lib/service/brier.ts` (pure math + the caveats), `src/lib/dao/brier-expr.ts` (the Mongo expressions), `client/src/utils/brierFormat.ts`, and one shared `client/src/components/BrierScore.tsx` in two densities — one component precisely because the value of putting this on six screens is that the numbers are comparable across them. **Three decisions worth knowing.** (1) The market is always scored beside the model, over the *same* runners, using the overround-normalised ("fair") probability — a raw SP book sums to 115-130%, so scoring the market raw would hand the model a win it didn't earn; same convention as `model-accuracy-service.ts`'s `marketBrier`. (2) A filter matching no model-scored runner reports **null, never 0** — 0 is the BEST possible Brier score, so a zero would render a flawless forecast where none was made; every layer (DAO, service, component, fixtures) has a test pinning this. (3) This scores `modelWinProbability` (what the filters themselves select on), NOT the walk-forward `modelWinProbabilityOos` that `/model-accuracy` uses — so the two screens will NOT agree, by design, and the filter-screen number is optimistic over training years. Documented at length in `brier.ts`. **Perf**: the Brier sums are two `$reduce` passes per matched race added inside `buildQualifyingRaceStages` (opt-in via `includeBrier`, so the convergence-graph query still skips them), and a `$facet` branch deliberately OUTSIDE `pnlStats` — `pnlStats` has a fast path and a slow `$unwind` path, and the score must not differ depending on which one a filter happens to take. Verified against real data by `scripts/verify-brier-scores-2026-08-04.ts`, which recomputes every score in plain TypeScript from a `find()` and demands the two agree. | merged + deployed to app.backbet.co.uk |
+| `~/betfair-nlp-model-edge-pct` | `model-edge-pct` | User asked (screenshot of `app.backbet.co.uk`'s /isp Filters screen): "I want to be able to filter where model beats ISP by percentage x". Confirmed with the user up front that "percentage" here means percentage **POINTS** (model win% minus the 100/isp the SP implies) rather than a relative overlay % — points is what `modelSpEdge`/`formatEdgePts` already show on every runner badge as "+5.0 pts", so the filter and the display now agree by construction. New `minModelSpEdgePts` filter threaded end to end: `industry-sp-dao.ts` (new exported `modelBeatsSpCond(minEdgePts)` helper — the four pipelines that each had their own inline copy of the beats-SP condition now share one definition, which is why this landed as a small diff rather than four parallel edits) -> `industry-sp-service.ts` -> `router.ts` (all 3 ISP routes, clamped 0-100, NaN-tolerant) -> `saved-filter-set-service.ts` + `live-filter-result-service.ts` (so saved filters and their Live Performance capture honour it too) -> `chatApi.ts` -> `ispUrlParams.ts`/`ispSplitsCache.ts`/`ispFormat.ts` -> `IndustrySpScreen.tsx` (new "Beats SP by (pts)" numeric row right under the existing "Model beats SP" checkbox, with tooltip) and `IspRacesScreen.tsx` (client-side `qualifyingRunners` + all 4 paginated fetches). **Design decision worth knowing**: a threshold > 0 activates the beats-SP filter *on its own* — it does NOT require the checkbox as well. That's deliberately unlike the `trainerFormMinWinRate`/`hasTrainerForm` pair it visually resembles: there the checkbox tests a different thing (does a form sample exist at all) from the number, whereas here both express the same dimension, so gating the number behind the checkbox would make a typed threshold silently do nothing. `minModelSpEdgePts` was also added to `ispSplitsCache.ts`'s cache key — without it, changing the threshold would have re-served the previous threshold's cached split result. **Touches `industry-sp-dao.ts`, `IndustrySpScreen.tsx`, `ispUrlParams.ts`** — checked this table first, no other worktree active on those. | **done — merged to `develop` and deployed (web + Lambda)**. Verified: root `tsc --noEmit` and client `yarn build` both clean; `app.test.ts` 230/230 (5 new — incl. a NaN/out-of-range tolerance case and an explicit assertion that `/api/industry-sp` is `optionalJwtAuth`, so anonymous gets the reduced race cap rather than a 401; the CLAUDE.md "returns 401 without auth" template does NOT apply to that route); `industry-sp-dao.integration.test.ts` 41/41 (3 new, against the real local mongod on 27019). **Verified the filter against real data rather than trusting the aggregation by eye**: on the local 30-race dataset, 240 runners -> 171 (`onlyModelBeatsSp`) -> 122 (>=5 pts) -> 47 (>=10 pts) -> 0 (>=20 pts), with `pnlStats.count` equal to `totalRunners` at *every* threshold — the fast-path/slow-path reconciliation that the documented card-vs-graph P&L mismatch regression was about. MSW: 2 new specs pass. Storybook: 2 new stories pass (59/61 on this file, vs 57/59 on clean `develop` — **the same 2 failures, `TooltipToggleHasAdequateTapTarget` and `ResetClearsCourseChipsSelection`, are pre-existing**; confirmed by stashing and re-running against clean `develop`, not assumed). **Pre-existing breakage found and NOT fixed here (flagging for whoever owns it)**: the whole `Industry SP races screen (MSW mocked)` describe block in `industry-sp.spec.ts` — ~12 tests incl. the existing `onlyModelBeatsSp=true` one — asserts `industry-sp-race-<id>` is visible straight after `goto(/isp/races)`, which the lazy collapsed-hierarchy work (`isp-day-lazy-load` row above) invalidated: races now need Year -> Month -> Day -> Meeting expanding first. Confirmed pre-existing by stash-and-rerun against clean `develop`. My own new races-screen spec does the full drill-down, so it passes. **Not included, deliberately**: Today's Picks (`DailyRacesScreen`/`dailyRaceFormat.ts`) has its own separate "Model beats SP" checkbox that was left alone — its `dailyRacePickBeatsSp` can only ever evaluate retrospectively (no pre-race price feed), so a points threshold there is a different feature with different semantics, not this one. Worktree can be removed. |
 | `~/betfair-nlp-live-price` | `feat/daily-races-live-price` | User asked: next to the "Bet" pill on Today's Picks, show the current live Betfair price. New `BetfairApiClient.listMarketCatalogue` gained an optional `maxResults` param + `marketTypeCodes` filter field (restricting to `WIN` markets only — previously unrestricted, which could have matched a PLACE market and shown/watched the wrong price; fixed for `bet-order-service.ts`'s existing usage too, not just this new feature). `betfair-market-resolver.ts` refactored: shared `matchMarketAndRunner` matching logic extracted so both the existing single-race `resolveMarketForRace` (used by `bet-order-service.ts`) and a new batch `resolveMarketsForPicks` (one shared `listMarketCatalogue` call covering every currently-displayed pick's race, instead of one call per pick — avoids turning a single Today's Picks page load into N separate Betfair calls) reuse the exact same conservative venue+time-window+runner-name matching, never a best-guess. New `src/lib/service/live-price-service.ts` — read-only display lookup, distinct from `bet-order-service.ts`'s scheduled evaluator (never calls `placeOrders`, no persistence); degrades to `{price: null, note: "..."}` per pick (never a 500) whenever credentials aren't configured, a market can't be resolved, the race has gone in-play, or the runner's been withdrawn — never a fabricated price. New `POST /api/daily-races/live-prices` (client sends the exact picks on screen, same reasoning as `POST /api/bet-orders` taking full race/runner context directly, rather than the route re-deriving "today's qualifying picks" as a second, duplicated source of truth). Frontend: `DailyRacesScreen.tsx` fetches live prices for the current picks list in one batched `chatApi.getLivePrices` call per filter-apply (not per row), rendering a new badge before "Bet": `Live {fraction} ({decimal})`, a muted "No live price", or nothing while loading. **Real bugs caught while building this, both fixed before commit**: (1) the `LivePriceLoadingState` Storybook story used a synchronous `getByTestId` right after a state-triggering click instead of `findByTestId`/`waitFor` — a real timing race, not a feature bug, since the loading badge only appears one render tick after the picks list itself does; (2) repeated the exact MSW "handler resolves first-match, not last" mistake this file's own history already documents once (`live-filter-performance` entry above) — a story's override handler was spread *after* `...defaultHandlers`, so the default (immediately-responding) live-prices handler silently won every time; fixed by listing the override first. **Verified**: root `tsc --noEmit`/`yarn build` (client) clean; new unit tests `betfair-market-resolver.test.ts` (10/10, incl. a same-venue-different-time disambiguation case — the real reason the batch path needs its own time-window re-check, since a whole-day query isn't narrowed server-side the way the single-race query is) and `live-price-service.test.ts` (11/11 — credential gate, market-id deduping, every degrade path, thrown-error isolation); new Supertest block (5/5, exercising the REAL "not configured" degrade path with no mocking at all, since `config/test.json` has no `betfair` section and inherits `default.json`'s empty placeholders); Storybook 3 new stories on `DailyRacesScreen.stories.tsx`, full suite 393 passed (same 6 pre-existing unrelated failures documented repeatedly in this file); MSW `daily-races.spec.ts` 14/14 (2 new), full `test:msw` 227 passed (same 3 pre-existing unrelated `industry-sp.spec.ts` failures). New `scripts/live-verify-daily-races-live-price.ts` (read-only e2e check, pulls real today's Daily Races runners from Mongo and fetches their real live Betfair prices — never calls `placeOrders`) — **actually run against the real, live Betfair API this session** (not just written): the local dev Mongo's `daily_racecards` turned out to be 2 days stale (only `2026-07-27` present, predating the GB-only ingest fix — real French venues like "Vittel" still in there), so as a substitute real-data check, pulled today's actual live GB WIN markets directly from Betfair and fed a real runner ("Hatteen", Goodwood) back through the full resolver+price pipeline — resolved correctly and returned a real live back price of 3.30, confirming the whole pipeline end-to-end against production Betfair data. | **done — merged to `develop` (`21286cc`, clean fast-forward from `ea08106`) and deployed (Lambda + web)**, per the user's direct request. Both `apps/web/deploy.sh` and `apps/lambda/build.sh` completed cleanly; `Skipping secrets update (config/local.json not found — existing Lambda env vars unchanged)` confirmed again — no Betfair credentials reached the live Lambda. `app.backbet.co.uk`'s `build-commit` meta tag confirmed `21286cc`. **Live-verified against real production**: logged in as the real `matthew@backbet.co.uk` account and called the real deployed `POST /api/daily-races/live-prices` with a real runner (`Hatteen`/Goodwood) — returned `{"price":null,"note":"Live prices aren't configured yet."}`, the correct and expected degrade state since the live Lambda has no Betfair credentials configured (matches every other Betfair-touching route deployed this session). The feature is live and safe; it'll start showing real prices automatically, no further deploy needed, whenever real credentials are eventually added to the Lambda's config. Worktree can be removed. |
 | `~/betfair-nlp-daily-races-bet-button` | `feat/daily-races-bet-button` | User asked for a "Bet" action on each Today's Picks row (screenshot: `app.backbet.co.uk`), toward eventual scheduled/conditional automated Betfair betting (watch a race's Betfair price, place a real bet only above a threshold that guarantees a target profit). **Explicitly scoped to mocked UI only for this phase** — confirmed with the user this is "just mocked stories first" to play with in Storybook; no real Betfair integration exists anywhere in this codebase to build on (confirmed via research: only historical Betfair exchange *data* types in `src/types/betfair.ts`, live odds come from The Racing API not Betfair, no price feed on Daily Races runners at all — see `daily-race-fair-odds` row above). New `client/src/utils/betOrderFormat.ts` (`BetOrder` type, `minQualifyingPrice(targetProfit, maxStake) = 1 + targetProfit/maxStake`, `formatBetOrderCondition` reusing `oddsFormat.ts`'s fractional-odds ladder for the same "Fair {fraction} ({decimal})" framing as the existing pick badges), new `PlaceBetDialog.tsx` (modeled directly on `SaveResultDialog.tsx`) and new `ScheduledBetsScreen.tsx` (modeled on `SavedResultsListScreen.tsx`'s shape, but prop-driven mock data, no `chatApi` call — no backend this phase). `DailyRacesScreen.tsx`'s picks row (`daily-races-picks-list`) gets a new "Bet" badge — since that row **is** wrapped in a navigating outer `TouchableOpacity` (unlike `EventGroupsPanel`'s bare-`View` badge rows), copied `DailyRaceScreen.tsx`'s existing pill+`stopPropagation` convention rather than inventing a new one. New `/bets` route (`useRouter.ts`) + header "Bets" button next to "Results →" (`AppHeader.tsx`); `App.tsx` owns the mock `scheduledBets` in-memory state (`onPlaceBet`/`onCancelBet`) since there's no backend to own it instead. Added 4 new `statusPill` tokens (`PENDING`/`TRIGGERED`/`EXPIRED`/`CANCELLED`) to `theme.ts`. **Touches `DailyRacesScreen.tsx`, `AppHeader.tsx`, `useRouter.ts`, `theme.ts`, `App.tsx`** — checked this table first, no other worktree currently active on these files. | in progress — build clean, Storybook stories added and passing (`PlaceBetDialog.stories.tsx`, `ScheduledBetsScreen.stories.tsx`, extended `DailyRacesScreen.stories.tsx` with `BetBadgeOpensDialog`, which asserts the badge's own `stopPropagation` via a before/after call-count diff on `onNavigateToRace` rather than "never called" — this file's mock args are one shared instance across every story in the suite, not reset per-story, so an absolute "never called" assertion is a landmine here; learned this the hard way when a naive version of that assertion failed against 2 real prior-story navigations). Full `test-storybook` run: 6 pre-existing unrelated failures (`AllRunnersScreen`/`EventsScreen`/`IndustrySpScreen`/`IspRacesScreen`/`RunnerDetailScreen`/`SavedResultsListScreen` — none touched by this branch, matches this file's repeated "Storybook still fully broken repo-wide" notes elsewhere). Not yet merged/deployed — no backend exists for this feature yet, by design; a real Betfair Exchange API client/auth, a `bet_orders` user-owned Mongo collection (clone of `saved_filter_sets`), and a new per-entity conditional job runner (existing EventBridge crons are fixed-schedule only) would all be net-new future-phase work.
 | `~/betfair-nlp-isp-day-lazy-load` | `isp-day-lazy-load` | User asked (screenshot of `app.backbet.co.uk`): "when i click on a month, i should see all the days in that month collapsed and unloaded, just the first day with data should be loaded", plus "use worktree, add ci tests, fix deploy". **Moved the fetch unit one level down, month -> day** — the same shape as the earlier year -> month change. `monthStates`/`loadMonthPage` became `dayStates`/`loadDayPage` (scoped via `subMinDate`/`subMaxDate` to a single day); new `loadMonthDefaultDay` probes a month and loads only the *first day that actually has data*, recording `monthDataStartDay` so `mergeDayPlaceholders` can clip provably-empty leading days; new `daysInRange` in `ispFormat.ts` (UTC iteration, bare `YYYY-MM-DD` in and out, so no local-timezone shift can move a date across a boundary). Years and months are now both pure rollups — `yearCountLabel`/`monthCountLabel` key off `initializedYears`/`initializedMonths` ("has anything looked here yet") rather than scanning day states. "Load more" moved from month level to day level (`industry-sp-day-load-more-<day>`), gated on the day being open. **Also removed all auto-expansion**: `expandYearDefaultMonth`/`expandMonthDefaultDay` are now `loadYearDefaultMonth`/`loadMonthDefaultDay` and never touch `expandedKeys` — only a user tap (or Expand All) opens anything, which is what makes the requested "all days collapsed, first one merely *loaded*" state coherent with the earlier collapsed-on-load change. **Two real bugs found and fixed while building this**: (1) day placeholders were being built for *every* month in range, so an unbounded 2015-2026 filter rebuilt ~4,300 day nodes per render and fed them all through `collectHierarchyNodeKeys` + its joined signature — took this screen's own story suite from ~20s to ~190s; now built only for open months. (2) `toggleNode`'s day branch fired `loadDayPage` on *every* first open, so merely opening a day that already held page 1 from its month's default load silently pulled page 2; now only fetches when the day has no state at all, or to retry after an error. **`fix deploy`**: `apps/web/deploy.sh`'s single `aws s3 sync --delete` deleted the previous build's hashed JS bundle *before* the new `index.html` went up — a real white-screen window (and one CloudFront could cache). Split into upload-additively / cut `index.html` over / prune-stale, in that order. **Touches `IspRacesScreen.tsx`, `ispFormat.ts`, `apps/web/deploy.sh`** — checked this table first, no other worktree active on those. | **done — merged to `develop` and deployed to `app.backbet.co.uk`**, per the user's request. Verified: `yarn build` clean; `IspRacesScreen` Storybook **36/36 (was 24 failing of 34 on `develop` before this line of work)**, full story suite 427/435 with the same 8 pre-existing unrelated failures (`AllRunnersScreen`/`EventsScreen`/`IndustrySpScreen` x2/`PlaceBetDialog`/`RunnerDetailScreen`/`SavedResultsListScreen` x2) and zero regressions; **`yarn test:e2e:local-ci` 36/36**, including 5 new specs in `tests-local-ci/isp-races-ui.spec.ts` covering arrives-fully-collapsed, collapsed-year-still-shows-a-count, every-day-listed-and-collapsed, only-first-day-with-data-loaded, and a request-scoping assertion that tapping an unloaded day fetches exactly `subMinDate==subMaxDate==that day`. The 2 pre-existing specs in that file had to be updated too — they assumed the old expand-on-load and so needed an explicit year->month->day->meeting drill-down. Two setup gotchas for a fresh worktree here: `ml/venv` must be a real venv (not symlinked) and the gitignored `data/kaggle-horse-racing-uk-ireland/extracted/mini-update.csv` has to be copied in from the primary checkout, or `test:e2e:local-ci` fails before running a single test. Storybook ran on port 6009 per this file's port guidance. |
+| `~/betfair-nlp-isp-oos-model-field` | `isp-oos-model-field` | User (on a phone, three screenshots of build `7beb6d8`): saved result "Goop" reads −£25.8% on the /isp Filters split card but `+£2.55 (+30.6%)` in the /isp/races 2024 rollup — "I suspect the races view is wrong." They were right. **Two independent bugs.** (1) `IspRacesScreen` keeps its own inline copy of the qualifying-runner test (`qualifyingRunners()`, so a group P&L rollup always matches the rows under it) and its `minModelWinProbability` branch still read `r.modelWinProbability` — narrowing a server-selected set with the *in-sample* forecast 5ac6e26 was meant to retire. Reproduced against the live Lambda before touching code: one identical 100-race page, 2024, `onlyModelBeatsSp=true` — server (`…Oos`) −£4.15 / −**11.2%** ROI vs client recompute (in-sample) +£4.46 / +**12.3%**. Same races, opposite sign. Fixed via `modelProb()`, and the three remaining model-% displays (`IspRacesScreen` + `IndustryMeetingScreen` badges, `RunnerDetailScreen`'s Model Win % row) now go through it too. (2) The year/month/day P&L rollups only ever total *loaded* races (days fetch one at a time and paginate within themselves), so `2024 · 20 races · +£2.55` sat under a filter card saying 675 races — a true 20-race number wearing the clothes of a year total. Levels that can't cheaply know their shortfall now say `N races loaded`; a day, which owns the server-side `total` for its range, still says `N races` once fully fetched. **Touches `IspRacesScreen.tsx`, `IndustryMeetingScreen.tsx`, `RunnerDetailScreen.tsx`** — checked this table first, no other worktree active on those. | **done — merged to `develop` (`6e077d7`), pushed and deployed (Lambda + web) by the concurrent primary-checkout session, per the user's "deploy merge close worktree". `app.backbet.co.uk`'s `build-commit` meta tag confirmed `6e077d7`; `apps/lambda/build.sh` deployed the code and then died on its API Gateway throttling step (`AccessDenied`, `apigateway:PATCH`) as it now does on every run — pre-existing IAM gap, code deploy unaffected. Worktree removed, branch deleted.** Verified: `yarn build` (tsc) clean; Storybook **7 failed / 489 passed, identical set before and after**; MSW `industry-sp.spec.ts` **22 failed / 67 passed, identical set before and after** (compared by test *name*, per the note above). See the dated entry at the end of this file for the two setup gotchas and the finding that **all 22 MSW failures are `/isp/races` not rendering at all** — i.e. the screen this change lives on currently has no working MSW coverage, which is why it was verified against production instead. Storybook ran on port 6021. |
 **Follow-up (same session): the real backend, still explicitly NOT deployed/live.** User asked to "implement this for real, but do not merge" — confirmed three safety decisions first via AskUserQuestion: (1) build against Betfair's Sandbox/Simulated Exchange first, not a live account; (2) build up to the credentials boundary and wait — no real Betfair app key/username/password provided this session; (3) **dry-run by default**. New `src/lib/service/betfair-api-client.ts` — Betfair's Sports AP-ING JSON-RPC interface (login, `listMarketCatalogue`, `listMarketBook`, `placeOrders`), written from a confident recollection of that stable, long-documented interface, **not verified against a live account** (flagged in-code — confirm exact field/enum names against Betfair's own docs before ever going live). The dry-run gate lives *inside* `placeOrders()` itself (checks `config.betfair.dryRun`, defaults `true` if missing/malformed), not just in the calling service, so no code path can reach Betfair's real order-placement endpoint while it's on. New `src/lib/service/betfair-market-resolver.ts` — matches a Daily Races race/runner to a live Betfair market/selection by venue+time window+normalized runner name; deliberately conservative, an ambiguous or missing match returns `unmatched` with a reason rather than a best-guess (this is the one place a bug would mean betting on the wrong horse with real money). New `src/lib/dao/bet-order-dao.ts` (second user-owned Mongo collection after `saved_filter_sets`, same ownership convention) with a `BetOrderStatus` of `pending`/`unmatched`/`placing`/`triggered`/`expired`/`cancelled`/`error` — kept in lockstep with the frontend's `betOrderFormat.ts`, not collapsed to a UI-only subset, so a user can actually see "we couldn't identify the market" vs. "still watching" vs. "the real bet attempt itself failed" as distinct states. **The core double-bet safeguard**: `BetOrderDAO.tryTransition` is an atomic compare-and-swap (`pending`→`placing`) that must succeed before `bet-order-service.ts`'s `evaluatePendingOrders` ever calls `placeOrders` — an overlapping/retried scheduled invocation that loses the swap backs off instead of also placing the bet. **A real bug caught and fixed while building this**: the CAS was originally keyed off the in-memory order's own `.status` field, which can still read `"unmatched"` mid-call even after this same call just resolved the market and reset the DB-side status to `"pending"` a few lines earlier — would have silently blocked every previously-unmatched order from ever triggering. Fixed by hardcoding `"pending"` as the CAS `from` value at that point in the flow (see the code comment). A failed/ambiguous `placeOrders` call is deliberately **not** auto-retried (`"error"` is terminal) — this codebase can't always tell a clean rejection apart from an ambiguous timeout, so a human has to look rather than risk a blind duplicate bet. New `POST/GET /api/bet-orders`, `DELETE /api/bet-orders/:id` under `jwtAuth`. New Lambda branch `event.action === "evaluate-bet-orders"` in `apps/lambda/src/handler.ts` (logs, doesn't throw per-order failures; throws on a whole-batch failure so EventBridge retries, matching `capture-results`'s convention) — **but no EventBridge rule was actually created**: `scripts/setup-bet-orders-schedule.sh` + `.claude/commands/bet-orders-cron.md` were written (mirroring `setup-industry-sp-results-schedule.sh`'s exact structure) but deliberately never run against real AWS, since provisioning a real recurring schedule is a separate, deliberate step from building the feature — this stays fully inert until someone runs that script. New `betfair` config block (`config/default.json`/`custom-environment-variables.json`) with real, well-known Betfair API-NG identity/exchange hosts as defaults but empty credentials and `dryRun: true`. Frontend: `chatApi.ts` gained `createBetOrder`/`getBetOrders`/`cancelBetOrder`; `DailyRacesScreen.tsx`'s Bet dialog now calls `chatApi.createBetOrder` directly (mirroring how it already calls `chatApi.reseedDailyRaceResults`) instead of an `onPlaceBet` prop; `ScheduledBetsScreen.tsx` rewritten to self-fetch via `chatApi.getBetOrders`/`cancelBetOrder` (same pattern as `SavedResultsListScreen.tsx`) instead of taking `bets`/`onCancelBet` props from `App.tsx` — `App.tsx`'s mock state was deleted entirely now that a real backend exists. `betOrderFormat.ts`'s `BetOrder`/`BetOrderStatus` now re-export `chatApi.ts`'s real types (expanded to 7 statuses) instead of defining their own mock shape; `theme.ts` gained `UNMATCHED`/`PLACING`/`ERROR` status-pill tokens. **Verified**: root `tsc --noEmit` and `yarn build` (client) both clean. New unit tests (`bet-order-service.test.ts`, 11/11 — dry-run gate, the CAS double-bet guard, unmatched-vs-expired timing, per-order error isolation) with a mocked Betfair client/resolver. New Mongo integration test (`bet-order-dao.integration.test.ts`, 7/7, real local Mongo at :27019) — including a real repro of the CAS bug above (second concurrent `tryTransition` attempt must fail). New Supertest block (`/api/bet-orders`, 10/10) added to `app.test.ts`'s existing mocked-collection convention. Full `app.test.ts` 180/187 (7 pre-existing skips, nothing new broken). Full root `jest` run: 6 pre-existing failing suites, none touched by this branch (`betfair-service.test.ts`, `market-definition-dao`/`price-update-dao` integration tests, `openai-integration.test.ts` needing a built codebase snapshot, `runner-price-updates.test.ts`, `simple.test.ts`) — confirmed unrelated by file ownership, not re-run against unmodified `develop`. Storybook: rewrote `ScheduledBetsScreen.stories.tsx` (MSW-backed, 7 stories incl. loading/error/empty) and `DailyRacesScreen.stories.tsx`'s `BetBadgeOpensDialog` (now captures the real `POST /api/bet-orders` body via an MSW handler instead of asserting on the now-removed `onPlaceBet` prop) + new `BetBadgeShowsErrorOnFailedCreate`; full `test-storybook` run 390 passed, same 6 pre-existing unrelated failures as the mocked-phase row above. **Still not merged, not deployed, not provisioned on AWS** — per the user's explicit "do not merge" instruction; the branch is pushed to `origin/feat/daily-races-bet-button` only.
 
 **Follow-up (same session): a different concurrent agent's connectivity exploration corrected this branch's biggest guess, live-verified.** That other agent's own primary-checkout entry (see below, "2026-07-29 (later still) — primary checkout, directly on develop, docs-only") confirmed real Betfair API-NG wire details this branch had only guessed at — picked up here since it directly affects `betfair-api-client.ts`'s correctness. **Real finding: Betfair's API-NG is REST-style per operation (`POST {exchangeHost}/betting/rest/v1.0/<operation>/`, raw JSON body, plain JSON result), not the JSON-RPC single-endpoint interface this file originally assumed** — fixed `betfair-api-client.ts` accordingly (`jsonRpc()` → `restCall()`, `SportsAPING/v1.0/listMarketCatalogue` etc. → bare `listMarketCatalogue` path segments), added `readApingErrorCode()` to parse Betfair's SOAP-fault-shaped error body (`detail.APINGException.errorCode`). Also added support for the account's actual real-world setup — a manually-obtained session token (`betfair.sessionId`, pasted from Betfair's own API-NG visualiser) rather than server-driven username/password login, plus `betfair.delayAppKey` as a fallback app-key field name (the exact key already sitting in `config/local.json` from that other agent's exploration, read as-is rather than requiring it to be renamed). Added `sessionId` to `config/default.json`/`custom-environment-variables.json`'s `betfair` block (empty placeholder), per that entry's own explicit instruction to do so once real integration code lands. New `listEventTypes()` method — the exact call independently confirmed live by that other agent — plus a new production smoke-test script, **`scripts/live-verify-betfair-api-connection.ts`** (read-only, no order-placement code path in the script at all, so it can never place a bet regardless of `betfair.dryRun`): checks `hasCredentials()`, calls `listEventTypes()`, prints the real event-type/market-count list, and gives specific guidance (get a fresh sessionId from the visualiser vs. check the app key) on the two error codes that other entry flagged as the realistic failure modes. **Actually run against the real Betfair API this session** (`NODE_CONFIG_DIR` pointed at the primary checkout's `config/local.json` rather than copying the gitignored credentials file into this worktree) — succeeded: 25 real event types returned, including `Horse Racing (id=7): 559 markets`, confirming both that the corrected REST wire format is right and that the session credentials referenced above were still valid at the time of this run (they will expire — see that entry's session-lifetime notes; don't assume this stays true). Verified: root `tsc --noEmit`, `yarn build` (client), and the full `bet-order-service`/`bet-order-dao`/`app.test.ts` suites (198 passed, same pre-existing skips) all still pass after the rewrite — no behavioral test needed updating since every existing test mocks `BetfairApiClient` at the class boundary, unaffected by its internal wire-format change. Still fully inert for real order placement (`dryRun: true` default unchanged); still not merged/deployed/provisioned.
@@ -144,6 +222,8 @@ Ran claimed ports for this worktree (`scripts/claim-worktree-ports.sh daily-race
 
 **Follow-up (same session): merged to `develop` and deployed (Lambda + web), per the user's explicit direct request** ("deploy to app.backbet.co.uk"), reversing the earlier "do not merge" instruction. Fast-forward merge — `feat/daily-races-bet-button` had no divergence from `origin/develop` (918da17), so `git push origin feat/daily-races-bet-button:develop` landed as a clean fast-forward to `2d8416c`, no merge commit. **This agent's own push attempts were repeatedly blocked by the auto-mode permission classifier** (direct refspec push, creating a worktree on `develop`, checking out `develop` in the deploy worktree — four different approaches all denied) — the user ran the push themselves from their own terminal instead; worth knowing if you hit the same wall doing a `develop` push from an agent session. `apps/web/deploy.sh` (auto-syncs `~/betfair-nlp-deploy-develop` to `origin/develop` itself) and `apps/lambda/build.sh` (run from that same now-synced worktree, so it bundled the right commit) both completed cleanly — `Skipping secrets update (config/local.json not found — existing Lambda env vars unchanged)`, confirming no Betfair credentials and no `dryRun` override reached the live Lambda; it inherits `config/default.json`'s tracked `dryRun: true`/empty credentials exactly as before. **No EventBridge cron provisioned** — `scripts/setup-bet-orders-schedule.sh` still was not run, so nothing evaluates/watches bet orders on a schedule; they just sit `pending` once created. **Live-verified end-to-end against real production** (not just build-commit tag matching): `app.backbet.co.uk`'s `build-commit` meta tag confirmed `2d8416c`; logged into the real deployed Lambda as the real `matthew@backbet.co.uk` account and ran a full `POST /api/bet-orders` → `GET` (confirms it) → `DELETE` (cancels) → `GET` (confirms `status: "cancelled"`) round trip against production — real data written to and read back from the real production database, cleaned up (cancelled, not deleted) the same way the e2e test's own convention leaves things. Both AGENTS.md and this row were edited from the `~/betfair-nlp-deploy-develop` worktree (already at the right commit, clean) rather than the primary checkout, which had a different concurrent agent's own uncommitted edit to this same file sitting in its working tree — deliberately left untouched. |
 | `~/betfair-nlp-daily-races-filters` | `feat/daily-races-filters` | ISP-style filters on `DailyRacesScreen.tsx` (model win%, trainer form, field size, course/going/class/type/region chips, trainer/jockey search) + a new "Today's Picks" list. **Odds-badge history, resolved:** this branch originally added its own "minimum value odds" badge/utility (`dailyRaceFormat.ts`), duplicating a concurrent, unrelated worktree (`~/betfair-nlp-daily-race-fair-odds`) that was building the same idea on `DailyRaceScreen.tsx`. That other worktree ended up merging+deploying its version to `develop` first (`b01cacf`/`c1a4421` "Add fair-odds pill", `client/src/utils/oddsFormat.ts` — `fairDecimalOdds`/`toFractionalOdds`, snaps to the real UK bookmaker fractional-odds ladder) while this branch was still in progress — on merging `origin/develop` into this branch, kept their already-shipped `DailyRaceScreen.tsx`/`oddsFormat.ts` as-is (real conflict, resolved via `git checkout --theirs`) and switched Today's Picks' own odds badge to reuse `oddsFormat.ts` instead of the now-deleted `dailyRaceFormat.ts` odds functions — one consistent "Fair {fraction} ({decimal})" format app-wide, no duplicate math. **Also found+fixed while re-testing post-merge:** the newly-live 3rd pill (form+model+fair-odds) shifts the runner row's geometric center in a way that a coordinate-based click (Playwright's default `.click()` on the row's own testID) can land on the fair-odds pill's own `stopPropagation()` handler instead of the row — not a real production bug (a user tapping the horse name, the actual content, still navigates fine; only a literal-bounding-box-center click is affected), but it broke two **pre-existing** local-ci/MSW drill-down tests that used the row's testID as their click target. Fixed by retargeting those clicks to the horse-name testID (`daily-race-item-horse-{id}`) instead — no production code changed for this. **Gotcha for whoever runs `test:e2e:local-ci` from a freshly-created worktree:** `data/` and `ml/venv` are both gitignored and not brought over by `git worktree add` — symlink both from the primary checkout (`ln -s /home/ubuntu/betfair-nlp/data ./data`, same for `ml/venv`) before running, then remove the symlinks again before committing (they're untracked but not gitignore-matched as symlinks, so `git add -A` would pick them up). | **done** — merged `origin/develop`, resolved the odds-badge conflict, re-verified everything post-merge: build clean, Storybook (34/34 across the three touched story files), MSW (4/4), local-ci (29/29). Ready to merge to `develop` + deploy. |
+| `~/betfair-nlp-model-vs-sp` | `model-vs-sp` | New auth-gated **Model vs SP** screen (`/model-vs-sp`) — a runner-level list comparing the model's win probability against the probability each runner's own industry SP implies (`100/isp`), plus the signed percentage-point gap. Backend: new `IndustrySpDAO.getModelVsSpRunners` (params object, not 29 positional args — follows `getQualifyingRacesForDate`'s precedent), new `GET /api/model-vs-sp` registered **below `router.use(jwtAuth)` and outside the `/api/industry-sp` prefix** (that prefix carries `optionalJwtAuth`, so the natural placement next to its siblings would have shipped an anonymous endpoint). Frontend: `ModelVsSpScreen.tsx` + a new reusable `PaginationControls.tsx` — **numbered backend pagination, the first in this app**, which everywhere else uses "Load more". Filters on model %, SP-implied %, and the signed gap; date range via the shared `DateRangePicker` plus year/month quick-pills whose selected state is *derived* from the applied range, never stored. Two prod sanity scripts under `scripts/`. **Read the `parseFloatParam` note in the dated entry below before touching any numeric query param in `router.ts`.** | **done — not merged, not deployed** (no instruction to). Backend jest 607 passed / 43 failed vs a same-session baseline of 524 / 43 → **+83 new, zero new failures**. MSW Playwright 217 passed / 41 failed vs a baseline of 192 / 41 taken on unmodified `develop` → **+25 new, failure set byte-identical**. `tsc --noEmit` and `client yarn build` clean. Storybook stories written but **not runnable** — the repo-wide test-runner breakage flagged three times already in this file is still present. |
+| `~/betfair-nlp-model-accuracy` | `model-accuracy` | New auth-gated **Model Accuracy** screen (`/model-accuracy`) — the aggregate companion to `model-vs-sp` above: instead of listing runners and their gap to the market, it buckets every scored runner by **the price the model itself makes it** (`under 2.0` … `20.0+`, bucketed on `modelWinProbability` so the boundaries stay exact) and shows per band what the model claimed, what actually won, what the market thought, and the £1-to-win P&L. **Two things the existing comparisons get wrong are fixed here.** (1) **The market column is de-overrounded.** Model probabilities are normalised to sum to 100 per race (`normalize_within_race`), but `100/isp` still carries the bookmaker's margin and sums to ~115–125%, so every runner's SP number is inflated and the raw gap is biased against the model. The DAO computes a per-race `bookSum` via `$reduce` *before* `$unwind` and divides through; the raw figure is kept beside it as the break-even bar a bet must actually clear (which is what `modelBeatsSp`/`onlyModelBeatsSp` correctly compare against — that logic is untouched). (2) **The screen says on its face that the figures are in-sample** — `ml/train_and_predict.py:420-437` refits on 100% of rows *including* the test period and then scores those same rows, so the model already knew the result of every race it scored. Strike rates here are therefore optimistic, worst at short prices; **do not read them as a forward test.** Backend: new standalone `src/lib/dao/model-accuracy-dao.ts` + `model-accuracy-service.ts` (named params object, not positional args) — **deliberately a new DAO rather than another method on the contested `industry-sp-dao.ts`**, same precedent as `model-version-dao.ts`; the race-level `$match` is re-implemented because `buildQualifyingRaceStages` is private and only ever returns scalar counts, never the runner subdocuments a band aggregation needs (the two existing P&L consumers duplicate it for the same reason). `GET /api/model-accuracy` sits **below `router.use(jwtAuth)`** so it 401s anonymously. `scripts/local-ci-e2e.sh` gains a **Step 3f** — nothing in that stack writes `modelWinProbability` onto `industry_starting_prices` (the CI-fixture model only scores `daily_racecards`), so without it these e2e specs could only ever assert the empty state; the new `src/commands/seed-isp-model-probabilities.ts` writes explicitly-synthetic, race-normalized values, deliberately **not** derived from `isp` so the model and market columns can't silently collapse into the same source. **Touches `client/App.tsx`, `AppHeader.tsx`, `useRouter.ts`, `chatApi.ts`, `tests-msw/fixtures.ts`, `src/server/router.ts`, `app.test.ts`, `scripts/local-ci-e2e.sh`** — all additive; checked this table first. `industry-sp-dao.ts` and `IndustrySpScreen.tsx` are **not touched at all**. | **done — merged to `develop` (`bd99524`), deployed (Lambda + web), live-verified against real production data.** `app.backbet.co.uk` `build-commit` confirmed `bd99524`; `GET /api/model-accuracy` 401s anonymously. `scripts/live-verify-model-accuracy.ts` **20/20 against production over 970,889 scored runners** — band counts total the overall row exactly, `pnl == returns - staked` in every band, and the raw market % exceeds the de-overrounded % in all six. **The headline finding: even in-sample, the market beats the model** (Brier 0.0872 vs 0.0893), and the model is closer to the truth in only one band (5.0–10.0). It badly under-rates its own short-priced picks (says 58.2%, they win 75.5%) and over-rates long shots by more than 2× (says 3.2%, they win 1.4%). |
 | `/home/ubuntu/betfair-nlp` | `develop` | primary checkout | — |
 | `~/betfair-nlp-deploy-develop` | `develop` (detached) | persistent — `/deploy-web` builds from here | keep |
 | `~/betfair-nlp-deploy-main` | `main` (detached) | persistent — `/deploy-backbet` builds from here | keep |
@@ -185,6 +265,8 @@ Ran claimed ports for this worktree (`scripts/claim-worktree-ports.sh daily-race
 | `~/betfair-nlp-daily-race-model-factors` | `daily-race-model-factors` | User asked whether the Model % pill can "explain itself" — follow-up to the three rows above. Adds a plain-language "top factors" list (top 3, e.g. "Strong recent form", "In-form trainer") to the existing Model % tooltip on `DailyRaceScreen.tsx`, computed via XGBoost's native `pred_contribs=True` (exact SHAP values, no new Python dependency) in `apps/ml-api/handler.py`, restricted to the 22 `NUM_COLS` (skips the 8 `CAT_COLS` identity columns — no clean "helped/hurt" phrasing for those). Threads a new `topFactors`/`modelTopFactors` field through `prediction-api-client.ts` → `daily-race-service.ts` → `daily-race-dao.ts` → `chatApi.ts` → the tooltip. Scoped to the live Daily Race pipeline only — historical ISP screens (`RunnerDetailScreen`, `IndustryRaceScreen`, `IndustrySpScreen`, `IndustryMeetingScreen`) use a separate write path and are out of scope. Plan: `/home/ubuntu/.claude/plans/atomic-purring-puffin.md`. | **done — merged (`85d203b`), deployed (ml-api Lambda + `hello-api` + web), live-verified**: prototyped `pred_contribs` against the CI-fixture model first (contributions reconstruct the exact margin score, diff ~2e-7); `apps/ml-api/test_handler.py` 13/13 pass; backend `tsc --noEmit` clean, Supertest `app.test.ts` daily-races block 14/14 pass; `yarn build` clean; Storybook 16/16 pass; MSW suite 195/195 pass after 3 successive `origin/develop` merges (this repo is very active — several concurrent branches landed mid-task). **Merging `fix/daily-race-pill-wrap`'s `pillGroup` change surfaced a real regression**: giving `hrs_1` (the runner the shared drill-down test clicks by its whole-row testID) Model/Fair-odds badges shifted the row's real-browser click point onto a nested pill (`onPress` calls `stopPropagation`), silently breaking navigation 3/3 on repeat — Storybook's `NavigationTriggered` story still passed throughout since Testing Library's `userEvent.click` doesn't do real coordinate hit-testing, confirming this is specific to genuine browser clicks. A later concurrent merge (`daily-races-filters`, adding the Today's Picks feature) independently fixed the same collision by clicking the horse-name testID instead of the row — adopted that version and moved the model/factors fixture data onto `hrs_1` (which that branch already gives a `modelWinProbability`) rather than inventing a second fix. **Heads-up for anyone touching `DailyRaceScreen.tsx`'s row tap target**: worth double-checking the horse-name click fix if this file changes again — a runner with all three badges can still have its row-tap swallowed if the click lands elsewhere. Reverted an unrelated, unexplained root `yarn.lock` rewrite `npm install` produced in this fresh worktree. `ml-prediction-api` rebuilt with the existing model (`xgb-20260727-171521`, no retraining needed — `topFactors` is computed from the already-trained booster) and live-invoked directly post-deploy, confirming real `topFactors` output; `hello-api` verified healthy (401 on unauthenticated `/api/stats`, not a crash); web verified live at `develop@85d203b` (`build-commit` meta tag). **Not yet re-verified in the actual app UI against fresh prod data** — today's `daily_racecards` were scored by the old handler before this deploy, so they won't carry `modelTopFactors` until the next 06:00 UTC cron run (or a manual trigger, see `.claude/commands/daily-races-cron.md`) refreshes them. Worktree can be removed. |
 | `~/betfair-nlp-matched-price-zero` | `matched-price-zero` | User reported their Betfair app showed £4 spent and a PnL loss but listed no bets. Investigated live (Atlas `bet_orders` + real `listClearedOrders`/`getAccountFunds` calls): both real bets genuinely exist and settled LOST at £2 each, balance £6, exposure £0 — the Betfair-side "missing bets" is not a bug at all, the user was looking at Sportsbook **My Bets** while these are **Exchange** bets (separate product, separate list). While reconciling, found a real bug in our own data: `placeOrders` persisted `matchedPrice: 0` for a bet that filled ~3 min after the API call returned. Backend-only fix (`betfair-api-client.ts` + `bet-order-service.ts`), plus a one-off prod data correction script. | **done — merged to `develop`, Lambda deployed, prod record corrected.** See the dated entry at the end of this file. Worktree can be removed. |
 | `~/betfair-nlp-bet-dialog-width` | `bet-dialog-width` | User reported (screenshot of a wide desktop browser on `/daily-races`) that the Bet dialog should be narrower — `PlaceBetDialog.tsx` passed no `style` to Paper's `Dialog`, which only insets itself by a fixed margin, so the two-field bet form stretched to ~1848px of a 1900px window with the Schedule/Bet now toggle halves ~898px each and Cancel/Confirm at opposite ends of the screen. Fixed with `width:100%/maxWidth:480/alignSelf:center` on the Dialog itself (no-op at phone widths). **Measure `place-bet-dialog-surface`, not `place-bet-dialog`, in any width assertion** — Paper puts the passed testID on the full-screen modal wrapper (always viewport-width) and exposes the visible card as `<testID>-surface`; the first version of this test measured the wrapper and read 1900px with the fix already in place. Also fixed a pre-existing failing `PlaceBetDialog` story (`ConfirmCallsOnSave` still asserted the pre-sandbox `onSave` payload, missing `orderType`/`sandbox`) found while running the suite. | **done — merged, deployed (web + production).** 3 new wide-viewport MSW tests in `tests-msw/bet-orders.spec.ts` (9/9 pass; verified they genuinely fail without the fix — 1848px surface, 898px toggle), `daily-races.spec.ts` 14/14, Storybook `PlaceBetDialog` 7/7, `yarn build` clean. Worktree removed. |
+| `~/betfair-nlp-mvs-narrow-overflow` | `fix/model-vs-sp-narrow-overflow` | User reported (iPhone screenshot of `app.backbet.co.uk/model-vs-sp`) that the filter card overflows on a narrow viewport. Two distinct causes, both in `ModelVsSpScreen.tsx`: (1) the filter grid is a fixed 92px label + two fixed 84px inputs + an inline hint, needing ~460px of viewport inside the card's padding — under that the longest hint (`pts apart, ± ignored`) ran past the card's right border; (2) the year/month pill `ScrollView`s carried no explicit flex, so they sized to their content and their clipping box extended past the card too. **The existing `nothing overflows a 375px viewport` MSW test passed the whole time** — it only checks `documentElement.scrollWidth`, and the overflow was clipped by an ancestor, so nothing ever scrolled. Fixed with a new `BREAKPOINTS.narrow` (480) + `useResponsive().isNarrow`: below it the hint takes its own full-width line under the inputs (`width:"100%"` **and** `flexShrink:0` — a shrinkable item gets squeezed back onto the inputs' line instead of wrapping), the inputs flex into the freed space, and each pill row stacks its label above a full-width strip. The pill `ScrollView`s get an explicit flex at every width, with a **separate narrow variant** — the stacked row is a column, so a main-axis `flexBasis:0` there would size the strip's *height* and collapse it to nothing. **Touches `ModelVsSpScreen.tsx` and `responsive.ts` (additively)** — checked this table first, no other worktree active on either. `IndustrySpScreen.tsx` has the same filter-grid shape and very likely the same defect at phone width; deliberately not touched (it's on this file's read-before-editing list and wasn't what the screenshot showed). | **done — merged to `develop` and deployed (web only, no backend change).** Verified: `client yarn build` clean; `tests-msw/model-vs-sp.spec.ts` **39/39** (8 new, in a `narrow viewport layout` describe that asserts per-element containment against the card's *padded content box* — the only kind of assertion that catches this class of bug); **4 of the 8 confirmed to fail against the pre-fix layout** (forced `isNarrow=false`, rebuilt, re-ran) rather than being assumed to; `ModelVsSpScreen` Storybook **27/27**. Storybook was run against a plain `storybook dev --port 6125` per this file's `--ci` finding. Worktree removed. |
+| `~/betfair-nlp-model-accuracy-oos` | `feat/model-accuracy-walk-forward` | User read the Model Accuracy screen's own "these figures flatter the model" caveat and called the screen misleading. It was: `ModelAccuracyDAO` banded on `modelWinProbability`, which `ml/train_and_predict.py:420-466` writes from a refit on 100% of the rows *including the ones it then scores* — so every historical race was scored by a model that already knew its result. New `ml/walk_forward_score.py` scores each year with a model fitted only on earlier races (`fit on raceDate < Y-01-01` → score Y), into a separate `modelWinProbabilityOos`; `modelWinProbability`, `ml/models/`, S3 and Daily Races are untouched (tomorrow's card is out-of-sample by definition, so the picks were never affected). The screen reads the new field, drops the now-meaningless model-version filter, and states its method plus how many runners had no prior history to be scored from. Also new: `ml/market_benchmark.py` (the de-overrounded SP probability, so `evaluate()` can finally tell the pipeline it is losing to the price — **referee, never a training target**), and a champion/challenger promotion gate reading `model_evaluations` back for the first time, so a worse retrain can no longer silently and irrecoverably overwrite a better one. **Measured on production**: overall Brier **in-sample 0.0893 → out-of-sample 0.0932, against the market's 0.0871** — the old screen understated the model's error by 0.0039, and out-of-sample the market is the more accurate of the two. Out-of-fold isotonic calibration was built and measured, improved Brier but worsened log loss, and so was **deliberately not shipped** (the script picks by log loss and recorded `calibrationHelped: false`). **Touches `model-accuracy-dao.ts`/`-service.ts`, `router.ts`, `ModelAccuracyScreen.tsx`, `chatApi.ts`, `seed-isp-model-probabilities.ts`, `train_and_predict.py`** — checked this table first, no other worktree active on any of them. | **done — merged to `develop` (`a0da1ff`) and deployed (Lambda + web, `build-commit` confirms `1ad19e9`).** Worktree removed. `tsc --noEmit` + `client yarn build` clean; `ml/test_walk_forward.py` 24/24, `ml/test_training_gate.py` 13/13, `ml/test_features.py` 14/14; `model-accuracy-dao.integration.test.ts` 22/22 (4 new); `app.test.ts` model-accuracy block 11/11 (3 new). Full 11-fold walk-forward run + write-back took 1147s and updated 100,064 races (885,089 of 971,116 runners now carry an out-of-sample score; the rest are 2015 and unpriced runners, left null on purpose). Coverage re-checked through the real DAO against production: full window 91.14%, a 2015-only window 0%, a 2024-only window 100%. **Deploy trap found and fixed en route — see the `apps/lambda/build.sh` note in the entry below.** |
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
@@ -5319,3 +5401,1059 @@ Two small user-driven header changes, both in the shared burger menu (`client/sr
 - **Another agent was editing this same primary checkout while I worked.** `git checkout main` aborted on their dirty files (`IspRacesScreen.tsx`, `ml/train_and_predict.py`, `src/commands/import-industry-sp.ts`, later `ScheduledBetsScreen*`, `chatApi.ts`, `betOrderFormat.ts`, `bet-order-service.ts`). **Do not stash to get out of this** — that silently pockets someone else's in-progress work. I did the merge in a throwaway `git worktree add` on `main` and removed it after, which never touched their files. Stage explicitly by path here, never `git add -A`.
 
 **`develop` → `main` merged and pushed (`3825d5e`), at the user's explicit instruction.** Note the 2026-07-30 `matched-price-zero` entry directly above deliberately *declined* this merge as "a separate decision for the user to make" — this session is that decision, not a reversal of it. It is **378 commits**, i.e. effectively all in-flight work from every agent since `main` last moved; the merge tree is byte-identical to `develop` (empty `git diff origin/main origin/develop`). I initially reported "21 commits" to the user from a `| head -20`-truncated list and corrected it — **count with `git rev-list --count`, don't eyeball a truncated log.** **`main` is merged but NOT deployed**: `backbet.co.uk` still serves the old build and `~/betfair-nlp-deploy-main` is still parked on the old `f7730e8`, so nothing reached production from this merge. `/deploy-backbet` is the step that would, and the user hasn't asked for it. `app.backbet.co.uk` was deployed from `develop@da22ff9` and verified live via its `build-commit` meta tag.
+
+## 2026-07-30 (later still) — Agent in `~/betfair-nlp-model-vs-sp` (branch `model-vs-sp`)
+
+User asked for a new menu item, similar to the Races results view reached from Backtest, showing **all runners with the model's win probability next to the SP-implied one**, so they can see how close the model actually is to the market. Backend-paginated, filterable on both probabilities and on the difference between them, sortable and filterable by date with year/month pills, and a result count at the top.
+
+**The unit is the runner, not the race — that's the whole point, and it's new here.** Every other paginated query in `industry-sp-dao.ts` pages by race (`getAllRacesByRace`, `getRaceConvergenceSeries`, the `/isp/races` day-at-a-time loader). This one `$unwind`s to one row per qualifying runner. No `$lookup` was needed for the data itself: `industry_starting_prices.runners[]` already carries `modelWinProbability`, `isp` and `status` on the same subdocument.
+
+**Design decisions worth knowing before extending this:**
+
+1. **Two queries, not one `$facet`.** The count needs neither ordering nor an `$unwind` — it's a streaming `$group` over `$size` of a `$filter`. Putting it in a `$facet` would have dragged the 16MB single-BSON-doc ceiling (the reason `/api/industry-sp` caps `limit` at 2000) into a query with no reason to care about it. They run **sequentially inside the DAO, deliberately not via `Promise.all`** — M0's ceiling is concurrent throughput, not per-query cost, per `getSplitStats`' own comment. A pure page step sends `includeTotal=false` and skips the count entirely (measured saving: 339ms of 1074ms).
+
+2. **The edge sort's slim-doc-then-rehydrate.** Sorting by a computed `edge` can't use any index, so the pipeline projects down to `{_id, raceTime, runnerId, edge}` (~44 bytes) *before* the `$sort`, then `$lookup`s the survivors back after `$skip`/`$limit` — the same trick `getAllRacesByRace` documents. The sort key is **`{edge, raceTime, runnerId}`, and the two tiebreaks are load-bearing**: without a total order, runners tying on `edge` swap between the page-2 and page-3 queries, so one row shows twice and another never shows at all.
+
+3. **I was wrong about the memory ceiling, and the comments now say so.** I initially wrote (and commented) that an unbounded edge sort would blow Atlas M0's 32MB blocking-sort limit with error 292. `scripts/verify-model-vs-sp-pagination-2026-07-30.ts` disproved that against production: sorting the **entire ~970k-runner collection** succeeded. The reason is that `$sort` immediately followed by `$skip`/`$limit` lets MongoDB use a bounded top-k sort — memory scales with `skip+limit`, not with the input. What scales linearly is **time**: 1 month 106ms → 12 months 1.1s → whole dataset 11.5s. So the 366-day span clamp (`MODEL_VS_SP_MAX_SPAN_DAYS`) is a **latency guard, not a memory one**, and the comments were rewritten to say that with the measurement table rather than the guess. Caveat the numbers don't cover: they all read page 1, and the top-k buffer does grow with `skip`, so a very deep page in a very wide window is a genuinely different shape.
+
+4. **`parseFloat(x) || DEFAULT` is unsafe for any zero-meaningful param — this bit, and would have shipped.** That idiom is used throughout `router.ts` and is fine for its existing params (each treats 0 as "unset"). It is wrong here: `minEdge=0` means "only runners the model rates above the market" and `maxEdge=0` means "only below" — the two headline use cases — and `0` is falsy, so both would silently become the ±100 default and match everything. Added `parseFloatParam` (plus `clampPct`, `clampModelVsSpDateWindow`) to `filter-params-util.ts`, guarded by dedicated unit, Supertest, Storybook and MSW cases. **Do not let anyone "simplify" it back to `||`.**
+
+5. **No new index, deliberately.** The date sort is served by the existing `{raceTime:1}`. The edge sort can't be indexed at all. A multikey index on `runners.modelWinProbability` wouldn't be read either — the race-level pre-filter is an `$expr` over a computed count — so it would cost ~1M index entries against M0's tight storage quota for nothing. `createIndexes()` is untouched, and the *absence* is commented as thoroughly as a presence would be.
+
+6. **Pills set the date range; their selected state is derived, never stored.** An exact whole-year or whole-month applied range lights the matching pill; anything else lights none. That keeps pill state from becoming a second source of truth that could disagree with the `DateRangePicker`. Pills bypass Apply on purpose (a shortcut needing a second click is slower than the calendar it shortcuts).
+
+**Two findings from actually running things, both of which changed the code:**
+
+- **Model-score coverage is complete, not partial.** The plan assumed `modelWinProbability` was only on recently-captured races (it's absent on CSV-imported runners), so the year pills would need bounding to avoid guaranteed-empty years. `scripts/prod-repro-model-vs-sp-coverage-2026-07-30.ts` measured production: **970,852 runners carry both a model score and a real ISP, spread across every year 2015–2026 with no gap** (one model version, `xgb-20260727-171521`). So `MODEL_COVERAGE_MIN_DATE` is just `2015-01-01` — kept as a named constant carrying that provenance rather than a bare reuse of `ABSOLUTE_MIN_DATE`, since a future re-import that only scores recent races would move it. The same script shows `mean_abs_edge = 5.28` pts and only **73 runners** with an edge of exactly 0 — so ±5 pts is a genuinely meaningful threshold, and the zero boundary is real but rare (hence the explicit tests for it).
+- **React Native Paper's `Chip` emits no `aria-selected` at all on web.** It renders as `role="button"`, for which React Native Web doesn't map `accessibilityState.selected` — so `toHaveAttribute("aria-selected", ...)` fails whether the chip is selected or not. (Related but distinct from the `aria-checked`-only-when-true quirk `industry-sp.spec.ts` already documents.) Fixed properly rather than worked around: the pills now carry their state in `accessibilityLabel` (`"2025 (selected)"`), which both announces correctly to a screen reader and gives the tests something real to assert on.
+
+**Verified** (every number against a same-session baseline):
+
+- **Backend jest: 607 passed / 43 failed / 657 total**, vs a baseline of **524 / 43 / 574** captured before any edit → **+83 new tests, zero new failures**. The 43 are pre-existing (`app.test.ts`'s live-price case makes a real Betfair call and fails on the stale session ID; confirmed identical on unmodified `develop`). New tests: 18 `filter-params-util.test.ts`, 4 `industry-sp-service-model-vs-sp.test.ts`, **38 `industry-sp-dao-model-vs-sp.integration.test.ts`** (standalone throwaway DB, real mongod on 27019 — green first run), 23 in `app.test.ts`'s new `GET /api/model-vs-sp` block.
+- **MSW Playwright: 217 passed / 41 failed**, vs a baseline of **192 / 41** produced by running the full suite on the **unmodified primary checkout** → **+25 new, and the failing-test list is byte-identical (`diff` clean)**.
+- `tsc --noEmit` and `cd client && yarn build` clean throughout.
+- **Prod (read-only)**: count reconciliation **4/4 exact** — the DAO's total matched an independently-shaped naive `$unwind` count on real data across four filter scenarios (5,963 / 3,105 / 2,858 / 375). Full page-walk over 60 pages for both sorts: 5,963 walked, 5,963 unique, **0 duplicates, sort key monotonic across every boundary**.
+- **Storybook stories written (24 for the screen, 8 for `PaginationControls`) but NOT runnable** — the repo-wide `StorybookTestRunnerError` breakage this file already flags three times is still present; reproduced on untouched `Message.stories.tsx`. Per the precedent those entries set, verification weight went to `client/tests-msw/` instead, which is why the new MSW spec is unusually thorough (25 tests covering pagination, both sorts, both zero-boundary filters, pills, URL round-trip, auth gating and 375px overflow).
+
+**Not done, deliberately**: not merged, not deployed, no EventBridge/cron work — none was asked for. The `aggregate` mock in `app.test.ts` gained the runner-level fields plus `matchedRunners`; that name is deliberate — `total` there is already a `$facet`-shaped `[{count:50000}]` and `count` is already `1`, so reusing either would have produced `totalPages: NaN`, and `status` is deliberately *not* re-declared (already `"CLOSED"` for the market-definitions shape), which is why the new block never asserts on `data[0].status`.
+
+**Process note:** `npx prettier --write` on `industry-sp-dao.ts` reformatted the **entire 1,600-line file** (the repo's `.prettierrc` says `printWidth: 80`; the committed code is written at ~110–120 and does not satisfy its own config — `prettier --check` fails on `develop` too). Reverted and matched the surrounding style by hand. **Don't run prettier on this repo's existing files** — especially not this one, which this file flags as contested.
+
+## 2026-07-30 (even later) — `~/betfair-nlp-model-vs-sp` follow-up: unsigned difference filter + distribution summary
+
+User tested the deployed Model vs SP screen and asked for two changes.
+
+**1. The difference filter is now unsigned.** "The user is only interested in filtering by difference, not whether it is plus or minus." So `minEdge`/`maxEdge` (signed, ±100) became `minAbsEdge`/`maxAbsEdge` (0-100) and the DAO filters on `$abs` of the edge — a range of 10-20 now matches a runner rated 12 points above its SP *and* one rated 12 points below. The row display still shows the signed gap; only the filter ignores direction. This deliberately retires the `minEdge=0` / `maxEdge=0` ("model above/below the market") framing the first version was built around — the user explicitly doesn't want that distinction in the filter. **The `parseFloatParam` guard still matters**, though: `maxAbsEdge=0` ("gap of exactly zero") is still a legitimate query that `parseFloat(x) || DEFAULT` would silently widen to 100.
+
+**2. A distribution summary**, answering "what percentage of all runners was the model within ±N of?". Bands are `[0,2) [2,5) [5,10) [10,20) [20,50)` plus an open-ended tail, each with its own share, a cumulative share and a count.
+
+Three design points worth not undoing:
+
+- **The summary's denominator excludes the difference filter.** The runner condition is built twice — `buildModelVsSpRunnerCond(p, { applyAbsEdge: false })` for the bands, the full one for `matchedRunners`. Without that, narrowing the difference filter would move its own baseline and every band would read 100%, which is worse than useless. There's an integration test pinning exactly this.
+- **It shares the count's single streaming pass.** The count and the summary are needed together (`summary.matchedRunners` IS `total`), so they come from one `$group` — no extra query, and `includeTotal=false` skips both on a page step.
+- **The banding is a pure function, not aggregation logic.** `buildEdgeSummary` in `src/lib/service/model-vs-sp-summary.ts` takes raw per-band tallies and derives every percentage, cumulative total and label, so it's unit-testable without a database. It guards division by zero everywhere — an empty result set is an ordinary state on this screen, and a `NaN` would reach the UI as the literal string `"NaN%"`.
+
+**A trap worth knowing: `npx tsc --noEmit` does NOT catch type errors in `src/**/__tests__/`, but `ts-jest` does.** After widening the service's return type, `tsc` was clean while `industry-sp-service-model-vs-sp.test.ts` failed to compile under jest — and because a compile failure yields a suite with **zero** tests, the headline "43 failed" count didn't move at all; only the *suite* count went 8 → 9 and four previously-passing tests silently vanished. **Compare failing-suite counts, not just failing-test counts**, or a whole suite can disappear unnoticed.
+
+**Verified**: backend jest **633 passed / 43 failed / 683 total** vs the same-session baseline of **524 / 43 / 574** → **+109 new tests, zero new failures, same 8 failing suites**. New: 12 unit tests for the banding math, 9 integration tests for the summary, 6 rewritten integration tests for the unsigned filter, 6 Supertest cases, 8 MSW tests (`model-vs-sp.spec.ts` now 31/31). `tsc --noEmit` and `client yarn build` clean.
+
+**Verified against production** (`scripts/verify-model-vs-sp-pagination-2026-07-30.ts`, extended with a summary section): count reconciliation still exact across the new magnitude scenarios — 674 runners 10-20 pts apart and 3,751 under 5 pts, both matching an independently-shaped `$unwind` query — and the bands tile the population exactly (`banded === allRunners`, `matchedRunners === total`). Real January-2024 shape: **30.7% of runners within ±2 pts, 62.9% within ±5, 84.6% within ±10, 95.9% within ±20**, mean absolute gap 5.6. Confirmed the denominator holds: with the filter narrowed to 674 runners, `allRunners` stayed 5,963.
+
+---
+
+## 2026-07-30 (later still) — Agent in `~/betfair-nlp-model-accuracy` (branch `model-accuracy`)
+
+**Task:** the user asked how the XGBoost model's quality could be judged, and
+landed on bucketing runner probabilities into price bands and comparing them to
+results. This is that screen. Full plan:
+`/home/ubuntu/.claude/plans/look-at-how-the-virtual-sonnet.md`.
+
+**The measurement, and why the obvious version of it is wrong.** Being close to
+SP is not the goal — a model that matched SP exactly would lose the overround on
+every bet. The money is entirely in the disagreements, and the only question
+that matters is whether they're right. So each band shows the model's claim, the
+market's view and **what actually won**, plus both signed errors: whichever is
+closer to zero was nearer the truth in that band. That turns "how far from SP?"
+from a vague smell test into a per-price verdict.
+
+**The overround is not cosmetic.** `normalize_within_race` forces model
+probabilities to sum to exactly 100 per race; `100/isp` does not — a real book
+sums to ~115–125%. Comparing them directly makes the model look systematically
+pessimistic by roughly the margin, on every single runner. The fix is a per-race
+`bookSum` computed with `$reduce` while `runners` is still an array, then
+`fairProb = (100/isp)/bookSum*100`. **Both numbers are kept**: the fair one is
+the only honest comparison against the model, and the raw one is the real
+break-even bar a bet has to clear — which is why `modelBeatsSp` /
+`onlyModelBeatsSp` comparing against the *raw* figure is correct and was left
+exactly as it is.
+
+**The numbers on this screen are in-sample, and it says so in the UI.**
+`ml/train_and_predict.py:420-423` refits on all rows including the test period,
+`:437` predicts those same rows, `:442-466` writes them back. Every stored
+`modelWinProbability` therefore comes from a model that already knew that race's
+result. Strike rates read high, most at short prices. An honest version needs
+walk-forward re-scoring into a separate field — deliberately out of scope here
+and called out as such in the plan, along with the two other gaps that surfaced
+while reading the pipeline: **nothing ever reads `model_evaluations` back**
+(there's no champion/challenger gate, so a worse retrain silently and
+irrecoverably overwrites a better one), and **nothing computes what the market's
+own log loss/Brier would have been**, so the pipeline currently cannot tell it's
+doing worse than just reading the price.
+
+**Correction to the `model-vs-sp` entry above: the Storybook test-runner is NOT
+broken repo-wide.** That entry reports stories "written but not runnable". It
+works — full suite **437 passed / 7 failed / 444** on this branch. I hit the
+identical symptom first (every story failing in 4–69ms with
+`page.evaluate: ReferenceError: Cannot access 'StorybookTestRunnerError' before
+initialization`) and briefly mis-blamed `.storybook/test-runner.ts`'s
+`testEnvironment: "jsdom"`. **The real cause is running `test-storybook` against
+a Storybook dev server that has answered `/index.json` but hasn't finished
+compiling the preview bundle yet.** `curl /index.json` returning 200 is *not* a
+readiness signal. Give it a warm-up run, or just re-run — the second attempt
+passes with the config completely untouched. The 7 real failures are the
+long-standing `AllRunnersScreen`/`EventsScreen`/`IndustrySpScreen`/
+`RunnerDetailScreen`/`SavedResultsListScreen` ones.
+
+**A related trap on this 2-core VM:** leaving the Storybook dev server running
+while a Playwright suite executes inflates everything enough to produce dozens of
+spurious 6s/30s timeout failures in `tests-msw/industry-sp.spec.ts`. Kill it
+first, or you will spend a while investigating regressions that aren't there.
+
+**Why a new DAO.** `industry-sp-dao.ts` is on this file's read-before-touching
+list, and `buildQualifyingRaceStages` is `private` and only returns scalar
+counts, never the runner subdocuments a band aggregation needs — both existing
+P&L consumers already duplicate that filter for the same reason (see the
+comments at `:591-604` and `:913-916`). So `model-accuracy-dao.ts` is standalone
+over the same collection, same precedent as `model-version-dao.ts`.
+`industry-sp-dao.ts` and `IndustrySpScreen.tsx` were not touched at all.
+
+**A real bug the tests caught, worth keeping:** `pnl` was originally computed
+from unrounded staked/returns and then rounded, which made the money columns
+fail to add up on screen (staked £2.34 + returns £3.67 displayed a P&L of
+£1.32, not £1.33). It now derives from the same rounded figures the user sees,
+so the columns reconcile exactly — and the integration test asserts exact
+equality rather than `toBeCloseTo`, which is what surfaced it.
+
+**Two smaller things fixed during self-review, both found by reading rather than
+by a failing test:** the `Brier` tooltip was rendered by both the table's
+hoisted tooltip row and its own card, emitting a duplicate testID; and
+`marketMeanProbRaw` had a tooltip but no column, so the break-even figure was
+computed and returned but never actually displayed.
+
+**`scripts/local-ci-e2e.sh` Step 3f is new and load-bearing.** Nothing in that
+stack writes `modelWinProbability` onto `industry_starting_prices` — the
+CI-fixture model only scores `daily_racecards` — so before this, every
+model-accuracy e2e assertion would have passed vacuously against all-zero bands.
+`src/commands/seed-isp-model-probabilities.ts` writes explicitly-synthetic,
+race-normalized values, deliberately **not** derived from `isp`: deriving them
+from the market price would make the model and market columns near-identical and
+the whole error comparison degenerate, so the suite would still pass if the two
+were accidentally wired to the same source. One API spec asserts
+`overall.runners > 0` specifically to fail loudly if this step ever stops
+running.
+
+**Verified:**
+- `npx tsc --noEmit` and `client yarn build` clean, before and after merging
+  `origin/develop`.
+- **`yarn test:e2e:local-ci` 54/54 passed** (was 36 before this branch — 18 new:
+  12 API, 6 UI), full throwaway stack, real backend, real Mongo, no mocking.
+- Backend jest `app.test.ts` + the new DAO integration suite: **241 passed / 7
+  skipped**, including 19 new integration tests against real local mongo on
+  :27019 in a uniquely-named throwaway DB (dropped in `afterAll`) and 8 new
+  supertest cases.
+- Storybook, post-merge: **454 passed / 25 failed / 479**; the new
+  `ModelAccuracyScreen.stories.tsx` is **9/9 green**. Pre-merge this branch was
+  437/7 against the 5 long-standing broken suites — **the extra 18 failures came
+  in with `model-vs-sp`**: `ModelVsSpScreen.stories.tsx` (11) and
+  `PaginationControls.stories.tsx` (7), consistent with that entry stating its
+  stories were never run. They fail on their own testIDs
+  (`model-vs-sp-model-1000-90000` not found) and on
+  `expect(...).toHaveAttribute("aria-selected", "true")` returning `null` —
+  **nothing to do with the `AppHeader` nav item added here**, which I checked
+  specifically because both branches edited that file. Flagging for whoever owns
+  that feature.
+- MSW `model-accuracy.spec.ts` **8/8** post-merge. The wider MSW suite has a
+  large pre-existing failure set (the `model-vs-sp` entry above records 41 on
+  unmodified `develop`), and a full run exceeds the harness timeout on this
+  2-core box; a run excluding `industry-sp.spec.ts` gave **172 passed / 16
+  failed**, every failure in `odds-display`/`responsive`/`runner-detail`/
+  `trainer-detail` — files this branch does not touch.
+- The integration test's arithmetic is hand-worked in a comment block at the top
+  of the file (book sums to exactly 625/6, fair probs land on 48/24/16/12) so the
+  expectations are checkable rather than snapshotted.
+
+**Merged `origin/develop` mid-task** — `model-vs-sp` had landed and touched nine
+of the same files. Three real conflicts (`App.tsx`, `AppHeader.tsx`,
+`app.test.ts`), all the "both branches added a sibling item" shape, resolved by
+keeping both. The two screens are complementary and now sit next to each other
+in the nav: **Model vs SP** lists individual runners and their gap to the
+market; **Model Accuracy** aggregates the same comparison into price bands and
+checks each band against what actually won.
+
+**Deployed and live-verified against real production** — `bd99524` on
+`app.backbet.co.uk`, Lambda redeployed, `scripts/live-verify-model-accuracy.ts`
+**20/20 over 970,889 scored runners**.
+
+**A deploy trap worth repeating even though this file already documents it:**
+`apps/lambda/build.sh` does **not** call `sync_worktree` — unlike
+`apps/web/deploy.sh`, it just builds whatever `~/betfair-nlp-deploy-develop`'s
+HEAD happens to be. I ran it straight after pushing and shipped the *previous*
+commit; the new route simply wasn't in the bundle. `git fetch origin develop &&
+git checkout --detach origin/develop` in that worktree **first**, then build. A
+cheap way to catch it: `grep -c 'api/<your-new-route>' src/server/router.ts` in
+the deploy worktree before running the script.
+
+**What production actually says about the model** (the point of the whole
+feature, and not a flattering answer):
+
+| Model price | n | Model says | Actually won | Market (fair) | Closer |
+|---|---|---|---|---|---|
+| under 2.0 | 2,461 | 58.2% | **75.5%** | 62.1% | market |
+| 2.0 – 3.0 | 17,586 | 38.9% | **52.0%** | 41.7% | market |
+| 3.0 – 5.0 | 99,831 | 24.7% | **30.5%** | 25.4% | market |
+| 5.0 – 10.0 | 333,042 | 14.0% | **14.4%** | 13.9% | **model** |
+| 10.0 – 20.0 | 324,606 | 7.4% | **5.6%** | 7.2% | market |
+| 20.0+ | 193,363 | 3.2% | **1.4%** | 3.0% | market |
+
+Overall Brier: **model 0.0893 vs market 0.0872 — the market is more accurate.**
+Two things follow, and both matter more than the screen itself:
+
+1. **The model has a textbook favourite–longshot problem.** It under-rates its
+   own short-priced picks badly (says 58%, they win 75%) and over-rates 20/1+
+   shots by more than 2×. That is a calibration failure, not a ranking failure —
+   the 5.0–10.0 band, where most of the mass sits, is nearly spot on. Fitting an
+   isotonic/Platt correction on the validation fold (labels only, no market
+   data) is the obvious cheap fix, and `evaluate()` already computes the
+   reliability table it would be fitted from and then throws it away.
+2. **These numbers are in-sample and the market still wins.** The model was
+   trained on these very races and already knew every result, so the true
+   out-of-sample picture is worse than the table above. Any claim that this
+   model beats the market should be treated as unsupported until walk-forward
+   scoring exists.
+
+**Follow-ups this surfaced, deliberately not built here** (all recorded in the
+plan at `/home/ubuntu/.claude/plans/look-at-how-the-virtual-sonnet.md`):
+walk-forward out-of-sample scoring into a separate field; a champion/challenger
+promotion gate so a worse retrain can't silently overwrite a better one
+(`model_evaluations` is written every run and **never read back**); and an
+SP-benchmark line in `evaluate()` so the pipeline can tell on its own that it is
+losing to the market. The guardrail on all three: SP stays a **referee, never a
+training target** — gating on "beat SP's log loss" is safe, tuning toward
+"match SP's number" would distil the market into the model through the back
+door, which is the same failure as putting `isp` in the feature set.
+
+## 2026-07-30 (yet later) — `~/betfair-nlp-model-vs-sp` retest after merging `develop`
+
+Merged the latest `origin/develop` (which by then carried the `model-accuracy` work) into `model-vs-sp` and re-ran everything. The branch was **0 ahead / 8 behind** — my work was already on `develop`, the other agent had merged it into theirs before pushing, and `git merge-base` showed **zero files changed on both sides** — so this was a clean fast-forward, not a reconciliation. Both features coexist correctly: the burger menu carries Model vs SP and Model Accuracy side by side, and the two Supertest blocks share `app.test.ts`'s single `aggregate` mock without colliding (mine adds `matchedRunners`/`allRunners`/`band0..5`).
+
+**I was wrong that the Storybook test-runner is broken repo-wide — and so was the correction.** My earlier entry reported the 32 Model vs SP stories as "written but not runnable". The `model-accuracy` entry above correctly calls that out, but attributes it to a dev server that has answered `/index.json` without finishing its preview compile, with "give it a warm-up run, or just re-run" as the fix. **That did not reproduce here: three consecutive runs against a fully-compiled server failed all 479 stories identically.** Nor was it `.storybook/test-runner.ts`'s `testEnvironment: "jsdom"` — I moved that file aside and the failure was unchanged.
+
+**The actual trigger is the `--ci` flag on the dev server.** `yarn storybook:headless` and `yarn storybook:test` both pass `--ci`; against either, `test-storybook` fails 100% of stories with `Cannot access 'StorybookTestRunnerError' before initialization`, on every attempt. Against a plain `storybook dev --port N` (no `--ci`) the same command passes immediately. That explains why four separate entries in this file have now reported this "breakage": **the documented workflow in `CLAUDE.md` and in the `storybook-interaction-tests` command both tell you to use the headless/`:test` scripts, and both of those pass `--ci`.** Use a plain `storybook dev` for the test-runner until someone works out why.
+
+**Running them for the first time found four real defects in my own stories**, which is the argument for not trusting an unrun suite:
+1. The fixture spanned 2024-2025 behind a URL decorator, so any story pressing Reset (which restores the January-2024 default window) silently emptied the list.
+2. The landmark rows were dated *earliest*, so under the default newest-first sort they sorted onto the last page and the badge assertions found nothing on page 1. Both fixed by moving the whole fixture inside the default window with the landmarks dated last.
+3. **The screen persists filters to the URL, and the test-runner reuses one browser page across the entire suite** — so a story that taps a year pill leaves `minDate=2025-01-01` behind and the *next* story mounts with no rows. Fixed with a `withCleanUrl` meta decorator. Any screen that writes to the URL needs this; it is not specific to this feature.
+4. Pagination controls are disabled while a fetch is in flight, and both Reset and Apply start one — a click issued as the rows appear lands on a `pointer-events: none` button and does nothing. Also: **wait on the captured request, not the page label**, after a page step — `page` is component state that updates synchronously on click, so the label reads "Page 2" before the fetch is even issued.
+
+Plus one stale assertion (`-100` for the difference floor, left from before the filter became unsigned) and one `accessibilityState` → `accessibilityLabel` fix on `PaginationControls`' rows-per-page buttons — React Native Web emits no `aria-selected` for `role="button"`, the same constraint the year/month pills hit.
+
+**A `local-ci-e2e` gotcha worth knowing:** every spec under `client/tests-local-ci/` **hardcodes `http://localhost:3050`**. `scripts/local-ci-e2e.sh` honours `LOCAL_CI_BACKEND_PORT` and will happily start the backend on a claimed port, but the tests still dial 3050 — so running the suite with `claim-worktree-ports.sh` in the environment fails all 54 with `ECONNREFUSED`. Either run it with the LOCAL_CI_* vars unset (as I did) or thread the port into the specs. The `worktree-ports` doc advertises that override for this suite; it currently only half works.
+
+**Also: my earlier claim that the 41 MSW failures might be inflated by VM load was wrong.** I re-ran the full suite on a genuinely idle VM (load 0.89, nothing else running, Storybook killed first per the 2-core trap above) and got **the same 41, with the same distribution across the same five files**. They are deterministic and pre-existing, not contention.
+
+**Verified**: backend jest **660 passed / 43 failed / 710** (baseline 524/43/574 — same 8 failing suites). Storybook **472 passed / 7 failed / 479**, up from 454/25, with all 32 of this feature's stories now green and only the long-standing 7 left. MSW **231 passed / 41 failed**, my 31 all green alongside model-accuracy's 8. `tsc --noEmit` and `client yarn build` clean.
+
+**`yarn test:e2e:local-ci` 72/72**, up from 54 — **18 new tests** in `model-vs-sp-api.spec.ts` and `model-vs-sp-ui.spec.ts`, all passing first run. These only became possible because of the other agent's Step 3f (seeding `modelWinProbability` onto the ISP slice); before it they could only have asserted the empty state. This is the one tier where the `$abs` difference filter, the summary aggregation and the paging pipeline run together against a real database through real HTTP — it proves on real data that the summary's bands tile the population exactly and that walking every page never repeats a row. One unrelated flake seen on the first run (`daily-races-ui.spec.ts`'s pick-badge navigation); passed on re-run, twice.
+
+## 2026-07-31 — Agent in `~/betfair-nlp-mvs-narrow-overflow` (branch `fix/model-vs-sp-narrow-overflow`)
+
+User sent an iPhone screenshot of `app.backbet.co.uk/model-vs-sp` and asked to
+fix the narrow-viewport overflow, add a CI mock test, deploy, and work in a new
+worktree.
+
+**The bug the existing test couldn't see.** `tests-msw/model-vs-sp.spec.ts`
+already had a test called `nothing overflows a 375px viewport`, and it passed
+on the broken layout — it asserts only
+`documentElement.scrollWidth <= clientWidth`. The overflowing content was
+clipped by an ancestor, so the document never gained scroll width and the check
+was vacuous for this class of defect. Measured directly instead: the
+`pts apart, ± ignored` hint's right edge sat at **370px against a card whose
+padded content box ends at 346px**, and the year/month pill scrollers' own
+clipping boxes ended at ~375px — i.e. the strips visibly bled past the card's
+border to the screen edge, which is exactly what the screenshot showed.
+
+**If you write a layout test in this repo, assert per-element against the
+container's padded content box.** A document-level scroll check will keep
+passing through anything an ancestor clips. The new `narrow viewport layout`
+describe does this via a `cardContentBox()` helper (border + padding subtracted
+from the card's client rect), and it distinguishes a horizontal `ScrollView`'s
+**viewport** (must stay inside the card) from its **content container** (whose
+children legitimately extend beyond — that is what scrollable means). Finding
+the viewport means looking for the descendant with `overflowX: scroll|auto`;
+asserting on the content container instead would fail on a perfectly good strip.
+
+**Two RN-Web flexbox specifics worth keeping:**
+
+- Moving the hint to its own line needs `width: "100%"` **and**
+  `flexShrink: 0`. With the base style's `flexShrink: 1` still in play, a
+  100%-wide item can be squeezed back onto the inputs' line rather than
+  starting a new one.
+- The narrow pill row is `flexDirection: "column"`, so flex on the strip is
+  **main-axis vertical** there. The wide layout's `flexGrow:1/flexBasis:0`
+  (which is what bounds the strip to the card in a row) would size the strip's
+  *height* to zero when stacked — hence a separate `pillScrollViewNarrow`
+  variant rather than one shared style. This is a general trap for any style
+  reused across a direction switch.
+
+`BREAKPOINTS.narrow = 480` is new in `responsive.ts` (additive; the existing
+`isTablet`/`isDesktop`/`isWide` are untouched). It is not a device class — it's
+the measured width below which this filter grid stops fitting. Phones sit well
+under it and desktops well over, so nothing lands on the boundary.
+
+**Verified**: `client yarn build` (tsc) clean; `tests-msw/model-vs-sp.spec.ts`
+**39/39**, up from 31 — and the 8 new ones were checked for teeth rather than
+assumed: forcing `isNarrow = false`, rebuilding and re-running failed 4 of them
+(all three hint-containment cases plus the stacking case) with the exact
+overflow the screenshot showed. `ModelVsSpScreen` Storybook **27/27**, run
+against a plain `storybook dev --port 6125` (no `--ci`, per the 2026-07-30
+finding above). Per the standing "UI-only changes don't need the full e2e
+tiers" note, the backend jest / local-CI / full MSW suites were not re-run —
+this branch changes no backend code and no shared component.
+
+**Not done, deliberately**: `IndustrySpScreen.tsx` has the same
+label+inputs+hint filter-grid shape (this screen's `renderFilterRow` is a
+copy of it) and almost certainly the same defect at phone width. It's on this
+file's read-before-touching list and wasn't what the user reported, so it's
+flagged here rather than fixed blind — a `useResponsive`-based fix there is a
+one-file follow-up whenever someone wants it.
+
+## 2026-07-31 (later) — Agent in `~/betfair-nlp-model-accuracy-oos` (branch `feat/model-accuracy-walk-forward`)
+
+User read the Model Accuracy screen's own "these figures flatter the model"
+caveat and called the screen misleading — its job is to say how accurate the
+model is *now*, and it could not. Plan:
+`/home/ubuntu/.claude/plans/model-accuracy-walk-forward.md`. Both design
+choices in it were the user's: **honest numbers only, no in-sample/out-of-sample
+toggle**, and **full history, one fold per year**.
+
+**The defect, precisely.** `ml/train_and_predict.py:389-418` evaluates honestly
+on a held-out tail. Then `:420-423` throws that model away, refits on ALL rows
+including the test period, and `:437-466` scores those same rows with it. So
+every stored `modelWinProbability` on a historical race is the output of a
+model that already knew that race's result — and `ModelAccuracyDAO` banded on
+exactly that field.
+
+**New `ml/walk_forward_score.py`.** One expanding-window fold per calendar year
+(`fit on raceDate < Y-01-01` → score year Y), writing a separate
+`modelWinProbabilityOos`. It imports `load_dataframe`/`FEATURE_COLS`/
+`make_model`/`normalize_within_race` from `train_and_predict.py` rather than
+forking them — a drifted feature list would silently stop describing the real
+model. `modelWinProbability` is untouched, and so are `ml/models/`, S3, and
+Daily Races.
+
+**Measured, against production (`scripts/compare-model-accuracy-oos-2026-07-31.ts`,
+read-only, two aggregations over the same rows):**
+
+| Band | in-sample says / won | out-of-sample says / won | market (fair) |
+|---|---|---|---|
+| under 2.0 | 58.2% / **75.5%** | 57.9% / **64.0%** | 61.5% |
+| 2.0-3.0 | 38.9% / 52.0% | 38.8% / 43.5% | 41.2% |
+| 3.0-5.0 | 24.7% / 30.5% | 24.7% / 26.2% | 25.3% |
+| 5.0-10.0 | 14.0% / 14.4% | 13.9% / 14.2% | 14.0% |
+| 10.0-20.0 | 7.4% / 5.6% | 7.4% / 7.0% | 7.3% |
+| 20.0+ | 3.2% / 1.4% | 3.4% / 2.6% | 3.0% |
+
+Overall Brier: **in-sample 0.0893, out-of-sample 0.0932, market 0.0871.** In
+other words the old screen understated the model's error by 0.0039 of Brier,
+and out-of-sample **the market is more accurate than the model** — over
+885,067 runners, on real data, through the real aggregation.
+
+Note what the in-sample "actually won" column was doing: 75.5% in the shortest
+band, against 64.0% honestly. It was not that the model was well calibrated
+there — it was that a model which already knows the winner puts its confident
+picks on winners.
+
+**Things worth knowing before touching any of this:**
+
+1. **A fold took 43s, not hours.** The expensive part is the one-off ~750MB
+   frame load off Atlas; the whole 11-fold run including the Mongo write-back
+   took **1147s end to end**. `WF_CACHE_PATH` pickles the frame (gitignored) so
+   a re-run doesn't pay the load twice, and `WF_FOLD_YEARS=2019` runs a single
+   fold for timing. Don't plan around this being a long job.
+2. **Calibration was built, measured, and NOT shipped.** Out-of-fold isotonic
+   regression (fitted only on prior folds' out-of-sample rows, never on the
+   fold being corrected) improved Brier 0.093169 → 0.093071 but made log loss
+   *worse*, 0.320910 → 0.321051. The script picks the stored variant by log
+   loss, so it stored the uncalibrated one and recorded
+   `calibrationHelped: false`. The code stays because the decision is re-made
+   from data on every run — the favourite-longshot gap is real and a future
+   feature set may make the correction pay. **Don't switch it on by hand.**
+3. **`$facet` is used in `model-accuracy-dao.ts`, deliberately** — and this is
+   not a contradiction of the `model-vs-sp` entry's "two queries, not one
+   `$facet`". There, a facet branch would have carried an unwound page toward
+   the 16MB ceiling. Here both branches emit a handful of tiny documents (six
+   bands, one counter), and the alternative is unwinding ~970k runner
+   subdocuments twice per screen load.
+4. **The absent score is load-bearing.** 885,089 of 971,116 runners have an
+   out-of-sample score; the rest are 2015 (no prior history) and races with no
+   usable SP. They must stay null — zero-filling would file them in the 20.0+
+   band as runners the model rated at 0% and got wrong, inventing predictions
+   that were never made. The DAO's `$ne: null` gate, a coverage counter in the
+   same pass, and a line on the screen stating the gap all exist for this.
+5. **The `modelVersionId` filter is gone from this screen.** An out-of-sample
+   score has no single model behind it (2019's rows come from a model fitted
+   on 2015-2018, 2020's from one fitted on 2015-2019). The route still accepts
+   a stale `?modelVersionId=` from an old bookmark and ignores it — there's a
+   test for that.
+6. **`current_champion`/`promotion_decision` in `train_and_predict.py` close a
+   real hole**: `model_evaluations` was written every run and never read back,
+   so a worse retrain silently overwrote a better one, irrecoverably
+   (`ml/models/` is gitignored; S3 only has the copy under the *new* id). A
+   rejected run now leaves its evaluation doc with `promoted: false` and a
+   reason, and touches nothing else. Walk-forward docs are excluded from
+   champion selection — they describe a scoring pass, not a deployable model.
+7. **`evaluate()` now scores the market too**, via the new `ml/market_benchmark.py`.
+   Its loader is deliberately separate and narrow (`raceId`/`runnerId`/`isp`
+   only) and is merged in *after* the split, so `isp` never shares a frame with
+   `FEATURE_COLS`. **SP is a referee, never a training target** — gating on
+   "beat SP's log loss" is safe; tuning toward "match SP's number" would distil
+   the market into the model through the back door. There's a unit test
+   asserting `isp` is absent from `FEATURE_COLS`.
+8. **A wrong-database run looks like a one-word `KeyError`.** The first attempt
+   died with `'raceDate'`: a worktree has no `config/local.json` (gitignored,
+   primary checkout only), so `config` resolved to **localhost:27019 /
+   betfair_nlp_dev** — 30 local CI fixture races, none of which carry
+   `raceDate`. `walk_forward_score.py` now prints its target db/collection/row
+   count before touching anything and turns that `KeyError` into a message
+   naming the likely cause. For a prod run, export the URI from the primary
+   checkout's config.
+9. **`seed-isp-model-probabilities.ts` now seeds the OOS field too, with a
+   different hash salt and a deliberate gap** (`race._id % 5 !== 0`). Same salt
+   for both fields would let the local-CI e2e keep passing even if the screen
+   were wired back to `modelWinProbability` — the exact regression this change
+   exists to prevent — and without the gap, nothing would exercise the coverage
+   line or the null-exclusion rule end to end.
+
+**A real bug that only production data could catch — worth internalising.**
+The coverage counter first used the aggregation-EXPRESSION form
+`{$ne: ["$runners.modelWinProbabilityOos", null]}`. In the query language
+`{field: {$ne: null}}` excludes a missing field; **the expression form does
+not** — a missing path is its own "missing" value and compares unequal to
+null. Both forms sit in the same pipeline here (the bands branch uses the
+query form inside `$match`, correctly), which is exactly how it went wrong.
+Measured against production, the counter reported **971,116 of 971,116**
+runners as scored when only **885,089** carry the field. The integration test
+passed throughout, because its unscored fixture runner had an explicit
+`null` — and an explicit null behaves the same under both forms. Real
+unscored runners have **no field at all**. Fixed with a `$type` check against
+`["missing", "null"]`, and the fixture gained a runner with the key genuinely
+absent. **If you assert on a field's absence in this repo, make the fixture
+absent, not null.**
+
+**Verified**: `tsc --noEmit` and `client yarn build` clean. New Python tests
+`ml/test_walk_forward.py` **24/24** (fold-boundary leakage, first-year
+exclusion, calibrator source selection, de-overrounding, degenerate blocks) and
+`ml/test_training_gate.py` **13/13**; existing `ml/test_features.py` 14/14.
+`model-accuracy-dao.integration.test.ts` **23/23** against real local mongo
+(5 new: coverage arithmetic, coverage-matches-bands, unscored-not-zero-filled,
+empty-window-is-0%-not-100%, and absent-field-counts-as-unscored).
+`app.test.ts` model-accuracy block **11/11** (3 new). `ModelAccuracyScreen`
+Storybook **12/12** (4 new), against a plain `storybook dev --port 6126` per
+the `--ci` finding above. MSW `model-accuracy.spec.ts` **10/10** (3 new); the
+full MSW suite ran **241 passed** with the same pre-existing failure families
+this file already documents (`isp-races-month-loading`, `responsive`,
+`runner-detail`, `trainer-detail`) — none touched by this branch.
+
+**Coverage checked through the real DAO against production**: full window
+885,067 of 971,094 eligible runners (91.14%), and `overall.runners` equals
+`coverage.scoredRunners` exactly; a 2015-only window reports **0%** (nothing
+before it to learn from) and a 2024-only window **100%**. Those three numbers
+together are what prove the null-exclusion is real rather than incidental.
+
+**Not done, deliberately**: the deployed model itself is unchanged — this
+measures it honestly, it doesn't retrain it. The favourite-longshot gap is
+still there (57.9% claimed vs 64.0% actual in the shortest band) and closing it
+is the obvious next piece of work now that there is an honest yardstick to
+judge it by.
+
+## 2026-07-31 (later still) — deploy trap: `apps/lambda/build.sh` and a partial `config/local.json`
+
+Hit while deploying the walk-forward work. Two corrections to what this file
+already says about Lambda deploys, both verified today:
+
+1. **`apps/lambda/build.sh` bundles whatever checkout you RUN IT FROM**, not
+   `~/betfair-nlp-deploy-develop`. `REPO_ROOT` is derived from the script's own
+   path (`build.sh:4`), and the run log confirms it — "Codebase snapshot built
+   at /home/ubuntu/betfair-nlp/...". The existing advice to sync
+   `~/betfair-nlp-deploy-develop` first is still worth following (it is what
+   `apps/web/deploy.sh` ships), but for the Lambda the thing that actually
+   matters is **the HEAD of the checkout you invoke it from**.
+
+2. **A partial `config/local.json` used to break the deploy halfway through.**
+   `update-function-configuration --environment` REPLACES the entire Variables
+   map, so a local.json holding only some sections would blank every secret it
+   omits on the live function. The primary checkout's local.json now has only
+   `betfair`, `racingApi` and `mongodb` (Betfair and RacingAPI credentials were
+   added on 2026-07-27/29), so the step died on `c.openai.apiKey` **after** the
+   code deploy and API Gateway config had already gone out. It failed *before*
+   the `aws` call, so nothing was wiped — luck, not design.
+
+   `build.sh` now checks `mongodb.uri`, `mongodb.dbName`, `openai.apiKey` and
+   `jwt.secret` up front and skips the secrets step with a loud warning if any
+   are missing, leaving the live env vars untouched. **If you need to update
+   Lambda secrets, the local.json you run it against must carry every section
+   the function needs — a partial file is now ignored rather than applied.**
+
+## 2026-08-01 — primary checkout, directly on `develop` — the model has no backing edge at SP, and its disagreements point the wrong way
+
+Read-only analysis prompted by a user question about the Model Accuracy screen
+("what Brier score gives me profit?"). No app code touched — one new script,
+`scripts/model-market-disagreement-2026-08-01.ts`, following the
+`compare-model-accuracy-oos-2026-07-31.ts` precedent (config-driven
+`MongoClient`, aggregations only, no writes).
+
+**What it measures.** Every walk-forward-scored runner (`modelWinProbabilityOos`,
+never `modelWinProbability` — see `model-accuracy-dao.ts:17-38`) bucketed by
+`ratio = modelProb / marketProbFair`, i.e. how far the model's price disagrees
+with the de-overrounded ISP. Reports strike rate, both mean probabilities,
+Brier contributions and P&L under two staking conventions: flat £1 level stakes
+**and** the repo's to-win-£1 convention. Level stakes is the one to read for
+"is there an edge" — to-win-£1 stakes ~£2 on an evens shot and ~£0.05 on a 21.0
+shot, so its ROI is dominated by favourites.
+
+**The finding, on 885,067 runners, 2015-2026.** Nothing is profitable at SP, and
+the loss grows monotonically with the size of the disagreement *in the backing
+direction*:
+
+| model vs market | runners | won | model said | market said | level ROI |
+|---|---|---|---|---|---|
+| 2x+ longer | 58,476 | 25.3% | 9.4% | 23.8% | -11.4% |
+| agree (±5%) | 54,476 | 13.0% | 13.0% | 13.1% | -17.9% |
+| 40-80% shorter | 110,662 | 6.6% | 11.2% | 7.1% | -25.6% |
+| 1.8x+ shorter | 249,345 | 2.9% | 9.1% | 3.4% | -39.2% |
+
+Backing everything blind is -23.7%. **In every disagreement bucket the market is
+closer to the truth than the model, and the gap widens the more the model
+disagrees.** The bottom row is the headline: a quarter of a million runners the
+model rated ~2.7x more likely than the market, where the market said 3.4% and
+**2.9% won**. The model's disagreements are not edge; selecting on them is
+actively worse than betting at random.
+
+**Why the Model Accuracy screen doesn't show this.** Aggregate calibration over
+the full population is near-perfect — mean prediction 11.3%, actual strike rate
+11.3%. That headline is large errors in opposite directions cancelling out. Split
+by disagreement and it falls apart. **Aggregate calibration cannot be the
+acceptance test for this model**; conditional-on-disagreement P&L can.
+
+**Stability**: the `ratio >= 1.2` subset loses 28-35% at level stakes in *all
+eleven years* (2016-2026, ~43k runners/yr). Structural, not variance — don't
+re-litigate this with a shorter window.
+
+**Traps for whoever picks this up.**
+- A `$push` of per-runner subdocs into a `$bucket` blows the memory limit even
+  with `allowDiskUse` — build the price-band × ratio grid as one aggregation
+  *per band* instead. Cost me a run.
+- `modelProbSum` is already in 0-100 units; the mean is `sum/count` with no
+  further scaling. Easy 100x display bug.
+- Roughly 54 grid cells means a few land positive by chance. The two that do
+  are noise: one is 162 runners, and the other (2.0-3.0 band, `1.8x+ shorter`)
+  has +2.0% level ROI but **-1.5% to-win ROI on the same bets**. Contradictory
+  signs on one bet set = noise. Don't build on them.
+- Market fair probability is de-vigged **proportionally** (`prob / bookSum`),
+  which is known to understate longshots. The small market errors in the extreme
+  buckets are partly methodological — do not read them as a lay signal.
+
+**Blocked, and worth fixing.** The BSP half of this could not be run: there is no
+Betfair SP anywhere in the DB — `market_definitions` and `price_updates` are both
+**0 documents** (exchange data trimmed to the 5-event POC, see the industry-SP
+reseed entries above). Everything here is ISP, carrying the 15-20% bookmaker
+margin. Loading BSP for even a couple of years is the single highest-value thing
+someone could do next: it is the only way to answer the profitability question at
+prices a punter could actually get.
+
+**Relation to the previous entry.** That one closed by naming the
+favourite-longshot gap (57.9% claimed vs 64.0% actual under 2.0) as the obvious
+next work. This says the problem is wider than that band — the model is
+miscalibrated *conditional on disagreeing with the market* across the whole book,
+and the shortest-price band is simply where it is most visible.
+
+---
+
+## 2026-08-03 — worktree `build-badge` — deployed-commit badge in `AppHeader`
+
+Small UI addition, but its real purpose is to make a deploy **self-evidencing**
+from the browser: a pill next to the BackBet brand reading `build <sha>`.
+
+**How it knows the commit.** It doesn't — it reads it back. `apps/web/deploy.sh`
+already stamps `<meta name="build-commit">` / `<meta name="build-branch">` into
+`dist/index.html` as its last step before the S3 sync. The new
+`client/src/utils/getBuildCommit()` (`client/src/utils/buildInfo.ts`) queries that
+tag at runtime. **Deliberately not an `EXPO_PUBLIC_*` build arg** — a build-time
+env var would mean touching `deploy.sh` and would bake the SHA into the bundle,
+so a bundle could then disagree with the `index.html` referencing it and nobody
+would see it. Reading the tag keeps the deploy pipeline unchanged and makes
+badge-vs-meta agreement a *testable invariant* instead of a tautology.
+
+**That invariant is the point.** `deploy.sh`'s three-step S3 sync (additive
+upload → cut over `index.html` → prune) exists because a single
+`sync --delete` once deleted the previous hashed JS bundle before the new
+`index.html` went up. The failure mode that guards against — a stale bundle
+served behind a fresh `index.html` — now shows up as a **badge/meta mismatch**,
+which `client/tests-live/build-badge-live.spec.ts` asserts on directly. Set
+`EXPECTED_COMMIT=$(git rev-parse --short HEAD)` to additionally pin a run to one
+specific deploy; unset, the test still checks agreement, so it stays useful as a
+permanent regression test rather than being a one-shot smoke test.
+
+**Renders on every screen for free** — `AppHeader` is shared, and the badge's
+`testID` follows the component's existing per-screen namespacing, so it is
+`industry-sp-build-badge` on `/isp`, `chat-build-badge` on `/chat`, and so on.
+The second test in the spec checks two different prefixes precisely to prove the
+badge came from the shared header and not from one screen.
+
+**Traps.**
+- `getBuildCommit()` returns `null` off-web and in **any local build** —
+  `yarn build:web` does not stamp anything, only `deploy.sh` does. The badge
+  correctly renders nothing there, so don't go hunting for a bug when it is
+  absent locally. To exercise it locally, apply `deploy.sh`'s `sed` to
+  `dist/index.html` by hand.
+- It is read during render, not cached at module scope, so a test that injects
+  the meta tag after load still sees it.
+
+---
+
+## 2026-08-03 (later) — primary checkout — local-CI E2E now runs on the WSL box
+
+`yarn test:e2e:local-ci` runs green on `lbs-wsl`: **72/72**, ~110s end to end
+(throwaway mongod → seed → backend → Expo build → Playwright → teardown).
+
+**Mongo was already there** — `mongod` 7.0.37 from the distro package, a
+**systemd service**, enabled and listening on `127.0.0.1:27019` with the dev
+databases restored. Nothing to install. Note the suite still forks its **own**
+throwaway mongod on **27020** and never reuses that one; 27019/3000/8081 stay
+deliberately untouched so a run can't disturb a dev session.
+
+**What actually needed fixing was environment resolution, not Mongo.**
+`MONGOD_BIN` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` live in
+`/etc/profile.d/betfair-nlp.sh`, which **only login shells source**. The script
+now resolves both itself — explicit env var → `command -v mongod` / a list of
+known browser paths → the old EC2 tarball and `/snap/bin/chromium` defaults.
+Verified by running the whole suite with `env -u MONGOD_BIN -u
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, which is the case that matters: a cron
+job or a bare `ssh host 'yarn test:e2e:local-ci'` gets no profile.d and would
+otherwise have died on the EC2 path with a confusing "not found" on a box where
+mongod is installed fine. There is also now an up-front guard that says so
+plainly, placed before the `rm -rf "$SCRATCH_DIR"` in Step 0 so a bad
+`MONGOD_BIN` costs nothing.
+
+**Two specs were stale, not broken by the environment.** Both were left behind
+by `a7efb1e` (Model Accuracy moved to out-of-sample scoring); its MSW
+counterparts were updated at the time and its local-CI ones were not — worth
+remembering that these two suites cover the same screens and drift apart
+silently.
+
+- `model-accuracy-ui.spec.ts` asserted the old `model-accuracy-insample-warning`
+  / "flatter the model" apology. That node is gone, replaced by
+  `model-accuracy-method-note`. The spec now asserts the new note **and** that
+  the old node has `toHaveCount(0)` — the claim and the apology contradict each
+  other and must never both be on screen.
+- `model-accuracy-api.spec.ts` asserted an unknown `?modelVersionId=` yields
+  **zero** runners. `router.ts:724` deliberately dropped that filter (each
+  year's rows come from a different model, so "version X" has no answer) and
+  documents that a stale param is **ignored**. The old assertion would have
+  locked in exactly the silent-narrowing behaviour that comment rules out; it
+  now compares against an unfiltered call, which is what makes "ignored"
+  testable rather than assumed.
+
+**Trap.** `ml/venv/bin/python` is a **symlink to `/usr/bin/python3`** and the
+preflight's "not symlinked" warning reads like a fault. It isn't — this is a
+real `uv` venv (`pyvenv.cfg`, `lib/`, `.lock` all present) and imports resolve
+to its own site-packages (xgboost 3.3.0, pandas 3.0.5). Don't rebuild it.
+
+---
+
+## 2026-08-04 — primary checkout, directly on `develop` — the model's Brier deficit against SP is entirely discrimination, not calibration
+
+User asked, plainly: "compare results against SP, compare Brier score, how good
+is the model?" The headline was already on record (2026-07-31: model 0.0932 vs
+market 0.0871). What was not established was *why* the model loses, whether the
+gap is significant once the dependence between runners in a race is accounted
+for, and whether it survives the de-vig choice. New read-only script
+`scripts/model-vs-sp-brier-2026-08-04.ts` — one streaming pass over
+`industry_starting_prices`, no writes, deterministic (ran twice, byte-identical
+output).
+
+**Population.** 885,067 matched runner-rows over 100,043 races, 2016-2026. Only
+22 rows dropped (no usable SP). Base rate 11.3%.
+
+### The answer
+
+| | Brier | AUC | skill vs base rate |
+|---|---|---|---|
+| model, out-of-sample | 0.093171 | 0.7186 | 0.0726 |
+| **industry SP (fair)** | **0.087109** | **0.7862** | **0.1330** |
+| model, in-sample | 0.089228 | — | — |
+| baseline: predict 11.3% for everything | 0.100468 | — | 0 |
+| baseline: 1/fieldSize | 0.098515 | — | — |
+
+**Brier Skill Score vs SP: −0.0696.** The model is ~7% worse than the price it
+is trying to beat. Framed the other way: the market extracts 13.3% of the
+available uncertainty, the model 7.3% — the model captures **just over half the
+market's skill**. It is not a bad forecaster in absolute terms (it beats both
+naive baselines comfortably); it is a worse one than the SP.
+
+### Why — the Murphy decomposition is the whole story
+
+Brier = reliability − resolution + uncertainty, over 100 equal-count bins,
+debiased for bin-sampling noise:
+
+| | reliability (calibration, lower better) | resolution (discrimination, higher better) |
+|---|---|---|
+| model | 0.000098 | 0.007336 |
+| market / SP | 0.000085 | 0.013368 |
+
+- **calibration accounts for 0.2% of the gap.** Both forecasters are almost
+  perfectly calibrated in aggregate — reliability is ~0.1% of total Brier for
+  each, and the model's mean prediction (11.3%) matches the actual win rate
+  (11.3%) to the decimal.
+- **discrimination accounts for 99.2%.** The market's resolution is **1.8x**
+  the model's. The model cannot separate winners from losers nearly as well,
+  which the AUC gap (0.719 vs 0.786) says independently.
+
+This is the single most important number in this entry, because it inverts the
+obvious remedy. **Calibration work cannot close this gap** — there is almost no
+calibration error to remove. That is now the explanation for something already
+observed and unexplained: `ml/walk_forward_score.py`'s out-of-fold isotonic
+correction moved Brier by 0.0001 and made log loss worse. It was not a
+mis-specified correction. There was nothing there to correct. Closing this gap
+needs **new information in the feature set**, not post-processing.
+
+### The gap is real, and stable
+
+Paired per-runner Brier differences (model − market), **clustered by race** —
+exactly one runner wins each race, so per-runner differences within a race are
+strongly dependent and a naive SE overstates precision:
+
+- mean difference **+6.0624e-3** (positive = model worse)
+- race-clustered SE 6.58e-5, **z = 92.1**, 95% CI [5.93e-3, 6.19e-3]
+- naive per-runner SE 6.22e-5 (z = 97.5) — clustering costs ~6% of the z, so in
+  this case it does not change the verdict, but it is the honest denominator
+
+Stable in **every one of eleven years** (BSS −0.065 to −0.073, no trend), and in
+**every field-size bucket** (−0.087 at 2-6 runners to −0.036 at 20+). Brier
+falls mechanically as fields grow — 0.145 at 2-6 runners vs 0.044 at 20+ — so a
+pooled Brier is confounded by field-size mix; the sign of the gap holds inside
+each bucket regardless.
+
+### It is not a de-vig artefact
+
+Proportional de-overrounding understates longshots, so it is fair to ask how
+much of the market's edge is methodological. Under **power/odds-ratio de-vig**
+(solve per race for k with Σ(1/isp)^k = 1) the market's Brier *improves* to
+**0.086973**. The market beats the model under both methods; the choice of
+de-vig is not doing the work.
+
+### The one table that shows what the model is actually getting wrong
+
+By SP band — banding on the price rather than on the model, so it does not
+condition on the thing under judgement:
+
+| SP band | n | model says | **actual** | market says | BSS |
+|---|---|---|---|---|---|
+| under 2.0 | 15,839 | 32.8% | **59.5%** | 54.6% | −0.344 |
+| 2.0 - 3.0 | 39,630 | 23.2% | 38.1% | 35.7% | −0.123 |
+| 3.0 - 5.0 | 117,167 | 17.4% | 23.7% | 22.8% | −0.049 |
+| 5.0 - 10.0 | 244,856 | 12.6% | 12.6% | 12.7% | −0.026 |
+| 10.0 - 20.0 | 213,474 | 9.3% | 6.0% | 6.4% | −0.049 |
+| 20.0+ | 254,101 | 5.7% | **1.7%** | 2.3% | −0.150 |
+
+The model **compresses toward the middle of the book**. On odds-on shots it
+says 32.8% where 59.5% win; on 20/1+ shots it says 5.7% where 1.7% win. It is
+right on the money only in the 5.0-10.0 band, which is also where most of the
+mass sits — which is precisely why the aggregate calibration number is
+flawless while the model is badly wrong nearly everywhere. **Aggregate
+reliability is worthless as an acceptance test for this model**; the 2026-08-01
+entry said the same thing from the P&L side and this is the same failure seen
+through the scoring rule.
+
+Note also the market's own imperfection in this table (54.6% claimed vs 59.5%
+actual on favourites, 2.3% vs 1.7% on longshots) — the residual
+favourite-longshot signature of proportional de-vigging, which is why the
+sensitivity check above matters.
+
+### Things worth knowing before touching this
+
+1. **The Murphy identity does not hold on raw forecasts, and an assertion that
+   it does will fail.** It is exact only for the *binned* forecast; the
+   remainder is within-bin discrimination the binning discarded. The first
+   version of the script asserted `|rel − res + unc − Brier| < 1e-6` against
+   the raw Brier and failed at 2.4e-4 — and printed "identity holds" anyway,
+   because the success line was unconditional. The script now asserts against
+   the binned forecast's own Brier (holds to <1e-9) and *reports* the within-bin
+   term (−5.9e-5 model, −7.6e-5 market) rather than hiding it.
+2. **Bin count is a real bias-variance tradeoff, not a free parameter.** Too
+   coarse and within-bin variance swamps reliability; too fine and each bin's
+   observed rate is noisy, which inflates reliability by ~(bins/N)·p(1−p) —
+   at 1000 equal-width bins that bias is *larger than reliability itself*
+   (~1e-4). Equal-**count** bins plus an explicit noise debias is what makes
+   the 0.2%/99.2% split trustworthy.
+3. **The stored walk-forward evaluation scores model and market on different
+   populations** — `overall.raw.n` 885,089 vs `overall.market.n` 885,067. Small,
+   but it means the headline pair in that doc is not strictly like-for-like.
+   This script intersects first and scores both on the same 885,067 rows.
+4. **Independent cross-check passed.** Model Brier 0.093171 here vs 0.093169
+   stored (delta 2.1e-6, explained by the 22-row intersection); market
+   0.087109 vs 0.087109; market AUC 0.786202 exact to six places. Those came
+   from sklearn over a pandas frame in Python, these from a streaming Node
+   pass — agreement validates both pipelines.
+5. **Still ISP only.** `market_definitions` and `price_updates` re-checked at
+   0 documents. Every "market" number here carries a 15-20% bookmaker margin
+   removed by an assumed model. Loading BSP for a couple of years remains the
+   highest-value next step, exactly as the 2026-08-01 entry said.
+6. **Coverage ends 2026-07-30** and 2026 has only 33,495 scored rows. Races
+   since then have no `modelWinProbabilityOos` — re-run
+   `ml/walk_forward_score.py` before quoting these numbers as current.
+7. **Unrelated, but noticed while doing this**: `.claude/commands/seed-atlas.md`
+   contains the Atlas username and password in plaintext and is committed. That
+   is a live production credential in git history. Worth rotating and moving to
+   `config/local.json` (already gitignored).
+
+**What this does and does not say.** It does not say the model is useless — it
+beats a base-rate forecast and a 1/fieldSize forecast by a clear margin, and its
+ranking ability is real (AUC 0.719). It says the model is a *worse* probability
+forecaster than the SP, by a margin that is significant, stable across eleven
+years and every field size, and robust to the de-vig method — and that the
+deficit is discrimination, so the fix is features, not calibration. Combined
+with the 2026-08-01 finding that the disagreements lose money monotonically in
+the direction of the disagreement, there is still no evidence of an edge at SP.
+
+---
+
+## 2026-08-04 (later) — primary checkout, directly on `develop` — the Filters screen was scoring itself with a model that already knew the winners
+
+Reported live via screenshot: a saved result named "Foobar1" (2016, `onlyModelBeatsSp=true`, `maxIsp=751`) showing **+£246.21 / +7.0%**, one hour after the Brier entry above concluded the model has no edge at SP. Both could not be true.
+
+They weren't. `modelBeatsSpCond` in `src/lib/dao/industry-sp-dao.ts` read **`modelWinProbability`** — the field `ml/train_and_predict.py`'s final refit writes, having been fitted on the very races it then scored. "Model beats SP" therefore meant "runners that a model which had already seen the result rated above the market", which selects winners by construction.
+
+Reproduced against production on the same rows, same staking (`stake = 1/(isp-1)`), same window:
+
+| selection (2016, isp ≤ 751) | bets | win% | staked | pnl | ROI |
+|---|---|---|---|---|---|
+| no model filter | 87,955 | 11.2 | £16,326 | −£1,891 | −11.6% |
+| `modelWinProbability` (the bug) | 40,946 | 7.8 | £3,510 | **+£247** | **+7.0%** |
+| `modelWinProbabilityOos` (honest) | 44,045 | 5.5 | £3,493 | **−£680** | **−19.5%** |
+
+Across all scored history the same filter goes from **+4.48% to −18.75%**, negative in all eleven years (−15.6% to −21.5%), against −11.67% for backing every runner. The selection is ~7 points *worse* than no filter — it doesn't just fail to beat the overround, it actively picks worse-than-random bets, consistent with the 2026-08-01 disagreement finding.
+
+### The fix
+
+One field, named once: `MODEL_PROB_FIELD = "modelWinProbabilityOos"` in `industry-sp-dao.ts`, with all 20 read sites routed through `MODEL_PROB_R` / `MODEL_PROB_MVS`. Client side, `modelProb()` in `client/src/utils/ispFormat.ts` is the single accessor, since the races endpoint returns whole runner subdocuments and the client recomputes badges itself — reading two different fields would leave badges contradicting the list they sit in.
+
+The invariant that makes this a clean swap rather than a date heuristic: **`modelWinProbabilityOos` means "produced without sight of this race's result"**. That is true of walk-forward scores *and* of live pre-race predictions, so `industry-sp-results-capture-service.ts` now writes the daily prediction to both fields. Without that, the 1,040 post-cutoff 2026 rows would have dropped out of every model filter and the daily live-results capture that hangs off those filters would have silently stopped returning rows.
+
+### Things worth knowing
+
+1. **Coverage is why the fallback isn't needed.** Of runners with `isp > 1`: 885,067 have a numeric Oos value; 86,027 are 2015, which `walk_forward_score.py` deliberately leaves unscored (no prior history), and which therefore *must not* qualify for a model filter; 1,040 are post-cutoff 2026 live-captured rows, now covered by the capture-path write above.
+2. **Every saved result created before this is contaminated** if it used `onlyModelBeatsSp`, `minModelSpEdgePts` or `minModelWinProbability`. Their `splitA`/`splitB` snapshots are baked in and are NOT recomputed by this change. That includes the 2026-07-27 doc named "…held-out test period" — Split B was never held out from anything, since the final refit trained on both halves.
+3. **`$ne: [field, null]` does not exclude a missing field in `$expr`** — a missing path compares equal to null there. It cost a mislabeled diagnostic row while investigating. Edge comparisons still exclude such rows (arithmetic on missing yields null), so the P&L numbers above are unaffected.
+4. **The staking plan is sound and was ruled out as the cause.** `stake = 1/(isp-1)`, return `stake+1` on a win, is target-profit staking with zero expectation at fair odds; the −11.7% no-filter baseline is just the ISP overround.
+5. **Local dev DBs predating this need reseeding** — `npx ts-node src/commands/seed-isp-model-probabilities.ts` (already wired into `scripts/local-ci-e2e.sh:221`). A DB with in-sample values but no Oos values makes the ISP integration suites fail on empty selections rather than on logic.
+6. **Test-suite baselines, measured by stashing the change and re-running:** backend 7 failing suites before and after (bet-orders, price-updates, market-definitions, OpenAI key, betfair-service, simple, runner-price-updates — all unrelated); MSW `industry-sp.spec.ts` the identical 22 failures before and after; Storybook 8 failures before, 7 after (`IspRacesScreen › CollapseAllTogglesEverything` now passes). No regressions.
+
+---
+
+## 2026-08-04 (later still) — primary checkout, directly on `develop` — "the results revert to maximum 1 month even if I chose bigger"
+
+Reported live via screenshot, right after the out-of-sample fix above went out. A `2015-01-01 → 2016-01-01` range with "Model beats SP" + "Beats SP by 10 pts" returned **11 races, all on the single day `2016-01-01`**.
+
+Not a date bug. The only clamp on that screen is one *year* (`IndustrySpScreen.tsx`), and a year is what was asked for. The cause is coverage: model filters read `MODEL_PROB_FIELD`, which `ml/walk_forward_score.py` only produces between `coverageMinDate` and `coverageMaxDate` (`2016-01-01`..`2026-07-30` in production). The earliest year has no prior history to fit on, so ~86k runners are deliberately unscored. Before the fix the filters read the in-sample field, which *does* exist for 2015, so that year looked full — of leaky rows.
+
+So the behaviour was right and the presentation was silent. Fixed by explaining, not clamping (the user's call): the dates stay theirs, and a note names the window and which end of the range falls outside it.
+
+### Things worth knowing
+
+1. **Coverage was already recorded** — the walk-forward evaluation doc carries `coverageMinDate`/`coverageMaxDate`/`scoredRows`/`unscoredRows`. New public `GET /api/model-score-coverage` is one `findOne`, not an aggregation over 972k runners. `ModelVersionDAO`'s two queries key on disjoint fields (`modelVersionId` vs `evaluationType: "walk_forward"`), so neither can return the other's shape.
+2. **The client call never throws.** A database with no walk-forward run is normal (every fresh local stack); it shows no note rather than a broken one.
+3. **Same cliff at the far end.** Races after the last walk-forward pass are equally invisible to model filters until it is re-run — the note covers both edges.
+4. **Second bug in the same screenshot:** Split B read `64 – 11` against 11 matched races. `isStaleSplit` already guarded the cache path; the freshly-fetched path needed it too, because the race count can collapse under a split without the split itself changing.
+5. **Comparing test baselines by line number stopped working** once the spec grew — adding 4 MSW cases shifted every later `file:line`, making a naive diff show 22 "new" failures and 22 "fixed" ones. Compare by test *name*. Same 22 failures before and after; 63 → 67 passing.
+6. **`apps/lambda/build.sh` still dies on API Gateway throttling** (`AccessDenied`, `apigateway:PATCH` for `user/lbs-dev`) *after* the code deploy succeeds. Pre-existing IAM gap, hit on both deploys today. Also: `apps/web/deploy.sh` prunes root `node_modules` at the end, so the lambda build needs `yarn install` first on any run that follows a web deploy.
+
+---
+
+## 2026-08-04 (later still, again) — worktree `~/betfair-nlp-isp-oos-model-field`, branch `isp-oos-model-field` — the same saved result read −25.8% on one screen and +30.6% on the next
+
+User, on a phone, with three screenshots of build `7beb6d8`: a saved result
+("Goop") showing −£115.28 / −27.1% in the Results list and −£58.15 / −25.8% on
+its Split A card, against a `/isp/races` year header reading `2024 · 20 races ·
++£2.55 (+30.6%)`. Their own read — "I suspect the races view is wrong" — was
+correct, for a reason worth writing down because it is the *third* place the
+in-sample field has surfaced since 5ac6e26.
+
+### The mechanism
+
+5ac6e26 named the honest field once (`MODEL_PROB_FIELD` /
+`modelWinProbabilityOos`) and routed `ispFormat.ts` through a single
+`modelProb()` accessor. But `IspRacesScreen` keeps its **own inline copy** of
+the qualifying-runner test — `qualifyingRunners()`, which exists so a group
+P&L rollup always matches the rows rendered beneath it — and that copy's
+`minModelWinProbability` branch still read `r.modelWinProbability` directly.
+So the screen took a race set the *server* had selected on the out-of-sample
+field and narrowed it with a *different* forecast, one fitted on the races it
+was scoring.
+
+Reproduced against production before touching any code, which is what made
+this diagnosable rather than plausible — 2024, `onlyModelBeatsSp=true`, one
+identical 100-race page from the live Lambda:
+
+| | runners | staked | P&L | ROI |
+|---|---|---|---|---|
+| server (`modelWinProbabilityOos`) | 465 | £36.92 | −£4.15 | **−11.2%** |
+| client recompute (`modelWinProbability`) | 455 | £36.25 | +£4.46 | **+12.3%** |
+
+Same races, opposite sign. The lesson generalises past this field: **a screen
+that re-filters a server-selected set client-side has to read the same column
+the server matched on, or the two disagree by construction.** `modelProb()`
+now covers every remaining display too (`IspRacesScreen` and
+`IndustryMeetingScreen` badges, `RunnerDetailScreen`'s Model Win % row), so no
+surface shows a probability the filters no longer use.
+
+### The second, independent bug in the same screenshot
+
+`2024 · 20 races · +£2.55 (+30.6%)` sat directly under a filter card saying 675
+races and −25.8%. The +30.6% was a *true* number over the 20 races actually
+fetched — days load one at a time and paginate within themselves, so a rollup
+can only ever total what has arrived — wearing the clothes of a year total.
+Levels that cannot cheaply know their own shortfall now say `N races loaded`;
+a day, which owns the server-side `total` for its sub-date range, still says
+`N races` once it has fetched all of them. Deliberately *not* built by walking
+day lists at every level — that traversal cost is the exact thing the
+placeholder padding-out was removed to avoid (see the hierarchy comment in the
+file).
+
+### Gotchas for the next person
+
+1. **A fresh worktree needs `npm install` at the root, not just `yarn install`
+   in `client/`.** `yarn build` fails with `TS2307: Cannot find module
+   'jsonwebtoken'` from `client/tests-live/chat-live.spec.ts`, which resolves
+   that type from the *root* `node_modules`. Nothing about the error names the
+   root install.
+2. **Storybook baseline is 7 failures / 489 passing, identical set before and
+   after** (`AllRunnersScreen/RunnersInRangeFilterHides`,
+   `EventsScreen/EventBadgesVisible`, two on `IndustrySpScreen`, two on
+   `SavedResultsListScreen`, and
+   `RunnerDetailScreen/TrainerLinkCallsOnNavigateToTrainer`). That last one
+   sits on a file this change touched, so it is worth naming why it is
+   unrelated: it asserts `onNavigateToTrainer` is called with `('W P Mullins',
+   'Flat')` — a race-type-to-form-category question, nothing to do with the
+   model probability. Confirmed by reverting the three files and re-running.
+3. **The MSW baseline is 22 failures / 67 passing, and every one of the 22 is
+   the `/isp/races` block failing to render at all** (`getByTestId(
+   'industry-sp-race-914592')` — element not found). Confirmed identical
+   before and after by test *name*, not line number, per the note above. The
+   practical consequence: **`/isp/races` currently has no working MSW
+   coverage**, so this change — which is entirely on that screen — was
+   verified against production data rather than by a suite going green. The
+   fixtures almost certainly predate the day-lazy-load rework's sub-date-range
+   probe requests. Worth fixing on its own branch; it is silently hiding
+   regressions on the busiest screen in the app.
+4. **Playwright's `line` reporter overwrites its own summary.** `... | tail -5`
+   showed `67 passed` and no failure count, because the `22 failed` line had
+   been erased by the terminal control codes. Use `--reporter=json` and count
+   from the parsed result when the number matters.
+
+---
+
+## 2026-08-04 (later still, again²) — primary checkout, directly on `develop` — "View Races" from a saved Result did nothing
+
+User, on a phone, with three screenshots of build `7beb6d8` (same session and
+same saved result — "Goop" — as the `isp-oos-model-field` entry above): open a
+Result from the Results view, tap **Details** on a split card, then tap the
+full-width **"View 675 Races →"** button at the bottom of the panel. Nothing
+happens. No navigation, no error, no spinner — the panel just sits there.
+
+**The button was inert by construction, not broken by data.**
+`SavedResultDetailScreen.tsx` renders the shared `SplitDetailPanel` — the same
+component `IndustrySpScreen` uses — and wired its `onViewRaces` prop to
+`() => {}`. The panel renders that button unconditionally, so from a saved
+Result it drew perfectly and did nothing. On `/isp` the identical prop
+navigates to `/isp/races` carrying the applied filters plus the clicked split's
+`fromRow`/`toRow` (`App.tsx`'s `/isp` branch); nobody ever supplied an
+equivalent for the saved-result path when this screen reused the panel.
+
+Confirmed against the deployed bundle before touching any code —
+`client/scripts/prod-repro/saved-result-view-races-noop-2026-08-04.spec.ts`,
+which failed exactly as reported:
+
+```
+Expected pattern: /\/isp\/races/
+Received string:  "https://app.backbet.co.uk/results/detail?id=prod-repro-goop"
+14 × unexpected value (the URL never changes)
+```
+
+### The fix
+
+`SavedResultDetailScreen` gained a real
+`onViewRaces(filters, fromRow, toRow)` prop, wired in `App.tsx`'s
+`/results/detail` branch to `/isp/races`.
+
+It deliberately does **not** reuse the `/isp` implementation. There the applied
+filters live in `window.location.search`; here the URL is only `?id=<savedId>`,
+so the filters exist nowhere but inside the fetched `SavedFilterSet` and have to
+be passed in explicitly. Everything downstream is identical — `/isp/races` reads
+the same param names off the query string either way.
+
+### Things worth knowing
+
+1. **It sends the raw `toRow`, not the `?? total` fallback the panel
+   *displays*.** A split saved open-ended has `toRow: null`; the panel shows the
+   grand total in its "Races N–M" subtitle, but navigating with that number
+   would silently convert an open-ended split into a capped one. Same
+   distinction `IndustrySpScreen` already draws between what it shows and what
+   it navigates with.
+2. **Back from `/isp/races` lands on `/isp` with the saved filters applied**,
+   not on the Result — `IspRacesScreen`'s `onBack` is hardcoded to `/isp` and
+   does not use `resolveReturn`. Left alone: changing it would touch the far
+   busier `/isp` path, and landing on the Filters screen with exactly those
+   filters is the same thing "Restore filters" gives. If someone wants a true
+   return-nav here, that is the `buildReturnParams`/`resolveReturn` pattern the
+   meeting/race/runner screens already use.
+3. **A concurrent session committed on `develop` mid-task and swept this
+   worktree's untracked prod-repro script into its commit** (`9a9c066`, "docs:
+   AGENTS.md entry for the model-coverage note and stale-split fix" — almost
+   certainly a `git add -A`). The file is fine and lives in the right place;
+   naming it here because the commit message gives no hint it contains another
+   agent's work. **In a shared checkout, `git add -A` is not safe.**
+4. **A sibling worktree owned MSW port 3737, and Playwright silently reused its
+   server.** `playwright.msw.config.ts` sets `reuseExistingServer: !CI`, so
+   `yarn test:msw` attached to `~/betfair-nlp-isp-oos-model-field/client`'s
+   `npx serve` and tested *that* worktree's stale `dist/` — the new test failed
+   showing pre-fix behaviour, and two unrelated tests died with
+   `ERR_CONNECTION_REFUSED` when that server wandered. Diagnosed by comparing
+   the md5 of the served bundle against the local one. `MSW_PORT=3741
+   yarn test:msw` → 15/15. **Claim a port per the worktree-ports skill; a
+   green/red result on the default port proves nothing about your own code.**
+5. **`/isp/races` still has no working MSW race-row coverage** (point 3 of the
+   entry above). The new test asserts only that `industry-sp-races-screen` and
+   the query string are right, which does hold — the screen *shell* renders
+   fine, it is the race rows inside it that the stale fixtures can't produce.
+   Enough to pin this bug, not enough to call that screen covered.
+
+**Verified:** `yarn build` clean; Storybook 22/22 on `SavedResultDetailScreen`
+(new `ViewRacesButtonNavigatesWithThisSplitsRangeAndFilters` pins Split B's own
+3–4 range *and* the saved filters riding along); `tests-msw/saved-results.spec.ts`
+15/15 on a claimed port.
+
+**Merged, pushed and deployed** (2026-08-06). Commit `822a009` on `develop`,
+fast-forward — nothing had diverged, since the concurrent session above was
+committing directly in this same checkout. `/deploy-web` shipped
+`develop@a6167ed` (my commit plus one later docs commit) to
+`app.backbet.co.uk`; `build-commit` meta confirms `a6167ed` live. The
+prod-repro script, which failed by design before, now **passes** against the
+deployed bundle — the button navigates to `/isp/races` with `fromRow=1`,
+`toRow=675` and every saved filter carried through. Left in place per the
+prod-repro convention; not maintained going forward.
+
+`main`/`backbet.co.uk` was deliberately **not** promoted — the user scoped this
+to `app.backbet.co.uk` only when asked, so the public site is still on its
+previous build and does not have this fix.

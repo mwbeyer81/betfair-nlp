@@ -183,6 +183,49 @@ test.describe("Industry SP filters screen — bare load applies nothing (MSW moc
     expect(capturedToRowA).toBe("1589");
   });
 
+  // The bug these cover, reported live via screenshot: a 2015-01-01..2016-01-01
+  // range with "Model beats SP" on returned 11 races, every one of them on the
+  // single day 2016-01-01, because the whole of 2015 is deliberately left
+  // unscored by the walk-forward pass. Nothing said so, and "my date range was
+  // ignored" is the only conclusion available. The fix is a note, not a clamp —
+  // so the assertions below check the note appears, NOT that the dates changed.
+  test("a model-filtered range starting before the scored window explains itself", async ({ page }) => {
+    await page.goto("/isp?minDate=2015-01-01&maxDate=2016-01-01&onlyModelBeatsSp=true");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    const note = page.getByTestId("industry-sp-model-coverage-note-text");
+    await expect(note).toBeVisible();
+    await expect(note).toContainText("2016-01-01");
+    await expect(note).toContainText("before 2016-01-01");
+  });
+
+  test("a model-filtered range ending after the scored window explains itself", async ({ page }) => {
+    await page.goto("/isp?minDate=2016-01-01&maxDate=2026-12-31&minModelSpEdgePts=10");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    await expect(page.getByTestId("industry-sp-model-coverage-note-text")).toContainText("after 2026-07-30");
+  });
+
+  test("no coverage note when the range sits inside the scored window", async ({ page }) => {
+    await page.goto("/isp?minDate=2017-01-01&maxDate=2018-01-01&onlyModelBeatsSp=true");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    await expect(page.getByTestId("industry-sp-model-coverage-note")).not.toBeVisible();
+  });
+
+  test("no coverage note when no model filter is active, however wide the range", async ({ page }) => {
+    // The window only constrains the model filters — every other filter works
+    // perfectly well outside it, so warning there would be crying wolf.
+    await page.goto("/isp?minDate=2015-01-01&maxDate=2026-12-31");
+    await expect(page.getByTestId("industry-sp-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    await expect(page.getByTestId("industry-sp-model-coverage-note")).not.toBeVisible();
+  });
+
   test("a URL that already carries filter params fetches immediately, without an extra Apply", async ({ page }) => {
     // Distinguishes a genuinely bare load from one arriving via a
     // bookmark/shared link/back-navigation, which already represents
@@ -329,6 +372,34 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await page.getByTestId("industry-sp-filter-reset").click();
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("industry-sp-only-model-beats-sp")).not.toHaveAttribute("aria-checked", "true");
+  });
+
+  test("'Beats SP by (pts)' field is present and sends minModelSpEdgePts to /api/industry-sp/splits", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-min-model-sp-edge-pts")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-min-model-sp-edge-pts")).toHaveValue("0");
+
+    let captured: string | null = null;
+    let capturedBeatsSp: string | null = null;
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const url = new URL(route.request().url());
+      captured = url.searchParams.get("minModelSpEdgePts");
+      capturedBeatsSp = url.searchParams.get("onlyModelBeatsSp");
+      await route.continue();
+    });
+
+    await page.getByTestId("industry-sp-min-model-sp-edge-pts").fill("5");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(captured).toBe("5");
+    // Sent on its own, with the "Model beats SP" checkbox left unticked —
+    // the backend treats a positive threshold as activating that filter,
+    // so the client must not have to also send onlyModelBeatsSp for it to
+    // take effect.
+    expect(capturedBeatsSp).toBeNull();
+
+    await page.getByTestId("industry-sp-filter-reset").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-min-model-sp-edge-pts")).toHaveValue("0");
   });
 
   test("Split A/B's race-range boxes are always visible, with a '/totalRaces' hint", async ({ page }) => {
@@ -1351,6 +1422,43 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     // The single-runner Teston race (99001, modelWinProbability=100,
     // isp=11 -> implied 9.1%) also beats its own SP, so it stays visible.
     await expect(page.getByTestId("industry-sp-race-773337")).toBeVisible();
+  });
+
+  test("minModelSpEdgePts=20 is strictly tighter than onlyModelBeatsSp — drops a runner that beats SP by only 15 pts", async ({ page }) => {
+    // Runner 55501 (model 25%, isp 10 -> implied 10%) has a +15 pt edge, so
+    // it survives plain onlyModelBeatsSp but must NOT survive a 20-pt
+    // threshold — taking its race 556677 (Kempton, 2022) with it, since the
+    // only other runner 55502 is already well below its own SP. Runner
+    // 99001 (model 100%, isp 11 -> implied 9.1%) has a +90.9 pt edge and
+    // stays, with its race 773337 (Southwell, 2021). This pair is the whole
+    // point of the field: proving it narrows beyond the checkbox rather
+    // than just re-expressing it.
+    //
+    // Years are collapsed on load (lazy per-year fetching), so each one has
+    // to be expanded before its races render at all.
+    await page.goto("/isp/races?minModelSpEdgePts=20");
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
+
+    // The header count is the most direct read on the filter: 1 of the 3
+    // fixture races qualifies, contributing its 1 qualifying runner.
+    await expect(page.getByTestId("industry-sp-races-screen")).toContainText("1 runners");
+    await expect(page.getByTestId("industry-sp-races-screen")).toContainText("1/3 races");
+
+    // Then drill Year -> Month -> Day -> Meeting to the surviving race itself.
+    await page.getByTestId("industry-sp-year-toggle-2021").click();
+    await page.getByTestId("industry-sp-month-toggle-2021-01").click();
+    await page.getByTestId("industry-sp-day-toggle-2021-01-01").click();
+    await page.getByTestId("industry-sp-meeting-toggle-Southwell|2021-01-01").click();
+    await expect(page.getByTestId("industry-sp-race-773337")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-item-99001")).toBeVisible();
+
+    // 2022 held only race 556677, whose best runner is 5 points short of
+    // the threshold — the year expands to nothing rather than to a race
+    // with its runners silently filtered away.
+    await page.getByTestId("industry-sp-year-toggle-2022").click();
+    await expect(page.getByTestId("industry-sp-item-55501")).not.toBeVisible();
+    await expect(page.getByTestId("industry-sp-race-556677")).not.toBeVisible();
   });
 
   test("runner name stays legible even when every other badge is present on the same row", async ({ page }) => {

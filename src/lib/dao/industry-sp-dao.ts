@@ -1,5 +1,8 @@
 import { Collection, Db } from "mongodb";
 import { RaceDoc, synthRaceId } from "./industry-sp-row-mapping";
+import { EDGE_BAND_BOUNDS, buildEdgeSummary, ModelVsSpSummary } from "../service/model-vs-sp-summary";
+import { BrierStats, BrierSums, EMPTY_BRIER, brierFromSums } from "../service/brier";
+import { MODEL_PROB_FIELD, bookSumExpr, brierGroupAccumulators, raceBrierSumsExpr } from "./brier-expr";
 
 export interface IspFilterBounds {
   maxRunnersPerRace: number;
@@ -40,6 +43,10 @@ export interface IspRunner {
   // Populated for every runner (no cold-start gap like trainerForm), so
   // undefined only means the precompute hasn't been run at all yet.
   modelWinProbability?: number | null;
+  // The same estimate, but produced WITHOUT sight of this race's result —
+  // see MODEL_PROB_FIELD below for why every filter on this collection reads
+  // this field and never modelWinProbability.
+  modelWinProbabilityOos?: number | null;
   // Which training run produced modelWinProbability — set alongside it in
   // ml/train_and_predict.py's per-runner array_filters update. Only ever
   // reflects the MOST RECENT run that scored this runner (each run
@@ -47,6 +54,18 @@ export interface IspRunner {
   // reconstructed for runners scored before this field existed.
   modelVersionId?: string | null;
 }
+
+// MODEL_PROB_FIELD — the one field every model-vs-SP filter, band, P&L and
+// Brier score on this collection judges on — is defined in ./brier-expr and
+// imported above, so the filters and the Brier score displayed beside them can
+// never drift onto different forecasts. Read its comment there before changing
+// anything here.
+//
+// The same field as an aggregation path, under the two variable bindings this
+// file's pipelines use: `$$r` inside every $filter/$map over `runners`, and
+// `$mvsRunner` after getModelVsSpRunners has unwound its filtered array.
+const MODEL_PROB_R = `$$r.${MODEL_PROB_FIELD}`;
+const MODEL_PROB_MVS = `$mvsRunner.${MODEL_PROB_FIELD}`;
 
 export interface IspRace {
   raceId: number;
@@ -63,12 +82,104 @@ export interface IspRace {
   runners: IspRunner[];
 }
 
+export type ModelVsSpSort = "date_desc" | "date_asc" | "edge_desc" | "edge_asc";
+
+export interface ModelVsSpParams {
+  page: number;
+  limit: number;
+  sort: ModelVsSpSort;
+  // Both always supplied, unlike getAllRacesByRace's nullable minRaceTime /
+  // maxRaceTime — see getModelVsSpRunners for why this query can never run
+  // unbounded.
+  minRaceTime: string;
+  maxRaceTime: string;
+  minModelProb: number;
+  maxModelProb: number;
+  minImpliedProb: number;
+  maxImpliedProb: number;
+  // The SIZE of the gap between the model and the market, in percentage points,
+  // ignoring direction: |modelWinProbabilityOos - (100 / isp)|. A range of 10-20
+  // therefore matches a runner the model rates 12 points above its SP and one it
+  // rates 12 points below equally — the question this screen answers is "how far
+  // apart are they", not "which way". The signed value is still carried on every
+  // row (ModelVsSpRow.edge) and shown in the UI; only the filter is unsigned.
+  minAbsEdge: number;
+  maxAbsEdge: number;
+  minIsp: number;
+  maxIsp: number;
+  minRunners: number;
+  maxRunners: number;
+  countries: string[];
+  // Skips the (separate, cheaper) count query and returns total: null — a pure
+  // page step already knows the total from the request that loaded page 1, so
+  // re-counting on every Next would halve this endpoint's throughput for no new
+  // information.
+  includeTotal: boolean;
+}
+
+// One row per qualifying RUNNER, not per race — the whole point of this query,
+// and why it can't reuse getAllRacesByRace's race-shaped IspRace output. Every
+// runner-level field here is non-null by construction: the filter requires
+// isp > 1 and a non-null out-of-sample model probability, so impliedSpProbability and edge
+// are always computable.
+export interface ModelVsSpRow {
+  raceId: number;
+  raceTime: string;
+  raceDate: string;
+  meetingId: string;
+  meetingName: string;
+  course: string;
+  countryCode: string;
+  raceName: string;
+  raceType: string;
+  raceClass: string | null;
+  going: string | null;
+  runnerId: number;
+  runnerName: string;
+  num: number | null;
+  draw: number | null;
+  sortPriority: number;
+  status: IspRunnerStatus;
+  isp: number;
+  ispFraction: string | null;
+  isFavourite: boolean;
+  jockey: string | null;
+  trainer: string | null;
+  modelWinProbability: number;
+  impliedSpProbability: number;
+  edge: number;
+  modelVersionId: string | null;
+}
+
 // Escapes regex metacharacters so a raw trainer/jockey search string can't be
 // interpreted as a regex pattern (both a correctness issue — literal
 // characters like "O'Brien" or "St. Leger" would otherwise misbehave — and a
 // safety one, since an unescaped user-supplied pattern is a ReDoS vector).
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// The per-runner "model beats SP" condition, in the `$$r`-bound $filter form
+// every pipeline in this file applies it in. Previously written out inline at
+// four separate call sites; shared here so a change to what "beats SP" means
+// can't land in three of them and miss the fourth.
+//
+// minEdgePts is the minimum signed gap, in percentage POINTS, between the
+// model's out-of-sample win probability (MODEL_PROB_FIELD — read its comment
+// before ever pointing this at modelWinProbability again) and the one the
+// runner's industry SP implies (100/isp) — the Mongo counterpart of modelSpEdge() in
+// client/src/utils/ispFormat.ts, which the client-side filter and the "+5.0 pts"
+// runner badges both go through. At the default 0 this stays exactly the
+// strict "any positive edge" test it has always been ($gt 0, not $gte): a
+// runner the model rates level with the market isn't beating it.
+export function modelBeatsSpCond(minEdgePts: number): Record<string, unknown>[] {
+  const edgeExpr = { $subtract: [MODEL_PROB_R, { $divide: [100, "$$r.isp"] }] };
+  return [
+    { $ne: [MODEL_PROB_R, null] },
+    { $ne: ["$$r.isp", null] },
+    { $gt: ["$$r.isp", 0] },
+    minEdgePts > 0 ? { $gte: [edgeExpr, minEdgePts] } : { $gt: [edgeExpr, 0] },
+  ];
 }
 
 interface IspRaceDocument extends IspRace {
@@ -113,7 +224,20 @@ export class IndustrySpDAO {
     maxTrainerFormRunners: number;
     minModelWinProbability: number;
     onlyModelBeatsSp: boolean;
+    // Minimum model-vs-SP edge in percentage points. > 0 activates the
+    // model-beats-SP filter on its own, without onlyModelBeatsSp also being
+    // set — unlike the trainerFormMinWinRate/minTrainerFormRunners pair above,
+    // where the checkbox tests a different thing (does form exist at all) from
+    // the number. Here the two are the same dimension, so a threshold with the
+    // checkbox left off would otherwise silently do nothing.
+    minModelSpEdgePts: number;
     modelVersionId: string | null;
+    // Adds the two per-race Brier accumulator fields (`_bookSum`, `_brier`)
+    // to the emitted $addFields. Opt-in rather than always-on because each is
+    // an extra pass over every matched race's runners array, and the
+    // convergence-graph query — the one caller that reads none of it — runs
+    // over the same ~109k-race scale as the rest.
+    includeBrier?: boolean;
   }): Record<string, unknown>[] {
     const countryMatch = p.countries.length > 0 ? { countryCode: { $in: p.countries } } : {};
     const courseMatch = p.courses.length > 0 ? { course: { $in: p.courses } } : {};
@@ -170,22 +294,17 @@ export class IndustrySpDAO {
 
     const modelFilterActive = p.minModelWinProbability > 0;
     const modelCond = [
-      { $ne: ["$$r.modelWinProbability", null] },
-      { $gte: ["$$r.modelWinProbability", p.minModelWinProbability] },
+      { $ne: [MODEL_PROB_R, null] },
+      { $gte: [MODEL_PROB_R, p.minModelWinProbability] },
     ];
     const modelQualifyingCountExpr = modelFilterActive
       ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: modelCond } } } }
       : 0;
 
-    const modelBeatsSpFilterActive = p.onlyModelBeatsSp;
-    const modelBeatsSpCond = [
-      { $ne: ["$$r.modelWinProbability", null] },
-      { $ne: ["$$r.isp", null] },
-      { $gt: ["$$r.isp", 0] },
-      { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
-    ];
+    const modelBeatsSpFilterActive = p.onlyModelBeatsSp || p.minModelSpEdgePts > 0;
+    const beatsSpCond = modelBeatsSpCond(p.minModelSpEdgePts);
     const modelBeatsSpQualifyingCountExpr = modelBeatsSpFilterActive
-      ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: modelBeatsSpCond } } } }
+      ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: beatsSpCond } } } }
       : 0;
 
     // Which training run scored a runner — set alongside modelWinProbability
@@ -208,28 +327,36 @@ export class IndustrySpDAO {
     // inRangeRunnersCount when none of the three optional filters are active.
     const qualifyingRunnersFilterActive =
       trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive || modelVersionFilterActive;
+    // The single definition of "this runner is in the filtered set", in the
+    // $$r-bound form. Previously written out inline for the count below; now
+    // also handed to raceBrierSumsExpr, so the Brier score can never end up
+    // describing a different set of horses from the one the P&L and the
+    // "Runners" count describe.
+    const qualifyingRunnerCond = {
+      $and: [
+        { $ifNull: ["$$r.isp", false] },
+        { $gt: ["$$r.isp", 1] },
+        { $gte: ["$$r.isp", p.minIsp] },
+        { $lte: ["$$r.isp", p.maxIsp] },
+        ...(trainerFormFilterActive ? trainerFormCond : []),
+        ...(modelFilterActive ? modelCond : []),
+        ...(modelBeatsSpFilterActive ? beatsSpCond : []),
+        ...(modelVersionFilterActive ? modelVersionCond : []),
+      ],
+    };
     const qualifyingRunnersCountExpr = qualifyingRunnersFilterActive
-      ? {
-          $size: {
-            $filter: {
-              input: "$runners",
-              as: "r",
-              cond: {
-                $and: [
-                  { $ifNull: ["$$r.isp", false] },
-                  { $gt: ["$$r.isp", 1] },
-                  { $gte: ["$$r.isp", p.minIsp] },
-                  { $lte: ["$$r.isp", p.maxIsp] },
-                  ...(trainerFormFilterActive ? trainerFormCond : []),
-                  ...(modelFilterActive ? modelCond : []),
-                  ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
-                  ...(modelVersionFilterActive ? modelVersionCond : []),
-                ],
-              },
-            },
-          },
-        }
+      ? { $size: { $filter: { input: "$runners", as: "r", cond: qualifyingRunnerCond } } }
       : inRangeRunnersCountExpr;
+
+    // Its own stage, ahead of the one below, because $addFields cannot
+    // reference a field it is defining in the same stage and a fair (overround-
+    // normalised) probability is undefined until the race's book total is
+    // known. Inlining the book sum into _brier instead would recompute it once
+    // per runner — O(runners^2) per race, for a number that is constant across
+    // the race.
+    const bookSumStage: Record<string, unknown>[] = p.includeBrier
+      ? [{ $addFields: { _bookSum: bookSumExpr("$runners", "isp") } }]
+      : [];
 
     return [
       {
@@ -243,6 +370,7 @@ export class IndustrySpDAO {
           runnersWithIspCount: { $gte: p.minRunners, $lte: p.maxRunners },
         },
       },
+      ...bookSumStage,
       {
         $addFields: {
           allRunnersCount: "$runnersWithIspCount",
@@ -252,6 +380,17 @@ export class IndustrySpDAO {
           modelBeatsSpQualifyingCount: modelBeatsSpQualifyingCountExpr,
           modelVersionQualifyingCount: modelVersionQualifyingCountExpr,
           qualifyingRunnersCount: qualifyingRunnersCountExpr,
+          ...(p.includeBrier
+            ? {
+                _brier: raceBrierSumsExpr({
+                  runnersPath: "$runners",
+                  priceField: "isp",
+                  modelProbField: MODEL_PROB_FIELD,
+                  qualifyingCondExpr: qualifyingRunnerCond,
+                  bookSumPath: "$_bookSum",
+                }),
+              }
+            : {}),
         },
       },
       {
@@ -314,12 +453,14 @@ export class IndustrySpDAO {
     // walking the whole row range forward from page 1 to "discover" a
     // distant year (the isp-year-walk-error/isp-year-direct-load history).
     subMinRaceTime: string | null = null,
-    subMaxRaceTime: string | null = null
+    subMaxRaceTime: string | null = null,
+    minModelSpEdgePts = 0
   ): Promise<{
     data: IspRace[];
     total: number;
     totalRunners: number;
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    brier: BrierStats;
   }> {
     // fromRow < 1 would make rowSkip negative below — another shape
     // MongoDB's $skip rejects outright, same class of bug as the inverted
@@ -337,7 +478,7 @@ export class IndustrySpDAO {
     // industry SP" whenever a stale or hand-edited fromRow/toRow (or
     // fromRowA/toRowA — see getSplitStats, which calls this) reached here.
     if (toRow !== null && toRow < fromRow) {
-      return { data: [], total: 0, totalRunners: 0, pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 } };
+      return { data: [], total: 0, totalRunners: 0, pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 }, brier: EMPTY_BRIER };
     }
 
     const raceTimeSortDir = sortOrder === "desc" ? -1 : 1;
@@ -439,7 +580,7 @@ export class IndustrySpDAO {
     // those filters at all) would silently include disqualified runners.
     const trainerFormFilterActive = minTrainerFormRunners > 0 || maxTrainerFormRunners < 100;
     const modelFilterActive = minModelWinProbability > 0;
-    const modelBeatsSpFilterActive = onlyModelBeatsSp;
+    const modelBeatsSpFilterActive = onlyModelBeatsSp || minModelSpEdgePts > 0;
     const modelVersionFilterActive = modelVersionId != null;
     const qualifyingRunnersFilterActive =
       trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive || modelVersionFilterActive;
@@ -460,7 +601,8 @@ export class IndustrySpDAO {
         countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
         courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp, modelVersionId,
+        minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, modelVersionId,
+        includeBrier: true,
       }),
       {
         $project: {
@@ -471,6 +613,11 @@ export class IndustrySpDAO {
           qualifyingRunnersCount: 1,
           raceStaked: 1,
           raceReturns: 1,
+          // Four scalars per race, already reduced from the runners array
+          // above — carrying these through the sort costs the same order of
+          // bytes as raceStaked/raceReturns beside them, and saves the Brier
+          // branch below from needing its own $lookup back to the full doc.
+          _brier: 1,
         },
       },
     ];
@@ -519,6 +666,7 @@ export class IndustrySpDAO {
         total: [{ count: number }];
         totalRunners: [{ count: number }];
         pnlStats: [{ staked: number; returns: number; count: number }];
+        brier: [BrierSums];
       }>([
         ...basePipeline,
         // Applied once, ahead of $facet, when a row range is active — see
@@ -622,18 +770,11 @@ export class IndustrySpDAO {
                                 : []),
                               ...(modelFilterActive
                                 ? [
-                                    { $ne: ["$$r.modelWinProbability", null] },
-                                    { $gte: ["$$r.modelWinProbability", minModelWinProbability] },
+                                    { $ne: [MODEL_PROB_R, null] },
+                                    { $gte: [MODEL_PROB_R, minModelWinProbability] },
                                   ]
                                 : []),
-                              ...(modelBeatsSpFilterActive
-                                ? [
-                                    { $ne: ["$$r.modelWinProbability", null] },
-                                    { $ne: ["$$r.isp", null] },
-                                    { $gt: ["$$r.isp", 0] },
-                                    { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
-                                  ]
-                                : []),
+                              ...(modelBeatsSpFilterActive ? modelBeatsSpCond(minModelSpEdgePts) : []),
                               ...(modelVersionFilterActive ? [{ $eq: ["$$r.modelVersionId", modelVersionId] }] : []),
                             ],
                           },
@@ -659,6 +800,16 @@ export class IndustrySpDAO {
                     },
                   },
                 ],
+            // Its own branch rather than extra accumulators on pnlStats above,
+            // for two independent reasons. First, pnlStats has two shapes and
+            // the slow one $unwinds — the per-race _brier scalars would be
+            // duplicated once per qualifying runner and silently multiplied.
+            // Second, this branch is identical either way, so the Brier score
+            // cannot drift depending on which P&L path a given filter
+            // combination happens to take. $facet feeds every branch the same
+            // (already row-ranged, already sub-date-filtered) documents, so
+            // this covers exactly the runner set pnlStats does.
+            brier: [{ $group: { _id: null, ...brierGroupAccumulators("_brier") } }],
           },
         },
       ], { allowDiskUse: true })
@@ -673,6 +824,7 @@ export class IndustrySpDAO {
       total: result?.total?.[0]?.count ?? 0,
       totalRunners: result?.totalRunners?.[0]?.count ?? 0,
       pnlStats: { staked, returns, pnl: returns - staked, count },
+      brier: brierFromSums(result?.brier?.[0]),
     };
   }
 
@@ -717,6 +869,7 @@ export class IndustrySpDAO {
     maxTrainerFormRunners: number;
     minModelWinProbability: number;
     onlyModelBeatsSp: boolean;
+    minModelSpEdgePts?: number;
   }): Promise<
     {
       raceId: number;
@@ -727,11 +880,17 @@ export class IndustrySpDAO {
       raceDate: string;
       modelVersionId: string | null;
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
+      // Raw sums, not a scored BrierStats, precisely because this is per-race:
+      // the Live Performance rollup adds these up across every captured day
+      // before dividing once (see sumBrierSums). Storing per-race means and
+      // averaging them would weight a 5-runner race like a 16-runner one.
+      brierSums: BrierSums;
     }[]
   > {
     const trainerFormFilterActive = p.minTrainerFormRunners > 0 || p.maxTrainerFormRunners < 100;
     const modelFilterActive = p.minModelWinProbability > 0;
-    const modelBeatsSpFilterActive = p.onlyModelBeatsSp;
+    const minModelSpEdgePts = p.minModelSpEdgePts ?? 0;
+    const modelBeatsSpFilterActive = p.onlyModelBeatsSp || minModelSpEdgePts > 0;
 
     const pipeline: Record<string, unknown>[] = [
       { $match: { raceTime: { $gte: `${p.raceDate}T00:00:00`, $lte: `${p.raceDate}T23:59:59` } } },
@@ -755,7 +914,9 @@ export class IndustrySpDAO {
         maxTrainerFormRunners: p.maxTrainerFormRunners,
         minModelWinProbability: p.minModelWinProbability,
         onlyModelBeatsSp: p.onlyModelBeatsSp,
+        minModelSpEdgePts,
         modelVersionId: null,
+        includeBrier: true,
       }),
       // Same qualifying-runner condition as getAllRacesByRace's pnlStats slow
       // path (see the comment there) — duplicated for the same reason: this
@@ -781,18 +942,11 @@ export class IndustrySpDAO {
                     : []),
                   ...(modelFilterActive
                     ? [
-                        { $ne: ["$$r.modelWinProbability", null] },
-                        { $gte: ["$$r.modelWinProbability", p.minModelWinProbability] },
+                        { $ne: [MODEL_PROB_R, null] },
+                        { $gte: [MODEL_PROB_R, p.minModelWinProbability] },
                       ]
                     : []),
-                  ...(modelBeatsSpFilterActive
-                    ? [
-                        { $ne: ["$$r.modelWinProbability", null] },
-                        { $ne: ["$$r.isp", null] },
-                        { $gt: ["$$r.isp", 0] },
-                        { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
-                      ]
-                    : []),
+                  ...(modelBeatsSpFilterActive ? modelBeatsSpCond(minModelSpEdgePts) : []),
                 ],
               },
             },
@@ -821,6 +975,14 @@ export class IndustrySpDAO {
             },
           },
           count: { $sum: 1 },
+          // $first, not $sum: _brier is a per-RACE total computed before the
+          // $unwind above, so it arrives already duplicated onto each of that
+          // race's qualifying runners. Summing it would multiply every race's
+          // Brier contribution by its own runner count.
+          brierScored: { $first: "$_brier.scored" },
+          brierPriced: { $first: "$_brier.priced" },
+          brierModelSqErrSum: { $first: "$_brier.modelSqErrSum" },
+          brierMarketSqErrSum: { $first: "$_brier.marketSqErrSum" },
         },
       },
     ];
@@ -837,6 +999,10 @@ export class IndustrySpDAO {
         staked: number;
         returns: number;
         count: number;
+        brierScored: number | null;
+        brierPriced: number | null;
+        brierModelSqErrSum: number | null;
+        brierMarketSqErrSum: number | null;
       }>(pipeline, { allowDiskUse: true })
       .toArray();
 
@@ -849,6 +1015,12 @@ export class IndustrySpDAO {
       raceDate: r.raceDate,
       modelVersionId: r.modelVersionId ?? null,
       pnlStats: { staked: r.staked, returns: r.returns, pnl: r.returns - r.staked, count: r.count },
+      brierSums: {
+        scored: r.brierScored ?? 0,
+        priced: r.brierPriced ?? 0,
+        modelSqErrSum: r.brierModelSqErrSum ?? 0,
+        marketSqErrSum: r.brierMarketSqErrSum ?? 0,
+      },
     }));
   }
 
@@ -890,7 +1062,8 @@ export class IndustrySpDAO {
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
     fromRowRaw = 1,
-    toRow: number
+    toRow: number,
+    minModelSpEdgePts = 0
   ): Promise<{ raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number }[]> {
     const fromRow = Math.max(1, fromRowRaw);
     if (toRow < fromRow) return [];
@@ -920,16 +1093,11 @@ export class IndustrySpDAO {
     ];
     const modelFilterActive = minModelWinProbability > 0;
     const modelCond = [
-      { $ne: ["$$r.modelWinProbability", null] },
-      { $gte: ["$$r.modelWinProbability", minModelWinProbability] },
+      { $ne: [MODEL_PROB_R, null] },
+      { $gte: [MODEL_PROB_R, minModelWinProbability] },
     ];
-    const modelBeatsSpFilterActive = onlyModelBeatsSp;
-    const modelBeatsSpCond = [
-      { $ne: ["$$r.modelWinProbability", null] },
-      { $ne: ["$$r.isp", null] },
-      { $gt: ["$$r.isp", 0] },
-      { $gt: ["$$r.modelWinProbability", { $divide: [100, "$$r.isp"] }] },
-    ];
+    const modelBeatsSpFilterActive = onlyModelBeatsSp || minModelSpEdgePts > 0;
+    const beatsSpCond = modelBeatsSpCond(minModelSpEdgePts);
     const qualifyingRunnersFilterActive = trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive;
     const qualifyingRunnersArrayExpr = {
       $filter: {
@@ -943,7 +1111,7 @@ export class IndustrySpDAO {
             { $lte: ["$$r.isp", maxIsp] },
             ...(trainerFormFilterActive ? trainerFormCond : []),
             ...(modelFilterActive ? modelCond : []),
-            ...(modelBeatsSpFilterActive ? modelBeatsSpCond : []),
+            ...(modelBeatsSpFilterActive ? beatsSpCond : []),
           ],
         },
       },
@@ -1029,7 +1197,7 @@ export class IndustrySpDAO {
             countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
             courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName: null,
             trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-            minModelWinProbability, onlyModelBeatsSp, modelVersionId: null,
+            minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, modelVersionId: null,
           }),
           { $addFields: { _staked: stakedFieldExpr, _returns: returnsFieldExpr } },
           { $project: { _id: 1, raceTime: 1, _staked: 1, _returns: 1 } },
@@ -1171,6 +1339,431 @@ export class IndustrySpDAO {
       if (rawId) byRawId.set(rawId, doc as unknown as RaceDoc);
     }
     return byRawId;
+  }
+
+  /**
+   * The per-runner condition shared by getModelVsSpRunners' data and count
+   * pipelines — extracted for the same reason buildQualifyingRaceStages is, so
+   * "which runners does this screen show" and "how many rows does it claim
+   * there are" can never drift apart.
+   *
+   * `isp > 1` isn't only the usual "has a real SP" guard here: it's what makes
+   * the $divide safe. `modelWinProbabilityOos != null` excludes both an explicit
+   * null and an absent field in one check (a missing path compares equal to
+   * null in an aggregation expression), which is what drops the CSV-imported
+   * historical runners that were never model-scored — a model-vs-SP gap is
+   * undefined without both sides, so those rows are excluded server-side rather
+   * than rendered with a blank column.
+   *
+   * The TypeScript counterpart of the edge expression is `modelSpEdge` in
+   * client/src/utils/ispFormat.ts. The two can't share code (one is a Mongo
+   * expression tree, one is plain arithmetic), so the integration test pins both
+   * to the same hand-derived numbers.
+   */
+  private buildModelVsSpRunnerCond(
+    p: ModelVsSpParams,
+    // The summary's band tallies describe the whole population being looked at,
+    // so they're computed over the same runners MINUS the difference filter —
+    // otherwise narrowing the difference range would move its own denominator
+    // and every percentage would read 100%.
+    opts: { applyAbsEdge: boolean } = { applyAbsEdge: true }
+  ): Record<string, unknown> {
+    const impliedExpr = { $divide: [100, "$$r.isp"] };
+    const absEdgeExpr = { $abs: { $subtract: [MODEL_PROB_R, impliedExpr] } };
+    return {
+      $and: [
+        { $ifNull: ["$$r.isp", false] },
+        { $gt: ["$$r.isp", 1] },
+        { $gte: ["$$r.isp", p.minIsp] },
+        { $lte: ["$$r.isp", p.maxIsp] },
+        { $ne: [MODEL_PROB_R, null] },
+        { $gte: [MODEL_PROB_R, p.minModelProb] },
+        { $lte: [MODEL_PROB_R, p.maxModelProb] },
+        { $gte: [impliedExpr, p.minImpliedProb] },
+        { $lte: [impliedExpr, p.maxImpliedProb] },
+        ...(opts.applyAbsEdge
+          ? [
+              { $gte: [absEdgeExpr, p.minAbsEdge] },
+              { $lte: [absEdgeExpr, p.maxAbsEdge] },
+            ]
+          : []),
+      ],
+    };
+  }
+
+  /** The race-level prelude both getModelVsSpRunners pipelines share. */
+  private buildModelVsSpRaceStages(p: ModelVsSpParams): Record<string, unknown>[] {
+    return this.buildQualifyingRaceStages({
+      countries: p.countries,
+      minRunners: p.minRunners,
+      maxRunners: p.maxRunners,
+      minIsp: p.minIsp,
+      maxIsp: p.maxIsp,
+      minInIspRange: 1,
+      maxInIspRange: 10000,
+      courses: [],
+      goings: [],
+      raceClasses: [],
+      raceTypes: [],
+      trainerSearch: null,
+      jockeySearch: null,
+      runnerName: null,
+      trainerFormMinWinRate: 0,
+      minTrainerFormRunners: 0,
+      maxTrainerFormRunners: 100,
+      // A valid necessary condition, and a cheap race-level pre-filter: no race
+      // can contribute a row unless at least one of its runners clears
+      // minModelProb. The joint per-runner condition still runs below — this
+      // only discards races that can't possibly match.
+      minModelWinProbability: p.minModelProb,
+      // Subsumed by the edge range (minEdge >= 0 IS "model beats SP"), so
+      // applying it again would be redundant work.
+      onlyModelBeatsSp: false,
+      minModelSpEdgePts: 0,
+      modelVersionId: null,
+    });
+  }
+
+  /**
+   * One row per runner (not per race), carrying the model's own win probability
+   * alongside the probability that runner's industry SP implies (100/isp) and
+   * the signed percentage-point gap between them — the "Model vs SP" screen.
+   *
+   * Runner-level pagination is new to this DAO; every other paginated query here
+   * pages by race. Three deliberate departures, each with a reason:
+   *
+   * 1. **A params object, not positional args.** getAllRacesByRace has 29
+   *    positional parameters, which is why chatApi.getIndustrySp has 29 too, and
+   *    why scripts/verify-isp-year-walk-fix-2026-07-28.ts has to hand-spread an
+   *    object back into positional order. getQualifyingRacesForDate already set
+   *    the better precedent; this follows that one.
+   *
+   * 2. **Two queries, not one $facet.** The count needs neither ordering nor an
+   *    $unwind — it's a single streaming $group over $size of a $filter, far
+   *    cheaper than the data query. Putting it in a $facet would force it to
+   *    consume the unwound stream, and would drag the 16MB single-BSON-doc
+   *    ceiling (the reason /api/industry-sp caps limit at 2000) into a query
+   *    that otherwise has no reason to care about it. The two run sequentially,
+   *    not via Promise.all — M0's ceiling is concurrent throughput, not
+   *    per-query cost (see getSplitStats in industry-sp-service.ts).
+   *
+   * 3. **The date window is mandatory.** The edge sort is a blocking sort that NO
+   *    index can serve — its key is arithmetic over two fields of an array
+   *    subdocument. It does NOT, however, hit the 32MB blocking-sort limit that
+   *    Atlas M0 can't spill around: the $sort is immediately followed by
+   *    $skip/$limit, so MongoDB uses a bounded top-k sort (memory scales with
+   *    skip+limit, not with the input), over documents already projected down to
+   *    ~44 bytes. Verified against production, not assumed —
+   *    scripts/verify-model-vs-sp-pagination-2026-07-30.ts sorted the entire
+   *    ~970k-runner collection without error. What scales linearly is TIME:
+   *    ~106ms for a month, ~1.1s for a year, ~11.5s for everything. The router
+   *    clamps the span to MODEL_VS_SP_MAX_SPAN_DAYS to keep a cold load near a
+   *    second; see that constant for the full measurement table.
+   *
+   *    createIndexes() is deliberately left untouched. A multikey index on
+   *    runners.modelWinProbabilityOos wouldn't help: the race-level pre-filter is an
+   *    $expr over a computed count, which can't use an index, so it would cost
+   *    ~1M index entries against M0's tight storage quota and never be read.
+   *
+   * The date sort, by contrast, has zero blocking-sort exposure at any scale:
+   * its leading $match and $sort are on the same indexed raceTime field (one
+   * bounded index walk serves both — the same idiom as getAllRacesByRace), and
+   * every stage after it ($unwind/$addFields/$match/$project/$skip/$limit) is
+   * streaming and order-preserving, so sort memory stays O(1) however deep the
+   * requested page is.
+   */
+  public async getModelVsSpRunners(
+    p: ModelVsSpParams
+  ): Promise<{ rows: ModelVsSpRow[]; total: number | null; summary: ModelVsSpSummary | null }> {
+    const runnerCond = this.buildModelVsSpRunnerCond(p);
+    const dateMatch = { $match: { raceTime: { $gte: p.minRaceTime, $lte: p.maxRaceTime } } };
+    const skip = (Math.max(1, p.page) - 1) * p.limit;
+    const isEdgeSort = p.sort === "edge_desc" || p.sort === "edge_asc";
+
+    // Recomputed from the runner's own fields rather than threaded through every
+    // stage — cheap, and it keeps the emitted numbers provably consistent with
+    // the filter condition above.
+    const impliedFromRunner = { $divide: [100, "$mvsRunner.isp"] };
+    const rowFields: Record<string, unknown> = {
+      _id: 0,
+      raceId: 1,
+      raceTime: 1,
+      raceDate: 1,
+      meetingId: 1,
+      meetingName: 1,
+      course: 1,
+      countryCode: 1,
+      raceName: 1,
+      raceType: 1,
+      raceClass: { $ifNull: ["$raceClass", null] },
+      going: { $ifNull: ["$going", null] },
+      runnerId: "$mvsRunner.id",
+      runnerName: "$mvsRunner.name",
+      num: { $ifNull: ["$mvsRunner.num", null] },
+      draw: { $ifNull: ["$mvsRunner.draw", null] },
+      sortPriority: "$mvsRunner.sortPriority",
+      status: "$mvsRunner.status",
+      isp: "$mvsRunner.isp",
+      ispFraction: { $ifNull: ["$mvsRunner.ispFraction", null] },
+      isFavourite: { $ifNull: ["$mvsRunner.isFavourite", false] },
+      jockey: { $ifNull: ["$mvsRunner.jockey", null] },
+      trainer: { $ifNull: ["$mvsRunner.trainer", null] },
+      modelWinProbability: MODEL_PROB_MVS,
+      impliedSpProbability: impliedFromRunner,
+      modelVersionId: { $ifNull: ["$mvsRunner.modelVersionId", null] },
+    };
+
+    const dataPipeline: Record<string, unknown>[] = isEdgeSort
+      ? [
+          dateMatch,
+          ...this.buildModelVsSpRaceStages(p),
+          { $addFields: { mvsRunners: { $filter: { input: "$runners", as: "r", cond: runnerCond } } } },
+          { $match: { mvsRunners: { $ne: [] } } },
+          // Slim each doc down to (race id, sort keys) *before* the $sort — the
+          // same optimization getAllRacesByRace documents for its own leading
+          // sort, and the only thing keeping this blocking sort's buffer to tens
+          // of bytes per runner rather than a whole race document.
+          {
+            $project: {
+              _id: 1,
+              raceTime: 1,
+              mvsRunners: {
+                $map: {
+                  input: "$mvsRunners",
+                  as: "r",
+                  in: {
+                    id: "$$r.id",
+                    edge: { $subtract: [MODEL_PROB_R, { $divide: [100, "$$r.isp"] }] },
+                  },
+                },
+              },
+            },
+          },
+          { $unwind: "$mvsRunners" },
+          { $project: { _id: 1, raceTime: 1, runnerId: "$mvsRunners.id", edge: "$mvsRunners.edge" } },
+          // raceTime + runnerId aren't cosmetic tiebreaks: without a total
+          // order, two runners with an identical edge can swap places between
+          // the page-2 and page-3 queries, so one row gets shown twice and
+          // another never at all.
+          { $sort: { edge: p.sort === "edge_desc" ? -1 : 1, raceTime: 1, runnerId: 1 } },
+          { $skip: skip },
+          { $limit: p.limit },
+          // Rehydrate only the <=limit survivors. Safe here (unlike ahead of a
+          // $setWindowFields — see getRaceConvergenceSeries) because nothing
+          // downstream depends on the pipeline's sort being index-provable.
+          { $lookup: { from: this.collectionName, localField: "_id", foreignField: "_id", as: "_docs" } },
+          { $addFields: { _doc: { $arrayElemAt: ["$_docs", 0] } } },
+          {
+            $addFields: {
+              raceId: "$_doc.raceId",
+              raceDate: "$_doc.raceDate",
+              meetingId: "$_doc.meetingId",
+              meetingName: "$_doc.meetingName",
+              course: "$_doc.course",
+              countryCode: "$_doc.countryCode",
+              raceName: "$_doc.raceName",
+              raceType: "$_doc.raceType",
+              raceClass: "$_doc.raceClass",
+              going: "$_doc.going",
+              mvsRunner: {
+                $arrayElemAt: [
+                  {
+                    $filter: {
+                      input: { $ifNull: ["$_doc.runners", []] },
+                      as: "r",
+                      cond: { $eq: ["$$r.id", "$runnerId"] },
+                    },
+                  },
+                  0,
+                ],
+              },
+            },
+          },
+          // `edge` is carried through from the slim doc rather than recomputed
+          // from $mvsRunner, so the number displayed is provably the number that
+          // was sorted on. Runner ids are synthNumericId hashes, assumed unique
+          // within a race; were one ever to collide, this ordering means the row
+          // shows a correct edge against a possibly-wrong name, not a wrong edge.
+          { $project: { ...rowFields, edge: 1 } },
+        ]
+      : [
+          dateMatch,
+          // Must be the pipeline's second stage, on the same field the $match
+          // above bounds — that's what lets one bounded {raceTime:1} index walk
+          // serve both instead of a blocking sort. Moving the race-filter stages
+          // ahead of it reintroduces exactly that (documented as failed fix #1
+          // in getRaceConvergenceSeries).
+          { $sort: { raceTime: p.sort === "date_desc" ? -1 : 1 } },
+          ...this.buildModelVsSpRaceStages(p),
+          {
+            $addFields: {
+              mvsRunners: {
+                $sortArray: {
+                  input: { $filter: { input: "$runners", as: "r", cond: runnerCond } },
+                  // A per-document sort of ~9 elements, not a pipeline sort —
+                  // gives runners within a race the same racecard order the rest
+                  // of the app shows them in.
+                  sortBy: { sortPriority: 1 },
+                },
+              },
+            },
+          },
+          { $match: { mvsRunners: { $ne: [] } } },
+          // Drop the full runners array before the $unwind, so the fan-out
+          // carries only the qualifying subset rather than every race document
+          // multiplied by its field size.
+          {
+            $project: {
+              _id: 0,
+              raceId: 1,
+              raceTime: 1,
+              raceDate: 1,
+              meetingId: 1,
+              meetingName: 1,
+              course: 1,
+              countryCode: 1,
+              raceName: 1,
+              raceType: 1,
+              raceClass: 1,
+              going: 1,
+              mvsRunners: 1,
+            },
+          },
+          { $unwind: "$mvsRunners" },
+          { $skip: skip },
+          { $limit: p.limit },
+          { $addFields: { mvsRunner: "$mvsRunners" } },
+          { $project: { ...rowFields, edge: { $subtract: [MODEL_PROB_MVS, impliedFromRunner] } } },
+        ];
+
+    const rows = await this.collection.aggregate<ModelVsSpRow>(dataPipeline, { allowDiskUse: true }).toArray();
+
+    if (!p.includeTotal) return { rows, total: null, summary: null };
+
+    // The count and the distribution summary come from ONE streaming pass — no
+    // $sort, no $unwind, O(1) memory at any dataset size. Both are needed
+    // together (the summary's matchedRunners IS the total), and computing them
+    // separately would double this endpoint's cost on a tier where concurrency is
+    // the ceiling.
+    //
+    // Two runner sets are built, differing only in whether the difference filter
+    // applies: `mvsAll` is the denominator the bands describe, `matchedRunners`
+    // the numerator. `matchedRunners` is deliberately not named `total`/`count` —
+    // the shared aggregate mock in src/server/__tests__/app.test.ts already holds
+    // a $facet-shaped array under `total` and a number under `count`.
+    const condWithoutAbsEdge = this.buildModelVsSpRunnerCond(p, { applyAbsEdge: false });
+    const bandBounds = EDGE_BAND_BOUNDS;
+
+    // One tally per band, in EDGE_BAND_BOUNDS order, plus the open-ended final
+    // band. Each counts the absolute edges falling in [lower, upper).
+    const bandAccumulators: Record<string, unknown> = {};
+    bandBounds.forEach((upper, i) => {
+      const lower = i === 0 ? 0 : bandBounds[i - 1];
+      bandAccumulators[`band${i}`] = {
+        $sum: {
+          $size: {
+            $filter: {
+              input: "$mvsAbsEdges",
+              as: "e",
+              cond: { $and: [{ $gte: ["$$e", lower] }, { $lt: ["$$e", upper] }] },
+            },
+          },
+        },
+      };
+    });
+    bandAccumulators[`band${bandBounds.length}`] = {
+      $sum: {
+        $size: {
+          $filter: {
+            input: "$mvsAbsEdges",
+            as: "e",
+            cond: { $gte: ["$$e", bandBounds[bandBounds.length - 1]] },
+          },
+        },
+      },
+    };
+
+    const [summaryResult] = await this.collection
+      .aggregate<{
+        allRunners: number;
+        matchedRunners: number;
+        sumAbsEdge: number;
+        brierScored: number;
+        brierPriced: number;
+        brierModelSqErrSum: number;
+        brierMarketSqErrSum: number;
+        [band: string]: number;
+      }>(
+        [
+          dateMatch,
+          ...this.buildModelVsSpRaceStages(p),
+          // Its own stage for the same reason buildQualifyingRaceStages splits
+          // one out: a fair probability needs the race's book total, and
+          // $addFields cannot read a field it is defining.
+          { $addFields: { _bookSum: bookSumExpr("$runners", "isp") } },
+          { $addFields: { mvsAll: { $filter: { input: "$runners", as: "r", cond: condWithoutAbsEdge } } } },
+          { $match: { mvsAll: { $ne: [] } } },
+          {
+            $addFields: {
+              mvsMatchedCount: { $size: { $filter: { input: "$mvsAll", as: "r", cond: runnerCond } } },
+              mvsAbsEdges: {
+                $map: {
+                  input: "$mvsAll",
+                  as: "r",
+                  in: { $abs: { $subtract: [MODEL_PROB_R, { $divide: [100, "$$r.isp"] }] } },
+                },
+              },
+              // Scored over `runnerCond` — the MATCHED runners, the ones the
+              // list below the summary is showing — not the wider
+              // condWithoutAbsEdge population the bands describe. See the
+              // `brier` comment on ModelVsSpSummary.
+              _brier: raceBrierSumsExpr({
+                runnersPath: "$runners",
+                priceField: "isp",
+                modelProbField: MODEL_PROB_FIELD,
+                qualifyingCondExpr: runnerCond,
+                bookSumPath: "$_bookSum",
+              }),
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              allRunners: { $sum: { $size: "$mvsAll" } },
+              matchedRunners: { $sum: "$mvsMatchedCount" },
+              sumAbsEdge: { $sum: { $sum: "$mvsAbsEdges" } },
+              ...bandAccumulators,
+              // Flattened to four scalars rather than nested under one field,
+              // to stay inside this result type's `[band: string]: number`
+              // index signature — the band tallies use the same trick.
+              brierScored: { $sum: "$_brier.scored" },
+              brierPriced: { $sum: "$_brier.priced" },
+              brierModelSqErrSum: { $sum: "$_brier.modelSqErrSum" },
+              brierMarketSqErrSum: { $sum: "$_brier.marketSqErrSum" },
+            },
+          },
+        ],
+        { allowDiskUse: true }
+      )
+      .toArray();
+
+    const summary = buildEdgeSummary({
+      allRunners: summaryResult?.allRunners ?? 0,
+      matchedRunners: summaryResult?.matchedRunners ?? 0,
+      sumAbsEdge: summaryResult?.sumAbsEdge ?? 0,
+      bandCounts: Array.from(
+        { length: bandBounds.length + 1 },
+        (_, i) => (summaryResult?.[`band${i}`] as number) ?? 0
+      ),
+      brierSums: {
+        scored: summaryResult?.brierScored ?? 0,
+        priced: summaryResult?.brierPriced ?? 0,
+        modelSqErrSum: summaryResult?.brierModelSqErrSum ?? 0,
+        marketSqErrSum: summaryResult?.brierMarketSqErrSum ?? 0,
+      },
+    });
+
+    return { rows, total: summary.matchedRunners, summary };
   }
 
   public async getPnlStats(): Promise<{ staked: number; returns: number; pnl: number }> {

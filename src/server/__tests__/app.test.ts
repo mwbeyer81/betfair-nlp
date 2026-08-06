@@ -7,6 +7,8 @@ import { PredictionApiClient } from "../../lib/service/prediction-api-client";
 import { RacingApiClient } from "../../lib/service/racing-api-client";
 import { initializeServices, areServicesReady } from "../router";
 import { DatabaseConnection } from "../../config/database";
+import { IndustrySpService } from "../../lib/service/industry-sp-service";
+import type { ModelVsSpParams } from "../../lib/dao/industry-sp-dao";
 
 let authToken: string;
 
@@ -55,6 +57,7 @@ interface MockSavedFilterSetSplit {
   totalRunners: number;
   pnlStats: { staked: number; returns: number; pnl: number; count: number };
   graphPoints: unknown[];
+  brier?: { scored: number; priced: number; model: number | null; market: number | null };
 }
 interface MockSavedFilterSetDoc {
   _id: InstanceType<typeof ObjectId>;
@@ -81,6 +84,7 @@ interface MockLiveFilterResultDoc {
   meetingId: string;
   meetingName: string;
   pnlStats: { staked: number; returns: number; pnl: number; count: number };
+  brierSums?: { scored: number; priced: number; modelSqErrSum: number; marketSqErrSum: number };
   capturedAt: string;
 }
 const mockLiveFilterResults: MockLiveFilterResultDoc[] = [];
@@ -300,6 +304,19 @@ jest.mock("../../config/database", () => {
                     ],
                   },
                 ]),
+              }),
+              // The walk-forward doc lives in the same collection but is a
+              // different shape (oosVersionId + coverage dates, no
+              // modelVersionId), which is exactly why ModelVersionDAO keys its
+              // two queries on disjoint fields — find() above must never see
+              // this one, and findOne() here must never see those.
+              findOne: jest.fn().mockResolvedValue({
+                evaluationType: "walk_forward",
+                oosVersionId: "wf-20260731-074825",
+                coverageMinDate: "2016-01-01",
+                coverageMaxDate: "2026-07-30",
+                scoredRows: 885089,
+                unscoredRows: 86027,
               }),
             };
           }
@@ -602,11 +619,106 @@ jest.mock("../../config/database", () => {
                 // collapse to 1 regardless of raceCap, defeating the point
                 // of those tests).
                 total: [{ count: 50000 }],
-                pnlStats: [{ staked: 1, returns: 2, count: 1 }],
+                // brierPriced/brierMarketSqErrSum ride along inside pnlStats
+                // because market-definition-dao.ts accumulates the Betfair-SP
+                // screen's market Brier in that same $group (it has already
+                // $unwound to exactly the runners the P&L covers). The
+                // industry-SP side reads its own `brier` branch below instead.
+                pnlStats: [{ staked: 1, returns: 2, count: 1, brierPriced: 4, brierMarketSqErrSum: 0.6 }],
+                // $facet branch added by the Brier feature — four raw
+                // squared-error sums, deliberately NOT a finished score, since
+                // brierFromSums does the division. 0.4/4 = 0.1 model,
+                // 0.6/4 = 0.15 market, so the assertions downstream are
+                // checkable by hand rather than snapshotted.
+                brier: [{ scored: 4, priced: 4, modelSqErrSum: 0.4, marketSqErrSum: 0.6 }],
+                // Flat counterparts for the Model vs SP summary aggregation,
+                // which groups into scalars rather than a $facet branch.
+                brierScored: 4,
+                brierPriced: 4,
+                brierModelSqErrSum: 0.4,
+                brierMarketSqErrSum: 0.6,
                 staked: 1,
                 returns: 2,
                 runnerCounts: [{ maxRunners: 12 }],
                 ispBounds: [{ maxIsp: 100, minIsp: 1.5 }],
+                // ModelVsSpRow shape (GET /api/model-vs-sp) — the runner-level
+                // fields the race-shaped fields above don't already cover.
+                // Deliberately NOT re-declaring `status` (already "CLOSED" for
+                // the market-definitions shape) — hence /api/model-vs-sp's own
+                // describe block never asserts on data[0].status.
+                runnerId: 12345,
+                runnerName: "Springwell Bay",
+                // raceId/raceDate at the TOP level — they already exist inside
+                // `data` above for the race-shaped $facet endpoints, but this
+                // endpoint's rows are flat, so it reads them from here.
+                raceId: 914592,
+                raceDate: "2025-01-01",
+                num: 1,
+                draw: null,
+                isp: 4.5,
+                ispFraction: "7/2",
+                isFavourite: false,
+                trainer: "W P Mullins",
+                jockey: "P Townend",
+                modelWinProbability: 30,
+                impliedSpProbability: 22.22,
+                edge: 7.78,
+                modelVersionId: "xgb-20260301-090000",
+                // getModelVsSpRunners' count-pipeline accumulator. Deliberately
+                // not named `total` or `count`: `total` here is already a
+                // $facet-shaped [{count:50000}] and `count` is already 1, so
+                // reusing either name would make the new endpoint read an array
+                // as a number and emit totalPages: NaN.
+                matchedRunners: 7,
+                // getModelVsSpRunners' summary pipeline accumulators — one tally
+                // per EDGE_BAND_BOUNDS band plus the open-ended tail, and the
+                // denominator (which deliberately ignores the difference filter).
+                allRunners: 10,
+                sumAbsEdge: 52.8,
+                band0: 4,
+                band1: 2,
+                band2: 2,
+                band3: 1,
+                band4: 1,
+                band5: 0,
+                // ModelAccuracyDAO's $bucket row shape (GET /api/model-accuracy).
+                // _id is the band's lower probability boundary — 50 puts these
+                // sums in the "under 2.0" band, leaving the other five as the
+                // zero-filled rows the service always emits. The count field is
+                // deliberately `runnerCount`, not `runners`, because `runners`
+                // above is the runner *array* other endpoints here rely on.
+                _id: 50,
+                runnerCount: 4,
+                wins: 1,
+                modelProbSum: 240,
+                marketProbFairSum: 200,
+                marketProbRawSum: 220,
+                modelSqErrSum: 0.64,
+                marketSqErrSum: 1.08,
+                // ...and the $facet wrapper that same DAO now returns, since
+                // it emits the bands and the coverage counters in one pass.
+                // The band row is repeated rather than referenced because an
+                // object literal can't refer to itself; the fields must stay
+                // in step with the ones directly above.
+                bands: [
+                  {
+                    _id: 50,
+                    runnerCount: 4,
+                    wins: 1,
+                    modelProbSum: 240,
+                    marketProbFairSum: 200,
+                    marketProbRawSum: 220,
+                    staked: 2.5,
+                    returns: 3.5,
+                    modelSqErrSum: 0.64,
+                    marketSqErrSum: 1.08,
+                  },
+                ],
+                // Six runners in the window carry a real SP; four of them also
+                // carry an out-of-sample score. The other two are the early
+                // races with no prior form behind them — the gap the coverage
+                // line on the screen exists to state.
+                coverage: [{ eligibleRunners: 6, scoredRunners: 4 }],
               },
             ]),
           }),
@@ -1348,6 +1460,19 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
+    it("returns a market-only Brier score — this dataset has no model column", async () => {
+      // The Betfair-SP collection is not what ml/train_and_predict.py scores,
+      // so there is no model probability to compare against here. model must
+      // be null, NOT 0 — 0 is the best possible Brier score and would render a
+      // perfect model on a screen that has no model at all.
+      const response = await request(app)
+        .get("/api/runners")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.brier).toEqual({ scored: 0, priced: 4, model: null, market: 0.15 });
+    });
+
     it("response includes pnlStats with staked, returns, pnl", async () => {
       const response = await request(app)
         .get("/api/runners")
@@ -1406,6 +1531,35 @@ describe("API Endpoints", () => {
     it("is public — returns 200 without auth", async () => {
       const response = await request(app).get("/api/industry-sp").expect(200);
       expect(response.body).toHaveProperty("success", true);
+    });
+
+    describe("brier", () => {
+      it("returns model and market Brier scores alongside pnlStats", async () => {
+        const response = await request(app)
+          .get("/api/industry-sp")
+          .set("Authorization", `Bearer ${authToken}`)
+          .expect(200);
+
+        // 0.4/4 and 0.6/4 from the shared aggregate mock's `brier` branch —
+        // the endpoint must DIVIDE the raw sums, not pass them through.
+        expect(response.body.brier).toEqual({ scored: 4, priced: 4, model: 0.1, market: 0.15 });
+      });
+
+      it("scores the model and the market over the same runner count", async () => {
+        // The invariant that makes the two safe to show side by side on one
+        // card. They are only allowed to differ on the Betfair-SP screen,
+        // which has no model column at all.
+        const response = await request(app).get("/api/industry-sp").expect(200);
+        expect(response.body.brier.scored).toBe(response.body.brier.priced);
+      });
+
+      it("is present on the anonymous response too", async () => {
+        // The Filters screen renders it before login, so a missing field here
+        // would show an em dash to every logged-out visitor.
+        const response = await request(app).get("/api/industry-sp").expect(200);
+        expect(response.body.brier).toBeDefined();
+        expect(typeof response.body.brier.model).toBe("number");
+      });
     });
 
     it("clamps an explicit toRow to a 100-race span when anonymous", async () => {
@@ -1554,6 +1708,38 @@ describe("API Endpoints", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
     });
 
+    it("accepts a minModelSpEdgePts param and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?minModelSpEdgePts=5")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("tolerates a non-numeric or out-of-range minModelSpEdgePts instead of erroring", async () => {
+      // The router clamps to 0-100 and falls back to 0 on NaN, so a
+      // hand-edited or stale URL degrades to "no edge threshold" rather
+      // than a 500 — same contract as every other numeric filter param.
+      for (const value of ["abc", "-5", "9999", ""]) {
+        const response = await request(app)
+          .get(`/api/industry-sp?minModelSpEdgePts=${value}`)
+          .set("Authorization", `Bearer ${authToken}`)
+          .expect(200);
+        expect(response.body.success).toBe(true);
+      }
+    });
+
+    it("serves minModelSpEdgePts anonymously too, under the anonymous race cap", async () => {
+      // /api/industry-sp is behind optionalJwtAuth, not a hard gate — an
+      // anonymous caller gets a smaller race cap, not a 401. Asserted
+      // explicitly so a future auth change to this route has to come past
+      // this test.
+      const response = await request(app).get("/api/industry-sp?minModelSpEdgePts=5").expect(200);
+      expect(response.body.success).toBe(true);
+    });
+
     it("each race includes raceClass and going", async () => {
       const response = await request(app)
         .get("/api/industry-sp")
@@ -1563,6 +1749,343 @@ describe("API Endpoints", () => {
       const race = response.body.data[0];
       expect(race).toHaveProperty("raceClass");
       expect(race).toHaveProperty("going");
+    });
+  });
+
+  describe("GET /api/model-vs-sp", () => {
+    // Most of this endpoint's behaviour is param clamping, and the shared
+    // aggregate mock below can't distinguish one set of clamped params from
+    // another — so assert on what actually reached the service. jest.spyOn calls
+    // through by default, so the request still runs end-to-end.
+    let paramsSpy: jest.SpyInstance;
+
+    beforeAll(() => {
+      paramsSpy = jest.spyOn(IndustrySpService.prototype, "getModelVsSpRunners");
+    });
+
+    afterAll(() => {
+      paramsSpy.mockRestore();
+    });
+
+    function lastParams(): ModelVsSpParams {
+      const call = paramsSpy.mock.calls[paramsSpy.mock.calls.length - 1];
+      expect(call).toBeDefined();
+      return call[0] as ModelVsSpParams;
+    }
+
+    // The single most important test in this block: it proves the handler landed
+    // BELOW router.use(jwtAuth) and that its path escaped the /api/industry-sp
+    // prefix, which carries optionalJwtAuth and would have made this public.
+    it("requires authentication — 401 without a Bearer token", async () => {
+      await request(app).get("/api/model-vs-sp").expect(401);
+    });
+
+    it("returns a paginated runner-level envelope", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(typeof response.body.total).toBe("number");
+      expect(typeof response.body.page).toBe("number");
+      expect(typeof response.body.limit).toBe("number");
+      expect(typeof response.body.totalPages).toBe("number");
+    });
+
+    it("count equals data.length", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    it("rows carry modelWinProbability, impliedSpProbability and edge", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const row = response.body.data[0];
+      expect(typeof row.runnerId).toBe("number");
+      expect(typeof row.runnerName).toBe("string");
+      expect(typeof row.isp).toBe("number");
+      expect(typeof row.modelWinProbability).toBe("number");
+      expect(typeof row.impliedSpProbability).toBe("number");
+      expect(typeof row.edge).toBe("number");
+      expect(typeof row.raceId).toBe("number");
+      expect(typeof row.raceDate).toBe("string");
+    });
+
+    it("derives totalPages from total and limit", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp?limit=2")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.totalPages).toBe(Math.ceil(response.body.total / 2));
+    });
+
+    it("defaults to a 50-row page and the date_desc sort", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.limit).toBe(50);
+      expect(response.body.page).toBe(1);
+      expect(response.body.sort).toBe("date_desc");
+    });
+
+    it("clamps limit to 200", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp?limit=5000")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.limit).toBe(200);
+    });
+
+    it("clamps page to at least 1", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp?page=0")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.page).toBe(1);
+    });
+
+    it.each(["date_desc", "date_asc", "edge_desc", "edge_asc"])("accepts and echoes sort=%s", async sort => {
+      const response = await request(app)
+        .get(`/api/model-vs-sp?sort=${sort}`)
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.sort).toBe(sort);
+    });
+
+    it("falls back to date_desc for an unknown sort value", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp?sort=by_vibes")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.sort).toBe("date_desc");
+    });
+
+    // The regression these two guard: the `parseFloat(x) || DEFAULT` idiom used
+    // throughout router.ts turns a legitimate 0 into the fallback, which would
+    // silently widen the edge filter back to ±100. minEdge=0 / maxEdge=0 are the
+    // two headline use cases ("model above the market" / "model below it"), so
+    // this would have broken the feature's whole point.
+    it("accepts an explicit maxAbsEdge of 0 without falling back", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp?maxAbsEdge=0")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      // 0 is falsy, and "only runners whose gap is exactly zero" is a legitimate
+      // query — the `parseFloat(x) || DEFAULT` idiom would widen it to 100.
+      expect(lastParams().maxAbsEdge).toBe(0);
+    });
+
+    it("defaults the difference range to the full 0-100 span", async () => {
+      await request(app)
+        .get("/api/model-vs-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(lastParams().minAbsEdge).toBe(0);
+      expect(lastParams().maxAbsEdge).toBe(100);
+    });
+
+    it("treats the difference filter as unsigned — a negative bound clamps to 0", async () => {
+      await request(app)
+        .get("/api/model-vs-sp?minAbsEdge=-25&maxAbsEdge=30")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      // |edge| can never be negative, so a negative bound is meaningless rather
+      // than an error.
+      expect(lastParams().minAbsEdge).toBe(0);
+      expect(lastParams().maxAbsEdge).toBe(30);
+    });
+
+    it("accepts an explicit minModelProb of 0 without falling back", async () => {
+      await request(app)
+        .get("/api/model-vs-sp?minModelProb=0&minImpliedProb=0")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const params = lastParams();
+      expect(params.minModelProb).toBe(0);
+      expect(params.minImpliedProb).toBe(0);
+    });
+
+    it("clamps the difference range to 0-100", async () => {
+      await request(app)
+        .get("/api/model-vs-sp?minAbsEdge=-9999&maxAbsEdge=9999")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const params = lastParams();
+      expect(params.minAbsEdge).toBe(0);
+      expect(params.maxAbsEdge).toBe(100);
+    });
+
+    it("clamps the probability ranges to 0-100", async () => {
+      await request(app)
+        .get("/api/model-vs-sp?minModelProb=-20&maxModelProb=500&minImpliedProb=-1&maxImpliedProb=900")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const params = lastParams();
+      expect(params.minModelProb).toBe(0);
+      expect(params.maxModelProb).toBe(100);
+      expect(params.minImpliedProb).toBe(0);
+      expect(params.maxImpliedProb).toBe(100);
+    });
+
+    it("honours a valid date window and echoes it back", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp?minDate=2025-03-01&maxDate=2025-03-31")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.minDate).toBe("2025-03-01");
+      expect(response.body.maxDate).toBe("2025-03-31");
+    });
+
+    it("clamps a date span wider than the 366-day cap", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp?minDate=2020-01-01&maxDate=2026-12-31")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.minDate).toBe("2020-01-01");
+      expect(response.body.maxDate).toBe("2021-01-01");
+    });
+
+    it("defaults the date window when minDate/maxDate are absent or malformed", async () => {
+      const absent = await request(app)
+        .get("/api/model-vs-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+      expect(absent.body.minDate).toBe("2024-01-01");
+      expect(absent.body.maxDate).toBe("2024-01-31");
+
+      const malformed = await request(app)
+        .get("/api/model-vs-sp?minDate=nonsense&maxDate=2024/12/31")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+      expect(malformed.body.minDate).toBe("2024-01-01");
+      expect(malformed.body.maxDate).toBe("2024-01-31");
+    });
+
+    it("nulls total and totalPages when includeTotal=false", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp?includeTotal=false")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.total).toBeNull();
+      expect(response.body.totalPages).toBeNull();
+      expect(response.body.summary).toBeNull();
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(lastParams().includeTotal).toBe(false);
+    });
+
+    it("returns a distribution summary alongside the rows", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const summary = response.body.summary;
+      expect(summary).toBeTruthy();
+      expect(typeof summary.allRunners).toBe("number");
+      expect(typeof summary.matchedRunners).toBe("number");
+      expect(typeof summary.matchedPercent).toBe("number");
+      expect(typeof summary.meanAbsEdge).toBe("number");
+      expect(Array.isArray(summary.bands)).toBe(true);
+      // Scored over the MATCHED runners (the rows listed below the summary),
+      // not the wider allRunners denominator the bands describe — the bands
+      // say how far apart model and market are, this says which of them was
+      // closer to what actually happened.
+      expect(summary.brier).toEqual({ scored: 4, priced: 4, model: 0.1, market: 0.15 });
+    });
+
+    it("each summary band carries a label, a count and a share", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      for (const band of response.body.summary.bands) {
+        expect(typeof band.label).toBe("string");
+        expect(typeof band.count).toBe("number");
+        expect(typeof band.percent).toBe("number");
+        expect(typeof band.minAbs).toBe("number");
+      }
+      // Only the open-ended final band omits a cumulative share.
+      const bands = response.body.summary.bands;
+      expect(bands[bands.length - 1].cumulativePercent).toBeNull();
+      expect(bands[0].cumulativePercent).not.toBeNull();
+    });
+
+    it("summary.matchedRunners is the same number pagination totals by", async () => {
+      const response = await request(app)
+        .get("/api/model-vs-sp")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.summary.matchedRunners).toBe(response.body.total);
+    });
+
+    it("accepts the isp, runner-count and country filter params", async () => {
+      await request(app)
+        .get("/api/model-vs-sp?minIsp=2&maxIsp=20&minRunners=6&maxRunners=12&countries=GB,IE")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const params = lastParams();
+      expect(params.minIsp).toBe(2);
+      expect(params.maxIsp).toBe(20);
+      expect(params.minRunners).toBe(6);
+      expect(params.maxRunners).toBe(12);
+      expect(params.countries).toEqual(["GB", "IE"]);
+    });
+  });
+
+  describe("GET /api/model-score-coverage", () => {
+    it("returns 200 with success and the walk-forward coverage window", async () => {
+      const response = await request(app)
+        .get("/api/model-score-coverage")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data.coverageMinDate).toBe("2016-01-01");
+      expect(response.body.data.coverageMaxDate).toBe("2026-07-30");
+    });
+
+    it("each field has the required type", async () => {
+      const response = await request(app).get("/api/model-score-coverage").expect(200);
+      const d = response.body.data;
+      expect(typeof d.oosVersionId).toBe("string");
+      expect(typeof d.coverageMinDate).toBe("string");
+      expect(typeof d.coverageMaxDate).toBe("string");
+      expect(typeof d.scoredRows).toBe("number");
+      expect(typeof d.unscoredRows).toBe("number");
+    });
+
+    it("is public — returns 200 without auth", async () => {
+      const response = await request(app).get("/api/model-score-coverage").expect(200);
+      expect(response.body).toHaveProperty("success", true);
     });
   });
 
@@ -1607,6 +2130,153 @@ describe("API Endpoints", () => {
       expect(typeof version.runMeta.trainRows).toBe("number");
       expect(typeof version.performanceMetrics.aucRoc).toBe("number");
       expect(Array.isArray(version.performanceMetrics.calibrationTable)).toBe(true);
+    });
+  });
+
+  describe("GET /api/model-accuracy", () => {
+    it("returns 200 with success and a data array", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("count equals data.length", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    it("requires auth — returns 401 without a token", async () => {
+      await request(app).get("/api/model-accuracy").expect(401);
+    });
+
+    it("always returns every price band, shortest price first", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.data.map((b: { label: string }) => b.label)).toEqual([
+        "under 2.0",
+        "2.0 – 3.0",
+        "3.0 – 5.0",
+        "5.0 – 10.0",
+        "10.0 – 20.0",
+        "20.0+",
+      ]);
+    });
+
+    it("each band carries the model, market, error and P&L figures", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const band = response.body.data[0];
+      expect(typeof band.bandKey).toBe("string");
+      expect(typeof band.runners).toBe("number");
+      expect(typeof band.wins).toBe("number");
+      expect(typeof band.modelMeanProb).toBe("number");
+      expect(typeof band.actualWinRate).toBe("number");
+      expect(typeof band.marketMeanProbFair).toBe("number");
+      expect(typeof band.marketMeanProbRaw).toBe("number");
+      expect(typeof band.modelErrorPp).toBe("number");
+      expect(typeof band.marketErrorPp).toBe("number");
+      expect(typeof band.modelBrier).toBe("number");
+      expect(typeof band.pnl).toBe("number");
+      expect(typeof band.roiPercent).toBe("number");
+    });
+
+    it("returns an overall row alongside the bands", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.overall).toBeDefined();
+      expect(response.body.overall.label).toBe("All bands");
+      // The mocked aggregate returns a single band's sums, so the overall row
+      // must total exactly that.
+      expect(response.body.overall.runners).toBe(
+        response.body.data.reduce((s: number, b: { runners: number }) => s + b.runners, 0)
+      );
+    });
+
+    it("accepts the filter params without error", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .query({
+          minDate: "2026-01-01",
+          maxDate: "2026-01-31",
+          courses: "Ascot,Kempton",
+          goings: "Good",
+          raceTypes: "Flat",
+          minRunners: "4",
+          maxRunners: "12",
+        })
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+    });
+
+    it("a stale modelVersionId in a bookmarked URL is ignored, not rejected", async () => {
+      // The filter was removed when this screen moved to out-of-sample
+      // probabilities: each year's rows come from a different model, so there
+      // is no single version to select. An old bookmark must still work.
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .query({ modelVersionId: "xgb-20260727-171521" })
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data.length).toBe(6);
+    });
+
+    it("reports how much of the window could actually be scored", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.coverage).toEqual({
+        eligibleRunners: 6,
+        scoredRunners: 4,
+        // The two runners with no prior history behind them. They are excluded
+        // from every band rather than counted as a 0% prediction the model got
+        // wrong, which is why this number has to be stated at all.
+        unscoredRunners: 2,
+        coveragePercent: 66.67,
+      });
+    });
+
+    it("the scored count matches the runners the bands were built from", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      // If these ever disagree, the coverage line is describing a different
+      // population from the table underneath it.
+      expect(response.body.overall.runners).toBe(response.body.coverage.scoredRunners);
+    });
+
+    it("rejects a runner range where min exceeds max", async () => {
+      const response = await request(app)
+        .get("/api/model-accuracy")
+        .query({ minRunners: "12", maxRunners: "4" })
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(400);
+
+      expect(response.body).toHaveProperty("success", false);
     });
   });
 
@@ -2432,7 +3102,13 @@ describe("API Endpoints", () => {
         expect(response.body[split].pnlStats).toHaveProperty("staked");
         expect(response.body[split].pnlStats).toHaveProperty("returns");
         expect(response.body[split].pnlStats).toHaveProperty("pnl");
+        // Each split carries its own score, and the grand total carries a
+        // third — the whole-set number is NOT recoverable from the two split
+        // ones on the client (a Brier is a mean, and the splits' denominators
+        // are not exposed separately), which is why the response sends it.
+        expect(response.body[split].brier).toEqual({ scored: 4, priced: 4, model: 0.1, market: 0.15 });
       }
+      expect(response.body.brier).toEqual({ scored: 4, priced: 4, model: 0.1, market: 0.15 });
     });
 
     it("splitA defaults to fromRow 1 when no explicit range is given", async () => {
@@ -2560,12 +3236,35 @@ describe("API Endpoints", () => {
       expect(response.body.success).toBe(true);
     });
 
+    it("accepts a minModelSpEdgePts param and returns 200 with success", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?minModelSpEdgePts=7.5")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
+
   });
 
   describe("GET /api/industry-sp/race-convergence", () => {
     it("returns 200 with success, a data array, and count matching data.length", async () => {
       const response = await request(app)
         .get("/api/industry-sp/race-convergence?toRow=1000")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    it("accepts a minModelSpEdgePts param and returns 200 with success", async () => {
+      // The graph has to honour the same filter the split card it was
+      // opened from used, or the two disagree about which runners are in
+      // the sample — the exact class of mismatch the pnlStats fast-path
+      // regression above was about.
+      const response = await request(app)
+        .get("/api/industry-sp/race-convergence?toRow=1000&minModelSpEdgePts=5")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
       expect(response.body.success).toBe(true);

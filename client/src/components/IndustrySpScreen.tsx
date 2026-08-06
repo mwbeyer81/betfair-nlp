@@ -15,8 +15,9 @@ import {
   Checkbox,
   ActivityIndicator,
 } from "react-native-paper";
-import { chatApi, IspFilterBounds, PnlStats, RaceConvergencePoint, IspRace, ModelVersion } from "../services/chatApi";
+import { chatApi, IspFilterBounds, PnlStats, BrierStats, RaceConvergencePoint, IspRace, ModelVersion, ModelScoreCoverage } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
+import { BrierScore } from "./BrierScore";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
 import { ModelPerformanceDashboard, ModelPerformanceFilters } from "./ModelPerformanceDashboard";
 import { SaveResultDialog } from "./SaveResultDialog";
@@ -96,6 +97,12 @@ const FILTER_DEFAULTS = {
   // runner (no cold-start gap), so this alone (no separate "has" checkbox
   // needed) is enough to gate the filter on/off.
   minModelWinProbability: 0,
+  // Percentage POINTS of model-vs-SP edge required, not a relative %: a
+  // runner the model gives 25% and whose SP implies 20% has an edge of 5.
+  // Same "0 is a true no-op" convention as the two above — at 0 the
+  // "Model beats SP" checkbox alone decides, exactly as before this
+  // field existed.
+  minModelSpEdgePts: 0,
 };
 
 // Loose client-side guardrails for the date inputs — not round-tripped
@@ -124,6 +131,7 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   hasTrainerForm: "Only show races with at least one runner whose trainer has a recent-form sample available (they've run at least once in the last 14 days). Runners with \"No recent form sample\" are excluded.",
   minModelWinProbability: "Only show races with a runner whose XGBoost-predicted win probability is at least this percentage. The model is trained on course/going/class/distance/draw/trainer-form/jockey — deliberately not on ISP, so it's an independent view, not a recalibration of the market's own price.",
   onlyModelBeatsSp: "Only show races with a runner whose model win probability is higher than the win probability implied by their own industry SP (100/isp) — i.e. the model rates them a better chance than the market's own price does.",
+  minModelSpEdgePts: "Tightens \"Model beats SP\" to a minimum size of edge, in percentage points: the model's win probability minus the one the runner's own ISP implies (100/isp). A runner the model gives 25% whose ISP implies 20% has an edge of 5 points. This is the same number shown on each runner as \"+5.0 pts\". Any value above 0 applies on its own — the checkbox above doesn't also need ticking. Note points, not a relative percentage: at long odds even a small points edge is a big overlay, so a high value here concentrates on shorter prices.",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -155,6 +163,42 @@ const AUTHENTICATED_RACE_CAP = 10000;
 // effect), never a legitimate "empty split" the user asked for on purpose.
 function isStaleSplit(splitBFromRow: number, totalRaces: number): boolean {
   return splitBFromRow > totalRaces && totalRaces > 0;
+}
+
+/**
+ * The line explaining why a model-filtered date range came back thinner than
+ * the dates suggest — or null when there is nothing to explain.
+ *
+ * Every model filter reads the out-of-sample probability, which only exists
+ * between the walk-forward run's own coverage dates. Outside that window no
+ * runner can qualify, so the range silently contributes nothing: reported live
+ * as a 2015-01-01..2016-01-01 range returning 11 races, every one of them on
+ * 2016-01-01, because the whole of 2015 is deliberately unscored (the earliest
+ * year has no prior history to fit on).
+ *
+ * Deliberately a note and not a clamp. The dates are the user's; silently
+ * rewriting them is the same surprise this exists to remove, and the range is
+ * still perfectly valid for the non-model filters.
+ */
+export function modelScoreCoverageNote(p: {
+  coverage: { coverageMinDate: string; coverageMaxDate: string } | null;
+  modelFilterActive: boolean;
+  minDate: string;
+  maxDate: string;
+}): string | null {
+  if (!p.coverage || !p.modelFilterActive) return null;
+  const { coverageMinDate, coverageMaxDate } = p.coverage;
+  const before = p.minDate < coverageMinDate;
+  const after = p.maxDate > coverageMaxDate;
+  if (!before && !after) return null;
+
+  const outside = before && after
+    ? `before ${coverageMinDate} and after ${coverageMaxDate}`
+    : before
+      ? `before ${coverageMinDate}`
+      : `after ${coverageMaxDate}`;
+  return `Model scores only exist for ${coverageMinDate} to ${coverageMaxDate}. ` +
+    `A model filter is on, so races ${outside} can't match and are excluded from these results.`;
 }
 
 // Resolves a Split A/B draft box pair (a "from"/"to" string) into the
@@ -331,8 +375,29 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // it's boolean-only, same shape as hasTrainerForm.
   const [draftOnlyModelBeatsSp, setDraftOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
   const [onlyModelBeatsSp, setOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
+  // The size of that edge, in percentage points — see FILTER_DEFAULTS'
+  // comment. Text-field state (a string) like every other numeric filter
+  // here, so a half-typed "1." doesn't get coerced mid-keystroke.
+  const [draftMinModelSpEdgePts, setDraftMinModelSpEdgePts] = useState(() =>
+    String(urlFloatParam("minModelSpEdgePts", FILTER_DEFAULTS.minModelSpEdgePts))
+  );
+  const [minModelSpEdgePts, setMinModelSpEdgePts] = useState(() =>
+    urlFloatParam("minModelSpEdgePts", FILTER_DEFAULTS.minModelSpEdgePts)
+  );
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
+  // Where an out-of-sample model score actually exists. Fetched once, never
+  // blocking: null (no walk-forward run recorded, or the call failed) simply
+  // means no note is shown.
+  const [modelCoverage, setModelCoverage] = useState<ModelScoreCoverage | null>(null);
+  // Applied (not draft) values — the note must describe the results on screen,
+  // not what the user is midway through typing.
+  const modelCoverageNote = modelScoreCoverageNote({
+    coverage: modelCoverage,
+    modelFilterActive: onlyModelBeatsSp || minModelSpEdgePts > 0 || minModelWinProbability > 0,
+    minDate,
+    maxDate,
+  });
   const [totalRunners, setTotalRunners] = useState(0);
   // 100 for an anonymous caller, 10000 once logged in — see
   // IndustrySpService.getSplitStats. Drives the cap banner below.
@@ -436,6 +501,12 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
   const [totalRacesA, setTotalRacesA] = useState(0);
   const [totalRunnersA, setTotalRunnersA] = useState(0);
+  // undefined, not a zeroed BrierStats: "no score yet" and "scored 0.0000"
+  // must stay distinguishable, since 0 is the best Brier score there is.
+  const [brierA, setBrierA] = useState<BrierStats | undefined>(undefined);
+  const [brierB, setBrierB] = useState<BrierStats | undefined>(undefined);
+  // The whole filtered set, before either split window narrows it.
+  const [brierTotal, setBrierTotal] = useState<BrierStats | undefined>(undefined);
   const [pnlStatsA, setPnlStatsA] = useState<PnlStats>(EMPTY_PNL);
   const [totalRacesB, setTotalRacesB] = useState(0);
   const [totalRunnersB, setTotalRunnersB] = useState(0);
@@ -561,6 +632,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
     setOnlyModelBeatsSp(draftOnlyModelBeatsSp);
 
+    // Clamped to 0-100 like every other percentage field here — 100 is the
+    // widest two probabilities can possibly be apart, so anything above it
+    // could only ever match zero runners.
+    const modelSpEdgePts = Math.min(100, Math.max(0, parseFloat(draftMinModelSpEdgePts) || 0));
+    setDraftMinModelSpEdgePts(String(modelSpEdgePts));
+    setMinModelSpEdgePts(modelSpEdgePts);
+
     // Commit every chip filter's draft (pending) selection to the applied
     // set actually used for fetching — this is the point where a chip's
     // visual flips from "pending" (gray) to "applied" (solid).
@@ -679,6 +757,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMinTrainerFormRunners(FILTER_DEFAULTS.minTrainerFormRunners);
     setDraftMinModelWinProbability(String(FILTER_DEFAULTS.minModelWinProbability));
     setMinModelWinProbability(FILTER_DEFAULTS.minModelWinProbability);
+    setDraftMinModelSpEdgePts(String(FILTER_DEFAULTS.minModelSpEdgePts));
+    setMinModelSpEdgePts(FILTER_DEFAULTS.minModelSpEdgePts);
     setDraftOnlyModelBeatsSp(false);
     setOnlyModelBeatsSp(false);
 
@@ -701,6 +781,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
 
   useEffect(() => {
     let cancelled = false;
+    chatApi.getModelScoreCoverage().then(c => {
+      if (!cancelled) setModelCoverage(c);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
 
     function applyResult(result: CachedSplitsResult) {
       setHasLoadedOnce(true);
@@ -714,27 +802,46 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       setAvailableRaceClasses(result.raceClasses);
       setAvailableRaceTypes(result.raceTypes);
 
-      setFromRowA(result.splitA.fromRow);
-      setToRowA(result.splitA.toRow);
-      setFromRowB(result.splitB.fromRow);
-      setToRowB(result.splitB.toRow);
+      // A split carried over from a much larger result set can land entirely
+      // beyond the new one — reported live via screenshot as "Split B  64 - 11"
+      // against 11 matched races, a range that can never match anything. The
+      // cache path below already refuses a stale split via isStaleSplit; a
+      // freshly fetched result needs the identical guard, because the race
+      // count can collapse under a split without the split itself changing
+      // (tightening a filter, or moving the dates into a stretch the model
+      // never scored). Falling back to the default half/half divide is the
+      // same thing Reset would give, over the set that actually matched.
+      const staleSplit = isStaleSplit(result.splitB.fromRow, result.totalRaces);
+      const half = Math.max(1, Math.ceil(result.totalRaces / 2));
+      const splitA = staleSplit ? { fromRow: 1, toRow: half } : result.splitA;
+      const splitB = staleSplit
+        ? { fromRow: Math.min(half + 1, result.totalRaces), toRow: result.totalRaces }
+        : result.splitB;
+
+      setFromRowA(splitA.fromRow);
+      setToRowA(splitA.toRow);
+      setFromRowB(splitB.fromRow);
+      setToRowB(splitB.toRow);
 
       // Keep the draft boxes in sync with whatever range was actually
       // queried — including filling in an open-ended ("no cap") upper
       // bound with the grand total, so a box never shows a stale
       // placeholder value (e.g. when a bookmarked URL set fromRowA/
       // fromRowB explicitly but left the upper bound uncapped).
-      setDraftFromA(String(result.splitA.fromRow));
-      setDraftToA(String(result.splitA.toRow ?? result.totalRaces));
-      setDraftFromB(String(result.splitB.fromRow));
-      setDraftToB(String(result.splitB.toRow ?? result.totalRaces));
+      setDraftFromA(String(splitA.fromRow));
+      setDraftToA(String(splitA.toRow ?? result.totalRaces));
+      setDraftFromB(String(splitB.fromRow));
+      setDraftToB(String(splitB.toRow ?? result.totalRaces));
 
       setTotalRacesA(result.splitA.total);
       setTotalRunnersA(result.splitA.totalRunners);
       setPnlStatsA(result.splitA.pnlStats ?? EMPTY_PNL);
+      setBrierA(result.splitA.brier);
       setTotalRacesB(result.splitB.total);
       setTotalRunnersB(result.splitB.totalRunners);
       setPnlStatsB(result.splitB.pnlStats ?? EMPTY_PNL);
+      setBrierB(result.splitB.brier);
+      setBrierTotal(result.brier);
     }
 
     // Keeps the URL query string in sync with the currently *applied*
@@ -784,6 +891,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         hasTrainerForm: hasTrainerForm ? "true" : undefined,
         minModelWinProbability: minModelWinProbability !== FILTER_DEFAULTS.minModelWinProbability ? String(minModelWinProbability) : undefined,
         onlyModelBeatsSp: onlyModelBeatsSp ? "true" : undefined,
+        minModelSpEdgePts: minModelSpEdgePts !== FILTER_DEFAULTS.minModelSpEdgePts ? String(minModelSpEdgePts) : undefined,
         // Only write the split boundaries once the user has explicitly
         // applied a custom split — writing the auto-computed default here
         // too would make the *next* mount think a custom split was already
@@ -826,7 +934,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         courses: [...selectedCourses], goings: [...selectedGoings],
         raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
         trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp,
+        minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts,
         isAuthenticated,
       });
 
@@ -876,7 +984,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
           trainerSearch || undefined, jockeySearch || undefined,
           trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp
+          minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts
         );
         if (cancelled) return;
         // An explicit (non-default) split's row numbers are only meaningful
@@ -920,7 +1028,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           courses: [...selectedCourses], goings: [...selectedGoings],
           raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
           trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp,
+          minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts,
           isAuthenticated,
         });
         writeSplitsCache(writeCacheKey, result);
@@ -1218,7 +1326,9 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     if (minModelWinProbability > 0) {
       summary.push({ key: "modelWinProbability", label: `Model win probability: ≥${minModelWinProbability}%` });
     }
-    if (onlyModelBeatsSp) {
+    if (minModelSpEdgePts > 0) {
+      summary.push({ key: "modelBeatsSp", label: `Model beats SP by ≥${minModelSpEdgePts} pts` });
+    } else if (onlyModelBeatsSp) {
       summary.push({ key: "modelBeatsSp", label: "Model beats SP" });
     }
     return summary;
@@ -1250,7 +1360,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         minDate, maxDate, [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
         trainerSearch || undefined, jockeySearch || undefined,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp
+        minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts
       );
       setConvergencePoints(result.data);
     } catch (err) {
@@ -1341,13 +1451,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     totalRaces: number;
     totalRunners: number;
     pnl: PnlStats;
+    brier: BrierStats | undefined;
     // idle: no fetch has ever run (bare page load, Apply never pressed) —
     // nothing to show, waiting on the user. pending: a fetch is currently
     // in flight (first-ever load of a URL that already carries filters, or
     // any Apply/Reset refetch). loaded: real numbers are in.
     status: "idle" | "pending" | "loaded";
   }) {
-    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl, status } = opts;
+    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl, brier, status } = opts;
     const effectiveTo = toRow ?? totalRaces;
     const notReady = status !== "loaded";
     return (
@@ -1380,6 +1491,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           <Text testID={`industry-sp-split-empty-${id}`} style={styles.splitEmptyText}>
             {splitTotalRunners > 0 ? "No qualifying bets in this split." : "No races match this split."}
           </Text>
+        )}
+        {/*
+          Sits under the P&L headline rather than replacing it: over a split of
+          a few hundred races the P&L is the volatile number and the Brier is
+          the stable one, so seeing them together is the point — a split can be
+          +8% on luck while the model is scoring worse than the market on the
+          very same horses.
+        */}
+        {status === "loaded" && (
+          <BrierScore brier={brier} tone="dark" testID={`industry-sp-brier-${id}`} />
         )}
         <View style={styles.splitButtonRow}>
           <Button
@@ -1620,6 +1741,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           checked: draftOnlyModelBeatsSp,
           onToggle: () => setDraftOnlyModelBeatsSp(v => !v),
         })}
+        {renderTextFilterRow({
+          filterKey: "minModelSpEdgePts",
+          label: "Beats SP by (pts)",
+          value: draftMinModelSpEdgePts,
+          onChange: setDraftMinModelSpEdgePts,
+          testId: "industry-sp-min-model-sp-edge-pts",
+        })}
         <View
           testID="industry-sp-filter-row-date"
           style={[styles.filterGridRow, openTooltip === "date" && styles.filterGridRowElevated]}
@@ -1760,6 +1888,18 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       </View>
       )}
 
+      {modelCoverageNote && (
+        <View testID="industry-sp-model-coverage-note" style={styles.capBanner}>
+          <Text
+            testID="industry-sp-model-coverage-note-text"
+            variant="bodyMedium"
+            style={styles.capBannerText}
+          >
+            {modelCoverageNote}
+          </Text>
+        </View>
+      )}
+
       {!isAuthenticated && hasLoadedOnce && totalRaces > raceCap && (
         <View testID="industry-sp-cap-banner" style={styles.capBanner}>
           <Text variant="bodyMedium" style={styles.capBannerText}>
@@ -1776,6 +1916,20 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           >
             Sign Up
           </Button>
+        </View>
+      )}
+
+      {/*
+        The whole filtered set's score, above the two splits that divide it.
+        Worth its own line rather than being left to the split cards: the
+        splits exist to show that a P&L holds up out of sample, and the
+        equivalent question for a Brier score — "does the model beat the
+        market across everything this filter selects" — is answered by the
+        combined number, which is neither of the two split figures.
+      */}
+      {hasLoadedOnce && !isLoading && (
+        <View testID="industry-sp-brier-total-row" style={styles.brierTotalRow}>
+          <BrierScore brier={brierTotal} testID="industry-sp-brier-total" label="Brier (all races)" />
         </View>
       )}
 
@@ -1818,6 +1972,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               totalRaces: totalRacesA,
               totalRunners: totalRunnersA,
               pnl: pnlStatsA,
+              brier: brierA,
               status: splitCardStatus,
             })}
             {renderSplitCard({
@@ -1828,6 +1983,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               totalRaces: totalRacesB,
               totalRunners: totalRunnersB,
               pnl: pnlStatsB,
+              brier: brierB,
               status: splitCardStatus,
             })}
           </>
@@ -1845,6 +2001,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           totalRaces={detailSplit === "a" ? totalRacesA : totalRacesB}
           totalRunners={detailSplit === "a" ? totalRunnersA : totalRunnersB}
           pnl={detailSplit === "a" ? pnlStatsA : pnlStatsB}
+          brier={detailSplit === "a" ? brierA : brierB}
           onClose={() => setDetailSplit(null)}
           onViewRaces={() => {
             const fromRow = detailSplit === "a" ? fromRowA : fromRowB;
@@ -2129,6 +2286,10 @@ const styles = StyleSheet.create({
   },
   countryChipTextPending: {
     color: "#fff",
+  },
+  brierTotalRow: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
   },
   splitCards: {
     padding: spacing.md,

@@ -51,6 +51,8 @@ import xgboost as xgb
 from pymongo import MongoClient, UpdateOne
 from sklearn.metrics import roc_auc_score, log_loss, brier_score_loss
 
+from market_benchmark import load_isp_frame, market_probabilities
+
 COLLECTION_NAME = "industry_starting_prices"
 EVALUATIONS_COLLECTION_NAME = "model_evaluations"
 BATCH_SIZE = 1000
@@ -125,6 +127,9 @@ TRAINING_PARAMS = dict(
     random_state=42,
 )
 EARLY_STOPPING_ROUNDS = 50
+# How much worse than the champion a challenger may be and still ship. Small
+# and one-sided on purpose — see promotion_decision().
+PROMOTION_TOLERANCE = 0.001
 TRAINING_PARAMS_CAMEL = {
     "nEstimators": TRAINING_PARAMS["n_estimators"],
     "learningRate": TRAINING_PARAMS["learning_rate"],
@@ -327,11 +332,77 @@ def make_model(early_stopping: bool) -> xgb.XGBClassifier:
 
 def save_evaluation(evaluations_collection, doc: dict):
     doc = {"runAt": datetime.now(timezone.utc).isoformat(), **doc}
-    evaluations_collection.insert_one(doc)
+    result = evaluations_collection.insert_one(doc)
     print(f"\nSaved evaluation to {EVALUATIONS_COLLECTION_NAME} (modelVersionId={doc.get('modelVersionId')})")
+    return result.inserted_id
 
 
-def evaluate(model: xgb.XGBClassifier, test_df: pd.DataFrame, evaluations_collection, run_meta: dict):
+def current_champion(evaluations_collection):
+    """The best previously-promoted model, by held-out log loss.
+
+    Legacy docs predate the `promoted` flag entirely; they were all promoted
+    (nothing could stop them), so they count. Walk-forward docs never do —
+    they describe a scoring pass, not a deployable model, and their metrics
+    are not comparable to a single held-out tail.
+    """
+    champion = evaluations_collection.find_one(
+        {"logLoss": {"$ne": None},
+         "evaluationType": {"$ne": "walk_forward"},
+         "$or": [{"promoted": True}, {"promoted": {"$exists": False}}]},
+        sort=[("logLoss", 1)],
+    )
+    return champion
+
+
+def promotion_decision(challenger_log_loss: float, champion) -> tuple:
+    """Should this run's model replace the deployed one?
+
+    Until now nothing ever read model_evaluations back, so a worse retrain
+    silently overwrote a better one — irrecoverably, since ml/models/ is
+    gitignored and only the S3 copy survives. This is the gate that stops
+    that.
+
+    The tolerance is deliberately one-sided and small: a challenger that is
+    genuinely equal (noise-level differences between runs of the same config)
+    still promotes, so an ordinary retrain on newer data isn't blocked, while
+    a real regression is.
+    """
+    if champion is None:
+        return True, "no previous champion — promoting by default"
+    champion_ll = champion.get("logLoss")
+    if champion_ll is None:
+        return True, "champion has no log loss recorded — promoting by default"
+    if challenger_log_loss <= champion_ll + PROMOTION_TOLERANCE:
+        return True, (f"log loss {challenger_log_loss:.6f} <= champion "
+                      f"{champion_ll:.6f} + {PROMOTION_TOLERANCE}")
+    return False, (f"log loss {challenger_log_loss:.6f} is worse than champion "
+                   f"{champion_ll:.6f} ({champion.get('modelVersionId')}) by more than "
+                   f"{PROMOTION_TOLERANCE} — keeping the champion")
+
+
+def benchmark_metrics(labels: pd.Series, probs: pd.Series) -> dict:
+    """AUC/log loss/Brier over the rows that actually have a probability.
+
+    Used for the two comparison lines added alongside the headline metrics
+    below. NaNs (a runner with no usable SP) are dropped rather than scored as
+    zero, and a block with no winner reports None rather than raising —
+    neither should ever take down a training run that has already succeeded.
+    """
+    mask = probs.notna().to_numpy()
+    y = np.asarray(labels)[mask]
+    p = np.clip(np.asarray(probs)[mask], 1e-9, 1 - 1e-9)
+    if len(y) == 0 or len(np.unique(y)) < 2:
+        return {"n": int(len(y)), "aucRoc": None, "logLoss": None, "brierScore": None}
+    return {
+        "n": int(len(y)),
+        "aucRoc": round(float(roc_auc_score(y, p)), 6),
+        "logLoss": round(float(log_loss(y, p, labels=[0, 1])), 6),
+        "brierScore": round(float(brier_score_loss(y, p)), 6),
+    }
+
+
+def evaluate(model: xgb.XGBClassifier, test_df: pd.DataFrame, evaluations_collection, run_meta: dict,
+             market_probs: pd.Series | None = None):
     p = model.predict_proba(test_df[FEATURE_COLS])[:, 1]
     auc = roc_auc_score(test_df["label"], p)
     ll = log_loss(test_df["label"], p)
@@ -358,13 +429,44 @@ def evaluate(model: xgb.XGBClassifier, test_df: pd.DataFrame, evaluations_collec
         }
         for _, row in table.reset_index(drop=True).iterrows()
     ]
-    save_evaluation(evaluations_collection, {
+    # Two comparison lines, both additive — the three headline keys above keep
+    # their exact existing meaning so model_evaluations stays readable by
+    # ModelVersionDAO and the performance dashboard.
+    #
+    # `normalized` matters because the headline metrics score the model's RAW
+    # output, which doesn't sum to 1 across a race, while the market's does
+    # (see market_benchmark.market_probabilities) and while the stored
+    # modelWinProbability is normalised too. Scoring raw against de-overrounded
+    # market would be comparing two different objects, so the fair comparison
+    # is normalised-vs-market and that is what beatsMarket uses.
+    extra: dict = {}
+    normalized = normalize_within_race(test_df.assign(p=p), "p", "p_norm")["p_norm"] / 100.0
+    extra["normalizedMetrics"] = benchmark_metrics(test_df["label"], normalized)
+    print(f"\nNormalised (per-race, comparable to the market): {extra['normalizedMetrics']}")
+
+    if market_probs is not None:
+        market = benchmark_metrics(test_df["label"], market_probs)
+        extra["marketMetrics"] = market
+        print(f"Market (SP, de-overrounded):                   {market}")
+        model_ll = extra["normalizedMetrics"]["logLoss"]
+        if model_ll is not None and market["logLoss"] is not None:
+            # The question the pipeline could not previously answer about
+            # itself. SP is the referee here and nothing more — never a
+            # feature, never a target (see this file's header).
+            extra["beatsMarket"] = bool(model_ll < market["logLoss"])
+            verdict = "BEATS" if extra["beatsMarket"] else "LOSES TO"
+            print(f"=> the model {verdict} the market on log loss "
+                  f"({model_ll} vs {market['logLoss']})")
+
+    doc_id = save_evaluation(evaluations_collection, {
         **run_meta,
         "aucRoc": round(float(auc), 6),
         "logLoss": round(float(ll), 6),
         "brierScore": round(float(brier), 6),
         "calibrationTable": calibration_table,
+        **extra,
     })
+    return doc_id, round(float(ll), 6)
 
 
 def run():
@@ -415,7 +517,38 @@ def run():
         "testDateMin": str(test_df["raceDate"].min()),
         "bestIteration": int(best_n),
     }
-    evaluate(es_model, test_df, evaluations_collection, run_meta)
+    # The market's own view of the same test rows, for the benchmark line in
+    # evaluate(). Loaded through market_benchmark's own narrow loader and
+    # merged in only here, after the split — so `isp` never shares a frame
+    # with FEATURE_COLS and cannot become a feature by accident, which is the
+    # guarantee this file's header makes.
+    print("\nLoading industry SP for the market benchmark...")
+    isp_frame = load_isp_frame(collection)
+    test_with_isp = test_df.merge(isp_frame, on=["raceId", "runnerId"], how="left")
+    market_probs = market_probabilities(test_with_isp).set_axis(test_df.index)
+    doc_id, challenger_ll = evaluate(es_model, test_df, evaluations_collection, run_meta,
+                                     market_probs=market_probs)
+
+    # The gate. Before this existed, model_evaluations was written every run
+    # and never read back, so a worse retrain silently replaced a better one
+    # with no way to recover it (ml/models/ is gitignored; only the S3 copy
+    # survives, under the *new* version id). A rejected run still leaves its
+    # evaluation doc behind — a failed experiment should be a record, not a
+    # gap — but touches nothing else.
+    champion = current_champion(evaluations_collection)
+    promoted, reason = promotion_decision(challenger_ll, champion)
+    evaluations_collection.update_one(
+        {"_id": doc_id},
+        {"$set": {"promoted": promoted,
+                  "promotionReason": reason,
+                  "comparedAgainst": champion.get("modelVersionId") if champion else None}},
+    )
+    print(f"\nPromotion: {'PROMOTED' if promoted else 'REJECTED'} — {reason}")
+    if not promoted:
+        print("Leaving the deployed model, its S3 copy and every stored "
+              "modelWinProbability exactly as they were.")
+        client.close()
+        return
 
     print(f"\nRefitting on all {len(df)} rows (train+test) at n_estimators={best_n} for the deployed model...")
     final_model = make_model(early_stopping=False)

@@ -57,8 +57,8 @@ export function computeModelFilteredPnl(races: IspRace[], minModelWinProbability
       if (
         runner.isp != null &&
         runner.isp > 1 &&
-        runner.modelWinProbability != null &&
-        runner.modelWinProbability >= minModelWinProbability &&
+        modelProb(runner) != null &&
+        (modelProb(runner) as number) >= minModelWinProbability &&
         modelBeatsSp(runner)
       ) {
         count++;
@@ -81,6 +81,11 @@ export interface QualifyingFilterParams {
   trainerFormMinWinRate: number;
   minModelWinProbability: number;
   onlyModelBeatsSp: boolean;
+  // Minimum model-vs-SP edge in percentage POINTS (see modelSpEdge below).
+  // > 0 implies onlyModelBeatsSp — a positive required edge is a strictly
+  // tighter "beats SP", so the checkbox needn't also be ticked for it to
+  // apply. Optional so callers predating this field still typecheck.
+  minModelSpEdgePts?: number;
 }
 
 // True when at least one qualifying condition is actually active — lets a
@@ -89,7 +94,14 @@ export interface QualifyingFilterParams {
 // "narrow to just what this filter selected" (reached from a saved filter's
 // Live Performance section).
 export function hasActiveQualifyingFilter(p: QualifyingFilterParams): boolean {
-  return p.minIsp > 1 || p.maxIsp < 1000 || p.hasTrainerForm || p.minModelWinProbability > 0 || p.onlyModelBeatsSp;
+  return (
+    p.minIsp > 1 ||
+    p.maxIsp < 1000 ||
+    p.hasTrainerForm ||
+    p.minModelWinProbability > 0 ||
+    p.onlyModelBeatsSp ||
+    (p.minModelSpEdgePts ?? 0) > 0
+  );
 }
 
 // Same per-runner condition as IspRacesScreen.tsx's own local
@@ -106,10 +118,11 @@ export function runnerQualifies(r: IspRunner, p: QualifyingFilterParams): boolea
   if (p.hasTrainerForm && !(r.trainerFormWinRate != null && r.trainerFormWinRate >= p.trainerFormMinWinRate)) {
     return false;
   }
-  if (p.minModelWinProbability > 0 && !(r.modelWinProbability != null && r.modelWinProbability >= p.minModelWinProbability)) {
+  if (p.minModelWinProbability > 0 && !((modelProb(r) ?? -1) >= p.minModelWinProbability)) {
     return false;
   }
   if (p.onlyModelBeatsSp && !modelBeatsSp(r)) return false;
+  if ((p.minModelSpEdgePts ?? 0) > 0 && !modelBeatsSpBy(r, p.minModelSpEdgePts as number)) return false;
   return true;
 }
 
@@ -124,12 +137,68 @@ export function impliedProbabilityPct(isp: number): number {
   return 100 / isp;
 }
 
+// The signed percentage-POINT gap between the model's own win probability and
+// the one the runner's industry SP implies (100/isp). Positive means the model
+// rates the runner a better chance than the market's price does. null when
+// either side is missing — a gap is undefined without both, which is why
+// /api/model-vs-sp excludes those runners server-side rather than rendering them
+// with a blank column.
+//
+// The Mongo counterpart is buildModelVsSpRunnerCond in
+// src/lib/dao/industry-sp-dao.ts. The two can't share code (one is an expression
+// tree), so that DAO's integration test pins both to the same hand-derived
+// numbers.
+// The model's win probability for a runner, as every filter and badge on this
+// screen must read it: the out-of-sample estimate, produced without sight of
+// this race's result.
+//
+// modelWinProbability is deliberately NOT used. On a historical runner it is
+// the final refit's in-sample score — fitted on the very race it scored, so it
+// already knows the winner, and filtering on it picks winners by construction
+// rather than by skill (+4.5% ROI read that way vs -18.8% read honestly; see
+// AGENTS.md 2026-08-04). This must stay the same field
+// MODEL_PROB_FIELD names in src/lib/dao/industry-sp-dao.ts: the server filters
+// the race list on that field, and these helpers decide which runners inside a
+// returned race get highlighted, so reading two different fields would leave
+// the badges contradicting the list they sit in.
+export function modelProb(runner: IspRunner): number | null {
+  return runner.modelWinProbabilityOos ?? null;
+}
+
+export function modelSpEdge(runner: IspRunner): number | null {
+  const prob = modelProb(runner);
+  if (prob == null || runner.isp == null || runner.isp <= 0) return null;
+  return prob - impliedProbabilityPct(runner.isp);
+}
+
+// Always signed, and always suffixed "pts" — the value is a difference of two
+// percentages, so a bare "17.2%" would misread as a relative change ("17% more
+// likely") rather than the 17-percentage-point gap it actually is.
+export function formatEdgePts(edge: number): string {
+  return `${edge >= 0 ? "+" : "-"}${Math.abs(edge).toFixed(1)} pts`;
+}
+
 // True when the model rates a runner's win chance higher than the market's
 // own price implies — a simple "value bet" signal, independent of any
-// fixed threshold (unlike minModelWinProbability).
+// fixed threshold (unlike minModelWinProbability). Expressed via modelSpEdge so
+// the two can never disagree about what "beats SP" means. Note the guard stays
+// isp > 0, not the isp > 1 the server-side filter uses: a runner priced at
+// exactly 1 can't reach /model-vs-sp at all, so that difference is only ever
+// exercised by this function's other callers.
 export function modelBeatsSp(runner: IspRunner): boolean {
-  if (runner.modelWinProbability == null || runner.isp == null || runner.isp <= 0) return false;
-  return runner.modelWinProbability > impliedProbabilityPct(runner.isp);
+  const edge = modelSpEdge(runner);
+  return edge != null && edge > 0;
+}
+
+// modelBeatsSp with a size requirement: the model must rate the runner at
+// least minEdgePts percentage POINTS above the market, not merely above it.
+// >= (not >) so a filter of "5" includes a runner sitting exactly 5 points
+// clear, matching how every other minimum on the Filters screen reads. The
+// Mongo counterpart is modelBeatsSpCond() in src/lib/dao/industry-sp-dao.ts.
+export function modelBeatsSpBy(runner: IspRunner, minEdgePts: number): boolean {
+  if (minEdgePts <= 0) return modelBeatsSp(runner);
+  const edge = modelSpEdge(runner);
+  return edge != null && edge >= minEdgePts;
 }
 
 export function formatRaceTime(isoTime: string): string {
@@ -318,7 +387,10 @@ export function buildFilterSummaryFromParams(params: Record<string, string>): { 
   if (params.minModelWinProbability) {
     summary.push({ key: "modelWinProbability", label: `Model win probability: ≥${params.minModelWinProbability}%` });
   }
-  if (params.onlyModelBeatsSp === "true") {
+  const edgePts = parseFloat(params.minModelSpEdgePts ?? "0");
+  if (edgePts > 0) {
+    summary.push({ key: "modelBeatsSp", label: `Model beats SP by ≥${edgePts} pts` });
+  } else if (params.onlyModelBeatsSp === "true") {
     summary.push({ key: "modelBeatsSp", label: "Model beats SP" });
   }
   return summary;

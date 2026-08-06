@@ -26,10 +26,26 @@ SCRATCH_DIR="$REPO_ROOT/.local-ci"
 CSV_SOURCE="data/kaggle-horse-racing-uk-ireland/extracted/mini-update.csv"
 SEED_FROM_DATE="2026-06-03"
 SEED_TO_DATE="2026-06-03"
-MONGOD_BIN="/home/ubuntu/mongodb-local/bin/mongod"
+# Resolve mongod in this order: an explicit MONGOD_BIN (what
+# /etc/profile.d/betfair-nlp.sh sets on the WSL box), then whatever is on PATH
+# (a distro/native install), then the hand-unpacked tarball path the original
+# EC2 box used. Auto-detecting rather than relying on MONGOD_BIN alone matters
+# because profile.d is only sourced by login shells — a cron job or a plain
+# `ssh host 'yarn test:e2e:local-ci'` would otherwise fall through to the EC2
+# path and fail with a confusing "not found" on a machine where mongod is
+# installed perfectly well.
+MONGOD_BIN="${MONGOD_BIN:-$(command -v mongod || echo /home/ubuntu/mongodb-local/bin/mongod)}"
 PYTHON_BIN="ml/venv/bin/python"
 
 log() { echo "[local-ci-e2e] $*"; }
+
+if [ ! -x "$MONGOD_BIN" ]; then
+  echo "[local-ci-e2e] ERROR: mongod not found at '$MONGOD_BIN'." >&2
+  echo "Install it (Ubuntu/WSL: the mongodb-org-server package) or set MONGOD_BIN to its path." >&2
+  echo "This suite needs its OWN throwaway mongod binary to fork on port ${LOCAL_CI_MONGO_PORT:-27020};" >&2
+  echo "an already-running system mongod on 27019 is deliberately not reused." >&2
+  exit 1
+fi
 
 port_in_use() {
   (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && { exec 3<&- 3>&-; return 0; }
@@ -192,6 +208,18 @@ log "Running daily-races model prediction..."
 (cd ml && MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" DAILY_RACE_DATE="$SEED_FROM_DATE" \
   "$REPO_ROOT/$PYTHON_BIN" predict_daily_races.py) 2>&1 | tee "$SCRATCH_DIR/logs/predict-daily-races.log"
 
+# --- Step 3f: seed synthetic model probabilities onto the ISP slice ---------
+# The steps above only ever score daily_racecards — nothing writes
+# modelWinProbability back onto industry_starting_prices (that's
+# ml/train_and_predict.py's job, and a real retrain is far too slow and
+# non-deterministic for this hot path). Without this, /api/model-accuracy has
+# nothing to aggregate and its e2e specs could only ever assert the empty
+# state. The values are explicitly synthetic — see the header comment in
+# src/commands/seed-isp-model-probabilities.ts.
+log "Seeding synthetic model probabilities onto the ISP slice..."
+MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" \
+  npx ts-node src/commands/seed-isp-model-probabilities.ts 2>&1 | tee "$SCRATCH_DIR/logs/seed-isp-model-probabilities.log"
+
 # --- Step 4: seed hardcoded test user ---------------------------------------
 log "Seeding hardcoded test user..."
 MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" \
@@ -265,7 +293,17 @@ log "Frontend is up."
 # --- Step 7: run Playwright --------------------------------------------------
 log "Running Playwright suite..."
 set +e
-(cd client && PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-/snap/bin/chromium}" \
+# Playwright cannot install its own chromium on ubuntu 26.04 (see
+# playwright.local-ci.config.ts), so a system browser is used. Prefer an
+# explicit env var, then Google Chrome (what the WSL box has), then the snap
+# chromium the EC2 box had.
+SYSTEM_CHROME="${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}"
+if [ -z "$SYSTEM_CHROME" ]; then
+  for candidate in /usr/bin/google-chrome-stable /snap/bin/chromium /usr/bin/chromium; do
+    if [ -x "$candidate" ]; then SYSTEM_CHROME="$candidate"; break; fi
+  done
+fi
+(cd client && PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$SYSTEM_CHROME" \
   npx playwright test --config playwright.local-ci.config.ts)
 TEST_EXIT_CODE=$?
 set -e

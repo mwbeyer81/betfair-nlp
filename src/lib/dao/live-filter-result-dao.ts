@@ -1,4 +1,5 @@
 import { Collection, Db, ObjectId } from "mongodb";
+import type { BrierSums } from "../service/brier";
 
 export interface LiveFilterResultPnlStats {
   staked: number;
@@ -33,6 +34,14 @@ export interface LiveFilterResultDocument {
   meetingId: string;
   meetingName: string;
   pnlStats: LiveFilterResultPnlStats;
+  // Raw squared-error sums for this race alone, NOT a finished Brier score:
+  // the Live Performance rollup adds these across every captured day and
+  // divides once, because averaging per-race Brier scores would weight a
+  // 5-runner race the same as a 16-runner one. Optional because this
+  // collection has real production documents written before Brier scores
+  // existed and nothing migrates them — absence means "captured before this
+  // was recorded", which the frontend shows as "—" rather than as a zero.
+  brierSums?: BrierSums;
   capturedAt: string;
 }
 

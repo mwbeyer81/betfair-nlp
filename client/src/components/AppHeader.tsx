@@ -5,6 +5,7 @@ import { HeaderActionsContainer } from "./HeaderActionsContainer";
 import { useHeaderMenu } from "../utils/useHeaderMenu";
 import { chatApi } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
+import { getBuildCommit } from "../utils/buildInfo";
 import type { Route } from "../hooks/useRouter";
 
 export interface AppHeaderProps {
@@ -39,8 +40,8 @@ export interface AppHeaderProps {
 
 // One header — brand, title/subtitle, back action, and burger nav menu —
 // shared by every screen so "BackBet" branding and the menu's item set
-// (Backtest / Chat / Daily Races / Results / Bets / Account / Log Out or
-// Log In+Sign Up) are identical everywhere instead of each screen
+// (Backtest / Chat / Daily Races / Results / Bets / Model vs SP / Account /
+// Log Out or Log In+Sign Up) are identical everywhere instead of each screen
 // reimplementing its own subset.
 export const AppHeader: React.FC<AppHeaderProps> = ({
   navigate,
@@ -58,6 +59,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const [accountPhone, setAccountPhone] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
+  // null in local dev and on native — only a deployed build has a stamped
+  // commit, and the badge is simply omitted when there is nothing to show.
+  const buildCommit = getBuildCommit();
 
   // Centralized here (was previously duplicated inside IndustrySpScreen
   // alone) now that every screen shares this one header's Account item.
@@ -146,6 +150,30 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           >
             Bets
           </Button>
+          <Button
+            testID={`${testIdPrefix}-menu-model-vs-sp-link`}
+            mode="outlined"
+            compact
+            onPress={wrap(() => navigate("/model-vs-sp"))}
+            style={styles.toggleButton}
+            labelStyle={styles.toggleButtonLabel}
+          >
+            Model vs SP
+          </Button>
+          {/* Sits next to Model vs SP deliberately: that screen lists
+              individual runners and their gap to the market, this one
+              aggregates the same comparison into price bands and checks each
+              band against what actually won. */}
+          <Button
+            testID={`${testIdPrefix}-menu-model-accuracy-link`}
+            mode="outlined"
+            compact
+            onPress={wrap(() => navigate("/model-accuracy"))}
+            style={styles.toggleButton}
+            labelStyle={styles.toggleButtonLabel}
+          >
+            Model Accuracy
+          </Button>
         </>
       )}
       <View style={styles.divider} />
@@ -222,6 +250,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 <View style={styles.syncIcon}>
                   <Icon source="sync" size={16} color="white" />
                 </View>
+                {buildCommit != null && (
+                  <View style={styles.buildBadge}>
+                    <Text
+                      testID={`${testIdPrefix}-build-badge`}
+                      style={styles.buildBadgeText}
+                    >
+                      build {buildCommit}
+                    </Text>
+                  </View>
+                )}
               </View>
               {subtitle != null && (
                 <Text style={styles.subtitle} numberOfLines={1}>
@@ -315,6 +353,18 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 18,
     fontWeight: "700",
+  },
+  buildBadge: {
+    marginLeft: spacing.sm,
+    paddingHorizontal: spacing.xs + 2,
+    paddingVertical: 1,
+    borderRadius: radii.pill,
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  buildBadgeText: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 10,
+    fontWeight: "600",
   },
   subtitle: {
     color: "rgba(255,255,255,0.8)",

@@ -50,6 +50,7 @@ const ISP_FILTER_PARAM_NAMES = [
   "countries", "courses", "goings", "raceClasses", "raceTypes", "trainer", "jockey",
   "fromRowA", "toRowA", "fromRowB", "toRowB",
   "trainerFormMinWinRate", "hasTrainerForm", "minModelWinProbability", "onlyModelBeatsSp",
+  "minModelSpEdgePts",
 ];
 
 // True if the URL carries any of IndustrySpScreen's own filter params —
@@ -63,6 +64,29 @@ export function urlHasAnyParams(): boolean {
   const params = getUrlSearchParams();
   if (params == null) return false;
   return ISP_FILTER_PARAM_NAMES.some(name => params.get(name) != null);
+}
+
+// ModelVsSpScreen's own param surface, kept as a SEPARATE list rather than
+// appended to ISP_FILTER_PARAM_NAMES above: that list is what urlHasAnyParams
+// uses to decide whether /isp arrived with filters already applied, so adding
+// foreign names to it would make a bare /isp mount think it should fetch. The
+// two lists deliberately share the `minDate`/`maxDate`/`sort` spellings, since
+// both screens mean the same thing by them.
+const MODEL_VS_SP_PARAM_NAMES = [
+  "page", "limit", "sort",
+  "minDate", "maxDate",
+  "minModelProb", "maxModelProb",
+  "minImpliedProb", "maxImpliedProb",
+  "minEdge", "maxEdge",
+];
+
+// True if the URL carries any of ModelVsSpScreen's own params — same purpose as
+// urlHasAnyParams for /isp, and same reason it can't just test for a non-empty
+// query string (Storybook's iframe adds ?id=&viewMode=&args=... of its own).
+export function urlHasAnyModelVsSpParams(): boolean {
+  const params = getUrlSearchParams();
+  if (params == null) return false;
+  return MODEL_VS_SP_PARAM_NAMES.some(name => params.get(name) != null);
 }
 
 export function urlCountriesParam(): Set<string> {
@@ -96,6 +120,7 @@ export function urlQualifyingFilterParams(): QualifyingFilterParams {
     trainerFormMinWinRate: urlFloatParam("trainerFormMinWinRate", 0),
     minModelWinProbability: urlFloatParam("minModelWinProbability", 0),
     onlyModelBeatsSp: urlStringParam("onlyModelBeatsSp", "") === "true",
+    minModelSpEdgePts: urlFloatParam("minModelSpEdgePts", 0),
   };
 }
 
@@ -107,6 +132,7 @@ export function urlQualifyingFilterParams(): QualifyingFilterParams {
 // already-identified meeting/race.
 const QUALIFYING_FILTER_PARAM_NAMES = [
   "minIsp", "maxIsp", "hasTrainerForm", "trainerFormMinWinRate", "minModelWinProbability", "onlyModelBeatsSp",
+  "minModelSpEdgePts",
 ];
 
 export function qualifyingFilterQueryFromParams(params: URLSearchParams): string {
@@ -118,7 +144,10 @@ export function qualifyingFilterQueryFromParams(params: URLSearchParams): string
   return out.toString();
 }
 
-export function updateUrlParams(params: Record<string, string | undefined>): void {
+// `null` is accepted alongside `undefined` (both mean "delete this param", as the
+// body already handled) so a caller can write the common
+// `key: value !== DEFAULT ? String(value) : null` form without a cast.
+export function updateUrlParams(params: Record<string, string | undefined | null>): void {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
   Object.entries(params).forEach(([key, value]) => {

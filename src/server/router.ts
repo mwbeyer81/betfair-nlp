@@ -9,13 +9,21 @@ import { IndustrySpResultsCaptureService } from "../lib/service/industry-sp-resu
 import { RacingApiClient } from "../lib/service/racing-api-client";
 import { TrainerFormService } from "../lib/service/trainer-form-service";
 import { ModelVersionService } from "../lib/service/model-version-service";
+import { ModelAccuracyService } from "../lib/service/model-accuracy-service";
 import { SavedFilterSetService, computeSnapshotParamsFromFilters } from "../lib/service/saved-filter-set-service";
 import { LiveFilterResultService } from "../lib/service/live-filter-result-service";
 import { BetOrderService } from "../lib/service/bet-order-service";
 import { BetOrderType } from "../lib/dao/bet-order-dao";
 import { LivePriceService } from "../lib/service/live-price-service";
 import type { PickToResolve } from "../lib/service/betfair-market-resolver";
-import { parseDateRangeParams, parseCsvListParam } from "../lib/service/filter-params-util";
+import {
+  parseDateRangeParams,
+  parseCsvListParam,
+  parseFloatParam,
+  clampPct,
+  clampModelVsSpDateWindow,
+} from "../lib/service/filter-params-util";
+import type { ModelVsSpSort } from "../lib/dao/industry-sp-dao";
 import { AuthService, AuthError } from "../lib/service/auth-service";
 import { DatabaseConnection } from "../config/database";
 import { jwtAuth, optionalJwtAuth } from "./middleware";
@@ -32,6 +40,7 @@ let dailyRaceService: DailyRaceService | null = null;
 let industrySpResultsCaptureService: IndustrySpResultsCaptureService | null = null;
 let trainerFormService: TrainerFormService | null = null;
 let modelVersionService: ModelVersionService | null = null;
+let modelAccuracyService: ModelAccuracyService | null = null;
 let savedFilterSetService: SavedFilterSetService | null = null;
 let liveFilterResultService: LiveFilterResultService | null = null;
 let authService: AuthService | null = null;
@@ -100,6 +109,7 @@ export const initializeServices = async () => {
       console.warn("trainer-form createIndexes failed (non-fatal, queries may be slower):", indexError);
     }
     modelVersionService = new ModelVersionService();
+    modelAccuracyService = new ModelAccuracyService();
     savedFilterSetService = new SavedFilterSetService();
     liveFilterResultService = new LiveFilterResultService();
     try {
@@ -389,6 +399,27 @@ router.get("/api/industry-sp/race-types", async (_req, res) => {
   }
 });
 
+// Public, like /api/model-versions above — it exposes two dates and two row
+// counts, nothing per-user. The Filters screen calls it once on mount so it can
+// say *why* a model-filtered range came back empty, rather than leaving the
+// user to conclude their date picker was ignored (reported live via screenshot:
+// a 2015-2016 range returning 11 races, all of them on the single day
+// 2016-01-01, because the whole of 2015 is deliberately unscored).
+//
+// `data: null` is a normal response, not an error: a database with no
+// walk-forward run recorded yet simply has no window to report, and the client
+// shows no note at all in that case.
+router.get("/api/model-score-coverage", async (_req, res) => {
+  try {
+    if (!modelVersionService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const data = await modelVersionService.getModelScoreCoverage();
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error("getModelScoreCoverage error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch model score coverage" });
+  }
+});
+
 router.get("/api/model-versions", async (_req, res) => {
   try {
     if (!modelVersionService) return res.status(503).json({ success: false, error: "Service not initialized" });
@@ -475,6 +506,11 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const maxTrainerFormRunners = Math.min(100, Math.max(0, parseInt(req.query.maxTrainerFormRunners as string) || 100));
     const minModelWinProbability = Math.min(100, Math.max(0, parseFloat(req.query.minModelWinProbability as string) || 0));
     const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
+    // Minimum model-vs-SP edge in percentage points (model win% minus the
+    // 100/isp the SP implies). Capped at 100 — the largest gap two
+    // probabilities can have. > 0 implies onlyModelBeatsSp, so the DAO
+    // treats it as activating that filter on its own.
+    const minModelSpEdgePts = Math.min(100, Math.max(0, parseFloat(req.query.minModelSpEdgePts as string) || 0));
 
     // Set by optionalJwtAuth (registered on /api/industry-sp above) —
     // decides the Split A/Split B race cap: 100 anonymous, 10000 logged in.
@@ -485,7 +521,7 @@ router.get("/api/industry-sp/splits", async (req, res) => {
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
-      raceCap
+      raceCap, minModelSpEdgePts
     );
     // Smoke-tested live: combined into one request and warm (no cold
     // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
@@ -528,6 +564,11 @@ router.get("/api/industry-sp/race-convergence", async (req, res) => {
     const maxTrainerFormRunners = Math.min(100, Math.max(0, parseInt(req.query.maxTrainerFormRunners as string) || 100));
     const minModelWinProbability = Math.min(100, Math.max(0, parseFloat(req.query.minModelWinProbability as string) || 0));
     const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
+    // Minimum model-vs-SP edge in percentage points (model win% minus the
+    // 100/isp the SP implies). Capped at 100 — the largest gap two
+    // probabilities can have. > 0 implies onlyModelBeatsSp, so the DAO
+    // treats it as activating that filter on its own.
+    const minModelSpEdgePts = Math.min(100, Math.max(0, parseFloat(req.query.minModelSpEdgePts as string) || 0));
 
     const toRowRaw = parseInt(req.query.toRow as string);
     if (isNaN(toRowRaw) || toRowRaw < 1) {
@@ -556,7 +597,7 @@ router.get("/api/industry-sp/race-convergence", async (req, res) => {
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
-      fromRow, toRow
+      fromRow, toRow, minModelSpEdgePts
     );
     res.set("Cache-Control", "public, max-age=60");
     res.status(200).json({ success: true, data, count: data.length });
@@ -610,6 +651,11 @@ router.get("/api/industry-sp", async (req, res) => {
     const runnerName = typeof req.query.runnerName === "string" && req.query.runnerName.trim() ? req.query.runnerName.trim() : null;
     const minModelWinProbability = Math.min(100, Math.max(0, parseFloat(req.query.minModelWinProbability as string) || 0));
     const onlyModelBeatsSp = req.query.onlyModelBeatsSp === "true";
+    // Minimum model-vs-SP edge in percentage points (model win% minus the
+    // 100/isp the SP implies). Capped at 100 — the largest gap two
+    // probabilities can have. > 0 implies onlyModelBeatsSp, so the DAO
+    // treats it as activating that filter on its own.
+    const minModelSpEdgePts = Math.min(100, Math.max(0, parseFloat(req.query.minModelSpEdgePts as string) || 0));
     const modelVersionId = typeof req.query.modelVersionId === "string" && req.query.modelVersionId.trim() ? req.query.modelVersionId.trim() : null;
     // Restricts an already-row-ranged window to a calendar sub-range —
     // see the DAO's own comment on subMinRaceTime/subMaxRaceTime. Distinct
@@ -619,8 +665,8 @@ router.get("/api/industry-sp", async (req, res) => {
     // collapsed year -> a normal small paginated request scoped to that
     // year, instead of walking the whole row range forward to reach it).
     const { minRaceTime: subMinRaceTime, maxRaceTime: subMaxRaceTime } = parseDateRangeParams(req.query.subMinDate, req.query.subMaxDate);
-    const { data, total, totalRunners, pnlStats } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime);
-    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
+    const { data, total, totalRunners, pnlStats, brier } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime, minModelSpEdgePts);
+    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats, brier });
   } catch (error) {
     console.error("getAllRacesByRace error:", error);
     res.status(500).json({ success: false, error: "Failed to fetch industry SP" });
@@ -691,6 +737,47 @@ function userIdFromAuthHeader(req: express.Request): string | null {
   }
 }
 
+// Model accuracy by price band — how the model's own implied price compares to
+// what actually happened and to what the market thought. Deliberately NOT under
+// the /api/industry-sp prefix (which gets optionalJwtAuth at :295 and is public):
+// this sits below router.use(jwtAuth) so it 401s without a Bearer token, matching
+// the other logged-in-only screens.
+router.get("/api/model-accuracy", async (req, res) => {
+  try {
+    if (!modelAccuracyService) return res.status(503).json({ success: false, error: "Service not initialized" });
+
+    const { minRaceTime, maxRaceTime } = parseDateRangeParams(req.query.minDate, req.query.maxDate);
+    const minRunners = parseInt(req.query.minRunners as string) || 1;
+    const maxRunners = parseInt(req.query.maxRunners as string) || 100;
+    if (minRunners > maxRunners) {
+      return res.status(400).json({ success: false, error: "minRunners cannot exceed maxRunners" });
+    }
+    // No modelVersionId filter any more, deliberately. This screen now reads
+    // modelWinProbabilityOos, where each year's rows come from a different
+    // model (2019's from one fitted on 2015-2018, 2020's from one fitted on
+    // 2015-2019), so "show me version X" has no answer. The run's identity
+    // and fold boundaries live in model_evaluations; a stale ?modelVersionId=
+    // in a bookmarked URL is ignored rather than silently narrowing anything.
+    const { bands, overall, coverage } = await modelAccuracyService.getPriceBandAccuracy({
+      minRaceTime,
+      maxRaceTime,
+      countries: parseCsvListParam(req.query.countries),
+      courses: parseCsvListParam(req.query.courses),
+      goings: parseCsvListParam(req.query.goings),
+      raceClasses: parseCsvListParam(req.query.raceClasses),
+      raceTypes: parseCsvListParam(req.query.raceTypes),
+      minRunners,
+      maxRunners,
+    });
+
+    res.set("Cache-Control", "public, max-age=60");
+    res.status(200).json({ success: true, data: bands, count: bands.length, overall, coverage });
+  } catch (error) {
+    console.error("getModelAccuracy error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch model accuracy" });
+  }
+});
+
 router.get("/api/auth/me", async (req, res) => {
   const userId = userIdFromAuthHeader(req);
   if (!userId) return res.status(401).json({ error: "Invalid or expired token" });
@@ -716,6 +803,118 @@ router.post("/api/auth/resend-verification", async (req, res) => {
     }
     console.error("resendVerification failed:", error);
     return res.status(500).json({ error: "Failed to resend verification email" });
+  }
+});
+
+// Runner-level (not race-level) rows comparing the model's own win probability
+// against the probability each runner's industry SP implies (100/isp), plus the
+// signed percentage-point gap between them — the Model vs SP screen.
+//
+// Login-gated, and the placement is what enforces that, not the path: every
+// handler registered ABOVE `router.use(jwtAuth)` under the /api/industry-sp
+// prefix inherits optionalJwtAuth instead (that prefix is the app's anonymous
+// home page). Registering this next to its natural /api/industry-sp siblings
+// would have silently shipped an anonymous endpoint, so it lives below the gate
+// AND outside that prefix, so the two signals agree. The 401 test in
+// src/server/__tests__/app.test.ts is the actual guard.
+router.get("/api/model-vs-sp", async (req, res) => {
+  try {
+    if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
+
+    const page = Math.min(100000, Math.max(1, parseInt(req.query.page as string) || 1));
+    // No $facet in this query (see getModelVsSpRunners), so the 16MB
+    // single-BSON-doc ceiling that forces /api/industry-sp's limit down to 2000
+    // doesn't apply here. This cap is about per-request M0 cost and payload
+    // size instead, at roughly 300 bytes per row.
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+
+    const sortRaw = req.query.sort;
+    const sort: ModelVsSpSort =
+      sortRaw === "date_asc" || sortRaw === "edge_desc" || sortRaw === "edge_asc" ? sortRaw : "date_desc";
+
+    // Always bounded, and the span clamped to keep a cold load near a second —
+    // the edge sort has no index able to serve it and its cost scales linearly
+    // with the window (measured: ~106ms for a month, ~1.1s for a year, ~11.5s for
+    // the whole collection; see MODEL_VS_SP_MAX_SPAN_DAYS). Clamping rather than
+    // 400ing an over-wide range matches the convention everywhere else in this
+    // file; the trade-off is that a shared URL with a hand-edited 5-year range
+    // quietly shows one year rather than telling the user why.
+    const { minRaceTime, maxRaceTime, minDate, maxDate } = clampModelVsSpDateWindow(
+      req.query.minDate,
+      req.query.maxDate
+    );
+
+    // parseFloatParam, not the `parseFloat(x) || DEFAULT` idiom used elsewhere in
+    // this file: 0 is falsy, and 0 is exactly the boundary that makes these
+    // filters useful ("only runners the model rates above the market" is
+    // minEdge=0, "only below" is maxEdge=0). The `||` form would silently widen
+    // both back to the ±100 default and match everything.
+    const minModelProb = clampPct(parseFloatParam(req.query.minModelProb, 0));
+    const maxModelProb = clampPct(parseFloatParam(req.query.maxModelProb, 100));
+    const minImpliedProb = clampPct(parseFloatParam(req.query.minImpliedProb, 0));
+    const maxImpliedProb = clampPct(parseFloatParam(req.query.maxImpliedProb, 100));
+    // The difference filter is unsigned: it asks how FAR apart the model and the
+    // market are, not which way round. |edge| can't exceed 100 (both sides are
+    // percentages), so the range is 0-100 rather than ±100.
+    const minAbsEdge = clampPct(parseFloatParam(req.query.minAbsEdge, 0));
+    const maxAbsEdge = clampPct(parseFloatParam(req.query.maxAbsEdge, 100));
+
+    const minIsp = Math.max(1, parseFloatParam(req.query.minIsp, 1));
+    const maxIsp = Math.min(100000, parseFloatParam(req.query.maxIsp, 1000));
+    const minRunners = Math.max(1, parseInt(req.query.minRunners as string) || 1);
+    const maxRunners = Math.min(100, Math.max(1, parseInt(req.query.maxRunners as string) || 30));
+    const countries = parseCsvListParam(req.query.countries);
+
+    // A pure page step already knows the total AND the summary from the request
+    // that loaded page 1, so it opts out of both — halving this endpoint's cost
+    // per Next/Prev on a tier where concurrency, not per-query time, is the
+    // ceiling.
+    const includeTotal = req.query.includeTotal !== "false";
+
+    const { rows, total, summary } = await industrySpService.getModelVsSpRunners({
+      page,
+      limit,
+      sort,
+      minRaceTime,
+      maxRaceTime,
+      minModelProb,
+      maxModelProb,
+      minImpliedProb,
+      maxImpliedProb,
+      minAbsEdge,
+      maxAbsEdge,
+      minIsp,
+      maxIsp,
+      minRunners,
+      maxRunners,
+      countries,
+      includeTotal,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: rows,
+      count: rows.length,
+      total,
+      page,
+      limit,
+      // null (not 0) when the count was skipped — the client keeps showing the
+      // total it already had rather than flashing "0 runners" on every page step.
+      totalPages: total != null ? Math.ceil(total / limit) : null,
+      sort,
+      // Echoed back so the client can tell when its requested window was clamped
+      // (or defaulted) and reflect the window actually queried.
+      minDate,
+      maxDate,
+      // How the model's accuracy is distributed across every runner matching the
+      // other filters — the denominator deliberately ignores the difference
+      // range, so narrowing that filter doesn't move its own baseline. null
+      // alongside total when the count was skipped.
+      summary,
+    });
+  } catch (error) {
+    console.error("getModelVsSpRunners error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch model vs SP" });
   }
 });
 
@@ -1186,8 +1385,8 @@ router.get("/api/runners", async (req, res) => {
     const fromRow = Math.max(1, parseInt(req.query.fromRow as string) || 1);
     const toRowRaw = parseInt(req.query.toRow as string);
     const toRow: number | null = isNaN(toRowRaw) ? null : Math.max(fromRow, toRowRaw);
-    const { data, total, totalRunners, pnlStats } = await betfairService.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp, sortOrder, minInSp, maxInSp, fromRow, toRow);
-    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats });
+    const { data, total, totalRunners, pnlStats, brier } = await betfairService.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp, sortOrder, minInSp, maxInSp, fromRow, toRow);
+    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats, brier });
   } catch (error) {
     console.error("getAllRunnersByRace error:", error);
     res.status(500).json({ success: false, error: "Failed to fetch all runners" });

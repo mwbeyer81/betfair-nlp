@@ -12,6 +12,7 @@ import {
 import { MarketDefinitionDAO, EventGroup, RaceWithRunners, RaceWithEvent, SummaryStats, RunnerFilterBounds } from "../dao/market-definition-dao";
 import { PriceUpdateDAO } from "../dao/price-update-dao";
 import { DatabaseConnection } from "../../config/database";
+import type { BrierStats } from "./brier";
 
 export class BetfairService {
   private marketDefinitionDAO: MarketDefinitionDAO;
@@ -89,7 +90,13 @@ export class BetfairService {
     maxInSp = 1000,
     fromRow = 1,
     toRow: number | null = null
-  ): Promise<{ data: RaceWithEvent[]; total: number; totalRunners: number; pnlStats: { staked: number; returns: number; pnl: number; count: number } }> {
+  ): Promise<{
+    data: RaceWithEvent[];
+    total: number;
+    totalRunners: number;
+    pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    brier: BrierStats;
+  }> {
     return this.marketDefinitionDAO.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp, sortOrder, minInSp, maxInSp, fromRow, toRow);
   }
 

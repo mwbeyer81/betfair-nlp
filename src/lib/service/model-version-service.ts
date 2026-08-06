@@ -1,4 +1,4 @@
-import { ModelVersionDAO, ModelVersionDocument } from "../dao/model-version-dao";
+import { ModelVersionDAO, ModelVersionDocument, ModelScoreCoverageDocument } from "../dao/model-version-dao";
 import { DatabaseConnection } from "../../config/database";
 
 // The shape client/src/services/chatApi.ts's ModelVersion interface expects
@@ -65,5 +65,10 @@ export class ModelVersionService {
   public async getAllModelVersions(): Promise<ModelVersionApiResponse[]> {
     const docs = await this.modelVersionDAO.getAll();
     return docs.map(toApiResponse);
+  }
+
+  /** Thin passthrough — see ModelScoreCoverageDocument for why this exists. */
+  public async getModelScoreCoverage(): Promise<ModelScoreCoverageDocument | null> {
+    return this.modelVersionDAO.getWalkForwardCoverage();
   }
 }

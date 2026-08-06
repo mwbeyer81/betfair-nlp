@@ -1,4 +1,4 @@
-import { PnlStats, IspFilterBounds } from "../services/chatApi";
+import { PnlStats, IspFilterBounds, BrierStats } from "../services/chatApi";
 
 // Caches the /isp home page's aggregate result (grand total + both splits)
 // in sessionStorage, keyed by the exact filter/split combination that
@@ -15,6 +15,10 @@ export interface CachedSplitResult {
   total: number;
   totalRunners: number;
   pnlStats: PnlStats;
+  // Optional so a sessionStorage entry written by a previous deploy still
+  // deserialises — it just restores without a Brier score, and the next Apply
+  // fills it in.
+  brier?: BrierStats;
 }
 
 export interface CachedSplitsResult {
@@ -32,6 +36,7 @@ export interface CachedSplitsResult {
   goings: string[];
   raceClasses: string[];
   raceTypes: string[];
+  brier?: BrierStats;
   splitA: CachedSplitResult;
   splitB: CachedSplitResult;
 }
@@ -57,6 +62,7 @@ export interface SplitsCacheParams {
   maxTrainerFormRunners: number;
   minModelWinProbability: number;
   onlyModelBeatsSp: boolean;
+  minModelSpEdgePts: number;
   // Default-split mode is its own cache bucket, distinct from any explicit
   // range — the backend recomputes the default from whatever the current
   // grand total is, so caching it under a fixed fromRow/toRow would go
@@ -99,6 +105,7 @@ export function buildSplitsCacheKey(p: SplitsCacheParams): string {
       p.maxTrainerFormRunners,
       p.minModelWinProbability,
       p.onlyModelBeatsSp,
+      p.minModelSpEdgePts,
       p.isDefault ? "default" : [p.fromRowA, p.toRowA, p.fromRowB, p.toRowB],
       p.isAuthenticated,
     ])

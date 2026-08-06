@@ -47,12 +47,12 @@ const withQueryParams = (search: string) => {
 // tapping through from a saved filter's Live Performance section into a
 // race showed every runner in the field, not just the one(s) that actually
 // qualified. Red Stripes/Aqlette both beat their own SP; Filtered Favourite
-// has no modelWinProbability at all, so modelBeatsSp is false for it.
+// has no out-of-sample model probability at all, so modelBeatsSp is false for it.
 const FILTERED_MOCK_RACE = {
   ...MOCK_RACE,
   runners: [
-    { id: 31001, name: "Red Stripes", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbability: 26 },
-    { id: 31002, name: "Aqlette", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 17, ispFraction: "16/1", isFavourite: false, modelWinProbability: 21 },
+    { id: 31001, name: "Red Stripes", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbabilityOos: 26 },
+    { id: 31002, name: "Aqlette", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 17, ispFraction: "16/1", isFavourite: false, modelWinProbabilityOos: 21 },
     { id: 31003, name: "Filtered Favourite", num: 3, draw: null, status: "LOSER", sortPriority: 3, isp: 2, ispFraction: "1/1", isFavourite: true },
   ],
 };
@@ -222,7 +222,7 @@ export const FilterActiveShowsOnlyQualifyingRunners: Story = {
       // confidence threshold are shown...
       await expect(canvas.getByTestId("industry-race-item-31001")).toBeInTheDocument();
       await expect(canvas.getByTestId("industry-race-item-31002")).toBeInTheDocument();
-      // ...the third (no modelWinProbability at all) is not.
+      // ...the third (no out-of-sample model probability at all) is not.
       await expect(canvas.queryByTestId("industry-race-item-31003")).not.toBeInTheDocument();
       await expect(canvas.getByTestId("industry-race-header")).toHaveTextContent("2 of 3 runners qualify");
 

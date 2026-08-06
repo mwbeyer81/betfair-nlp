@@ -42,6 +42,39 @@ export interface PnlStats {
   count?: number;
 }
 
+// Brier score for a filtered set of horses — mean squared error of a win
+// probability against the 0/1 result, model and market scored over the same
+// runners. See src/lib/service/brier.ts (backend) for the full derivation and
+// the caveats; the short version is that lower is better, and the number worth
+// reading is the GAP between model and market rather than either alone.
+//
+// Optional wherever it appears on a response type: this arrived after the
+// endpoints did, and a stale service worker / an in-flight deploy can hand the
+// client a response without it. Every render path treats undefined the same as
+// "no runners scored" and shows an em dash.
+export interface BrierStats {
+  // Runners the model scored — the denominator of `model`. Always <= the
+  // qualifying-runner count beside it: the pre-ML years of the dataset carry
+  // no model probability at all.
+  scored: number;
+  // Runners with a usable price — the denominator of `market`. Equal to
+  // `scored` on every industry-SP surface (both scores deliberately cover the
+  // same horses); larger on the Betfair-SP screen, which has no model column.
+  priced: number;
+  model: number | null;
+  market: number | null;
+}
+
+// Raw per-race squared-error sums, as the live-results capture stores them.
+// Summed across races BEFORE being divided — see sumBrierSums/brierFromSums in
+// client/src/utils/brierFormat.ts, and the same reasoning on the backend.
+export interface BrierSums {
+  scored: number;
+  priced: number;
+  modelSqErrSum: number;
+  marketSqErrSum: number;
+}
+
 export interface RunnerFilterBounds {
   maxRunnersPerRace: number;
   maxBsp: number;
@@ -58,6 +91,9 @@ export interface RunnersPage {
   totalPages: number;
   totalRunners: number;
   pnlStats: PnlStats;
+  // Market-only on this screen: the Betfair-SP dataset carries no model
+  // probability, so brier.scored is 0 and brier.model is null.
+  brier?: BrierStats;
 }
 
 export interface IspRunner {
@@ -85,6 +121,11 @@ export interface IspRunner {
   // runners sum to 100) — precomputed in ml/train_and_predict.py,
   // deliberately trained without isp/ispFraction/isFavourite as inputs.
   modelWinProbability?: number | null;
+  // The same estimate produced WITHOUT sight of this race's result — the only
+  // one any filter or badge may read. Go through modelProb() in
+  // utils/ispFormat.ts rather than touching either field directly; its comment
+  // explains why the in-sample field above must never drive a selection.
+  modelWinProbabilityOos?: number | null;
   // Which training run produced modelWinProbability — set alongside it in
   // ml/train_and_predict.py. Only ever reflects the MOST RECENT run that
   // scored this runner (each run overwrites both fields together);
@@ -339,6 +380,111 @@ export interface IspPage {
   totalPages: number;
   totalRunners: number;
   pnlStats: PnlStats;
+  brier?: BrierStats;
+}
+
+export type ModelVsSpSort = "date_desc" | "date_asc" | "edge_desc" | "edge_asc";
+
+// One row per RUNNER, not per race — the Model vs SP screen's unit. Mirrors the
+// backend's ModelVsSpRow field-for-field. Every one of the three comparison
+// numbers is non-optional here (unlike IspRunner.modelWinProbability above),
+// because the endpoint only ever returns runners that have all of them.
+export interface ModelVsSpRow {
+  raceId: number;
+  raceTime: string;
+  raceDate: string;
+  meetingId: string;
+  meetingName: string;
+  course: string;
+  countryCode: string;
+  raceName: string;
+  raceType: string;
+  raceClass: string | null;
+  going: string | null;
+  runnerId: number;
+  runnerName: string;
+  num: number | null;
+  draw: number | null;
+  sortPriority: number;
+  status: "WINNER" | "PLACED" | "LOSER" | "NON_FINISHER";
+  isp: number;
+  ispFraction: string | null;
+  isFavourite: boolean;
+  jockey: string | null;
+  trainer: string | null;
+  modelWinProbability: number;
+  impliedSpProbability: number;
+  // Signed percentage points: modelWinProbability - impliedSpProbability.
+  edge: number;
+  modelVersionId: string | null;
+}
+
+// One magnitude band of |model% - implied SP%|, for the distribution summary.
+export interface ModelVsSpBand {
+  minAbs: number;
+  maxAbs: number | null;
+  label: string;
+  count: number;
+  percent: number;
+  // null on the open-ended final band, where it would always be 100.
+  cumulativePercent: number | null;
+}
+
+export interface ModelVsSpSummary {
+  // Every runner matching the current filters EXCEPT the difference range — the
+  // bands' denominator, deliberately fixed so narrowing that filter doesn't move
+  // its own baseline.
+  allRunners: number;
+  matchedRunners: number;
+  matchedPercent: number;
+  meanAbsEdge: number;
+  bands: ModelVsSpBand[];
+  // Scored over the MATCHED runners (the rows listed below), not the wider
+  // `allRunners` denominator the bands describe.
+  brier?: BrierStats;
+}
+
+export interface ModelVsSpQuery {
+  page?: number;
+  limit?: number;
+  sort?: ModelVsSpSort;
+  minDate?: string;
+  maxDate?: string;
+  minModelProb?: number;
+  maxModelProb?: number;
+  minImpliedProb?: number;
+  maxImpliedProb?: number;
+  // The SIZE of the model-vs-market gap in percentage points, ignoring direction
+  // — 10-20 matches a runner rated 12 points above its SP and one rated 12 below
+  // alike. Always 0-100, never negative.
+  minAbsEdge?: number;
+  maxAbsEdge?: number;
+  minIsp?: number;
+  maxIsp?: number;
+  minRunners?: number;
+  maxRunners?: number;
+  countries?: string[];
+  includeTotal?: boolean;
+}
+
+export interface ModelVsSpPage {
+  success: boolean;
+  data: ModelVsSpRow[];
+  count: number;
+  // null (not 0) when the request opted out of the count with
+  // includeTotal: false — "not counted" is a different state from "none found",
+  // and the screen keeps displaying the total it already had.
+  total: number | null;
+  page: number;
+  limit: number;
+  totalPages: number | null;
+  sort: ModelVsSpSort;
+  // The window actually queried, which may be a clamped or defaulted version of
+  // what was asked for (the server caps the span at 366 days).
+  minDate: string;
+  maxDate: string;
+  // null alongside total when the request opted out of the count.
+  summary: ModelVsSpSummary | null;
 }
 
 export interface ModelTrainingParams {
@@ -383,10 +529,82 @@ export interface ModelVersion {
   performanceMetrics: ModelPerformanceMetrics;
 }
 
+// Where an out-of-sample model score actually exists. Both edges matter to the
+// Filters screen: every model filter reads the out-of-sample field, so a date
+// range extending past either edge silently returns nothing for that stretch.
+export interface ModelScoreCoverage {
+  oosVersionId: string;
+  coverageMinDate: string;
+  coverageMaxDate: string;
+  scoredRows: number;
+  unscoredRows: number;
+}
+
 export interface ModelVersionsResponse {
   success: boolean;
   data: ModelVersion[];
   count: number;
+}
+
+// One row of the Model Accuracy screen: every runner whose MODEL-implied price
+// fell in this band, checked against what actually happened and against what
+// the market thought. Mirrors ModelAccuracyBand in
+// src/lib/service/model-accuracy-service.ts.
+export interface ModelAccuracyBand {
+  bandKey: string;
+  // Decimal-odds label, e.g. "3.0 – 5.0" — price = 100 / modelWinProbability.
+  label: string;
+  minPrice: number | null;
+  maxPrice: number | null;
+  runners: number;
+  wins: number;
+  modelMeanProb: number;
+  actualWinRate: number;
+  // Overround removed, so it's comparable to a model probability that already
+  // sums to 100 across a race.
+  marketMeanProbFair: number;
+  // Overround still in — the price a bet actually has to beat. Always >= fair.
+  marketMeanProbRaw: number;
+  staked: number;
+  returns: number;
+  pnl: number;
+  roiPercent: number;
+  // Signed percentage points vs what actually happened; positive = over-rated.
+  modelErrorPp: number;
+  marketErrorPp: number;
+  modelBrier: number;
+  marketBrier: number;
+}
+
+// How much of the requested window could be measured at all. Runners in the
+// earliest years have no prior history to have been scored from, so they carry
+// no out-of-sample probability and are excluded from every band — this is what
+// says so out loud rather than letting the window look fully covered.
+export interface ModelAccuracyCoverage {
+  eligibleRunners: number;
+  scoredRunners: number;
+  unscoredRunners: number;
+  coveragePercent: number;
+}
+
+export interface ModelAccuracyResponse {
+  success: boolean;
+  data: ModelAccuracyBand[];
+  count: number;
+  overall: ModelAccuracyBand;
+  coverage: ModelAccuracyCoverage;
+}
+
+export interface ModelAccuracyFilters {
+  minDate?: string | null;
+  maxDate?: string | null;
+  courses?: string[];
+  goings?: string[];
+  raceClasses?: string[];
+  raceTypes?: string[];
+  countries?: string[];
+  minRunners?: number | null;
+  maxRunners?: number | null;
 }
 
 export interface SavedFilterSetPnlStats {
@@ -416,6 +634,9 @@ export interface SavedFilterSetSplit {
   totalRunners: number;
   pnlStats: SavedFilterSetPnlStats;
   graphPoints: SavedFilterSetGraphPoint[];
+  // Absent on results saved before Brier scores were computed — same
+  // no-migration reality as splitA/splitB themselves (see the comment above).
+  brier?: BrierStats;
 }
 
 // filters is the raw ISP_FILTER_PARAM_NAMES string map — the exact query
@@ -472,6 +693,8 @@ export interface LiveFilterResult {
   meetingName: string;
   modelVersionId: string | null;
   pnlStats: { staked: number; returns: number; pnl: number; count: number };
+  // Absent on days captured before Brier scores were recorded.
+  brierSums?: BrierSums;
 }
 
 export interface LiveFilterResultsResponse {
@@ -495,6 +718,7 @@ export interface IspSplitResult {
   total: number;
   totalRunners: number;
   pnlStats: PnlStats;
+  brier?: BrierStats;
 }
 
 export interface RaceConvergencePoint {
@@ -519,6 +743,9 @@ export interface IspSplitsResponse {
   goings: string[];
   raceClasses: string[];
   raceTypes: string[];
+  // The whole filtered set's Brier, before either split window narrows it —
+  // the number the header shows beside the race/runner totals.
+  brier?: BrierStats;
   splitA: IspSplitResult;
   splitB: IspSplitResult;
 }
@@ -783,7 +1010,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string, subMinDate?: string, subMaxDate?: string): Promise<IspPage> {
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string, subMinDate?: string, subMaxDate?: string, minModelSpEdgePts?: number): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -812,6 +1039,7 @@ class ChatApi {
     if (runnerName) params.set("runnerName", runnerName);
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     if (modelVersionId) params.set("modelVersionId", modelVersionId);
     // Restricts an already row-ranged (fromRow/toRow) window to a calendar
     // sub-range without changing what "row N" means — see the DAO's own
@@ -827,6 +1055,50 @@ class ChatApi {
     return response.json();
   }
 
+  // Runner-level rows for the Model vs SP screen.
+  //
+  // A params OBJECT, deliberately unlike getIndustrySp above — that method has
+  // 29 positional arguments, and adding a 30th through 40th here would make the
+  // smell terminal. Matches the shape the backend DAO/service already take
+  // (getModelVsSpRunners).
+  //
+  // Every numeric is serialised with `!= null`, never a truthiness check: 0 is a
+  // legitimate value for the difference bounds (maxAbsEdge=0 means "only runners
+  // whose gap is exactly zero"), and `if (q.maxAbsEdge)` would drop it and let
+  // the server's own 100 default silently win.
+  async getModelVsSp(q: ModelVsSpQuery = {}): Promise<ModelVsSpPage> {
+    const params = new URLSearchParams();
+    const numericKeys: (keyof ModelVsSpQuery)[] = [
+      "page",
+      "limit",
+      "minModelProb",
+      "maxModelProb",
+      "minImpliedProb",
+      "maxImpliedProb",
+      "minAbsEdge",
+      "maxAbsEdge",
+      "minIsp",
+      "maxIsp",
+      "minRunners",
+      "maxRunners",
+    ];
+    for (const key of numericKeys) {
+      const value = q[key];
+      if (value != null) params.set(key, String(value));
+    }
+    if (q.sort) params.set("sort", q.sort);
+    if (q.minDate) params.set("minDate", q.minDate);
+    if (q.maxDate) params.set("maxDate", q.maxDate);
+    if (q.countries?.length) params.set("countries", q.countries.join(","));
+    // Only ever written when explicitly false — the server defaults it to true,
+    // so an absent param and `includeTotal=true` mean the same thing.
+    if (q.includeTotal === false) params.set("includeTotal", "false");
+
+    const response = await fetch(`${this.baseUrl}/api/model-vs-sp?${params}`, { headers: this.authHeader() });
+    if (!response.ok) throw new Error("Failed to fetch model vs SP");
+    return response.json();
+  }
+
   // Every model version (training params + performance metrics), newest
   // first — backs the Model Performance Dashboard's version table.
   async getModelVersions(): Promise<ModelVersionsResponse> {
@@ -835,6 +1107,50 @@ class ChatApi {
       { headers: this.authHeader() }
     );
     if (!response.ok) throw new Error("Failed to fetch model versions");
+    return response.json();
+  }
+
+  // The date window over which an out-of-sample model score exists. `data` is
+  // null when no walk-forward run has been recorded — a normal state, not an
+  // error, and the caller should then show nothing rather than a broken note.
+  // Never throws: this only ever decorates a screen with an explanatory line,
+  // so a failure here must not take the Filters screen down with it.
+  async getModelScoreCoverage(): Promise<ModelScoreCoverage | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/model-score-coverage`, { headers: this.authHeader() });
+      if (!response.ok) return null;
+      const body = (await response.json()) as { success?: boolean; data?: ModelScoreCoverage | null };
+      return body?.data ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Model win-probability accuracy, bucketed by the model's own implied price
+  // — backs the Model Accuracy screen. Auth-gated (the route sits below
+  // router.use(jwtAuth)), so an unauthenticated call 401s rather than
+  // returning a public subset.
+  async getModelAccuracy(filters: ModelAccuracyFilters = {}): Promise<ModelAccuracyResponse> {
+    const params = new URLSearchParams();
+    if (filters.minDate) params.set("minDate", filters.minDate);
+    if (filters.maxDate) params.set("maxDate", filters.maxDate);
+    if (filters.courses?.length) params.set("courses", filters.courses.join(","));
+    if (filters.goings?.length) params.set("goings", filters.goings.join(","));
+    if (filters.raceClasses?.length) params.set("raceClasses", filters.raceClasses.join(","));
+    if (filters.raceTypes?.length) params.set("raceTypes", filters.raceTypes.join(","));
+    if (filters.countries?.length) params.set("countries", filters.countries.join(","));
+    if (filters.minRunners != null) params.set("minRunners", String(filters.minRunners));
+    if (filters.maxRunners != null) params.set("maxRunners", String(filters.maxRunners));
+    // No modelVersionId: this screen reads out-of-sample probabilities, where
+    // each year's rows come from a different model by construction, so there
+    // is no single version to filter on (see model-accuracy-dao.ts).
+
+    const qs = params.toString();
+    const response = await fetch(
+      `${this.baseUrl}/api/model-accuracy${qs ? `?${qs}` : ""}`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch model accuracy");
     return response.json();
   }
 
@@ -924,7 +1240,8 @@ class ChatApi {
     minTrainerFormRunners?: number,
     maxTrainerFormRunners?: number,
     minModelWinProbability?: number,
-    onlyModelBeatsSp?: boolean
+    onlyModelBeatsSp?: boolean,
+    minModelSpEdgePts?: number
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -952,6 +1269,7 @@ class ChatApi {
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
       { headers: this.authHeader() }
@@ -986,7 +1304,8 @@ class ChatApi {
     minTrainerFormRunners?: number,
     maxTrainerFormRunners?: number,
     minModelWinProbability?: number,
-    onlyModelBeatsSp?: boolean
+    onlyModelBeatsSp?: boolean,
+    minModelSpEdgePts?: number
   ): Promise<{ success: boolean; data: RaceConvergencePoint[]; count: number }> {
     const params = new URLSearchParams({
       toRow: String(toRow),
@@ -1012,6 +1331,7 @@ class ChatApi {
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/race-convergence?${params}`,
       { headers: this.authHeader() }

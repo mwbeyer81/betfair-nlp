@@ -1,6 +1,17 @@
 import { test as base, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+// Brier scores the mocked endpoints return. 0.0871 model vs 0.0902 market —
+// the model ahead by 0.0031, the order of magnitude a real edge has on this
+// data, and far enough from a round number that a hardcoded fallback in the
+// app would stand out in a failure. `scored === priced` mirrors the real
+// industry-SP endpoints, where both scores always cover the same runners.
+const MOCK_BRIER = { scored: 1240, priced: 1240, model: 0.0871, market: 0.0902 };
+// What the backend returns when the filters match nothing: null, never 0 — 0
+// is the BEST possible Brier score, so a zero here would render a flawless
+// forecast on a screen showing no horses.
+const EMPTY_MOCK_BRIER = { scored: 0, priced: 0, model: null, market: null };
+
 async function setupApiMocks(page: Page) {
   await page.route("**/api/stats", (route) =>
     route.fulfill({ json: { success: true, data: { totalRaces: 8, totalRunners: 109 } } })
@@ -14,6 +25,25 @@ async function setupApiMocks(page: Page) {
   await page.route("**/api/auth/me", (route) =>
     route.fulfill({ json: { success: true, email: "matthew@backbet.co.uk", emailVerified: true } })
   );
+  // IndustrySpScreen fetches this once on mount to explain why a model-filtered
+  // date range outside the walk-forward window comes back empty. The dates are
+  // the real production ones, so a test picking a range before 2016 or after
+  // 2026-07-30 exercises the same edges a user hits.
+  await page.route("**/api/model-score-coverage", (route) =>
+    route.fulfill({
+      json: {
+        success: true,
+        data: {
+          oosVersionId: "wf-msw",
+          coverageMinDate: "2016-01-01",
+          coverageMaxDate: "2026-07-30",
+          scoredRows: 885089,
+          unscoredRows: 86027,
+        },
+      },
+    })
+  );
+
   await page.route("**/api/auth/resend-verification", (route) =>
     route.fulfill({ json: { success: true, alreadyVerified: false } })
   );
@@ -113,6 +143,7 @@ async function setupApiMocks(page: Page) {
         totalPages: 1,
         totalRunners: raceData.length > 0 ? 3 : 0,
         pnlStats: { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 },
+        brier: MOCK_BRIER,
         data: raceData,
       },
     });
@@ -351,9 +382,9 @@ async function setupApiMocks(page: Page) {
     going: "Good",
     ran: 3,
     runners: [
-      { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, ispFraction: "7/2", isFavourite: false, trainer: "W P Mullins", modelWinProbability: 12.5 },
-      { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, ispFraction: "41/5", isFavourite: false, trainer: "G Elliott", trainerFormRuns: 0, modelWinProbability: 8.3 },
-      { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, ispFraction: "11/10", isFavourite: true, trainer: "W P Mullins", trainerFormRuns: 14, trainerFormWins: 3, trainerFormWinRate: 21.43, modelWinProbability: 39.2 },
+      { id: 12345, name: "Springwell Bay", num: 1, draw: null, status: "LOSER", sortPriority: 1, isp: 4.5, ispFraction: "7/2", isFavourite: false, trainer: "W P Mullins", modelWinProbabilityOos: 12.5 },
+      { id: 12346, name: "Gaelic Warrior", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 9.2, ispFraction: "41/5", isFavourite: false, trainer: "G Elliott", trainerFormRuns: 0, modelWinProbabilityOos: 8.3 },
+      { id: 12347, name: "Fact To File", num: 3, draw: null, status: "WINNER", sortPriority: 3, isp: 2.1, ispFraction: "11/10", isFavourite: true, trainer: "W P Mullins", trainerFormRuns: 14, trainerFormWins: 3, trainerFormWinRate: 21.43, modelWinProbabilityOos: 39.2 },
     ],
   };
 
@@ -375,7 +406,7 @@ async function setupApiMocks(page: Page) {
     going: "Good",
     ran: 1,
     runners: [
-      { id: 99001, name: "Teston (FR)", num: 1, draw: 2, status: "PLACED", sortPriority: 1, isp: 11, ispFraction: "10/1", isFavourite: false, trainer: "Ivan Furtado", trainerFormRuns: 0, modelWinProbability: 100 },
+      { id: 99001, name: "Teston (FR)", num: 1, draw: 2, status: "PLACED", sortPriority: 1, isp: 11, ispFraction: "10/1", isFavourite: false, trainer: "Ivan Furtado", trainerFormRuns: 0, modelWinProbabilityOos: 100 },
     ],
   };
 
@@ -402,9 +433,9 @@ async function setupApiMocks(page: Page) {
       // once — the real-world worst case reported live where a runner with
       // ISP + Bet + PnL + trainer/form + Model + Value + status badges all
       // present squeezed the runner name down to an illegible sliver.
-      { id: 55501, name: "Value Bet Horse With A Longer Name", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 10, ispFraction: "9/1", isFavourite: false, trainer: "Henry Daly", trainerFormRuns: 13, trainerFormWins: 4, trainerFormWinRate: 30.77, modelWinProbability: 25 },
+      { id: 55501, name: "Value Bet Horse With A Longer Name", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 10, ispFraction: "9/1", isFavourite: false, trainer: "Henry Daly", trainerFormRuns: 13, trainerFormWins: 4, trainerFormWinRate: 30.77, modelWinProbabilityOos: 25 },
       // isp 1.5 -> implied 66.7%, model 20% -> doesn't beat SP.
-      { id: 55502, name: "Market Favourite", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 1.5, ispFraction: "1/2", isFavourite: true, modelWinProbability: 20 },
+      { id: 55502, name: "Market Favourite", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 1.5, ispFraction: "1/2", isFavourite: true, modelWinProbabilityOos: 20 },
     ],
   };
 
@@ -437,12 +468,12 @@ async function setupApiMocks(page: Page) {
       });
     }
     // Mirrors the real DAO's modelQualifyingCount check — a race qualifies
-    // if at least 1 runner has modelWinProbability >= minModelWinProbability.
+    // if at least 1 runner has modelWinProbabilityOos >= minModelWinProbability.
     if (minModelWinProbability > 0) {
       raceData = raceData.filter((race) =>
         race.runners.some(
-          (r) => (r as { modelWinProbability?: number }).modelWinProbability != null &&
-            (r as { modelWinProbability: number }).modelWinProbability >= minModelWinProbability
+          (r) => (r as { modelWinProbabilityOos?: number }).modelWinProbabilityOos != null &&
+            (r as { modelWinProbabilityOos: number }).modelWinProbabilityOos >= minModelWinProbability
         )
       );
     }
@@ -452,9 +483,9 @@ async function setupApiMocks(page: Page) {
     if (onlyModelBeatsSp) {
       raceData = raceData.filter((race) =>
         race.runners.some((r) => {
-          const runner = r as { modelWinProbability?: number; isp?: number };
-          return runner.modelWinProbability != null && runner.isp != null && runner.isp > 0 &&
-            runner.modelWinProbability > 100 / runner.isp;
+          const runner = r as { modelWinProbabilityOos?: number; isp?: number };
+          return runner.modelWinProbabilityOos != null && runner.isp != null && runner.isp > 0 &&
+            runner.modelWinProbabilityOos > 100 / runner.isp;
         })
       );
     }
@@ -466,7 +497,188 @@ async function setupApiMocks(page: Page) {
         totalPages: 1,
         totalRunners: raceData.length > 0 ? 3 : 0,
         pnlStats: { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 },
+        brier: MOCK_BRIER,
         data: raceData,
+      },
+    });
+  });
+
+  // Two extra runners in a second 2025 race, existing only for the Model vs SP
+  // screen: the three race fixtures above are each a single moment in time, so
+  // without a second date inside the same calendar year there is nothing for a
+  // date sort to order (and that endpoint caps any window at 366 days).
+  //   June Value Runner isp 5  -> SP 20.0% | model 45 -> edge +25.0
+  //   June Outsider     isp 20 -> SP  5.0% | model  1 -> edge  -4.0
+  const MODEL_VS_SP_JUNE_RACE = {
+    raceId: 667788,
+    meetingId: "Newbury|2025-06-15",
+    meetingName: "Newbury — 15 June 2025",
+    course: "Newbury",
+    countryCode: "GB",
+    raceTime: "2025-06-15T13:45:00",
+    raceName: "Newbury Stakes",
+    raceType: "Flat",
+    raceClass: "Class 4",
+    going: "Firm",
+    ran: 2,
+    runners: [
+      { id: 66601, name: "June Value Runner", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 5, ispFraction: "4/1", isFavourite: false, trainer: "A Balding", modelWinProbabilityOos: 45 },
+      { id: 66602, name: "June Outsider", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 20, ispFraction: "19/1", isFavourite: false, trainer: "A Balding", modelWinProbabilityOos: 1 },
+    ],
+  };
+
+  // Model vs SP: runner-level rows, flattened from the SAME three race fixtures
+  // above so the model/SP/edge numbers this screen asserts reconcile with the
+  // ones /isp/races' own specs already assert against those runners. Every edge
+  // below is therefore derived, not invented:
+  //
+  //   Springwell Bay   isp 4.5 -> SP 22.2% | model 12.5 -> edge  -9.7
+  //   Gaelic Warrior   isp 9.2 -> SP 10.9% | model  8.3 -> edge  -2.6
+  //   Fact To File     isp 2.1 -> SP 47.6% | model 39.2 -> edge  -8.4
+  //   Teston (FR)      isp 11  -> SP  9.1% | model  100 -> edge +90.9
+  //   Value Bet Horse  isp 10  -> SP 10.0% | model   25 -> edge +15.0
+  //   Market Favourite isp 1.5 -> SP 66.7% | model   20 -> edge -46.7
+  const MODEL_VS_SP_ROWS = [
+    MOCK_INDUSTRY_SP_RACE,
+    MOCK_NO_FORM_RACE,
+    MOCK_VALUE_MIXED_RACE,
+    MODEL_VS_SP_JUNE_RACE,
+  ].flatMap((race) =>
+    race.runners.map((r) => {
+      const runner = r as {
+        id: number; name: string; num: number | null; draw: number | null;
+        status: string; sortPriority: number; isp: number; ispFraction: string;
+        isFavourite: boolean; trainer?: string; modelWinProbabilityOos: number;
+      };
+      const implied = 100 / runner.isp;
+      return {
+        raceId: race.raceId,
+        raceTime: race.raceTime,
+        raceDate: race.raceTime.slice(0, 10),
+        meetingId: race.meetingId,
+        meetingName: race.meetingName,
+        course: race.course,
+        countryCode: race.countryCode,
+        raceName: race.raceName,
+        raceType: race.raceType,
+        raceClass: race.raceClass,
+        going: race.going,
+        runnerId: runner.id,
+        runnerName: runner.name,
+        num: runner.num,
+        draw: runner.draw,
+        sortPriority: runner.sortPriority,
+        status: runner.status,
+        isp: runner.isp,
+        ispFraction: runner.ispFraction,
+        isFavourite: runner.isFavourite,
+        jockey: null,
+        trainer: runner.trainer ?? null,
+        modelWinProbability: runner.modelWinProbabilityOos,
+        impliedSpProbability: implied,
+        edge: runner.modelWinProbabilityOos - implied,
+        modelVersionId: "xgb-msw",
+      };
+    })
+  );
+
+  // A predicate matcher on the exact pathname, not a glob: "**/api/model*"
+  // would also swallow /api/model-versions, which has its own handler.
+  await page.route((url) => url.pathname === "/api/model-vs-sp", (route) => {
+    const reqUrl = new URL(route.request().url());
+    const page_ = Math.max(1, parseInt(reqUrl.searchParams.get("page") ?? "1", 10));
+    const limit = Math.max(1, parseInt(reqUrl.searchParams.get("limit") ?? "50", 10));
+    const sort = reqUrl.searchParams.get("sort") ?? "date_desc";
+    const includeTotal = reqUrl.searchParams.get("includeTotal") !== "false";
+    const rawMinDate = reqUrl.searchParams.get("minDate") ?? "2024-01-01";
+    const rawMaxDate = reqUrl.searchParams.get("maxDate") ?? "2024-01-31";
+    // The real endpoint ALWAYS clamps the window to 366 days and echoes back what
+    // it actually queried (its gap sort is a blocking in-memory sort with no
+    // index to fall back on). Mirrored here, or these tests would pass against a
+    // wider window than production would ever serve.
+    const minDate = rawMinDate;
+    const capped = new Date(`${minDate}T00:00:00Z`);
+    capped.setUTCDate(capped.getUTCDate() + 366);
+    const maxAllowed = capped.toISOString().slice(0, 10);
+    const maxDate = rawMaxDate > maxAllowed ? maxAllowed : rawMaxDate;
+    // Unsigned, like the real endpoint: the filter asks how FAR apart the model
+    // and the market are, not which way round.
+    const minAbsEdge = parseFloat(reqUrl.searchParams.get("minAbsEdge") ?? "0");
+    const maxAbsEdge = parseFloat(reqUrl.searchParams.get("maxAbsEdge") ?? "100");
+    const minModelProb = parseFloat(reqUrl.searchParams.get("minModelProb") ?? "0");
+    const maxModelProb = parseFloat(reqUrl.searchParams.get("maxModelProb") ?? "100");
+
+    // The summary's denominator deliberately ignores the difference filter, so
+    // narrowing that filter doesn't move its own baseline.
+    const beforeEdgeFilter = MODEL_VS_SP_ROWS.filter(
+      (r) =>
+        r.raceDate >= minDate &&
+        r.raceDate <= maxDate &&
+        r.modelWinProbability >= minModelProb &&
+        r.modelWinProbability <= maxModelProb
+    );
+
+    let rows = beforeEdgeFilter.filter(
+      (r) => Math.abs(r.edge) >= minAbsEdge && Math.abs(r.edge) <= maxAbsEdge
+    );
+
+    rows = [...rows].sort((a, b) => {
+      if (sort === "edge_desc") return b.edge - a.edge;
+      if (sort === "edge_asc") return a.edge - b.edge;
+      if (sort === "date_asc") return a.raceTime.localeCompare(b.raceTime);
+      return b.raceTime.localeCompare(a.raceTime);
+    });
+
+    const total = rows.length;
+    const data = rows.slice((page_ - 1) * limit, page_ * limit);
+
+    // Mirrors buildEdgeSummary in src/lib/service/model-vs-sp-summary.ts —
+    // EDGE_BAND_BOUNDS [2, 5, 10, 20, 50] plus an open-ended tail.
+    const bounds = [2, 5, 10, 20, 50];
+    const absEdges = beforeEdgeFilter.map((r) => Math.abs(r.edge));
+    const all = absEdges.length;
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+    const pct = (n: number) => (all > 0 ? round1((n / all) * 100) : 0);
+    let running = 0;
+    const bands = [...bounds, null].map((upper, i) => {
+      const lower = i === 0 ? 0 : bounds[i - 1];
+      const count = absEdges.filter((e) => (upper == null ? e >= lower : e >= lower && e < upper)).length;
+      running += count;
+      return {
+        minAbs: lower,
+        maxAbs: upper,
+        label: upper == null ? `beyond ±${lower} pts` : lower === 0 ? `within ±${upper} pts` : `±${lower} to ±${upper} pts`,
+        count,
+        percent: pct(count),
+        cumulativePercent: upper == null ? null : pct(running),
+      };
+    });
+
+    route.fulfill({
+      json: {
+        success: true,
+        data,
+        count: data.length,
+        total: includeTotal ? total : null,
+        page: page_,
+        limit,
+        totalPages: includeTotal ? Math.ceil(total / limit) : null,
+        sort,
+        minDate,
+        maxDate,
+        summary: includeTotal
+          ? {
+              allRunners: all,
+              matchedRunners: total,
+              matchedPercent: pct(total),
+              meanAbsEdge: all > 0 ? round1(absEdges.reduce((a, b) => a + b, 0) / all) : 0,
+              bands,
+              // Scored over the MATCHED runners, not `all` — the summary's
+              // bands and its Brier deliberately have different denominators
+              // (see the `brier` comment on ModelVsSpSummary).
+              brier: total > 0 ? MOCK_BRIER : EMPTY_MOCK_BRIER,
+            }
+          : null,
       },
     });
   });
@@ -502,6 +714,7 @@ async function setupApiMocks(page: Page) {
     const matches = maxInIspRange >= 3;
     const totalRaces = matches ? 1 : 0;
     const pnlStats = matches ? { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 } : { staked: 0, returns: 0, pnl: 0, count: 0 };
+    const brier = matches ? MOCK_BRIER : EMPTY_MOCK_BRIER;
 
     const fromRowARaw = reqUrl.searchParams.get("fromRowA");
     const toRowARaw = reqUrl.searchParams.get("toRowA");
@@ -546,8 +759,9 @@ async function setupApiMocks(page: Page) {
         goings: ["Good", "Soft"],
         raceClasses: ["Class 1", "Class 2"],
         raceTypes: ["Chase", "Hurdle"],
-        splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: totalA > 0 ? 3 : 0, pnlStats: totalA > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 } },
-        splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: totalB > 0 ? 3 : 0, pnlStats: totalB > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 } },
+        brier,
+        splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: totalA > 0 ? 3 : 0, pnlStats: totalA > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 }, brier: totalA > 0 ? MOCK_BRIER : EMPTY_MOCK_BRIER },
+        splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: totalB > 0 ? 3 : 0, pnlStats: totalB > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 }, brier: totalB > 0 ? MOCK_BRIER : EMPTY_MOCK_BRIER },
       },
     });
   });
@@ -603,6 +817,7 @@ async function setupApiMocks(page: Page) {
     totalRunners: number;
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
     graphPoints: { raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[];
+    brier?: { scored: number; priced: number; model: number | null; market: number | null };
   }
   const mockSavedResults: {
     id: string;
@@ -622,6 +837,10 @@ async function setupApiMocks(page: Page) {
         total: 2,
         totalRunners: 6,
         pnlStats: { staked: 10, returns: 11, pnl: 1, count: 2 },
+        // Split A: model ahead of the market. Split B (below) has it behind,
+        // so the two cards on the detail screen render opposite verdicts from
+        // one fixture — the case a single shared number could never cover.
+        brier: { scored: 6, priced: 6, model: 0.08, market: 0.09 },
         graphPoints: [
           { raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 6, cumulativePnl: 1, roiPercent: 20 },
           { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 11, cumulativePnl: 1, roiPercent: 10 },
@@ -633,6 +852,7 @@ async function setupApiMocks(page: Page) {
         total: 2,
         totalRunners: 6,
         pnlStats: { staked: 10, returns: 6, pnl: -4, count: 2 },
+        brier: { scored: 6, priced: 6, model: 0.11, market: 0.09 },
         graphPoints: [
           { raceRowNumber: 3, cumulativeStaked: 5, cumulativeReturns: 5, cumulativePnl: 0, roiPercent: 0 },
           { raceRowNumber: 4, cumulativeStaked: 10, cumulativeReturns: 6, cumulativePnl: -4, roiPercent: -40 },
@@ -700,6 +920,34 @@ async function setupApiMocks(page: Page) {
     }
     route.fulfill({ json: { success: true, data: mockSavedResults[index] } });
   });
+
+  // Model Accuracy screen. Deliberately shaped like a real result: well
+  // calibrated in the middle, over-rating long shots, so the error columns
+  // genuinely differ row to row rather than all reading zero.
+  await page.route((url) => url.pathname === "/api/model-accuracy", (route) => {
+    const bands = [
+      { bandKey: "50.0000", label: "under 2.0", minPrice: null, maxPrice: 2, runners: 412, wins: 241, modelMeanProb: 61.2, actualWinRate: 58.5, marketMeanProbFair: 60.1, marketMeanProbRaw: 64.8, staked: 402.1, returns: 393.9, pnl: -8.2, roiPercent: -2.04, modelErrorPp: 2.7, marketErrorPp: 1.6, modelBrier: 0.221, marketBrier: 0.216 },
+      { bandKey: "33.3333", label: "2.0 – 3.0", minPrice: 2, maxPrice: 3, runners: 780, wins: 295, modelMeanProb: 39.1, actualWinRate: 37.8, marketMeanProbFair: 38.4, marketMeanProbRaw: 42.6, staked: 690.4, returns: 694.5, pnl: 4.1, roiPercent: 0.59, modelErrorPp: 1.3, marketErrorPp: 0.6, modelBrier: 0.201, marketBrier: 0.198 },
+      { bandKey: "20.0000", label: "3.0 – 5.0", minPrice: 3, maxPrice: 5, runners: 1340, wins: 253, modelMeanProb: 25, actualWinRate: 18.9, marketMeanProbFair: 22.1, marketMeanProbRaw: 25.4, staked: 512.3, returns: 451, pnl: -61.3, roiPercent: -11.96, modelErrorPp: 6.1, marketErrorPp: 3.2, modelBrier: 0.176, marketBrier: 0.161 },
+      { bandKey: "10.0000", label: "5.0 – 10.0", minPrice: 5, maxPrice: 10, runners: 2100, wins: 290, modelMeanProb: 14.2, actualWinRate: 13.8, marketMeanProbFair: 13.5, marketMeanProbRaw: 15.8, staked: 402.9, returns: 425.6, pnl: 22.7, roiPercent: 5.63, modelErrorPp: 0.4, marketErrorPp: -0.3, modelBrier: 0.118, marketBrier: 0.119 },
+      { bandKey: "5.0000", label: "10.0 – 20.0", minPrice: 10, maxPrice: 20, runners: 2650, wins: 135, modelMeanProb: 6.8, actualWinRate: 5.1, marketMeanProbFair: 5.9, marketMeanProbRaw: 7.1, staked: 220.5, returns: 180.4, pnl: -40.1, roiPercent: -18.19, modelErrorPp: 1.7, marketErrorPp: 0.8, modelBrier: 0.049, marketBrier: 0.047 },
+      { bandKey: "0.0000", label: "20.0+", minPrice: 20, maxPrice: null, runners: 3900, wins: 66, modelMeanProb: 2.9, actualWinRate: 1.7, marketMeanProbFair: 2.2, marketMeanProbRaw: 2.9, staked: 180, returns: 85, pnl: -95, roiPercent: -52.78, modelErrorPp: 1.2, marketErrorPp: 0.5, modelBrier: 0.017, marketBrier: 0.016 },
+    ];
+    const overall = { bandKey: "overall", label: "All bands", minPrice: null, maxPrice: null, runners: 11182, wins: 1280, modelMeanProb: 11.4, actualWinRate: 11.4, marketMeanProbFair: 11, marketMeanProbRaw: 12.9, staked: 2408.2, returns: 2230.4, pnl: -177.8, roiPercent: -7.38, modelErrorPp: 0, marketErrorPp: -0.4, modelBrier: 0.0921, marketBrier: 0.0904 };
+    // 11,182 of 12,000 eligible runners could be scored out-of-sample; the
+    // remaining 818 are the earliest races, with no prior form behind them.
+    const coverage = {
+      eligibleRunners: 12000,
+      scoredRunners: 11182,
+      unscoredRunners: 818,
+      coveragePercent: 93.18,
+    };
+    route.fulfill({ json: { success: true, data: bands, count: bands.length, overall, coverage } });
+  });
+
+  await page.route((url) => url.pathname === "/api/model-versions", (route) =>
+    route.fulfill({ json: { success: true, data: [], count: 0 } })
+  );
 }
 
 // Fake JWT with exp=9999999999 (year 2286) — satisfies isTokenExpired() check in App.tsx

@@ -67,6 +67,9 @@ packages/shared/dist/
 ml/venv/
 ml/__pycache__/
 ml/models/
+# walk_forward_score.py's pickled copy of the runner frame — a ~750MB read
+# off Atlas, cached so a re-run doesn't pay for it twice. Derived data.
+ml/.cache/
 **/__pycache__/
 *.pyc
 

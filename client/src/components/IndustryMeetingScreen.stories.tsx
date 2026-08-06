@@ -69,7 +69,7 @@ const FILTERED_MOCK_RACES = [
   {
     ...MOCK_RACES[0],
     runners: [
-      { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true, modelWinProbability: 60 },
+      { id: 21001, name: "Galopin Des Champs", num: 1, draw: null, status: "WINNER", sortPriority: 1, isp: 1.95, ispFraction: "19/20", isFavourite: true, modelWinProbabilityOos: 60 },
       { id: 21002, name: "Meetingofthewaters", num: 2, draw: null, status: "LOSER", sortPriority: 2, isp: 5.5, ispFraction: "9/2", isFavourite: false },
     ],
   },

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { View, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
 import { Text, Button, ActivityIndicator } from "react-native-paper";
-import { chatApi, IspRace, IspRunner } from "../services/chatApi";
+import { chatApi, IspRace, IspRunner, BrierStats } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
+import { BrierScore } from "./BrierScore";
 import type { Route } from "../hooks/useRouter";
 import {
   stakeToWin1,
@@ -26,6 +27,8 @@ import {
   toFormCategory,
   OddsMode,
   modelBeatsSp,
+  modelBeatsSpBy,
+  modelProb,
   impliedProbabilityPct,
 } from "../utils/ispFormat";
 import {
@@ -225,6 +228,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [totalRaces, setTotalRaces] = useState(0);
+  const [brier, setBrier] = useState<BrierStats | undefined>(undefined);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">(() => urlSortParam());
   const [oddsMode, setOddsMode] = useState<OddsMode>("fraction");
   // Every year header renders immediately from the filter's own date range
@@ -301,6 +305,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   const maxTrainerFormRunners = 100;
   const minModelWinProbability = urlFloatParam("minModelWinProbability", 0);
   const onlyModelBeatsSp = urlStringParam("onlyModelBeatsSp", "") === "true";
+  const minModelSpEdgePts = urlFloatParam("minModelSpEdgePts", 0);
 
   // Absent minDate/maxDate means "unbounded" (see IspRacesScreen's own
   // fallback of "" — deliberately not FILTER_DEFAULTS' arbitrary
@@ -349,9 +354,15 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         // own literal start (e.g. a Jan-Dec 2024 filter whose earliest
         // qualifying race happens to be in July doesn't mean January isn't
         // still the natural place a user expects to land).
-        const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp);
+        const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, undefined, undefined, minModelSpEdgePts);
         if (cancelled) return;
         setTotalRaces(probe.total);
+        // Covers the WHOLE row range, not this one probe page: the Brier
+        // branch of the aggregation runs over the row-ranged document stream
+        // before the $facet's data branch pages it, so it is page-independent
+        // exactly like `total` beside it. That is what makes it safe to set
+        // once here and never touch again as the tree loads more days.
+        setBrier(probe.brier);
         if (probe.data.length === 0) {
           setIsLoading(false);
           return;
@@ -398,7 +409,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     }));
     try {
       const { from, to } = dayBounds(dayKey, effectiveMinDate, effectiveMaxDate);
-      const result = await chatApi.getIndustrySp(nextPage, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to);
+      const result = await chatApi.getIndustrySp(nextPage, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
       setDayStates(prev => {
         const prevRaces = prev[dayKey]?.races ?? [];
         const seen = new Set(prevRaces.map(r => r.raceId));
@@ -429,7 +440,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     setInitializedMonths(prev => new Set(prev).add(monthKey));
     const { from, to } = monthBounds(monthKey, effectiveMinDate, effectiveMaxDate);
     try {
-      const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to);
+      const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
       if (probe.data.length === 0) return;
       const startDays = [...new Set(probe.data.map(r => raceDayKey(r.raceTime)))].sort();
       // Only the *first* day with data gets loaded, even when this probe's
@@ -478,7 +489,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     setInitializedYears(prev => new Set(prev).add(year));
     const { from, to } = yearBounds(year, effectiveMinDate, effectiveMaxDate);
     try {
-      const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to);
+      const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
       if (probe.data.length === 0) return;
       const startMonths = new Set(probe.data.map(r => raceMonthKey(r.raceTime)));
       // Every month strictly before the earliest one actually present is
@@ -521,10 +532,21 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       if (hasTrainerForm && !(r.trainerFormWinRate != null && r.trainerFormWinRate >= trainerFormMinWinRate)) {
         return false;
       }
-      if (minModelWinProbability > 0 && !(r.modelWinProbability != null && r.modelWinProbability >= minModelWinProbability)) {
+      // modelProb(), never r.modelWinProbability — the server matched these
+      // races on MODEL_PROB_FIELD (the out-of-sample estimate), so re-filtering
+      // its runners on the in-sample field selects a *different* set from the
+      // one the race list was built from. Reported live via screenshot: the
+      // same saved result read -25.8% on the Filters screen (server, honest
+      // field) and +30.6% in this screen's year rollup (client, in-sample
+      // field) — reproduced against prod as -11.2% vs +12.3% ROI over an
+      // identical 100 races. See modelProb()'s own comment in ispFormat.ts.
+      if (minModelWinProbability > 0 && !((modelProb(r) ?? -1) >= minModelWinProbability)) {
         return false;
       }
       if (onlyModelBeatsSp && !modelBeatsSp(r)) {
+        return false;
+      }
+      if (minModelSpEdgePts > 0 && !modelBeatsSpBy(r, minModelSpEdgePts)) {
         return false;
       }
       return true;
@@ -707,8 +729,20 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // where there is, walking it at every level on every render is the exact
   // cost that padding-out was removed to avoid. `probed` answers the only
   // question the label actually needs: has anything gone and looked?
+  // "loaded", not a bare count, because the P&L badge rendered immediately to
+  // its right is a groupPnl() over exactly these races — and a group can only
+  // ever roll up what has actually been fetched (days load one at a time, and
+  // paginate within themselves). Reported live via screenshot: a year header
+  // reading "2024 · 20 races · +£2.55 (+30.6%)" directly under a filter whose
+  // own card said 675 races and -25.8%; the +30.6% was a true number over 20
+  // races wearing the clothes of a year total. The exact per-level shortfall
+  // isn't knowable cheaply (only days carry a server-side `total`, and a
+  // collapsed month doesn't even build its day list — see the hierarchy
+  // comment above for why that padding-out was removed), but "loaded" is
+  // unconditionally true at every level and is the part that was missing.
+  // The screen header's own `N/total races` supplies the magnitude.
   function rollupCountLabel(loadedRaces: number, probed: boolean, anyLoading: boolean): string {
-    if (loadedRaces > 0) return `${loadedRaces} races`;
+    if (loadedRaces > 0) return `${loadedRaces} races loaded`;
     if (anyLoading) return "Loading…";
     if (!probed) return "Tap to load";
     return "0 races";
@@ -731,8 +765,19 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // and there's genuinely nothing here". Days are where the real fetch state
   // now lives, so this is the one level that reads it directly.
   function dayCountLabel(day: DayNode<IspRace>): string {
-    if (day.items.length > 0) return `${day.items.length} races`;
-    const state = dayStates[day.key];
+    const dayState = dayStates[day.key];
+    if (day.items.length > 0) {
+      // The one level that can say this precisely rather than just flagging
+      // it (see rollupCountLabel): a day owns the server-side `total` for its
+      // own sub-date range, so a day that has fetched every page of itself is
+      // genuinely complete and its P&L badge needs no qualifier. Compared on
+      // state.races (everything fetched) rather than day.items (what survives
+      // the client-side qualifyingRunners narrowing) — total counts the
+      // former, so anything else would read as permanently short.
+      const complete = dayState?.total != null && dayState.races.length >= dayState.total;
+      return complete ? `${day.items.length} races` : `${day.items.length} races loaded`;
+    }
+    const state = dayState;
     if (state?.isLoading) return "Loading…";
     // A failed fetch leaves state.total unset (see loadDayPage's catch) —
     // check error before the generic "state exists" fallback below, or a
@@ -790,6 +835,18 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
           {isAllCollapsed ? "Expand All" : "Collapse All"}
         </Button>
       </View>
+
+      {/*
+        Scores the entire filtered row range, not the days currently expanded
+        below — the same set the header's race/runner counts describe. Placed
+        above the tree so it reads as a property of the filter, not of
+        whichever year happens to be open.
+      */}
+      {!isLoading && !error && (
+        <View testID="industry-sp-races-brier-row" style={styles.brierRow}>
+          <BrierScore brier={brier} testID="industry-sp-races-brier" label="Brier (filtered)" />
+        </View>
+      )}
 
       <View style={styles.body}>
         {isLoading && (
@@ -981,9 +1038,9 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                                                 </Text>
                                               </TouchableOpacity>
                                             )}
-                                            {runner.modelWinProbability != null && (
+                                            {modelProb(runner) != null && (
                                               <Text testID={`industry-sp-item-model-${runner.id}`} style={styles.modelBadge}>
-                                                Model {runner.modelWinProbability.toFixed(0)}%
+                                                Model {(modelProb(runner) as number).toFixed(0)}%
                                                 {runner.isp != null && runner.isp > 0 && (
                                                   <Text testID={`industry-sp-item-implied-sp-${runner.id}`} style={styles.impliedSpBadge}>
                                                     {` · SP ${impliedProbabilityPct(runner.isp).toFixed(0)}%`}
@@ -1096,6 +1153,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: colors.primary,
+  },
+  brierRow: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
   },
   body: {
     flex: 1,

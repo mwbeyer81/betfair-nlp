@@ -3,6 +3,8 @@ import { View, ScrollView, StyleSheet, SafeAreaView, TouchableOpacity } from "re
 import { Text, Button, ActivityIndicator, Surface, IconButton, Chip } from "react-native-paper";
 import Svg, { Path } from "react-native-svg";
 import { chatApi, SavedFilterSet, SavedFilterSetPnlStats, SavedFilterSetSplit } from "../services/chatApi";
+import { BrierScore } from "./BrierScore";
+import { combineBrierStats } from "../utils/brierFormat";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
 import { useResponsive } from "../utils/responsive";
@@ -173,6 +175,10 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
               {sorted.map(result => {
                 const legacy = isLegacyResult(result);
                 const pnl = legacy ? null : combinedPnlStats(result);
+                // Both splits together — the same "whole saved set" scope the
+                // P&L headline beside it uses, so the two numbers on the card
+                // describe the same horses.
+                const brier = legacy ? undefined : combineBrierStats(result.splitA!.brier, result.splitB!.brier);
                 const pnlPositive = pnl != null && pnl.pnl >= 0;
                 const deleteRow = confirmDeleteId === result.id && (
                   <View style={styles.confirmDeleteRow}>
@@ -261,6 +267,7 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
                             </View>
                             <Sparkline points={result.splitA!.graphPoints} />
                           </View>
+                          <BrierScore brier={brier} testID={`saved-results-item-${result.id}-brier`} />
                           {deleteRow}
                         </Surface>
                       </TouchableOpacity>

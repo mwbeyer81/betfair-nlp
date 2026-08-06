@@ -4,6 +4,7 @@ import { LiveFilterResultDAO, LiveFilterResultDocument } from "../dao/live-filte
 import { SavedFilterSetDAO } from "../dao/saved-filter-set-dao";
 import { IndustrySpService } from "./industry-sp-service";
 import { computeSnapshotParamsFromFilters } from "./saved-filter-set-service";
+import type { BrierSums } from "./brier";
 
 export interface LiveFilterResultApiResponse {
   raceDate: string;
@@ -14,6 +15,9 @@ export interface LiveFilterResultApiResponse {
   meetingName: string;
   modelVersionId: string | null;
   pnlStats: { staked: number; returns: number; pnl: number; count: number };
+  // Undefined on rows captured before Brier scores were recorded — see the
+  // field comment on LiveFilterResultDocument.
+  brierSums?: BrierSums;
 }
 
 function toApiResponse(doc: LiveFilterResultDocument): LiveFilterResultApiResponse {
@@ -26,6 +30,7 @@ function toApiResponse(doc: LiveFilterResultDocument): LiveFilterResultApiRespon
     meetingName: doc.meetingName,
     modelVersionId: doc.modelVersionId,
     pnlStats: doc.pnlStats,
+    brierSums: doc.brierSums,
   };
 }
 
@@ -83,6 +88,7 @@ export class LiveFilterResultService {
         maxTrainerFormRunners: params.maxTrainerFormRunners,
         minModelWinProbability: params.minModelWinProbability,
         onlyModelBeatsSp: params.onlyModelBeatsSp,
+        minModelSpEdgePts: params.minModelSpEdgePts,
       });
 
       if (races.length === 0) continue;
@@ -99,6 +105,7 @@ export class LiveFilterResultService {
           meetingId: r.meetingId,
           meetingName: r.meetingName,
           pnlStats: r.pnlStats,
+          brierSums: r.brierSums,
           capturedAt: new Date().toISOString(),
         }))
       );

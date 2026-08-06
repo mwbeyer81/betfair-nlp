@@ -110,6 +110,8 @@ function mapRunner(raw: RawRunner, raceId: string, idx: number, prediction?: Run
     beatenDistance: toNullableFloat(raw.ovr_btn),
     comment: (raw.comment || "").trim() || null,
     modelWinProbability: prediction?.modelWinProbability ?? null,
+    // Same number, written twice on purpose — see RunnerDoc.modelWinProbabilityOos.
+    modelWinProbabilityOos: prediction?.modelWinProbability ?? null,
     modelVersionId: prediction?.modelVersionId ?? null,
   };
 }

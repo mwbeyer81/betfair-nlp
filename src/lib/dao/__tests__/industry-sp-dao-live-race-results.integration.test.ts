@@ -46,9 +46,9 @@ describe("IndustrySpDAO.getQualifyingRacesForDate (integration)", () => {
     // the old meeting-level aggregation used to — plus one at a different
     // meeting (Newmarket), plus a fourth race on a different date at one of
     // the same meetings — the date scoping must exclude that entirely, not
-    // just fail to group it. Runner A (isp 2, WINNER, modelWinProbability
+    // just fail to group it. Runner A (isp 2, WINNER, modelWinProbabilityOos
     // 60) beats SP (60% > 100/2=50%); Runner B (isp 4, LOSER,
-    // modelWinProbability 20) does not (20% < 100/4=25%).
+    // modelWinProbabilityOos 20) does not (20% < 100/4=25%).
     await db.collection("industry_starting_prices").insertMany([
       {
         _id: 1,
@@ -66,8 +66,8 @@ describe("IndustrySpDAO.getQualifyingRacesForDate (integration)", () => {
         ran: 2,
         runnersWithIspCount: 2,
         runners: [
-          { id: 101, name: "Runner A", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, modelWinProbability: 60, modelVersionId: "xgb-live-1" },
-          { id: 102, name: "Runner B", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 4, ispFraction: "3/1", isFavourite: false, modelWinProbability: 20, modelVersionId: "xgb-live-1" },
+          { id: 101, name: "Runner A", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, modelWinProbabilityOos: 60, modelVersionId: "xgb-live-1" },
+          { id: 102, name: "Runner B", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 4, ispFraction: "3/1", isFavourite: false, modelWinProbabilityOos: 20, modelVersionId: "xgb-live-1" },
         ],
       },
       {
@@ -86,7 +86,7 @@ describe("IndustrySpDAO.getQualifyingRacesForDate (integration)", () => {
         ran: 1,
         runnersWithIspCount: 1,
         runners: [
-          { id: 111, name: "Runner F", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 3, ispFraction: "2/1", isFavourite: true, modelWinProbability: 80, modelVersionId: "xgb-live-1" },
+          { id: 111, name: "Runner F", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 3, ispFraction: "2/1", isFavourite: true, modelWinProbabilityOos: 80, modelVersionId: "xgb-live-1" },
         ],
       },
       {
@@ -105,8 +105,8 @@ describe("IndustrySpDAO.getQualifyingRacesForDate (integration)", () => {
         ran: 2,
         runnersWithIspCount: 2,
         runners: [
-          { id: 201, name: "Runner C", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 3, ispFraction: "2/1", isFavourite: true, modelWinProbability: 50, modelVersionId: "xgb-live-1" },
-          { id: 202, name: "Runner D", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbability: 10, modelVersionId: "xgb-live-1" },
+          { id: 201, name: "Runner C", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 3, ispFraction: "2/1", isFavourite: true, modelWinProbabilityOos: 50, modelVersionId: "xgb-live-1" },
+          { id: 202, name: "Runner D", num: 2, draw: 2, status: "LOSER", sortPriority: 2, isp: 5, ispFraction: "4/1", isFavourite: false, modelWinProbabilityOos: 10, modelVersionId: "xgb-live-1" },
         ],
       },
       {
@@ -125,7 +125,7 @@ describe("IndustrySpDAO.getQualifyingRacesForDate (integration)", () => {
         ran: 2,
         runnersWithIspCount: 2,
         runners: [
-          { id: 301, name: "Runner E", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, modelWinProbability: 90, modelVersionId: "xgb-live-1" },
+          { id: 301, name: "Runner E", num: 1, draw: 1, status: "WINNER", sortPriority: 1, isp: 2, ispFraction: "1/1", isFavourite: true, modelWinProbabilityOos: 90, modelVersionId: "xgb-live-1" },
         ],
       },
     ] as any[]);

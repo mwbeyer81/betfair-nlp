@@ -1,4 +1,6 @@
-import { IndustrySpDAO, IspRace, IspFilterBounds } from "../dao/industry-sp-dao";
+import { IndustrySpDAO, IspRace, IspFilterBounds, ModelVsSpParams, ModelVsSpRow } from "../dao/industry-sp-dao";
+import type { BrierStats, BrierSums } from "./brier";
+import type { ModelVsSpSummary } from "./model-vs-sp-summary";
 import { DatabaseConnection } from "../../config/database";
 
 export class IndustrySpService {
@@ -46,12 +48,14 @@ export class IndustrySpService {
     onlyModelBeatsSp = false,
     modelVersionId: string | null = null,
     subMinRaceTime: string | null = null,
-    subMaxRaceTime: string | null = null
+    subMaxRaceTime: string | null = null,
+    minModelSpEdgePts = 0
   ): Promise<{
     data: IspRace[];
     total: number;
     totalRunners: number;
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    brier: BrierStats;
   }> {
     return this.industrySpDAO.getAllRacesByRace(
       page,
@@ -82,7 +86,8 @@ export class IndustrySpService {
       onlyModelBeatsSp,
       modelVersionId,
       subMinRaceTime,
-      subMaxRaceTime
+      subMaxRaceTime,
+      minModelSpEdgePts
     );
   }
 
@@ -142,7 +147,8 @@ export class IndustrySpService {
     // fromRowA/toRowA/fromRowB/toRowB the caller supplies — an anonymous
     // caller can't just ask for a bigger window directly, since the whole
     // point of the cap is that it's enforced server-side.
-    raceCap = 10000
+    raceCap = 10000,
+    minModelSpEdgePts = 0
   ): Promise<{
     totalRaces: number;
     totalRunners: number;
@@ -153,12 +159,16 @@ export class IndustrySpService {
     goings: string[];
     raceClasses: string[];
     raceTypes: string[];
+    // The grand total's own Brier — over every race the filters match, before
+    // either split window narrows it. The splits carry their own below.
+    brier: BrierStats;
     splitA: {
       fromRow: number;
       toRow: number | null;
       total: number;
       totalRunners: number;
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
+      brier: BrierStats;
     };
     splitB: {
       fromRow: number;
@@ -166,6 +176,7 @@ export class IndustrySpService {
       total: number;
       totalRunners: number;
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
+      brier: BrierStats;
     };
   }> {
     // filterBounds/countryCodes are independent of every filter param and
@@ -177,7 +188,7 @@ export class IndustrySpService {
           1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null,
           minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
           trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-          onlyModelBeatsSp
+          onlyModelBeatsSp, null, null, null, minModelSpEdgePts
         ),
         // Deliberately dataset-global, not date-scoped — these are slider/
         // dropdown bounds (available countries, runner/ISP ranges), and
@@ -248,13 +259,13 @@ export class IndustrySpService {
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromA, effToA,
         minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-        onlyModelBeatsSp
+        onlyModelBeatsSp, null, null, null, minModelSpEdgePts
       ),
       this.industrySpDAO.getAllRacesByRace(
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromB, effToB,
         minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-        onlyModelBeatsSp
+        onlyModelBeatsSp, null, null, null, minModelSpEdgePts
       ),
     ]);
 
@@ -268,8 +279,9 @@ export class IndustrySpService {
       goings: goingValues,
       raceClasses: raceClassValues,
       raceTypes: raceTypeValues,
-      splitA: { fromRow: effFromA, toRow: effToA, total: resultA.total, totalRunners: resultA.totalRunners, pnlStats: resultA.pnlStats },
-      splitB: { fromRow: effFromB, toRow: effToB, total: resultB.total, totalRunners: resultB.totalRunners, pnlStats: resultB.pnlStats },
+      brier: grand.brier,
+      splitA: { fromRow: effFromA, toRow: effToA, total: resultA.total, totalRunners: resultA.totalRunners, pnlStats: resultA.pnlStats, brier: resultA.brier },
+      splitB: { fromRow: effFromB, toRow: effToB, total: resultB.total, totalRunners: resultB.totalRunners, pnlStats: resultB.pnlStats, brier: resultB.brier },
     };
   }
 
@@ -304,13 +316,14 @@ export class IndustrySpService {
     minModelWinProbability = 0,
     onlyModelBeatsSp = false,
     fromRow = 1,
-    toRow: number
+    toRow: number,
+    minModelSpEdgePts = 0
   ): Promise<{ raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[]> {
     const points = await this.industrySpDAO.getRaceConvergenceSeries(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-      minModelWinProbability, onlyModelBeatsSp, Math.max(1, fromRow), toRow
+      minModelWinProbability, onlyModelBeatsSp, Math.max(1, fromRow), toRow, minModelSpEdgePts
     );
 
     return points.map(p => ({
@@ -342,6 +355,7 @@ export class IndustrySpService {
     maxTrainerFormRunners: number;
     minModelWinProbability: number;
     onlyModelBeatsSp: boolean;
+    minModelSpEdgePts?: number;
   }): Promise<
     {
       raceId: number;
@@ -352,9 +366,24 @@ export class IndustrySpService {
       raceDate: string;
       modelVersionId: string | null;
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
+      brierSums: BrierSums;
     }[]
   > {
     return this.industrySpDAO.getQualifyingRacesForDate(p);
+  }
+
+  /**
+   * Runner-level rows for the Model vs SP screen. A plain pass-through — unlike
+   * getSplitStats above, which exists specifically to collapse several DAO calls
+   * into one round trip, this endpoint issues at most two queries and the DAO
+   * already runs them sequentially. Wrapping them in a Promise.all here would
+   * work against the very M0 concurrency ceiling getSplitStats was written to
+   * respect, so deliberately don't.
+   */
+  public async getModelVsSpRunners(
+    p: ModelVsSpParams
+  ): Promise<{ rows: ModelVsSpRow[]; total: number | null; summary: ModelVsSpSummary | null }> {
+    return this.industrySpDAO.getModelVsSpRunners(p);
   }
 
   public async getRacesByMeetingId(meetingId: string): Promise<IspRace[]> {

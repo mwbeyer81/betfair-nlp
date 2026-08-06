@@ -87,6 +87,32 @@ test.describe("Saved Results — MSW mocked network", () => {
     expect(page.url()).toContain("minDate=2026-01-01");
   });
 
+  // Reported live 2026-08-04 (app.backbet.co.uk build 7beb6d8): opening a
+  // saved Result, tapping "Details" on a split, then tapping the big
+  // "View N Races →" button at the bottom of the panel did nothing at all.
+  // SavedResultDetailScreen rendered the shared SplitDetailPanel with
+  // `onViewRaces={() => {}}` — the button was inert by construction, with
+  // no visual hint of it. Confirmed against the deployed bundle by
+  // scripts/prod-repro/saved-result-view-races-noop-2026-08-04.spec.ts.
+  test("View Races from a split's detail panel opens /isp/races with that split's range and the saved filters", async ({ page }) => {
+    await page.getByTestId("saved-results-item-mock-result-1").click();
+    await expect(page.getByTestId("saved-result-detail-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("saved-result-split-details-button-b").click();
+    await expect(page.getByTestId("split-detail-panel-b")).toBeVisible();
+    await page.getByTestId("split-detail-view-races-button-b").click();
+
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
+    // Split B's own 3–4 — not Split A's 1–2, and not an unbounded list.
+    expect(page.url()).toContain("fromRow=3");
+    expect(page.url()).toContain("toRow=4");
+    // The saved result's filters have to ride along too: this screen's URL
+    // is only ?id=mock-result-1, so unlike the /isp path there is no
+    // window.location.search to copy them out of.
+    expect(page.url()).toContain("courses=Ascot");
+    expect(page.url()).toContain("minDate=2026-01-01");
+  });
+
   test("delete from the detail view removes the result and returns to the list", async ({ page }) => {
     await page.getByTestId("saved-results-item-mock-result-2").click();
     await expect(page.getByTestId("saved-result-detail-screen")).toBeVisible({ timeout: 10000 });

@@ -35,7 +35,7 @@ const FEATURE_COLS = [
   "distance", "ran", "num", "draw", "officialRating", "wgt", "age", "daysSinceLastRun",
 ];
 
-// How noisy each version's modelWinProbability is relative to the race's
+// How noisy each version's out-of-sample model probability is relative to the race's
 // "true" latent strength — lower noise means the model's probability tracks
 // actual outcomes more tightly, which is what makes the highest-AUC version's
 // "with model" P&L look meaningfully better than the baseline. Not derived
@@ -108,7 +108,7 @@ const MODEL_VERSIONS: ModelVersion[] = [
 // real IspRace/IspRunner types, so the component can compute "without model"
 // P&L via the existing computeRangePnl with zero new code, and "with model"
 // via computeModelFilteredPnl. Winners are chosen by a weighted-random draw
-// on 1/isp (favourites win more, like a real market) — modelWinProbability
+// on 1/isp (favourites win more, like a real market) — modelWinProbabilityOos
 // is the same latent strength perturbed by this version's own noise level.
 function mockRacesForModelVersion(version: ModelVersion, count = 130): IspRace[] {
   const rng = seededRandom(hashCode(version.id));
@@ -183,7 +183,7 @@ function mockRacesForModelVersion(version: ModelVersion, count = 130): IspRace[]
         isFavourite: r === favIdx,
         trainer: TRAINERS[Math.floor(rng() * TRAINERS.length)],
         jockey: JOCKEYS[Math.floor(rng() * JOCKEYS.length)],
-        modelWinProbability: (perturbed[r] / perturbedSum) * 100,
+        modelWinProbabilityOos: (perturbed[r] / perturbedSum) * 100,
       });
     }
 
@@ -460,7 +460,7 @@ export const SwitchingModelVersionRecomputesPnlComparison: Story = {
 
 export const WithModelBeatsWithoutModelForTheHighestAucVersion: Story = {
   // Protects the core value-proposition semantics baked into the mock data:
-  // the highest-AUC version's modelWinProbability tracks actual outcomes
+  // the highest-AUC version's modelWinProbabilityOos tracks actual outcomes
   // tightly enough that only staking on runners it likes should out-perform
   // staking on everything.
   play: async ({ canvasElement }) => {
