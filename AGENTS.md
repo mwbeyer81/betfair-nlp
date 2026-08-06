@@ -6442,6 +6442,18 @@ the same param names off the query string either way.
 **Verified:** `yarn build` clean; Storybook 22/22 on `SavedResultDetailScreen`
 (new `ViewRacesButtonNavigatesWithThisSplitsRangeAndFilters` pins Split B's own
 3–4 range *and* the saved filters riding along); `tests-msw/saved-results.spec.ts`
-15/15 on a claimed port. **Not yet deployed** — the prod-repro script still
-fails against production until `/deploy-web` runs; re-run it once to confirm the
-fix landed, then leave it.
+15/15 on a claimed port.
+
+**Merged, pushed and deployed** (2026-08-06). Commit `822a009` on `develop`,
+fast-forward — nothing had diverged, since the concurrent session above was
+committing directly in this same checkout. `/deploy-web` shipped
+`develop@a6167ed` (my commit plus one later docs commit) to
+`app.backbet.co.uk`; `build-commit` meta confirms `a6167ed` live. The
+prod-repro script, which failed by design before, now **passes** against the
+deployed bundle — the button navigates to `/isp/races` with `fromRow=1`,
+`toRow=675` and every saved filter carried through. Left in place per the
+prod-repro convention; not maintained going forward.
+
+`main`/`backbet.co.uk` was deliberately **not** promoted — the user scoped this
+to `app.backbet.co.uk` only when asked, so the public site is still on its
+previous build and does not have this fix.
