@@ -194,7 +194,9 @@ test.describe("Industry SP races screen — per-month direct loading, data-drive
 
     await page.getByTestId("industry-sp-year-load-2025").click();
 
-    await expect(page.getByTestId("industry-sp-year-count-2025")).toHaveText("1 races loaded", { timeout: 10000 });
+    // The server's own count for the whole 2025 window, not the one day the
+    // load chain paged in (isp-races-rollup-mismatch).
+    await expect(page.getByTestId("industry-sp-year-count-2025")).toHaveText("3 races", { timeout: 10000 });
     // Loaded, and still shut — none of 2025's months rendered.
     await expect(page.getByTestId("industry-sp-month-2025-06")).not.toBeVisible();
     // Its own tap target is gone now it has a real count; the row toggle
@@ -206,7 +208,7 @@ test.describe("Industry SP races screen — per-month direct loading, data-drive
 
   test("tapping a month's Tap to load count fetches it and leaves the row collapsed", async ({ page }) => {
     await page.goto("/isp/races?minDate=2024-01-01&maxDate=2025-12-31");
-    await expect(page.getByTestId("industry-sp-year-count-2024")).toHaveText("2 races loaded", { timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-year-count-2024")).toHaveText("45 races", { timeout: 10000 });
     await page.getByTestId("industry-sp-year-toggle-2024").click();
     await expect(page.getByTestId("industry-sp-month-count-2024-07")).toHaveText("Tap to load");
 
@@ -217,7 +219,7 @@ test.describe("Industry SP races screen — per-month direct loading, data-drive
     await expect(page.getByTestId("industry-sp-month-count-2024-07")).toHaveText("0 races", { timeout: 10000 });
     await expect(page.getByTestId("industry-sp-day-2024-07-01")).not.toBeVisible();
     // June, the month the mount chain landed on, is untouched by the tap.
-    await expect(page.getByTestId("industry-sp-month-count-2024-06")).toHaveText("2 races loaded");
+    await expect(page.getByTestId("industry-sp-month-count-2024-06")).toHaveText("45 races");
   });
 
   test("Expand All loads every year's own real starting month, not its calendar-first one", async ({ page }) => {
