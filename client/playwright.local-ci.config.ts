@@ -12,7 +12,7 @@ export default defineConfig({
   workers: 1,
   reporter: "line",
   use: {
-    baseURL: "http://localhost:8090",
+    baseURL: process.env.LOCAL_CI_APP_URL ?? "http://localhost:8090",
     trace: "on-first-retry",
   },
   projects: [

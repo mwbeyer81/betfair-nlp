@@ -1044,6 +1044,44 @@ export const TappingAYearsTapToLoadCountLoadsItWithoutExpanding: Story = {
   },
 };
 
+export const TappingADaysTapToLoadCountLoadsItWithoutExpanding: Story = {
+  parameters: { msw: { handlers: perYearHandlers } },
+  decorators: [withQueryParams("minDate=2024-01-01&maxDate=2025-12-31")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    try {
+      await canvas.findByTestId("industry-sp-list");
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("45 races");
+      }, { timeout: 10000 });
+      await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2024"));
+      await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2024-06"));
+
+      // 2 June has races but nobody has looked at it — the mount chain loads
+      // only the month's first day.
+      await expect(canvas.getByTestId("industry-sp-day-count-2024-06-02")).toHaveTextContent("Tap to load");
+
+      // Reported live via screenshot: "when I tap on day it still expands. It
+      // should load pnl but not expand."
+      await userEvent.click(canvas.getByTestId("industry-sp-day-load-2024-06-02"));
+
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-day-count-2024-06-02")).toHaveTextContent("2 races");
+      }, { timeout: 10000 });
+      // Its P&L arrived; its meetings did not.
+      await expect(canvas.getByTestId("industry-sp-day-pnl-2024-06-02")).toBeInTheDocument();
+      await expect(canvas.queryByTestId("industry-sp-meeting-Ascot|2024-06-02")).not.toBeInTheDocument();
+
+      // Tapping anywhere other than the count still expands, as it always did.
+      await expect(canvas.queryByTestId("industry-sp-day-load-2024-06-02")).not.toBeInTheDocument();
+      await userEvent.click(canvas.getByTestId("industry-sp-day-toggle-2024-06-02"));
+      await expect(canvas.getByTestId("industry-sp-meeting-Ascot|2024-06-02")).toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  },
+};
+
 // 25 races in June 2024 and 3 in August, deliberately sized so the year's own
 // probe (one page, PAGE_SIZE=20) sees June only: August stays a genuinely
 // unprobed "Tap to load" month with real data behind it, which is the exact
@@ -1108,7 +1146,7 @@ export const TappingAMonthsTapToLoadCountLoadsItWithoutExpanding: Story = {
       await expect(canvas.queryByTestId("industry-sp-day-2024-08-05")).not.toBeInTheDocument();
 
       // And the row toggle still opens it, now showing days that know what
-      // they hold rather than a month of "Not loaded yet".
+      // they hold rather than a month of unloaded placeholders.
       await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2024-08"));
       await expect(canvas.getByTestId("industry-sp-day-2024-08-05")).toBeInTheDocument();
     } finally {

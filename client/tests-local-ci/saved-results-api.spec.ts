@@ -10,7 +10,9 @@ import { test, expect } from "@playwright/test";
 // default half/half split via the same getSplitStats, so for filters that
 // don't touch trainer-form/model fields, the two must agree exactly if the
 // snapshot was computed correctly.
-const API_URL = "http://localhost:3050";
+// Same reasoning as LOCAL_CI_APP_URL above: overridable so concurrent
+// worktrees can claim their own backend port (LOCAL_CI_BACKEND_PORT).
+const API_URL = process.env.LOCAL_CI_API_URL ?? "http://localhost:3050";
 const SEED_FILTERS = { courses: "Nottingham", minDate: "2026-06-03", maxDate: "2026-06-03" };
 
 async function token(request: import("@playwright/test").APIRequestContext): Promise<string> {

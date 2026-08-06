@@ -159,9 +159,39 @@ test.describe("Industry SP races screen — headers report the server's numbers 
     const firstDay = RACES.filter(r => r.raceTime.startsWith("2016-01-01"));
     await expect(page.getByTestId("industry-sp-day-count-2016-01-01")).toHaveText(`${firstDay.length} races`);
     await expect(page.getByTestId("industry-sp-day-pnl-2016-01-01")).toHaveText(badge(pnlOver(firstDay)));
-    // Days the filter covers but that hold nothing are still distinguishable
-    // from days nobody has looked at.
-    await expect(page.getByTestId("industry-sp-day-count-2016-01-02")).toHaveText("Not loaded yet");
+    // Days the filter covers but that nobody has looked at offer their own
+    // load, exactly like an unprobed year or month.
+    await expect(page.getByTestId("industry-sp-day-count-2016-01-02")).toHaveText("Tap to load");
+  });
+
+  // Reported with a screenshot of build 924fb98: "when I tap on day it still
+  // expands. It should load pnl but not expand. Tapping [anywhere] else other
+  // than tap to load should expand." Days were the one level still missing the
+  // load-only tap target years and months already had.
+  test("tapping a day's Tap to load count fetches its P&L and leaves the row collapsed", async ({ page }) => {
+    await page.goto(RACES_URL);
+    await expect(page.getByTestId("industry-sp-year-count-2016")).toHaveText(`${TOTAL_2016} races`, { timeout: 10000 });
+    await page.getByTestId("industry-sp-year-toggle-2016").click();
+    await page.getByTestId("industry-sp-month-toggle-2016-01").click();
+
+    // 2 Jan is a day the filter covers that nobody has looked at yet.
+    await expect(page.getByTestId("industry-sp-day-count-2016-01-02")).toHaveText("Tap to load");
+
+    await page.getByTestId("industry-sp-day-load-2016-01-02").click();
+
+    // Its own numbers arrive in place — and this fixture has nothing on 2 Jan,
+    // so the honest answer is a zero, delivered without unfurling the row.
+    await expect(page.getByTestId("industry-sp-day-count-2016-01-02")).toHaveText("0 races", { timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-day-load-2016-01-02")).not.toBeVisible();
+
+    // A day that does hold races reports its real P&L, still shut: no meeting
+    // rows appear until the row itself is tapped.
+    const firstDay = RACES.filter(r => r.raceTime.startsWith("2016-01-01"));
+    await expect(page.getByTestId("industry-sp-day-pnl-2016-01-01")).toHaveText(badge(pnlOver(firstDay)));
+    await expect(page.getByTestId("industry-sp-meeting-Synthetic|2016-01-01")).not.toBeVisible();
+    // ...and tapping anywhere other than that count still expands, as before.
+    await page.getByTestId("industry-sp-day-toggle-2016-01-01").click();
+    await expect(page.getByTestId("industry-sp-meeting-Synthetic|2016-01-01")).toBeVisible();
   });
 
   test("a year the row range never reaches reports a real zero, not a loaded-races guess", async ({ page }) => {

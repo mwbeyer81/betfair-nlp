@@ -474,7 +474,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // expandYearDefaultMonth, and the thing that makes tapping a month cheap:
   // one probe plus one single-day fetch, rather than pulling a page of the
   // whole month. Every other day in the month is left untouched and renders
-  // as a tappable "Not loaded yet" row (see mergeDayPlaceholders).
+  // as a tappable "Tap to load" row (see mergeDayPlaceholders/dayLoadable).
   //
   // Data-driven rather than "always the month's 1st" for the same reason its
   // year-level counterpart is: a row range (Split A/B) can start part-way
@@ -724,7 +724,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // fetches, and leaves the row shut. Tapping the row itself still expands
   // (and loads) as before — this is only for the case the label advertises.
   // Reported live via screenshot: a 2024 with ten "Tap to load" months, where
-  // tapping one to see its number opened it onto a wall of "Not loaded yet"
+  // tapping one to see its number opened it onto a wall of unloaded
   // day rows, pushing every other month off-screen for a count the header
   // could have shown in place.
   // setExpandAllActive(false) for the same reason toggleNode does it: while
@@ -835,9 +835,6 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     return rollupCountLabel(rangeStats[`month:${month.key}`], initializedMonths.has(month.key), anyLoading);
   }
 
-  // A day that has never been fetched says so explicitly rather than "Tap to
-  // load" — the one level whose label predates the tap-to-load affordance and
-  // the one where a tap opens the races themselves, not just a count.
   function dayCountLabel(day: DayNode<IspRace>): string {
     const state = dayStates[day.key];
     // A failed fetch leaves no stats behind (see loadDayPage's catch) — check
@@ -847,7 +844,26 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     const stats = rangeStats[`day:${day.key}`];
     if (stats) return `${stats.races} races`;
     if (state?.isLoading) return "Loading…";
-    return "Not loaded yet";
+    // Was "Not loaded yet", which described the state without offering
+    // anything to do about it. Days are the last level to get the load-only
+    // tap target (see dayLoadable), so they now say the same thing years and
+    // months do — and mean it in the same way.
+    return "Tap to load";
+  }
+
+  // Whether this day's count is its own tap target rather than plain text.
+  // Two states qualify: never fetched, and a failed fetch (where the label
+  // says "tap to retry" and must therefore be tappable). A day mid-flight is
+  // not, matching the year/month rule — "Loading…" is not an invitation.
+  //
+  // Reported live via screenshot of build 924fb98: "when I tap on day it still
+  // expands. It should load pnl but not expand." A day's own P&L is the thing
+  // most worth asking for without committing to its meetings and races
+  // unfurling underneath — it is the deepest level with a number of its own.
+  function dayLoadable(day: DayNode<IspRace>): boolean {
+    const state = dayStates[day.key];
+    if (state?.error) return true;
+    return !rangeStats[`day:${day.key}`] && !state?.isLoading;
   }
 
   // The number every header actually wants: the server's own P&L for that
@@ -1041,22 +1057,37 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                           const dayPnl = nodePnl(dayKey, day.items);
                           return (
                             <View key={day.key} testID={`industry-sp-day-${day.key}`}>
-                              <TouchableOpacity
-                                testID={`industry-sp-day-toggle-${day.key}`}
-                                style={styles.dayHeader}
-                                onPress={() => toggleNode(dayKey)}
-                                accessibilityRole="button"
-                                accessibilityState={{ expanded: !dayCollapsed }}
-                              >
-                                <Text style={styles.groupChevron}>{dayCollapsed ? "▸" : "▾"}</Text>
-                                <Text style={styles.dayLabel}>{day.label}</Text>
-                                <Text testID={`industry-sp-day-count-${day.key}`} style={styles.groupCount}>{dayCountLabel(day)}</Text>
+                              <View style={styles.dayHeader}>
+                                <TouchableOpacity
+                                  testID={`industry-sp-day-toggle-${day.key}`}
+                                  style={styles.groupHeaderMain}
+                                  onPress={() => toggleNode(dayKey)}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ expanded: !dayCollapsed }}
+                                >
+                                  <Text style={styles.groupChevron}>{dayCollapsed ? "▸" : "▾"}</Text>
+                                  <Text style={styles.dayLabel}>{day.label}</Text>
+                                </TouchableOpacity>
+                                {dayLoadable(day) ? (
+                                  <TouchableOpacity
+                                    testID={`industry-sp-day-load-${day.key}`}
+                                    style={styles.groupCountButton}
+                                    onPress={() => loadWithoutExpanding(() => loadDayPage(day.key))}
+                                    accessibilityRole="button"
+                                  >
+                                    <Text testID={`industry-sp-day-count-${day.key}`} style={[styles.groupCount, styles.groupCountInButton]}>
+                                      {dayCountLabel(day)}
+                                    </Text>
+                                  </TouchableOpacity>
+                                ) : (
+                                  <Text testID={`industry-sp-day-count-${day.key}`} style={styles.groupCount}>{dayCountLabel(day)}</Text>
+                                )}
                                 {dayPnl.staked > 0 && (
                                   <Text testID={`industry-sp-day-pnl-${day.key}`} style={[styles.groupPnl, dayPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
                                     {formatPnl(dayPnl.pnl)} ({formatPct(dayPnl.pnl, dayPnl.staked)})
                                   </Text>
                                 )}
-                              </TouchableOpacity>
+                              </View>
 
                               {!dayCollapsed && day.meetings.map(meeting => {
                                 const meetingKey = `meeting:${meeting.meetingId}`;

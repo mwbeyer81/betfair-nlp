@@ -6,7 +6,12 @@ import { test, expect } from "@playwright/test";
 // pattern is the current working mechanism; some older docs/specs reference
 // a stale Basic-auth/auth-login-button convention that no longer matches
 // AuthScreen.tsx).
-const APP_URL = "http://localhost:8090/";
+// Overridable via LOCAL_CI_APP_URL so a second worktree can run this suite
+// concurrently on its own claimed ports (see .claude/commands/worktree-ports.md
+// and scripts/local-ci-e2e.sh's LOCAL_CI_FRONTEND_PORT). The script already
+// let mongo/backend move; this hardcoded URL was what still forced every
+// concurrent run onto the same frontend port. Default unchanged.
+const APP_URL = process.env.LOCAL_CI_APP_URL ?? "http://localhost:8090/";
 
 // The seeded slice is a single day — Nottingham, 3 June 2026 — so the whole
 // hierarchy is known up front: year 2026 -> month 2026-06 -> day 2026-06-03.
@@ -109,12 +114,12 @@ test.describe("Industry SP races screen against the seeded slice (real frontend 
     // The one day that actually has races reports a real count...
     const loaded = page.getByTestId(`industry-sp-day-count-${DAY}`);
     await expect(loaded).toContainText("races", { timeout: 20000 });
-    await expect(loaded).not.toContainText("Not loaded yet");
+    await expect(loaded).not.toContainText("Tap to load");
 
     // ...and every other day in the month is untouched, so it says so rather
     // than claiming a confirmed zero.
     for (const other of ["2026-06-10", "2026-06-20", "2026-06-30"]) {
-      await expect(page.getByTestId(`industry-sp-day-count-${other}`)).toContainText("Not loaded yet");
+      await expect(page.getByTestId(`industry-sp-day-count-${other}`)).toContainText("Tap to load");
     }
   });
 
@@ -134,11 +139,51 @@ test.describe("Industry SP races screen against the seeded slice (real frontend 
 
     dayRequests.length = 0;
     await page.getByTestId("industry-sp-day-toggle-2026-06-10").click();
-    await expect(page.getByTestId("industry-sp-day-count-2026-06-10")).not.toContainText("Not loaded yet", {
+    await expect(page.getByTestId("industry-sp-day-count-2026-06-10")).not.toContainText("Tap to load", {
       timeout: 15000,
     });
 
     // Exactly one fetch, scoped to that single day.
     expect(dayRequests).toEqual(["2026-06-10..2026-06-10"]);
+  });
+
+  // Reported with a screenshot of build 924fb98: "when I tap on day it still
+  // expands. It should load pnl but not expand. Tapping [anywhere] else other
+  // than tap to load should expand." Days were the last level still missing
+  // the load-only tap target years and months already had. Against the real
+  // backend here, not a mock — the count and P&L that arrive are the server's
+  // own for that date.
+  test("tapping a day's Tap to load count fetches its numbers and leaves the row shut", async ({ page }) => {
+    await gotoIspRacesForNottingham(page);
+    await page.getByTestId(`industry-sp-year-toggle-${YEAR}`).click();
+    await page.getByTestId(`industry-sp-month-toggle-${MONTH}`).click();
+    await expect(page.getByTestId(`industry-sp-day-count-${DAY}`)).toContainText("races", { timeout: 20000 });
+
+    // The seeded slice is one day, so every other day in June is a real,
+    // never-probed placeholder — and offers its own load.
+    const other = "2026-06-10";
+    await expect(page.getByTestId(`industry-sp-day-count-${other}`)).toContainText("Tap to load");
+    await page.getByTestId(`industry-sp-day-load-${other}`).click();
+
+    // It answers in place: a confirmed count from the server, no row opened.
+    await expect(page.getByTestId(`industry-sp-day-count-${other}`)).toContainText("0 races", { timeout: 20000 });
+    await expect(page.getByTestId(`industry-sp-day-load-${other}`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="industry-sp-meeting-${MEETING}"]`)).toHaveCount(0);
+  });
+
+  test("a loaded day still expands from anywhere other than its count", async ({ page }) => {
+    await gotoIspRacesForNottingham(page);
+    await page.getByTestId(`industry-sp-year-toggle-${YEAR}`).click();
+    await page.getByTestId(`industry-sp-month-toggle-${MONTH}`).click();
+    await expect(page.getByTestId(`industry-sp-day-count-${DAY}`)).toContainText("races", { timeout: 20000 });
+
+    // The seeded day already has its numbers, so its count is inert text —
+    // there is nothing left to load.
+    await expect(page.locator(`[data-testid="industry-sp-day-load-${DAY}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="industry-sp-meeting-${MEETING}"]`)).toHaveCount(0);
+
+    // Tapping the row itself opens it, exactly as it always did.
+    await page.getByTestId(`industry-sp-day-toggle-${DAY}`).click();
+    await expect(page.getByTestId(`industry-sp-meeting-${MEETING}`)).toBeVisible({ timeout: 15000 });
   });
 });

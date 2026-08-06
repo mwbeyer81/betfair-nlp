@@ -17,7 +17,12 @@ import path from "path";
 // src/commands/seed-live-filter-result-fixture.ts) against the real saved
 // filter set the test creates through the actual Save button, pointing at
 // the CSV slice's own anchor race (raceId 919979, Nottingham, 2026-06-03).
-const APP_URL = "http://localhost:8090/";
+// Overridable via LOCAL_CI_APP_URL so a second worktree can run this suite
+// concurrently on its own claimed ports (see .claude/commands/worktree-ports.md
+// and scripts/local-ci-e2e.sh's LOCAL_CI_FRONTEND_PORT). The script already
+// let mongo/backend move; this hardcoded URL was what still forced every
+// concurrent run onto the same frontend port. Default unchanged.
+const APP_URL = process.env.LOCAL_CI_APP_URL ?? "http://localhost:8090/";
 const REPO_ROOT = path.join(__dirname, "..", "..");
 const MONGO_URI = `mongodb://localhost:${process.env.LOCAL_CI_MONGO_PORT ?? "27020"}`;
 const MONGO_DB_NAME = "betfair_nlp_ci_test";

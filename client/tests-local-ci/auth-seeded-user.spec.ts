@@ -4,7 +4,9 @@ import { test, expect } from "@playwright/test";
 // DB by scripts/seed-local-ci-user.ts) actually works end-to-end against a
 // freshly started backend — not just that the seed script ran without
 // throwing.
-const API_URL = "http://localhost:3050";
+// Same reasoning as LOCAL_CI_APP_URL above: overridable so concurrent
+// worktrees can claim their own backend port (LOCAL_CI_BACKEND_PORT).
+const API_URL = process.env.LOCAL_CI_API_URL ?? "http://localhost:3050";
 const EMAIL = "matthew@backbet.co.uk";
 const PASSWORD = "beyer";
 

@@ -6,7 +6,9 @@ import { test, expect } from "@playwright/test";
 //
 // The seeded slice is one day (2026-06-03), whereas the screen defaults to
 // January 2024 — so every navigation here carries an explicit window.
-const API_URL = "http://localhost:3050";
+// Same reasoning as LOCAL_CI_APP_URL above: overridable so concurrent
+// worktrees can claim their own backend port (LOCAL_CI_BACKEND_PORT).
+const API_URL = process.env.LOCAL_CI_API_URL ?? "http://localhost:3050";
 const WINDOW = "minDate=2026-06-01&maxDate=2026-06-30";
 
 async function login(page: import("@playwright/test").Page): Promise<void> {

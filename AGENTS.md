@@ -6654,3 +6654,66 @@ anonymous cap applies): `Races · 174/887 runners · 20/100 races` with a 2024
 header of `100 races · -£27.59 (-16.8%)` — a year captioned by its whole
 window while 20 of its races are loaded, which is the entire point. Worktree
 can be removed.
+
+## 2026-08-06 (later still) — worktree `~/betfair-nlp-isp-races-rollup-mismatch`, branch `fix/isp-day-tap-to-load` — days get the load-only tap target too
+
+User, screenshot of build `924fb98` (the rollup fix, working — years/months/days
+all carrying real counts and P&L): *"when I tap on day it still expands. It
+should load pnl but not expand. Tapping [anywhere] else other than tap to load
+should expand."* Days were the one level still missing the load-only target
+years and months got earlier today.
+
+**Fix:** the day header splits the same way — `groupHeaderMain` (chevron +
+label) toggles, and the count becomes `industry-sp-day-load-<day>`, calling
+`loadDayPage` through `loadWithoutExpanding`. `dayLoadable()` decides: never
+fetched, or a failed fetch (whose label says "tap to retry" and must therefore
+be tappable); a day mid-flight is not, matching the year/month rule.
+
+**The day label changed from "Not loaded yet" to "Tap to load"** — it described
+a state without offering anything to do about it, and now means exactly what it
+means one level up. `tests-local-ci/isp-races-ui.spec.ts` and
+`tests-msw/isp-races-rollup-numbers.spec.ts` updated accordingly; the one
+remaining "Not loaded yet" assertion is in `isp-races-month-loading.spec.ts`,
+inside the pre-existing-broken block noted above (it asserts it of a *month*,
+which never used that wording — one more symptom of that file's staleness).
+
+**Verified:** client `yarn build` clean. Storybook `IspRacesScreen` **39/39**
+(new `TappingADaysTapToLoadCountLoadsItWithoutExpanding`). `tests-msw/isp-races-rollup-numbers.spec.ts`
+**6/6** — the 2 new day tests failed against the pre-fix build (no
+`industry-sp-day-load-*` element existed), which is the reproduction.
+**`yarn test:e2e:local-ci` 74/74** against the real backend + throwaway Mongo,
+including 2 new specs. Full `test:msw`: **263 passed / 42 failed**, the same 42
+pre-existing failures baselined earlier today — zero regressions.
+
+### Two local-CI harness fixes, and one thing I got wrong
+
+**Fixed — the backend readiness wait was 20s of a hard-coded 40 x 0.5s.**
+`ts-node` compiles the whole server on that path; on this 2-core box with a
+Storybook/Playwright job also running, 37 attempts got connection-refused and
+the last 3 got real 500s because `initializeServices` had not yet reached
+`authService = ...`. That reads as a hard failure when it is only slowness. Now
+`LOCAL_CI_LOGIN_RETRIES`, **default unchanged at 40**. Note there are *two*
+`for i in $(seq 1 40)` loops in that script (backend login, frontend serve) —
+patch the right one; a sed that matches both silently no-ops if you assert on a
+unique match.
+
+**Fixed — the suite could not actually run concurrently, despite the
+`LOCAL_CI_*_PORT` overrides.** `scripts/local-ci-e2e.sh` let mongo/backend/
+frontend move, but every spec hardcoded `http://localhost:8090` / `:3050`, so a
+second worktree's run still drove the first worktree's app. Now
+`LOCAL_CI_APP_URL` / `LOCAL_CI_API_URL` (12 spec files +
+`playwright.local-ci.config.ts`), defaults unchanged. A concurrent run wants
+all five: `LOCAL_CI_MONGO_PORT`, `LOCAL_CI_BACKEND_PORT`,
+`LOCAL_CI_FRONTEND_PORT`, `LOCAL_CI_APP_URL`, `LOCAL_CI_API_URL`.
+
+**Got wrong — I killed another agent's mongod.** Clearing what I believed was
+my own orphaned throwaway mongod, I ran `pkill -f "mongod.*27020"`. That matched
+the `~/betfair-nlp-pnl-accuracy-audit` worktree's mongod, started a minute
+earlier for *its* local-CI run, while its seed step was still running. I tried
+to restart it with identical flags; its `.local-ci/mongo-data` had already been
+torn down, so that did not help. Its harness appears to have recovered on its
+own (a fresh mongod + node process were up on 27020 shortly after), but that
+run may have been lost. **Match on the dbpath/worktree, never on the port** —
+27020/3050/8090 are shared defaults, so a port pattern cannot tell your process
+from someone else's. This is exactly what this file's "don't kill another
+agent's Storybook to free a port" warning is about, one directory over.

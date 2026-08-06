@@ -247,7 +247,13 @@ BACKEND_PID=$!
 # login instead is a better signal anyway: a 200 here proves the backend is
 # up, connected to Mongo, AND that the seeded test user is really queryable
 # — exactly what the specs need, not just a DB-connected flag.
-for i in $(seq 1 40); do
+# 40 x 0.5s = 20s, enough on an idle box but not on a busy one: ts-node
+# compiles the whole server from source here, and on a 2-core machine also
+# running a Storybook/Playwright job the cold start outlasts it — observed
+# as 37 connection-refused attempts followed by 3 real 500s, because
+# initializeServices had not yet reached `authService = ...`. Reads as a
+# hard failure when it is only slowness. Overridable; default unchanged.
+for i in $(seq 1 "${LOCAL_CI_LOGIN_RETRIES:-40}"); do
   LOGIN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
     -H "Content-Type: application/json" \
     -d '{"email":"matthew@backbet.co.uk","password":"beyer"}' \
@@ -255,7 +261,7 @@ for i in $(seq 1 40); do
   if [ "$LOGIN_STATUS" = "200" ]; then
     break
   fi
-  if [ "$i" -eq 40 ]; then
+  if [ "$i" -eq "${LOCAL_CI_LOGIN_RETRIES:-40}" ]; then
     echo "[local-ci-e2e] ERROR: backend never accepted the seeded user's login on port $BACKEND_PORT (last status: $LOGIN_STATUS) — see $SCRATCH_DIR/logs/backend.log" >&2
     exit 1
   fi
