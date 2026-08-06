@@ -6468,6 +6468,33 @@ unlike the AWS path `/deploy-web` uses, which is already authenticated. `main` i
 pushed and ready; the Cloudflare deploy is the only step outstanding, and it
 needs a human with the token.
 
+### Worktrees: this task never had one
+
+All of the above was done **directly in the primary checkout on `develop`** —
+no feature worktree was ever created, so there is no row for it in the Active
+worktrees table above and nothing to clean up. Two worktree notes for whoever
+follows:
+
+1. **The `develop` → `main` merge used a throwaway worktree, removed
+   immediately after.** Worth copying: flipping the *shared* primary checkout
+   onto `main` to do a promotion would have yanked the branch out from under
+   the concurrent agents working in it. `git worktree add <tmp> main` → merge →
+   push → `git worktree remove <tmp>` costs seconds and touches nobody.
+2. **`~/betfair-nlp-deploy-develop` is safe to delete and self-healing** — it
+   was removed during this session and recreated by the next deploy without
+   incident. `apps/common.sh`'s `sync_worktree()` does `rm -rf "$dir"; git
+   worktree add --detach …` whenever `$dir/.git` is missing. So its "keep" row
+   in the table means "don't put work in it", not "deleting it breaks the
+   deploy".
+
+**The one that is genuinely not deletable is `/home/matt/betfair-nlp` itself.**
+It appears in `git worktree list` because the main working tree always does —
+it is the repository, not a disposable worktree, and on this box it is shared
+by several concurrent agents at once (mid-session it went from 2 worktrees to
+4, and picked up another agent's uncommitted `IspRacesScreen.tsx` changes while
+this task was finishing). Same reason `git add -A` is unsafe here: stage files
+by name.
+
 ## 2026-08-06 — primary checkout, directly on `develop` — "when I tap 'tap to load' it should not expand"
 
 User, on a phone (screenshot of `app.backbet.co.uk/isp/races`, build `6e077d7`):
