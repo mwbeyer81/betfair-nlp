@@ -180,44 +180,32 @@ test.describe("Industry SP races screen — per-month direct loading, data-drive
     await expect(page.getByTestId("industry-sp-month-count-2024-07")).toHaveText("0 races");
   });
 
-  // The "Tap to load" count on a year/month header is its own tap target,
-  // separate from the row's expand toggle, and does only what it says.
-  // Reported live via screenshot: a 2024 with ten "Tap to load" months, where
-  // tapping one just to see its number opened it onto a wall of "Not loaded
-  // yet" day rows and pushed every other month off-screen.
-  //
-  // Written against the current collapsed-on-load behaviour, unlike the older
-  // tests in this file — see the note in AGENTS.md.
-  test("tapping a year's Tap to load count fetches it and leaves the row collapsed", async ({ page }) => {
+  // Every row's count and P&L are fetched as it renders now — the user's
+  // "at all levels I want pnl revealed without having to press Tap to load".
+  // Written against current behaviour, unlike the older tests in this file.
+  test("years report their own numbers without being tapped", async ({ page }) => {
     await page.goto("/isp/races?minDate=2024-01-01&maxDate=2025-12-31");
-    await expect(page.getByTestId("industry-sp-year-count-2025")).toHaveText("Tap to load", { timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-races-screen")).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId("industry-sp-year-load-2025").click();
+    // Neither year is touched here; both answer for themselves.
+    await expect(page.getByTestId("industry-sp-year-count-2024")).toHaveText("45 races", { timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-year-count-2025")).toHaveText("3 races", { timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-races-screen")).not.toContainText("Tap to load");
 
-    await expect(page.getByTestId("industry-sp-year-count-2025")).toHaveText("1 races loaded", { timeout: 10000 });
-    // Loaded, and still shut — none of 2025's months rendered.
+    // Revealed, not expanded: no month rows exist under either year.
+    await expect(page.getByTestId("industry-sp-month-2024-06")).not.toBeVisible();
     await expect(page.getByTestId("industry-sp-month-2025-06")).not.toBeVisible();
-    // Its own tap target is gone now it has a real count; the row toggle
-    // still opens it, exactly as before.
-    await expect(page.getByTestId("industry-sp-year-load-2025")).not.toBeVisible();
-    await page.getByTestId("industry-sp-year-toggle-2025").click();
-    await expect(page.getByTestId("industry-sp-month-2025-06")).toBeVisible();
   });
 
-  test("tapping a month's Tap to load count fetches it and leaves the row collapsed", async ({ page }) => {
+  test("opening a year reveals its months' numbers, still without opening them", async ({ page }) => {
     await page.goto("/isp/races?minDate=2024-01-01&maxDate=2025-12-31");
-    await expect(page.getByTestId("industry-sp-year-count-2024")).toHaveText("2 races loaded", { timeout: 10000 });
+    await expect(page.getByTestId("industry-sp-year-count-2024")).toHaveText("45 races", { timeout: 10000 });
     await page.getByTestId("industry-sp-year-toggle-2024").click();
-    await expect(page.getByTestId("industry-sp-month-count-2024-07")).toHaveText("Tap to load");
 
-    await page.getByTestId("industry-sp-month-load-2024-07").click();
-
-    // July genuinely has nothing in this fixture — the point is that the
-    // answer arrives in place, with no day rows unfurled to deliver it.
+    // June holds all 45; July genuinely holds none. Both say so unprompted.
+    await expect(page.getByTestId("industry-sp-month-count-2024-06")).toHaveText("45 races", { timeout: 10000 });
     await expect(page.getByTestId("industry-sp-month-count-2024-07")).toHaveText("0 races", { timeout: 10000 });
-    await expect(page.getByTestId("industry-sp-day-2024-07-01")).not.toBeVisible();
-    // June, the month the mount chain landed on, is untouched by the tap.
-    await expect(page.getByTestId("industry-sp-month-count-2024-06")).toHaveText("2 races loaded");
+    await expect(page.getByTestId("industry-sp-day-2024-06-01")).not.toBeVisible();
   });
 
   test("Expand All loads every year's own real starting month, not its calendar-first one", async ({ page }) => {

@@ -9,7 +9,12 @@ import { test, expect } from "@playwright/test";
 // CI-fixture model, and a real compute-daily-race-features.ts +
 // predict_daily_races.py run — so Fixture Star has a real, non-null
 // modelWinProbability by the time these tests run.
-const APP_URL = "http://localhost:8090/";
+// Overridable via LOCAL_CI_APP_URL so a second worktree can run this suite
+// concurrently on its own claimed ports (see .claude/commands/worktree-ports.md
+// and scripts/local-ci-e2e.sh's LOCAL_CI_FRONTEND_PORT). The script already
+// let mongo/backend move; this hardcoded URL was what still forced every
+// concurrent run onto the same frontend port. Default unchanged.
+const APP_URL = process.env.LOCAL_CI_APP_URL ?? "http://localhost:8090/";
 
 async function gotoDailyRaces(page: import("@playwright/test").Page) {
   await page.goto(`${APP_URL}daily-races?email=matthew%40backbet.co.uk&password=beyer&date=2026-06-03`);

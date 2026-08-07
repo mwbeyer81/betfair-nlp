@@ -1441,8 +1441,10 @@ test.describe("Industry SP races screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 15000 });
 
     // The header count is the most direct read on the filter: 1 of the 3
-    // fixture races qualifies, contributing its 1 qualifying runner.
-    await expect(page.getByTestId("industry-sp-races-screen")).toContainText("1 runners");
+    // fixture races qualifies, contributing its 1 qualifying runner. Both
+    // halves read loaded/total now (isp-races-rollup-mismatch) — the totals
+    // are the filter's, which is what this assertion is about.
+    await expect(page.getByTestId("industry-sp-races-screen")).toContainText("1/3 runners");
     await expect(page.getByTestId("industry-sp-races-screen")).toContainText("1/3 races");
 
     // Then drill Year -> Month -> Day -> Meeting to the surviving race itself.

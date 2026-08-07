@@ -8,7 +8,9 @@ import { test, expect } from "@playwright/test";
 // Every assertion here is an invariant of the aggregation itself, not a magic
 // number: the seeded probabilities are deterministic but their exact
 // distribution is an implementation detail of the seed command.
-const API_URL = "http://localhost:3050";
+// Same reasoning as LOCAL_CI_APP_URL above: overridable so concurrent
+// worktrees can claim their own backend port (LOCAL_CI_BACKEND_PORT).
+const API_URL = process.env.LOCAL_CI_API_URL ?? "http://localhost:3050";
 
 const BAND_LABELS = ["under 2.0", "2.0 – 3.0", "3.0 – 5.0", "5.0 – 10.0", "10.0 – 20.0", "20.0+"];
 

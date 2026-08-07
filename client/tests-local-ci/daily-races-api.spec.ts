@@ -6,7 +6,9 @@ import { test, expect } from "@playwright/test";
 // 5 races across 3 courses on 2026-06-03 — Newton Abbot (rac_test_0001,
 // rac_test_0002), Ascot (rac_test_0003, rac_test_0004), Chepstow
 // (rac_test_0005).
-const API_URL = "http://localhost:3050";
+// Same reasoning as LOCAL_CI_APP_URL above: overridable so concurrent
+// worktrees can claim their own backend port (LOCAL_CI_BACKEND_PORT).
+const API_URL = process.env.LOCAL_CI_API_URL ?? "http://localhost:3050";
 
 async function token(request: import("@playwright/test").APIRequestContext): Promise<string> {
   const res = await request.post(`${API_URL}/api/auth/login`, {

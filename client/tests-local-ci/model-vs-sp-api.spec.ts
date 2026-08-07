@@ -10,7 +10,9 @@ import { test, expect } from "@playwright/test";
 // scripts/local-ci-e2e.sh), and Step 3f of that script writes synthetic
 // modelWinProbability values onto it — without that step every assertion here
 // could only ever confirm the empty state.
-const API_URL = "http://localhost:3050";
+// Same reasoning as LOCAL_CI_APP_URL above: overridable so concurrent
+// worktrees can claim their own backend port (LOCAL_CI_BACKEND_PORT).
+const API_URL = process.env.LOCAL_CI_API_URL ?? "http://localhost:3050";
 const WINDOW = "minDate=2026-06-01&maxDate=2026-06-30";
 
 async function login(request: import("@playwright/test").APIRequestContext): Promise<string> {

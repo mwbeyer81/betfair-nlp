@@ -201,6 +201,7 @@ tiebreaker.
 
 | Worktree | Branch | Task | Status |
 |---|---|---|---|
+| `~/betfair-nlp-isp-races-rollup-mismatch` | `fix/isp-races-rollup-mismatch` | User (phone, 3 screenshots of build `28b117b`): saved result "Hoop" Split A reads 1118 races / -£28.82 (-20.2%) on its own card, but its Races view opened as `11/1118 races` with a 2016 header of "11 races loaded · -£1.14 (-100.0%)" and 2017/January 2017 both "0 races" — "the numbers in year month races views [don't] match. Zero races etc." Every response the screen receives already carries `total`/`totalRunners`/`pnlStats` scoped to the window it asked about (the DAO's `subDateMatchStage` sits ahead of the `$facet`); the screen discarded all three and captioned each header with a rollup over the one day the mount chain had paged in. New `rangeStats` state keyed by the same `year:`/`month:`/`day:` keys `expandedKeys` uses, populated from whichever response probed the node (recorded before the empty-data bail-outs, so a provable zero is one). "N races loaded" is gone with the thing that made it necessary. **Touches `IspRacesScreen.tsx` + its stories, `tests-msw/isp-races-month-loading.spec.ts`, `industry-sp-dao.integration.test.ts`** — checked this table first, no other worktree active on those. | see the dated entry below |
 | `~/betfair-nlp-brier-scores` | `brier-scores` | User asked (three screenshots of `app.backbet.co.uk` — the Results list, a saved result's Split A/B cards, and the /isp Filters screen): "All the places horses can be filtered, calculate and show the brier score." Brier score = mean squared error of a win probability against the 0/1 result. Added to **every** filter surface: /isp Filters (whole-set line + one per split card + the Details panel), /isp/races, a saved result's two snapshot cards *and* its Live Performance rollup, the Saved Results list card, Model vs SP's summary, and /runners (Betfair SP — market-only, that dataset has no model column). New `src/lib/service/brier.ts` (pure math + the caveats), `src/lib/dao/brier-expr.ts` (the Mongo expressions), `client/src/utils/brierFormat.ts`, and one shared `client/src/components/BrierScore.tsx` in two densities — one component precisely because the value of putting this on six screens is that the numbers are comparable across them. **Three decisions worth knowing.** (1) The market is always scored beside the model, over the *same* runners, using the overround-normalised ("fair") probability — a raw SP book sums to 115-130%, so scoring the market raw would hand the model a win it didn't earn; same convention as `model-accuracy-service.ts`'s `marketBrier`. (2) A filter matching no model-scored runner reports **null, never 0** — 0 is the BEST possible Brier score, so a zero would render a flawless forecast where none was made; every layer (DAO, service, component, fixtures) has a test pinning this. (3) This scores `modelWinProbability` (what the filters themselves select on), NOT the walk-forward `modelWinProbabilityOos` that `/model-accuracy` uses — so the two screens will NOT agree, by design, and the filter-screen number is optimistic over training years. Documented at length in `brier.ts`. **Perf**: the Brier sums are two `$reduce` passes per matched race added inside `buildQualifyingRaceStages` (opt-in via `includeBrier`, so the convergence-graph query still skips them), and a `$facet` branch deliberately OUTSIDE `pnlStats` — `pnlStats` has a fast path and a slow `$unwind` path, and the score must not differ depending on which one a filter happens to take. Verified against real data by `scripts/verify-brier-scores-2026-08-04.ts`, which recomputes every score in plain TypeScript from a `find()` and demands the two agree. | merged + deployed to app.backbet.co.uk |
 | `~/betfair-nlp-model-edge-pct` | `model-edge-pct` | User asked (screenshot of `app.backbet.co.uk`'s /isp Filters screen): "I want to be able to filter where model beats ISP by percentage x". Confirmed with the user up front that "percentage" here means percentage **POINTS** (model win% minus the 100/isp the SP implies) rather than a relative overlay % — points is what `modelSpEdge`/`formatEdgePts` already show on every runner badge as "+5.0 pts", so the filter and the display now agree by construction. New `minModelSpEdgePts` filter threaded end to end: `industry-sp-dao.ts` (new exported `modelBeatsSpCond(minEdgePts)` helper — the four pipelines that each had their own inline copy of the beats-SP condition now share one definition, which is why this landed as a small diff rather than four parallel edits) -> `industry-sp-service.ts` -> `router.ts` (all 3 ISP routes, clamped 0-100, NaN-tolerant) -> `saved-filter-set-service.ts` + `live-filter-result-service.ts` (so saved filters and their Live Performance capture honour it too) -> `chatApi.ts` -> `ispUrlParams.ts`/`ispSplitsCache.ts`/`ispFormat.ts` -> `IndustrySpScreen.tsx` (new "Beats SP by (pts)" numeric row right under the existing "Model beats SP" checkbox, with tooltip) and `IspRacesScreen.tsx` (client-side `qualifyingRunners` + all 4 paginated fetches). **Design decision worth knowing**: a threshold > 0 activates the beats-SP filter *on its own* — it does NOT require the checkbox as well. That's deliberately unlike the `trainerFormMinWinRate`/`hasTrainerForm` pair it visually resembles: there the checkbox tests a different thing (does a form sample exist at all) from the number, whereas here both express the same dimension, so gating the number behind the checkbox would make a typed threshold silently do nothing. `minModelSpEdgePts` was also added to `ispSplitsCache.ts`'s cache key — without it, changing the threshold would have re-served the previous threshold's cached split result. **Touches `industry-sp-dao.ts`, `IndustrySpScreen.tsx`, `ispUrlParams.ts`** — checked this table first, no other worktree active on those. | **done — merged to `develop` and deployed (web + Lambda)**. Verified: root `tsc --noEmit` and client `yarn build` both clean; `app.test.ts` 230/230 (5 new — incl. a NaN/out-of-range tolerance case and an explicit assertion that `/api/industry-sp` is `optionalJwtAuth`, so anonymous gets the reduced race cap rather than a 401; the CLAUDE.md "returns 401 without auth" template does NOT apply to that route); `industry-sp-dao.integration.test.ts` 41/41 (3 new, against the real local mongod on 27019). **Verified the filter against real data rather than trusting the aggregation by eye**: on the local 30-race dataset, 240 runners -> 171 (`onlyModelBeatsSp`) -> 122 (>=5 pts) -> 47 (>=10 pts) -> 0 (>=20 pts), with `pnlStats.count` equal to `totalRunners` at *every* threshold — the fast-path/slow-path reconciliation that the documented card-vs-graph P&L mismatch regression was about. MSW: 2 new specs pass. Storybook: 2 new stories pass (59/61 on this file, vs 57/59 on clean `develop` — **the same 2 failures, `TooltipToggleHasAdequateTapTarget` and `ResetClearsCourseChipsSelection`, are pre-existing**; confirmed by stashing and re-running against clean `develop`, not assumed). **Pre-existing breakage found and NOT fixed here (flagging for whoever owns it)**: the whole `Industry SP races screen (MSW mocked)` describe block in `industry-sp.spec.ts` — ~12 tests incl. the existing `onlyModelBeatsSp=true` one — asserts `industry-sp-race-<id>` is visible straight after `goto(/isp/races)`, which the lazy collapsed-hierarchy work (`isp-day-lazy-load` row above) invalidated: races now need Year -> Month -> Day -> Meeting expanding first. Confirmed pre-existing by stash-and-rerun against clean `develop`. My own new races-screen spec does the full drill-down, so it passes. **Not included, deliberately**: Today's Picks (`DailyRacesScreen`/`dailyRaceFormat.ts`) has its own separate "Model beats SP" checkbox that was left alone — its `dailyRacePickBeatsSp` can only ever evaluate retrospectively (no pre-race price feed), so a points threshold there is a different feature with different semantics, not this one. Worktree can be removed. |
 | `~/betfair-nlp-live-price` | `feat/daily-races-live-price` | User asked: next to the "Bet" pill on Today's Picks, show the current live Betfair price. New `BetfairApiClient.listMarketCatalogue` gained an optional `maxResults` param + `marketTypeCodes` filter field (restricting to `WIN` markets only — previously unrestricted, which could have matched a PLACE market and shown/watched the wrong price; fixed for `bet-order-service.ts`'s existing usage too, not just this new feature). `betfair-market-resolver.ts` refactored: shared `matchMarketAndRunner` matching logic extracted so both the existing single-race `resolveMarketForRace` (used by `bet-order-service.ts`) and a new batch `resolveMarketsForPicks` (one shared `listMarketCatalogue` call covering every currently-displayed pick's race, instead of one call per pick — avoids turning a single Today's Picks page load into N separate Betfair calls) reuse the exact same conservative venue+time-window+runner-name matching, never a best-guess. New `src/lib/service/live-price-service.ts` — read-only display lookup, distinct from `bet-order-service.ts`'s scheduled evaluator (never calls `placeOrders`, no persistence); degrades to `{price: null, note: "..."}` per pick (never a 500) whenever credentials aren't configured, a market can't be resolved, the race has gone in-play, or the runner's been withdrawn — never a fabricated price. New `POST /api/daily-races/live-prices` (client sends the exact picks on screen, same reasoning as `POST /api/bet-orders` taking full race/runner context directly, rather than the route re-deriving "today's qualifying picks" as a second, duplicated source of truth). Frontend: `DailyRacesScreen.tsx` fetches live prices for the current picks list in one batched `chatApi.getLivePrices` call per filter-apply (not per row), rendering a new badge before "Bet": `Live {fraction} ({decimal})`, a muted "No live price", or nothing while loading. **Real bugs caught while building this, both fixed before commit**: (1) the `LivePriceLoadingState` Storybook story used a synchronous `getByTestId` right after a state-triggering click instead of `findByTestId`/`waitFor` — a real timing race, not a feature bug, since the loading badge only appears one render tick after the picks list itself does; (2) repeated the exact MSW "handler resolves first-match, not last" mistake this file's own history already documents once (`live-filter-performance` entry above) — a story's override handler was spread *after* `...defaultHandlers`, so the default (immediately-responding) live-prices handler silently won every time; fixed by listing the override first. **Verified**: root `tsc --noEmit`/`yarn build` (client) clean; new unit tests `betfair-market-resolver.test.ts` (10/10, incl. a same-venue-different-time disambiguation case — the real reason the batch path needs its own time-window re-check, since a whole-day query isn't narrowed server-side the way the single-race query is) and `live-price-service.test.ts` (11/11 — credential gate, market-id deduping, every degrade path, thrown-error isolation); new Supertest block (5/5, exercising the REAL "not configured" degrade path with no mocking at all, since `config/test.json` has no `betfair` section and inherits `default.json`'s empty placeholders); Storybook 3 new stories on `DailyRacesScreen.stories.tsx`, full suite 393 passed (same 6 pre-existing unrelated failures documented repeatedly in this file); MSW `daily-races.spec.ts` 14/14 (2 new), full `test:msw` 227 passed (same 3 pre-existing unrelated `industry-sp.spec.ts` failures). New `scripts/live-verify-daily-races-live-price.ts` (read-only e2e check, pulls real today's Daily Races runners from Mongo and fetches their real live Betfair prices — never calls `placeOrders`) — **actually run against the real, live Betfair API this session** (not just written): the local dev Mongo's `daily_racecards` turned out to be 2 days stale (only `2026-07-27` present, predating the GB-only ingest fix — real French venues like "Vittel" still in there), so as a substitute real-data check, pulled today's actual live GB WIN markets directly from Betfair and fed a real runner ("Hatteen", Goodwood) back through the full resolver+price pipeline — resolved correctly and returned a real live back price of 3.30, confirming the whole pipeline end-to-end against production Betfair data. | **done — merged to `develop` (`21286cc`, clean fast-forward from `ea08106`) and deployed (Lambda + web)**, per the user's direct request. Both `apps/web/deploy.sh` and `apps/lambda/build.sh` completed cleanly; `Skipping secrets update (config/local.json not found — existing Lambda env vars unchanged)` confirmed again — no Betfair credentials reached the live Lambda. `app.backbet.co.uk`'s `build-commit` meta tag confirmed `21286cc`. **Live-verified against real production**: logged in as the real `matthew@backbet.co.uk` account and called the real deployed `POST /api/daily-races/live-prices` with a real runner (`Hatteen`/Goodwood) — returned `{"price":null,"note":"Live prices aren't configured yet."}`, the correct and expected degrade state since the live Lambda has no Betfair credentials configured (matches every other Betfair-touching route deployed this session). The feature is live and safe; it'll start showing real prices automatically, no further deploy needed, whenever real credentials are eventually added to the Lambda's config. Worktree can be removed. |
@@ -6554,9 +6555,261 @@ Same family as the `industry-sp.spec.ts` races-screen breakage already recorded
 in this file. My two new tests in that file are written against current
 behaviour and drill down explicitly.
 
+
 ---
 
-## 2026-08-06 — worktree `~/betfair-nlp-model-relative-features`, branch `model-relative-features` — the model's features were all absolute; a race is a competition
+## 2026-08-06 (later) — worktree `~/betfair-nlp-isp-races-rollup-mismatch`, branch `fix/isp-races-rollup-mismatch` — a 1118-race saved result opened its Races view as "11 races, -100.0%"
+
+User, on a phone, three screenshots of build `28b117b`: saved result **"Hoop"**,
+Split A — *races 1–1118, 1266 runners, staked £142.95, returned £114.13, P&L
+**-£28.82 (-20.2%)**_ on its own card. Tapping "View 1118 Races" gave a Races
+screen reading `Races · 11 runners · 11/1118 races`, a 2016 header of
+**"11 races loaded · -£1.14 (-100.0%)"**, and 2017 / January 2017 both reading
+"0 races". Their words: the numbers in the year/month races views don't match.
+Zero races etc.
+
+**Root cause — the screen was throwing away numbers it already had.** Every
+request it makes is scoped to exactly one node's date window
+(`subMinDate`/`subMaxDate`), and the response's `total`, `totalRunners` and
+`pnlStats` describe **that whole window**, not the page returned — the DAO puts
+its `subDateMatchStage` ahead of the `$facet` precisely so they do. The screen
+discarded all three and captioned each header with a rollup over the races it
+had actually paged in. The mount chain loads exactly one day, that day's 11
+races all lost, so a year holding 1118 races at -20.2% was captioned with 11
+races at -100.0% — a true number over 11 races wearing a year's clothing. Same
+class of bug as the "+£2.55 (+30.6%) under a card saying 675 races" report that
+the earlier "N races **loaded**" wording only *disclaimed* rather than fixed.
+
+**Fix (`IspRacesScreen.tsx` only, ~40 lines):** new `rangeStats` state keyed by
+the same `year:`/`month:`/`day:` keys `expandedKeys` uses, populated from
+whichever response probed that node (recorded *before* the empty-data
+bail-outs, so a provable zero is recorded as one). Counts and P&L badges now
+read from it: `rollupCountLabel` returns `"N races"` for any probed node, and
+`nodePnl` returns the server's `pnlStats`. Consequences worth knowing:
+1. **"N races loaded" is gone.** It existed only because the count and the
+   badge beside it were both loaded-races rollups, so the count had to
+   disclaim itself. Both now describe the same real window.
+2. **`probed && !stats` is exactly "probe in flight"**, so that pairing drives
+   the "Loading…" state, and "Tap to load" stays on precisely the nodes that
+   render as tappable (the load-only target added earlier today).
+3. The subtitle became `Races · loaded/total runners · loaded/total races`,
+   matching `AllRunnersScreen`'s identical subtitle — `11 runners` was the
+   loaded count sitting next to `11/1118 races`.
+4. A header describes its window; the rows under it are what's been paged in.
+   They are not meant to add up, and the count says which window it means.
+
+**Story/MSW mocks were lying, and now can't.** Several handlers returned
+`pnlStats: {0,0,0,0}` or ignored `subMinDate`/`subMaxDate` entirely (claiming
+every window held everything). Those are now a shared `ispPage()` helper that
+narrows by the sub-window then computes `total`/`totalRunners`/`pnlStats` over
+what it matched — the same order the real aggregation applies them in. A mock
+that lies here would let this regress silently.
+
+**Prod repro, per `.claude/commands/prod-repro-scripts.md`:**
+`client/scripts/prod-repro/isp-races-rollup-numbers-mismatch-2026-08-06.spec.ts`.
+Couldn't be driven through the real backend (1118 rows vs. the 100-row
+anonymous cap in `clampRowSpan`, plus "Hoop" is a user-owned saved result this
+agent can't sign into), so it intercepts `/api/industry-sp` with a synthetic
+1118-race Split A whose mock scopes its own numbers **honestly** — the server
+side is correct by construction, so anything wrong is the deployed bundle's.
+**It reproduced on the live bundle exactly as reported**: `2016 header reads:
+"11 races loaded"  "-£2.75 (-100.0%)"` where the server had said 1118 races at
+-17.3%.
+
+**Verified:** root `tsc` + client `yarn build` clean. Storybook `IspRacesScreen`
+**38/38** (port 6013 per this file's port guidance). New
+`tests-msw/isp-races-rollup-numbers.spec.ts` **5/5** — year, month and day
+headers each against the server's own window numbers, the row range's provable
+zero year, and the subtitle. 2 new tests in `industry-sp-dao.integration.test.ts`
+against the real local mongod (27019): sub-window `pnlStats`/`totalRunners`
+**partition exactly** across two halves of a row range (lower + upper − shared
+boundary == whole, to 6dp), and are **page-independent** (page 2 reports the
+same window numbers as page 1, while the page itself moved) — the two
+properties the headers now rely on.
+
+Full `test:msw` in this worktree: **261 passed / 42 failed**, and the same 42
+fail on the deployed `develop` build — measured, not assumed: `industry-sp.spec.ts`
+alone was re-run against the primary checkout's build (**22 failed / 67 passed**,
+identical test names; the one extra failure this branch introduced was a real
+`toContainText("1 runners")` assertion invalidated by the loaded/total subtitle,
+now updated). The other 20 (7 `isp-races-month-loading` + 4 `runner-detail` +
+4 `trainer-detail` + 4 `responsive` + 1 `live-performance-race-filter`) were
+already baselined as pre-existing earlier today. **Zero regressions.**
+
+**Note for whoever picks up the pre-existing MSW breakage** (still not fixed
+here, still worth someone's time): it is all one shape — specs that expect race
+rows straight after `goto("/isp/races")`, from before the collapsed-by-default
+hierarchy. They need a Year -> Month -> Day -> Meeting drill-down, exactly like
+the specs in this branch do.
+
+**Merged, pushed and deployed** (2026-08-06). Merge `924fb98` on `develop`
+(`fix/isp-races-rollup-mismatch` branched from `28b117b`; `develop` had moved
+to `3455d1c` meanwhile — merged clean, no conflicts). `/deploy-web` shipped
+`develop@924fb98` to `app.backbet.co.uk`; `build-commit` meta confirms it live.
+
+**The prod-repro script now passes against the deployed bundle**, having failed
+by design a few hours earlier on `28b117b`:
+`2016 header reads: "1118 races"  "-£48.25 (-17.3%)"` — the server's own answer
+for that window, where the same script previously printed
+`"11 races loaded"  "-£2.75 (-100.0%)"`. Left in place per the prod-repro
+convention; not maintained going forward.
+
+Also sanity-checked live with **real** data (signed out, so the 100-race
+anonymous cap applies): `Races · 174/887 runners · 20/100 races` with a 2024
+header of `100 races · -£27.59 (-16.8%)` — a year captioned by its whole
+window while 20 of its races are loaded, which is the entire point. Worktree
+can be removed.
+
+## 2026-08-06 (later still) — worktree `~/betfair-nlp-isp-races-rollup-mismatch`, branch `fix/isp-day-tap-to-load` — days get the load-only tap target too
+
+User, screenshot of build `924fb98` (the rollup fix, working — years/months/days
+all carrying real counts and P&L): *"when I tap on day it still expands. It
+should load pnl but not expand. Tapping [anywhere] else other than tap to load
+should expand."* Days were the one level still missing the load-only target
+years and months got earlier today.
+
+**Fix:** the day header splits the same way — `groupHeaderMain` (chevron +
+label) toggles, and the count becomes `industry-sp-day-load-<day>`, calling
+`loadDayPage` through `loadWithoutExpanding`. `dayLoadable()` decides: never
+fetched, or a failed fetch (whose label says "tap to retry" and must therefore
+be tappable); a day mid-flight is not, matching the year/month rule.
+
+**The day label changed from "Not loaded yet" to "Tap to load"** — it described
+a state without offering anything to do about it, and now means exactly what it
+means one level up. `tests-local-ci/isp-races-ui.spec.ts` and
+`tests-msw/isp-races-rollup-numbers.spec.ts` updated accordingly; the one
+remaining "Not loaded yet" assertion is in `isp-races-month-loading.spec.ts`,
+inside the pre-existing-broken block noted above (it asserts it of a *month*,
+which never used that wording — one more symptom of that file's staleness).
+
+**Verified:** client `yarn build` clean. Storybook `IspRacesScreen` **39/39**
+(new `TappingADaysTapToLoadCountLoadsItWithoutExpanding`). `tests-msw/isp-races-rollup-numbers.spec.ts`
+**6/6** — the 2 new day tests failed against the pre-fix build (no
+`industry-sp-day-load-*` element existed), which is the reproduction.
+**`yarn test:e2e:local-ci` 74/74** against the real backend + throwaway Mongo,
+including 2 new specs. Full `test:msw`: **263 passed / 42 failed**, the same 42
+pre-existing failures baselined earlier today — zero regressions.
+
+### Two local-CI harness fixes, and one thing I got wrong
+
+**Fixed — the backend readiness wait was 20s of a hard-coded 40 x 0.5s.**
+`ts-node` compiles the whole server on that path; on this 2-core box with a
+Storybook/Playwright job also running, 37 attempts got connection-refused and
+the last 3 got real 500s because `initializeServices` had not yet reached
+`authService = ...`. That reads as a hard failure when it is only slowness. Now
+`LOCAL_CI_LOGIN_RETRIES`, **default unchanged at 40**. Note there are *two*
+`for i in $(seq 1 40)` loops in that script (backend login, frontend serve) —
+patch the right one; a sed that matches both silently no-ops if you assert on a
+unique match.
+
+**Fixed — the suite could not actually run concurrently, despite the
+`LOCAL_CI_*_PORT` overrides.** `scripts/local-ci-e2e.sh` let mongo/backend/
+frontend move, but every spec hardcoded `http://localhost:8090` / `:3050`, so a
+second worktree's run still drove the first worktree's app. Now
+`LOCAL_CI_APP_URL` / `LOCAL_CI_API_URL` (12 spec files +
+`playwright.local-ci.config.ts`), defaults unchanged. A concurrent run wants
+all five: `LOCAL_CI_MONGO_PORT`, `LOCAL_CI_BACKEND_PORT`,
+`LOCAL_CI_FRONTEND_PORT`, `LOCAL_CI_APP_URL`, `LOCAL_CI_API_URL`.
+
+**Got wrong — I killed another agent's mongod.** Clearing what I believed was
+my own orphaned throwaway mongod, I ran `pkill -f "mongod.*27020"`. That matched
+the `~/betfair-nlp-pnl-accuracy-audit` worktree's mongod, started a minute
+earlier for *its* local-CI run, while its seed step was still running. I tried
+to restart it with identical flags; its `.local-ci/mongo-data` had already been
+torn down, so that did not help. Its harness appears to have recovered on its
+own (a fresh mongod + node process were up on 27020 shortly after), but that
+run may have been lost. **Match on the dbpath/worktree, never on the port** —
+27020/3050/8090 are shared defaults, so a port pattern cannot tell your process
+from someone else's. This is exactly what this file's "don't kill another
+agent's Storybook to free a port" warning is about, one directory over.
+
+**Merged, pushed and deployed** (2026-08-06). Merge `57f1bf4` on `develop`;
+`/deploy-web` shipped it to `app.backbet.co.uk`, `build-commit` meta confirms
+`57f1bf4` live. **Verified against the deployed bundle with real data** (signed
+out, so the 100-race anonymous cap applies): 30 day rows offering "Tap to
+load"; tapping 3 Jan's count turned it into `8 races · -£2.91 (-23.9%)` with
+meeting rows still at **0 before and 0 after** — P&L loaded, row not expanded.
+That is the same day, count and P&L the user's own screenshot showed one row at
+a time, which is a nice independent check that the numbers are the server's.
+Worktree can be removed.
+
+## 2026-08-07 — worktree `~/betfair-nlp-isp-races-rollup-mismatch`, branch `feat/isp-eager-node-stats` — every row reveals its own P&L, unasked
+
+User, after the two fixes below landed: *"at all levels I want pnl revealed
+without having to press Tap to load."* So the load-only tap target added
+yesterday is no longer the mechanism — it is the fallback.
+
+**What changed.** `IspRacesScreen` now probes every row as it renders:
+years on arrival, a year's months when it opens, a month's days when it opens.
+Each probe is one request scoped to that node's own window, writing the same
+`rangeStats` the previous change introduced.
+
+**Why this isn't the stampede it sounds like** — four things, and all four are
+pinned by a test in `tests-msw/isp-races-rollup-numbers.spec.ts`:
+
+1. **Only rendered rows are probed.** Months exist only under an open year,
+   days only under an open month (the hierarchy doesn't build them otherwise —
+   that was the ~4,300-day-nodes-per-render fix). An unbounded 2015-2026 filter
+   probes 12 years up front, not 12 x 12 x 31.
+2. **`limit: 1`.** `total`/`totalRunners`/`pnlStats` are computed over the whole
+   window ahead of the `$facet` regardless of page size, so asking for one race
+   instead of twenty skips the `$lookup` that reattaches full documents and
+   returns a tiny body. Races still arrive via `loadDayPage` when a day opens.
+3. **A concurrency cap of 5**, via a small queue. Opening a month would
+   otherwise fire ~31 aggregations at once — a self-inflicted DoS on a phone.
+   The test holds each mocked response open 40ms and asserts peak in-flight.
+4. **Proven-empty windows are derived, not fetched.** Nothing inside a 0-race
+   window can be non-empty, so children get zeros written directly. For a
+   Split A that stops in 2016, the test asserts exactly ONE request ever
+   mentions 2017 — the year probe that established the zero.
+
+**"Tap to load" now means exactly one thing: that probe failed.** It is the
+only state where a count is still a tap target, and tapping it retries. New
+story `AFailedStatsProbeOffersARetry` fails one month's probe on purpose and
+drives the recovery, including that its neighbour is unaffected and that the
+retry doesn't open the row.
+
+**A real bug caught while writing this, not by a test.** A row range is "rows
+1-N of the CURRENT sort order", so flipping asc/desc selects a *different set
+of races* and therefore different numbers for every window. `rangeStats`
+survived that flip. Fixed by clearing stats/queue/requested on the same reset
+that already cleared `dayStates`, plus a **generation counter** — probes
+already in the air can't be recalled, so each carries the generation it was
+issued under and drops its result if that has moved on. Pinned by
+"flipping the sort order discards every window's numbers and asks again".
+
+Also folded the filter's ~30 positional arguments into one `fetchWindow(page,
+limit, from?, to?)`, since there are now four call sites that differ only in
+page size and window.
+
+**Stories/specs updated, not just patched:** the three `Tapping*TapToLoadCount*`
+stories tested an affordance that only appears on failure now, so they were
+replaced by `EveryLevelRevealsItsNumbersWithoutATap` (year -> month -> day, no
+taps) plus the retry story above. Request-count assertions that used to pin
+exact numbers now filter on `limit > 1` to separate *data pages* from the
+one-race stats probes running alongside them — that distinction is what keeps
+"tapping 2025 must not walk through 2024" meaningful.
+
+**Merged, pushed and deployed** (2026-08-07). Merge `4f5a7de` on `develop`;
+`/deploy-web` shipped it to `app.backbet.co.uk`, `build-commit` meta confirms
+it live. **Verified against the deployed bundle with real data** (signed out,
+so the 100-race anonymous cap applies), instrumenting the browser's own
+network events:
+
+- **31 day rows, 0 of them saying "Tap to load", 0 still "Loading…"** — every
+  row answered for itself. The first five days read `33 races -£9.09 (-17.4%)`,
+  `15 races -£2.72 (-10.9%)`, `8 races -£2.91 (-23.9%)`, `25 races -£9.78
+  (-21.9%)`, `19 races -£3.09 (-10.3%)`; the rest are honest zeros, since rows
+  1-100 of this range end on 5 Jan.
+- **Peak concurrent `/api/industry-sp` requests: exactly 5** — the cap holding
+  under real latency, not just against a mock.
+- **42 one-race probes**, i.e. every stats request really did use `limit=1`.
+
+Worktree can be removed.
+---
+---
+
+## 2026-08-07 — worktree `~/betfair-nlp-model-relative-features`, branch `model-relative-features` — the model's features were all absolute; a race is a competition
 
 User asked to improve the model: establish the baseline from prod, use horse-racing
 quant knowledge to engineer new features, iterate, find filters the model does
