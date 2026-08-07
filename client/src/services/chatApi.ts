@@ -91,6 +91,12 @@ export interface RunnersPage {
   totalPages: number;
   totalRunners: number;
   pnlStats: PnlStats;
+  // £1 flat per runner, present only when includeLevelStakes was requested.
+  // ABSENT means "not asked for", never zero — a zero would render as a
+  // break-even book. See the DAO's levelPnl comment for why both conventions
+  // matter: they disagree by ~11 points on the same bets purely through bet
+  // sizing, so a slice profitable under only one of them is noise.
+  levelPnl?: { staked: number; returns: number; pnl: number };
   // Market-only on this screen: the Betfair-SP dataset carries no model
   // probability, so brier.scored is 0 and brier.model is null.
   brier?: BrierStats;
@@ -1141,7 +1147,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string, subMinDate?: string, subMaxDate?: string, minModelSpEdgePts?: number): Promise<IspPage> {
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string, subMinDate?: string, subMaxDate?: string, minModelSpEdgePts?: number, onlyModelTopPick?: boolean, includeLevelStakes?: boolean): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -1172,6 +1178,11 @@ class ChatApi {
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
     if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     if (modelVersionId) params.set("modelVersionId", modelVersionId);
+    // A per-race RANK, not a threshold — see ModelTopPick in the Filters panel.
+    if (onlyModelTopPick) params.set("onlyModelTopPick", "true");
+    // Asks the server for level-stakes P&L beside the to-win-£1 it always
+    // returns. Costs a slower query, so it is only requested when shown.
+    if (includeLevelStakes) params.set("includeLevelStakes", "true");
     // Restricts an already row-ranged (fromRow/toRow) window to a calendar
     // sub-range without changing what "row N" means — see the DAO's own
     // comment on subMinRaceTime/subMaxRaceTime. Distinct from minDate/

@@ -49,12 +49,15 @@ export class IndustrySpService {
     modelVersionId: string | null = null,
     subMinRaceTime: string | null = null,
     subMaxRaceTime: string | null = null,
-    minModelSpEdgePts = 0
+    minModelSpEdgePts = 0,
+    onlyModelTopPick = false,
+    includeLevelStakes = false
   ): Promise<{
     data: IspRace[];
     total: number;
     totalRunners: number;
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    levelPnl?: { staked: number; returns: number; pnl: number };
     brier: BrierStats;
   }> {
     return this.industrySpDAO.getAllRacesByRace(
@@ -87,7 +90,9 @@ export class IndustrySpService {
       modelVersionId,
       subMinRaceTime,
       subMaxRaceTime,
-      minModelSpEdgePts
+      minModelSpEdgePts,
+      onlyModelTopPick,
+      includeLevelStakes
     );
   }
 

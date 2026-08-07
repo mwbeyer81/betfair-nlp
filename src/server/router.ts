@@ -682,8 +682,17 @@ router.get("/api/industry-sp", async (req, res) => {
     // collapsed year -> a normal small paginated request scoped to that
     // year, instead of walking the whole row range forward to reach it).
     const { minRaceTime: subMinRaceTime, maxRaceTime: subMaxRaceTime } = parseDateRangeParams(req.query.subMinDate, req.query.subMaxDate);
-    const { data, total, totalRunners, pnlStats, brier } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime, minModelSpEdgePts);
-    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats, brier });
+    // Keeps only the model's highest-rated runner in each race. A per-race
+    // RANK, which minModelWinProbability (an absolute threshold) cannot
+    // express — see the DAO's onlyModelTopPick comment.
+    const onlyModelTopPick = req.query.onlyModelTopPick === "true";
+    // Level-stakes P&L alongside the to-win-£1 the app computes everywhere.
+    // Opt-in because it forces the DAO's slower $unwind path; asked for when
+    // the client wants to show both, which is the only way to tell a real edge
+    // from a bet-sizing artefact.
+    const includeLevelStakes = req.query.includeLevelStakes === "true";
+    const { data, total, totalRunners, pnlStats, levelPnl, brier } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes);
+    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats, ...(levelPnl ? { levelPnl } : {}), brier });
   } catch (error) {
     console.error("getAllRacesByRace error:", error);
     res.status(500).json({ success: false, error: "Failed to fetch industry SP" });

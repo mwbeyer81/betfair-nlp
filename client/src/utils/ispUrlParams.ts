@@ -50,7 +50,7 @@ const ISP_FILTER_PARAM_NAMES = [
   "countries", "courses", "goings", "raceClasses", "raceTypes", "trainer", "jockey",
   "fromRowA", "toRowA", "fromRowB", "toRowB",
   "trainerFormMinWinRate", "hasTrainerForm", "minModelWinProbability", "onlyModelBeatsSp",
-  "minModelSpEdgePts",
+  "minModelSpEdgePts", "onlyModelTopPick", "includeLevelStakes",
 ];
 
 // True if the URL carries any of IndustrySpScreen's own filter params —
