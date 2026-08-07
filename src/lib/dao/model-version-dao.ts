@@ -46,22 +46,60 @@ export interface ModelVersionDocument {
 // walk-forward could score at all (the earliest year has no prior history to
 // fit on, so ~86k runners are deliberately left unscored), and every model
 // filter reads MODEL_PROB_FIELD, so a date range starting before it returns
-// nothing for that stretch — correctly, but invisibly. `coverageMaxDate` is
-// the last race the most recent walk-forward pass covered; races since then
-// are equally invisible until it is re-run.
+// nothing for that stretch — correctly, but invisibly.
 export interface ModelScoreCoverageDocument {
   oosVersionId: string;
   coverageMinDate: string;
+  // The last race that ACTUALLY carries an out-of-sample score, read from the
+  // data rather than from the walk-forward document.
+  //
+  // Those two stopped being the same thing on 2026-08-04, when
+  // industry-sp-results-capture-service.ts started writing each day's live
+  // pre-race prediction into the out-of-sample field as well (commit 5ac6e26).
+  // Coverage now extends by a day every day, while the walk-forward document's
+  // own coverageMaxDate is frozen at whenever that script last ran. Reading the
+  // frozen value told users their date range was out of coverage when it was
+  // not, and the error grew by a day daily — it was a week wide when caught.
   coverageMaxDate: string;
+  // What the last walk-forward pass itself reached. Kept as its own field
+  // because the two now answer different questions: "how far has the backtest
+  // been run, and does it need re-running" is no longer visible from
+  // coverageMaxDate above.
+  walkForwardMaxDate: string;
   scoredRows: number;
   unscoredRows: number;
 }
 
 export class ModelVersionDAO {
   private collection: Collection<ModelVersionDocument>;
+  private racesCollection: Collection<Record<string, unknown>>;
 
-  constructor(db: Db, collectionName = "model_evaluations") {
+  constructor(db: Db, collectionName = "model_evaluations", racesCollectionName = "industry_starting_prices") {
     this.collection = db.collection<ModelVersionDocument>(collectionName);
+    this.racesCollection = db.collection<Record<string, unknown>>(racesCollectionName);
+  }
+
+  /**
+   * The raceDate of the most recent race that carries any out-of-sample score,
+   * or null if none does.
+   *
+   * Sorted on `raceTime` rather than `raceDate` on purpose: raceTime is
+   * indexed and raceDate is not, and since raceTime is the same date with a
+   * clock time appended, the two sort identically. That turns a ~110k-document
+   * collection scan into a single index seek — measured at 1 document
+   * examined, 1 key, 0ms, against 0.3s for the unindexed sort.
+   *
+   * `$type: "number"` rather than `$ne: null`: on an array field `$ne` matches
+   * documents where NO element equals null, which would wrongly exclude every
+   * race that has even one unscored runner — and most races have some.
+   */
+  private async latestScoredRaceDate(): Promise<string | null> {
+    const doc = await this.racesCollection.findOne(
+      { "runners.modelWinProbabilityOos": { $type: "number" } },
+      { projection: { raceDate: 1 }, sort: { raceTime: -1 } }
+    );
+    const raceDate = doc?.raceDate;
+    return typeof raceDate === "string" ? raceDate : null;
   }
 
   /**
@@ -86,10 +124,18 @@ export class ModelVersionDAO {
     if (!doc) return null;
     const d = doc as unknown as Partial<ModelScoreCoverageDocument>;
     if (typeof d.coverageMinDate !== "string" || typeof d.coverageMaxDate !== "string") return null;
+    // The live edge wins where it is ahead of the walk-forward's own figure —
+    // which it now is, and by more every day. Falls back to the document's
+    // value if the lookup finds nothing (a fresh local stack with an
+    // evaluation doc seeded but no scored races), so this can only ever widen
+    // the reported window, never narrow it below what the doc already claimed.
+    const liveMax = await this.latestScoredRaceDate();
+    const coverageMaxDate = liveMax && liveMax > d.coverageMaxDate ? liveMax : d.coverageMaxDate;
     return {
       oosVersionId: typeof d.oosVersionId === "string" ? d.oosVersionId : "",
       coverageMinDate: d.coverageMinDate,
-      coverageMaxDate: d.coverageMaxDate,
+      coverageMaxDate,
+      walkForwardMaxDate: d.coverageMaxDate,
       scoredRows: typeof d.scoredRows === "number" ? d.scoredRows : 0,
       unscoredRows: typeof d.unscoredRows === "number" ? d.unscoredRows : 0,
     };

@@ -535,7 +535,14 @@ export interface ModelVersion {
 export interface ModelScoreCoverage {
   oosVersionId: string;
   coverageMinDate: string;
+  // The last race that actually carries an out-of-sample score. Extends daily
+  // via the results-capture path, so it is read from the data rather than from
+  // the walk-forward evaluation document — see ModelScoreCoverageDocument in
+  // src/lib/dao/model-version-dao.ts.
   coverageMaxDate: string;
+  // How far the last walk-forward backtest itself reached. Optional: documents
+  // and API responses predating this field are real and are not migrated.
+  walkForwardMaxDate?: string;
   scoredRows: number;
   unscoredRows: number;
 }

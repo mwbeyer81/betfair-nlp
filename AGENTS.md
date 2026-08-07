@@ -6958,3 +6958,53 @@ MONGODB_URI=... MONGODB_DB_NAME=betfair_nlp \
 First run pays ~10 min for the Atlas load, then caches (`ml/.cache/`, ~300MB); after
 that a fast arm is 6-20 min. `EXP_MODE=full` refuses a tree cap, race sampling or a
 fold subset — a capped run must never be recorded as comparable to a real full one.
+
+### Follow-up the same day — the four missing days, and a coverage date that was a week stale
+
+Testing the top-pick idea against last week's live RacingAPI data turned up two
+things that had nothing to do with the model.
+
+**1. Four days had results but no out-of-sample score.** 2026-07-31 .. 2026-08-03
+— 114 races, 911 runners — were invisible to every model filter, the Model
+Accuracy screen and the saved-filter live results. Not a bug, and not ongoing:
+it is exactly the window between `walk_forward_score.py`'s last run (coverage
+ends 2026-07-30) and commit `5ac6e26` on 2026-08-04, which added the line in
+`industry-sp-results-capture-service.ts` that writes the live pre-race
+prediction to `modelWinProbabilityOos` as well as `modelWinProbability`. Capture
+was running the whole time, into one field.
+
+**The data was never lost** — all 911 rows had `modelWinProbability`, and all
+911 matched their `daily_racecards` 06:00 pre-race prediction *exactly*.
+`src/commands/backfill-oos-capture-gap.ts` closed the hole: 911 runners across
+114 races, 0 skipped, 0 disagreeing. **It is a recovery, not a copy** — every
+value is read from `daily_racecards` and cross-checked against the stored one,
+because a blanket `modelWinProbability -> ...Oos` copy across history would
+recreate the exact disaster `5ac6e26` fixed (that field knows the winners on
+historical rows; copying it read +4.48% where the truth was -18.75%). The date
+window is a hardcoded constant, not an argument. Verified after: every day
+2026-07-28..08-06 now 100% covered, and 2015 still deliberately unscored.
+
+**2. `getWalkForwardCoverage()` was reporting a coverage edge a week stale, and
+widening daily.** It read `coverageMaxDate` off the walk-forward document —
+frozen at 2026-07-30 — while the capture path now extends real coverage every
+day. The Filters screen was telling users a date range was out of coverage when
+it was not. It now reads the live edge from the data (`2026-08-06` against prod)
+and keeps the backtest's own figure as `walkForwardMaxDate`, since "how far has
+the backtest been run" is a different question and is no longer visible from the
+other field.
+
+Two details worth keeping: the query sorts on **`raceTime`, which is indexed,
+not `raceDate`, which is not** — same ordering, and it turns a 110k-document
+scan (0.3s) into a single index seek (1 doc examined, 0ms). And it matches on
+`$type: "number"`, **not `$ne: null`** — on an array field `$ne` matches only
+documents where NO element is null, which would exclude nearly every real race,
+since most have some unscored runners.
+
+**Live forward test, for the record.** On the 78 races that had live predictions
+the model's top pick read **+11.4% level stakes**; recovering the four lost days
+took it to 272 races and **-24.7%**. The +11.4% was noise, and its own to-win
+figure (-1.8% on the identical bets) said so at the time. What survives at that
+sample size is strike rate: **model's top pick 24.1%, market favourite 41.8%**,
+agreeing only 34% of the time. Per-bet level-stakes SD is 1.84, so resolving a
+3% ROI edge needs ~14,500 bets — about 1.5 years of GB racing. Recent live data
+can refute a large effect; it cannot confirm a small one.
