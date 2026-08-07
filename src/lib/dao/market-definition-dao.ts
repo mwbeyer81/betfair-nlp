@@ -6,6 +6,8 @@ import {
 } from "../../types/betfair";
 import { BrierStats, brierFromSums } from "../service/brier";
 import { bookSumExpr, fairProbPctExpr, sqErrPctExpr } from "./brier-expr";
+import { FavPnlStats, FavSums, favPnlFromSums } from "../service/fav-pnl";
+import { favGroupAccumulators, raceFavSumsExpr } from "./fav-expr";
 
 export interface EventGroup {
   eventId: string;
@@ -283,6 +285,9 @@ export class MarketDefinitionDAO {
     totalRunners: number;
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
     brier: BrierStats;
+    // The back-the-favourite baseline over the same markets — shortest BSP in
+    // each market's full field, ignoring the BSP range and every other filter.
+    favPnl: FavPnlStats;
   }> {
     const countryMatch = countries.length > 0 ? { countryCode: { $in: countries } } : {};
     const marketTimeSortDir = sortOrder === "desc" ? -1 : 1;
@@ -325,6 +330,20 @@ export class MarketDefinitionDAO {
           // normalising by it is still what makes the implied probabilities
           // this screen scores actual probabilities.
           _bookSum: bookSumExpr("$runners", "bsp"),
+          // Read from the same pre-stage `runners` as _bookSum above, and for
+          // the same reason: the favourite is the shortest price in the whole
+          // field, not the shortest price the current BSP range happens to
+          // leave standing. This stage narrows `runners` to that range below,
+          // so computing it afterwards would silently redefine the baseline
+          // every time a user moved the range. See src/lib/service/fav-pnl.ts.
+          _fav: raceFavSumsExpr({
+            runnersPath: "$runners",
+            priceField: "bsp",
+            // Unlike the industry-SP collection, a withdrawn runner here can
+            // still carry a price — and a baseline betting one would be a bet
+            // nobody could have struck.
+            backableCond: [{ $ne: ["$$fr.status", "REMOVED"] }],
+          }),
           allRunnersCount: {
             $size: {
               $filter: {
@@ -382,6 +401,7 @@ export class MarketDefinitionDAO {
         total: [{ count: number }];
         totalRunners: [{ count: number }];
         pnlStats: [{ staked: number; returns: number; count: number; brierPriced: number; brierMarketSqErrSum: number }];
+        favPnl: [FavSums];
       }>([
         ...basePipeline,
         {
@@ -435,6 +455,10 @@ export class MarketDefinitionDAO {
               },
             ],
             total: [...rowRangeStages, { $count: "count" }],
+            // Its own branch rather than accumulators on pnlStats below: that
+            // branch $unwinds, which would multiply these per-race scalars once
+            // per priced runner. Same reasoning as the industry-SP DAO's.
+            favPnl: [...rowRangeStages, { $group: { _id: null, ...favGroupAccumulators("_fav") } }],
             totalRunners: [...rowRangeStages, { $group: { _id: null, count: { $sum: { $size: "$runners" } } } }],
             pnlStats: [
               ...rowRangeStages,
@@ -489,6 +513,7 @@ export class MarketDefinitionDAO {
         modelSqErrSum: 0,
         marketSqErrSum: result?.pnlStats?.[0]?.brierMarketSqErrSum ?? 0,
       }),
+      favPnl: favPnlFromSums(result?.favPnl?.[0]),
     };
   }
 

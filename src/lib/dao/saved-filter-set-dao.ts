@@ -1,5 +1,6 @@
 import { Collection, Db, ObjectId } from "mongodb";
 import type { BrierStats } from "../service/brier";
+import type { FavPnlStats } from "../service/fav-pnl";
 
 export interface SavedFilterSetPnlStats {
   staked: number;
@@ -34,6 +35,16 @@ export interface SavedFilterSetSplit {
   // the same reason splitA/splitB themselves are optional on the frontend —
   // documents saved before this field existed are real and are not migrated.
   brier?: BrierStats;
+  // What backing this split's races' favourites blind would have returned —
+  // the baseline pnlStats above is read against. Optional on exactly the same
+  // terms as brier: documents saved before this field existed are real, are not
+  // migrated, and must render as "—" rather than as a break-even baseline.
+  //
+  // Snapshotted rather than recomputed on read, like every other number in this
+  // document: a saved result is a record of what the screen showed on the day it
+  // was saved, and a baseline that silently moved as the dataset grew would
+  // break the comparison it exists to support.
+  favPnl?: FavPnlStats;
 }
 
 // filters is stored as the exact URL-param string map IndustrySpScreen's own

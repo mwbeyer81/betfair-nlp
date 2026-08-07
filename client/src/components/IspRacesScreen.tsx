@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { View, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
 import { Text, Button, ActivityIndicator } from "react-native-paper";
-import { chatApi, IspRace, IspRunner, BrierStats, IspPage, PnlStats } from "../services/chatApi";
+import { chatApi, IspRace, IspRunner, BrierStats, FavPnlStats, IspPage, PnlStats } from "../services/chatApi";
 import { colors, statusPill, radii, spacing } from "../theme";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
 import { BrierScore } from "./BrierScore";
+import { FavPnl } from "./FavPnl";
 import type { Route } from "../hooks/useRouter";
 import {
   stakeToWin1,
@@ -272,6 +273,11 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // races count beside it and AllRunnersScreen's identical subtitle.
   const [totalRunners, setTotalRunners] = useState(0);
   const [brier, setBrier] = useState<BrierStats | undefined>(undefined);
+  // The favourite-backed baseline over the same whole row range, and the
+  // filtered figure it is read against — both lifted off the mount probe, and
+  // both page-independent for exactly the reason setBrier's comment gives.
+  const [favPnl, setFavPnl] = useState<FavPnlStats | undefined>(undefined);
+  const [rangePnl, setRangePnl] = useState<PnlStats | undefined>(undefined);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">(() => urlSortParam());
   const [oddsMode, setOddsMode] = useState<OddsMode>("fraction");
   // Every year header renders immediately from the filter's own date range
@@ -419,6 +425,8 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         // exactly like `total` beside it. That is what makes it safe to set
         // once here and never touch again as the tree loads more days.
         setBrier(probe.brier);
+        setFavPnl(probe.favPnl);
+        setRangePnl(probe.pnlStats);
         if (probe.data.length === 0) {
           setIsLoading(false);
           return;
@@ -1089,6 +1097,13 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       {!isLoading && !error && (
         <View testID="industry-sp-races-brier-row" style={styles.brierRow}>
           <BrierScore brier={brier} testID="industry-sp-races-brier" label="Brier (filtered)" />
+          {/*
+            Same scope, same reasoning: the whole filtered row range, not the
+            days currently expanded. This is the row the tree below is measured
+            against — every node's P&L caption is the filter's selection, and
+            this says what not selecting at all would have returned.
+          */}
+          <FavPnl fav={favPnl} pnl={rangePnl} testID="industry-sp-races-fav" label="Fav (filtered)" />
         </View>
       )}
 

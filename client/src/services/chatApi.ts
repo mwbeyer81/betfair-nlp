@@ -42,6 +42,34 @@ export interface PnlStats {
   count?: number;
 }
 
+// What backing each race's favourite blind would have returned over the SAME
+// races a filtered figure covers — the market baseline every P&L on this app is
+// implicitly read against. See src/lib/service/fav-pnl.ts (backend) for the
+// derivation; the short version is that backing every runner loses ~11.7%, so a
+// filtered P&L means nothing until you know what not choosing at all would have
+// done on the same races.
+//
+// The favourite is the shortest-priced backable runner in the race, taken over
+// the FULL field — deliberately not narrowed by the ISP range or any runner
+// filter, because a baseline that moved with the filters it benchmarks could
+// never be compared across two filter sets. Joint favourites are both backed,
+// which is why `count` can exceed `races`.
+//
+// Optional wherever it appears, for the same reason BrierStats is: it arrived
+// after the endpoints did, and a stale service worker or an in-flight deploy
+// can hand the client a response without it. `count: 0` means "no answer" and
+// renders as an em dash — never as a break-even baseline.
+export interface FavPnlStats {
+  races: number;
+  count: number;
+  // To-win-£1, the convention `pnlStats` uses.
+  staked: number;
+  returns: number;
+  pnl: number;
+  // £1 flat per bet, the convention `levelPnl` uses.
+  level: { staked: number; returns: number; pnl: number };
+}
+
 // Brier score for a filtered set of horses — mean squared error of a win
 // probability against the 0/1 result, model and market scored over the same
 // runners. See src/lib/service/brier.ts (backend) for the full derivation and
@@ -100,6 +128,10 @@ export interface RunnersPage {
   // Market-only on this screen: the Betfair-SP dataset carries no model
   // probability, so brier.scored is 0 and brier.model is null.
   brier?: BrierStats;
+  // The favourite here is the shortest Betfair SP in the market's full field,
+  // excluding withdrawn runners — see the DAO. Same shape and same meaning as
+  // the industry-SP surfaces', so one component renders both.
+  favPnl?: FavPnlStats;
 }
 
 export interface IspRunner {
@@ -387,6 +419,7 @@ export interface IspPage {
   totalRunners: number;
   pnlStats: PnlStats;
   brier?: BrierStats;
+  favPnl?: FavPnlStats;
 }
 
 export type ModelVsSpSort = "date_desc" | "date_asc" | "edge_desc" | "edge_asc";
@@ -774,6 +807,11 @@ export interface SavedFilterSetSplit {
   // Absent on results saved before Brier scores were computed — same
   // no-migration reality as splitA/splitB themselves (see the comment above).
   brier?: BrierStats;
+  // Snapshotted at save time alongside pnlStats, and absent on results saved
+  // before it existed — same no-migration reality as brier above. Snapshotted
+  // rather than recomputed on read so the baseline can't drift away from the
+  // figure it was saved beside.
+  favPnl?: FavPnlStats;
 }
 
 // filters is the raw ISP_FILTER_PARAM_NAMES string map — the exact query
@@ -856,6 +894,7 @@ export interface IspSplitResult {
   totalRunners: number;
   pnlStats: PnlStats;
   brier?: BrierStats;
+  favPnl?: FavPnlStats;
 }
 
 export interface RaceConvergencePoint {
@@ -883,6 +922,9 @@ export interface IspSplitsResponse {
   // The whole filtered set's Brier, before either split window narrows it —
   // the number the header shows beside the race/runner totals.
   brier?: BrierStats;
+  // The same relationship for the favourite-backed baseline: over every matched
+  // race, before either split window narrows it.
+  favPnl?: FavPnlStats;
   splitA: IspSplitResult;
   splitB: IspSplitResult;
 }

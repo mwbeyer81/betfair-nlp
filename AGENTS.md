@@ -201,6 +201,7 @@ tiebreaker.
 
 | Worktree | Branch | Task | Status |
 |---|---|---|---|
+| `~/betfair-nlp-fav-pnl` | `fav-pnl` | User asked (phone screenshot of `app.backbet.co.uk` build `89338da`, the /isp Filters screen's Split A/B cards): "In results split a and split b I want to see pnl if the favourite was backed for each of the filtered reference for easy reference. Add to other relevant screens too." A **back-the-favourite baseline** beside every filtered P&L — same races, dumbest possible selection — so a -11.8% split can be read as beating or trailing the do-nothing book instead of just "losing". New `src/lib/service/fav-pnl.ts` + `src/lib/dao/fav-expr.ts` (mirroring `brier.ts`/`brier-expr.ts` exactly), a per-race `_fav` scalar carried through `industry-sp-dao.ts`'s `$project` alongside `_brier` (no `$lookup`, no `$unwind`), a `favPnl` `$facet` branch, the same treatment in `market-definition-dao.ts` for the Betfair-SP screen, and one shared `FavPnl` component in two densities. **Touches `industry-sp-dao.ts`, `market-definition-dao.ts`, `saved-filter-set-dao.ts`, `industry-sp-service.ts`, `betfair-service.ts`, `router.ts`, `chatApi.ts`, `app.test.ts`, `IndustrySpScreen.tsx`, `SplitDetailPanel.tsx`, `SavedResultDetailScreen.tsx`, `SavedResultsListScreen.tsx`, `IspRacesScreen.tsx`, `AllRunnersScreen.tsx`, `ispSplitsCache.ts`, `tests-msw/fixtures.ts`** — checked this table first. | in progress — see the dated entry below |
 | `~/betfair-nlp-isp-races-rollup-mismatch` | `fix/isp-races-rollup-mismatch` | User (phone, 3 screenshots of build `28b117b`): saved result "Hoop" Split A reads 1118 races / -£28.82 (-20.2%) on its own card, but its Races view opened as `11/1118 races` with a 2016 header of "11 races loaded · -£1.14 (-100.0%)" and 2017/January 2017 both "0 races" — "the numbers in year month races views [don't] match. Zero races etc." Every response the screen receives already carries `total`/`totalRunners`/`pnlStats` scoped to the window it asked about (the DAO's `subDateMatchStage` sits ahead of the `$facet`); the screen discarded all three and captioned each header with a rollup over the one day the mount chain had paged in. New `rangeStats` state keyed by the same `year:`/`month:`/`day:` keys `expandedKeys` uses, populated from whichever response probed the node (recorded before the empty-data bail-outs, so a provable zero is one). "N races loaded" is gone with the thing that made it necessary. **Touches `IspRacesScreen.tsx` + its stories, `tests-msw/isp-races-month-loading.spec.ts`, `industry-sp-dao.integration.test.ts`** — checked this table first, no other worktree active on those. **Two follow-ups landed on the same worktree** (branches `fix/isp-day-tap-to-load`, then `feat/isp-eager-node-stats`): days got the same load-only tap target as years/months, and then every row was made to reveal its own count and P&L unasked, which retired that affordance to a retry-after-failure fallback. See the three dated entries below. | **done — all three merged to `develop` and deployed (`924fb98`, `57f1bf4`, `4f5a7de`), each verified against the live bundle. Worktree removed and all three branches deleted 2026-08-07.** |
 | `~/betfair-nlp-brier-scores` | `brier-scores` | User asked (three screenshots of `app.backbet.co.uk` — the Results list, a saved result's Split A/B cards, and the /isp Filters screen): "All the places horses can be filtered, calculate and show the brier score." Brier score = mean squared error of a win probability against the 0/1 result. Added to **every** filter surface: /isp Filters (whole-set line + one per split card + the Details panel), /isp/races, a saved result's two snapshot cards *and* its Live Performance rollup, the Saved Results list card, Model vs SP's summary, and /runners (Betfair SP — market-only, that dataset has no model column). New `src/lib/service/brier.ts` (pure math + the caveats), `src/lib/dao/brier-expr.ts` (the Mongo expressions), `client/src/utils/brierFormat.ts`, and one shared `client/src/components/BrierScore.tsx` in two densities — one component precisely because the value of putting this on six screens is that the numbers are comparable across them. **Three decisions worth knowing.** (1) The market is always scored beside the model, over the *same* runners, using the overround-normalised ("fair") probability — a raw SP book sums to 115-130%, so scoring the market raw would hand the model a win it didn't earn; same convention as `model-accuracy-service.ts`'s `marketBrier`. (2) A filter matching no model-scored runner reports **null, never 0** — 0 is the BEST possible Brier score, so a zero would render a flawless forecast where none was made; every layer (DAO, service, component, fixtures) has a test pinning this. (3) This scores `modelWinProbability` (what the filters themselves select on), NOT the walk-forward `modelWinProbabilityOos` that `/model-accuracy` uses — so the two screens will NOT agree, by design, and the filter-screen number is optimistic over training years. Documented at length in `brier.ts`. **Perf**: the Brier sums are two `$reduce` passes per matched race added inside `buildQualifyingRaceStages` (opt-in via `includeBrier`, so the convergence-graph query still skips them), and a `$facet` branch deliberately OUTSIDE `pnlStats` — `pnlStats` has a fast path and a slow `$unwind` path, and the score must not differ depending on which one a filter happens to take. Verified against real data by `scripts/verify-brier-scores-2026-08-04.ts`, which recomputes every score in plain TypeScript from a `find()` and demands the two agree. | merged + deployed to app.backbet.co.uk |
 | `~/betfair-nlp-model-edge-pct` | `model-edge-pct` | User asked (screenshot of `app.backbet.co.uk`'s /isp Filters screen): "I want to be able to filter where model beats ISP by percentage x". Confirmed with the user up front that "percentage" here means percentage **POINTS** (model win% minus the 100/isp the SP implies) rather than a relative overlay % — points is what `modelSpEdge`/`formatEdgePts` already show on every runner badge as "+5.0 pts", so the filter and the display now agree by construction. New `minModelSpEdgePts` filter threaded end to end: `industry-sp-dao.ts` (new exported `modelBeatsSpCond(minEdgePts)` helper — the four pipelines that each had their own inline copy of the beats-SP condition now share one definition, which is why this landed as a small diff rather than four parallel edits) -> `industry-sp-service.ts` -> `router.ts` (all 3 ISP routes, clamped 0-100, NaN-tolerant) -> `saved-filter-set-service.ts` + `live-filter-result-service.ts` (so saved filters and their Live Performance capture honour it too) -> `chatApi.ts` -> `ispUrlParams.ts`/`ispSplitsCache.ts`/`ispFormat.ts` -> `IndustrySpScreen.tsx` (new "Beats SP by (pts)" numeric row right under the existing "Model beats SP" checkbox, with tooltip) and `IspRacesScreen.tsx` (client-side `qualifyingRunners` + all 4 paginated fetches). **Design decision worth knowing**: a threshold > 0 activates the beats-SP filter *on its own* — it does NOT require the checkbox as well. That's deliberately unlike the `trainerFormMinWinRate`/`hasTrainerForm` pair it visually resembles: there the checkbox tests a different thing (does a form sample exist at all) from the number, whereas here both express the same dimension, so gating the number behind the checkbox would make a typed threshold silently do nothing. `minModelSpEdgePts` was also added to `ispSplitsCache.ts`'s cache key — without it, changing the threshold would have re-served the previous threshold's cached split result. **Touches `industry-sp-dao.ts`, `IndustrySpScreen.tsx`, `ispUrlParams.ts`** — checked this table first, no other worktree active on those. | **done — merged to `develop` and deployed (web + Lambda)**. Verified: root `tsc --noEmit` and client `yarn build` both clean; `app.test.ts` 230/230 (5 new — incl. a NaN/out-of-range tolerance case and an explicit assertion that `/api/industry-sp` is `optionalJwtAuth`, so anonymous gets the reduced race cap rather than a 401; the CLAUDE.md "returns 401 without auth" template does NOT apply to that route); `industry-sp-dao.integration.test.ts` 41/41 (3 new, against the real local mongod on 27019). **Verified the filter against real data rather than trusting the aggregation by eye**: on the local 30-race dataset, 240 runners -> 171 (`onlyModelBeatsSp`) -> 122 (>=5 pts) -> 47 (>=10 pts) -> 0 (>=20 pts), with `pnlStats.count` equal to `totalRunners` at *every* threshold — the fast-path/slow-path reconciliation that the documented card-vs-graph P&L mismatch regression was about. MSW: 2 new specs pass. Storybook: 2 new stories pass (59/61 on this file, vs 57/59 on clean `develop` — **the same 2 failures, `TooltipToggleHasAdequateTapTarget` and `ResetClearsCourseChipsSelection`, are pre-existing**; confirmed by stashing and re-running against clean `develop`, not assumed). **Pre-existing breakage found and NOT fixed here (flagging for whoever owns it)**: the whole `Industry SP races screen (MSW mocked)` describe block in `industry-sp.spec.ts` — ~12 tests incl. the existing `onlyModelBeatsSp=true` one — asserts `industry-sp-race-<id>` is visible straight after `goto(/isp/races)`, which the lazy collapsed-hierarchy work (`isp-day-lazy-load` row above) invalidated: races now need Year -> Month -> Day -> Meeting expanding first. Confirmed pre-existing by stash-and-rerun against clean `develop`. My own new races-screen spec does the full drill-down, so it passes. **Not included, deliberately**: Today's Picks (`DailyRacesScreen`/`dailyRaceFormat.ts`) has its own separate "Model beats SP" checkbox that was left alone — its `dailyRacePickBeatsSp` can only ever evaluate retrospectively (no pre-race price feed), so a points threshold there is a different feature with different semantics, not this one. Worktree can be removed. |
@@ -7008,3 +7009,112 @@ sample size is strike rate: **model's top pick 24.1%, market favourite 41.8%**,
 agreeing only 34% of the time. Per-bet level-stakes SD is 1.84, so resolving a
 3% ROI edge needs ~14,500 bets — about 1.5 years of GB racing. Recent live data
 can refute a large effect; it cannot confirm a small one.
+
+## 2026-08-07 (later) — worktree `~/betfair-nlp-fav-pnl`, branch `fav-pnl` — "pnl if the favourite was backed, for easy reference"
+
+User, on a phone, screenshot of `app.backbet.co.uk` build `89338da` (the /isp
+Filters screen): *"In results split a and split b I want to see pnl if the
+favourite was backed for each of the filtered reference for easy reference. Add
+to other relevant screens too."*
+
+The screenshot is the case for the feature. Split A reads **-£67.78 (-11.8%)**
+and Split B **-£1898.00 (-11.1%)**, and neither number is readable on its own —
+backing *every* runner in this dataset loses ~11.7% to the overround, so both
+splits are within noise of "not choosing at all", and nothing on the card says
+so. The baseline turns the headline into a comparison.
+
+**What "the favourite" means, and the one decision everything else follows
+from.** The shortest-priced backable runner in the race, taken over the FULL
+field — **deliberately blind to the ISP range and to every runner-level filter
+(trainer form, model win %, model-beats-SP, model top pick)**. The races are
+exactly the filtered ones (and, on a split card, exactly that split's row
+window); the *selection within them* is not. A baseline narrowed by the filters
+it benchmarks is not a baseline: if an ISP range of 5-10 could move which horse
+counts as the favourite, the number would shift under every filter change and
+could never be compared across two filter sets. There is an integration test
+asserting exactly this (`narrow.favPnl` deep-equals `wide.favPnl` while
+`pnlStats.count` genuinely moves, so it can't pass by nothing happening).
+
+**Joint favourites keep both runners, each backed at full stake** — the same tie
+decision `modelTopPickCond` already makes, for the same reasons. That is why
+`count` (bets) and `races` are reported separately and both are on screen: 820
+bets over 800 races looks like an arithmetic error until you can see both.
+
+**Both staking conventions, always.** To-win-£1 and £1-level disagree by ~11
+points on identical bets purely through bet sizing (the same fact
+`includeLevelStakes` exists for). A baseline is only meaningful against a figure
+computed the same way, so `favPnl` carries both and each surface reads whichever
+one it displays — `<FavPnl convention>` is a prop, and a story pins the failure
+mode.
+
+**The number shown is a difference of ROIs, in POINTS — never a subtraction of
+two cash P&Ls.** The two books stake different totals (one bet per race against
+one per qualifying runner), so their cash figures are not on the same scale.
+
+### How it is computed — the pattern was already here
+
+`_brier` had already solved this exact problem: reduce the runners array to a
+few per-race scalars **before** `getAllRacesByRace`'s `$project` strips the doc
+down for sorting, then `$group` over those scalars in the `$facet`. `_fav` rides
+along the same way — five more numbers, ~40 bytes, no `$lookup` back to the full
+document and no `$unwind`. That is why this could be **always-on** rather than
+an opt-in flag like `includeLevelStakes` (which has no choice: it forces the
+`$unwind` path). Two array passes per race, both over an in-memory ~9-element
+array: `$min` needs its own pass by definition, bound once via `$let` — writing
+the favourite test inline in the `$reduce` would recompute the minimum once per
+runner, O(runners²) per race.
+
+The Betfair-SP screen gets the same treatment in `market-definition-dao.ts`,
+where `_fav` is computed in the same `$addFields` as `_bookSum` **specifically
+because that stage narrows `runners` to the BSP range in the same breath** —
+`$addFields` evaluates from pre-stage state, so both read the full field.
+`raceFavSumsExpr` takes a `backableCond` for that dataset's extra rule: a
+withdrawn (`REMOVED`) runner there can still carry a price, and a baseline
+betting one would be a bet nobody could have struck.
+
+### Verified against real data, not just seeded fixtures
+
+The aggregation was cross-checked against a plain JS loop over the same 30-race
+dev collection: `races 30, bets 30, level returns 16, to-win staked
+21.166666666666668, to-win returns 13.333333333333334` — identical to the last
+digit. Worth doing for anything computing money out of a `$reduce`.
+
+### Where it shows
+
+Split A/B cards and the "all races" header row on `/isp`; the split Details
+panel (rows variant, with the book and a caption naming the joint-favourite
+count); `/isp/races` over the whole row range; a saved result's two split cards;
+the saved-results list card (both splits summed — the card's headline spans both
+windows, so a baseline over one would measure the wrong races); and
+`/runners` (Betfair SP). Absent on saved results written before this existed —
+they render an em dash, never £0.00, since a break-even baseline is the one
+thing backing favourites never does.
+
+### Deliberately NOT done: the Live Performance section
+
+A saved result's live-captured rollup stores one document per race and sums
+them. Adding the baseline there means storing per-race fav sums at capture time,
+which only accrues from the deploy forward — so the baseline would cover a
+*different set of days* than the P&L it sits beside, and the points-gap between
+them would be wrong in a way nobody could see. Either backfill the captured
+documents or recompute the baseline from the ISP collection at read time; both
+are real work and neither belongs in this change. Left out on purpose.
+
+### Tests
+
+- `src/lib/dao/__tests__/industry-sp-dao-fav-pnl.integration.test.ts` — 8 tests
+  against real MongoDB, hand-worked arithmetic in the header comment (a race
+  where the favourite loses and a non-favourite wins, an unpriced would-be
+  favourite, a joint-favourite pair, blindness to the ISP range and to the
+  model filters, a row-range split that partitions the whole set, an empty set).
+- `src/lib/service/__tests__/fav-pnl.test.ts` — 7 tests on the roll-up half
+  (level book stakes per BET not per race; sums before division).
+- `src/server/__tests__/app.test.ts` — 3 new tests + the `/splits` shape
+  assertions; the shared `aggregate` mock gained a `favPnl` branch.
+- `client/src/components/FavPnl.stories.tsx` — 13 stories, all passing.
+- `client/tests-msw/fav-pnl.spec.ts` — 9 tests, all passing.
+- **Storybook full suite: the 7 failures are pre-existing on `origin/develop`**
+  (SavedResultsListScreen, EventsScreen, AllRunnersScreen, RunnerDetailScreen,
+  IndustrySpScreen) — verified by stashing this branch's changes and re-running
+  against the same dev server: identical 5 suites / 7 tests fail either way.
+

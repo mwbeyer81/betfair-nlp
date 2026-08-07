@@ -1,10 +1,11 @@
 import React from "react";
 import { View, StyleSheet } from "react-native";
 import { Text, Button, Surface, Divider } from "react-native-paper";
-import { PnlStats, BrierStats } from "../services/chatApi";
+import { PnlStats, BrierStats, FavPnlStats } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import { formatGbp, formatPnl, formatPct } from "../utils/ispFormat";
 import { BrierScore } from "./BrierScore";
+import { FavPnl } from "./FavPnl";
 
 interface SplitDetailPanelProps {
   id: "a" | "b";
@@ -15,6 +16,7 @@ interface SplitDetailPanelProps {
   totalRunners: number;
   pnl: PnlStats;
   brier: BrierStats | undefined;
+  favPnl: FavPnlStats | undefined;
   onClose: () => void;
   onViewRaces: () => void;
 }
@@ -32,6 +34,7 @@ export const SplitDetailPanel: React.FC<SplitDetailPanelProps> = ({
   totalRunners,
   pnl,
   brier,
+  favPnl,
   onClose,
   onViewRaces,
 }) => {
@@ -107,6 +110,18 @@ export const SplitDetailPanel: React.FC<SplitDetailPanelProps> = ({
           the return was skill or variance.
         */}
         <BrierScore brier={brier} variant="rows" testID={`split-detail-brier-${id}`} />
+
+        <Divider style={styles.pnlDivider} />
+
+        {/*
+          Last, because it is the comparison that puts everything above it in
+          context rather than another property of the split: the same races, bet
+          the dumbest possible way. `convention="toWin"` matches the Staked/
+          Return/P&L rows above — this panel shows no level-stakes figures, and
+          a level baseline under a to-win P&L would differ by ~11 points on bet
+          sizing alone.
+        */}
+        <FavPnl fav={favPnl} pnl={pnl} variant="rows" testID={`split-detail-fav-${id}`} />
       </View>
 
       <Button

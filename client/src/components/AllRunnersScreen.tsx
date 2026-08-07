@@ -16,8 +16,9 @@ import {
   Dialog,
   Surface,
 } from "react-native-paper";
-import { chatApi, RaceWithEvent, Runner, PnlStats, BrierStats, RunnerFilterBounds } from "../services/chatApi";
+import { chatApi, RaceWithEvent, Runner, PnlStats, BrierStats, FavPnlStats, RunnerFilterBounds } from "../services/chatApi";
 import { BrierScore } from "./BrierScore";
+import { FavPnl } from "./FavPnl";
 import { exportToCsv, exportToXlsx } from "../utils/exportRunners";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
@@ -131,6 +132,9 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
   // (ml/train_and_predict.py scores the industry-SP collection), so this is
   // how well the exchange's own closing prices predicted the results.
   const [brier, setBrier] = useState<BrierStats | undefined>(undefined);
+  // The same back-the-favourite baseline the industry-SP screens show, over
+  // this dataset's own markets: shortest Betfair SP in each full field.
+  const [favPnl, setFavPnl] = useState<FavPnlStats | undefined>(undefined);
   const [filterBounds, setFilterBounds] = useState<RunnerFilterBounds | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -192,6 +196,7 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
         setTotalRunners(result.totalRunners);
         setPnlStats(result.pnlStats ?? { staked: 0, returns: 0, pnl: 0 });
         setBrier(result.brier);
+        setFavPnl(result.favPnl);
         if (toRow == null) setDraftTo(String(result.total));
       } catch {
         setError("Failed to load runners");
@@ -533,6 +538,13 @@ export const AllRunnersScreen: React.FC<AllRunnersScreenProps> = ({
               {formatPnl(displayPnl.pnl)} <Text style={styles.pnlPct}>({formatPct(displayPnl.pnl, displayPnl.staked)})</Text>
             </Text>
             <BrierScore brier={brier} tone="dark" testID="all-runners-brier" label="Brier (SP)" />
+            {/*
+              Backing every runner loses to the overround on this dataset too,
+              so the same reading problem applies: the P&L two lines up means
+              nothing until you know what not choosing at all would have
+              returned over the same markets.
+            */}
+            <FavPnl fav={favPnl} pnl={displayPnl} tone="dark" testID="all-runners-fav" label="Fav (SP)" />
           </View>
         </View>
       )}

@@ -1,5 +1,6 @@
 import { IndustrySpDAO, IspRace, IspFilterBounds, ModelVsSpParams, ModelVsSpRow } from "../dao/industry-sp-dao";
 import type { BrierStats, BrierSums } from "./brier";
+import type { FavPnlStats } from "./fav-pnl";
 import type { ModelVsSpSummary } from "./model-vs-sp-summary";
 import { DatabaseConnection } from "../../config/database";
 
@@ -59,6 +60,7 @@ export class IndustrySpService {
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
     levelPnl?: { staked: number; returns: number; pnl: number };
     brier: BrierStats;
+    favPnl: FavPnlStats;
   }> {
     return this.industrySpDAO.getAllRacesByRace(
       page,
@@ -172,6 +174,9 @@ export class IndustrySpService {
     // The grand total's own Brier — over every race the filters match, before
     // either split window narrows it. The splits carry their own below.
     brier: BrierStats;
+    // Same relationship for the favourite-backed baseline: this one is over
+    // every matched race, each split's is over that split's rows only.
+    favPnl: FavPnlStats;
     splitA: {
       fromRow: number;
       toRow: number | null;
@@ -182,6 +187,7 @@ export class IndustrySpService {
       // "not requested", never zero.
       levelPnl?: { staked: number; returns: number; pnl: number };
       brier: BrierStats;
+      favPnl: FavPnlStats;
     };
     splitB: {
       fromRow: number;
@@ -191,6 +197,7 @@ export class IndustrySpService {
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
       levelPnl?: { staked: number; returns: number; pnl: number };
       brier: BrierStats;
+      favPnl: FavPnlStats;
     };
   }> {
     // filterBounds/countryCodes are independent of every filter param and
@@ -294,8 +301,9 @@ export class IndustrySpService {
       raceClasses: raceClassValues,
       raceTypes: raceTypeValues,
       brier: grand.brier,
-      splitA: { fromRow: effFromA, toRow: effToA, total: resultA.total, totalRunners: resultA.totalRunners, pnlStats: resultA.pnlStats, ...(resultA.levelPnl ? { levelPnl: resultA.levelPnl } : {}), brier: resultA.brier },
-      splitB: { fromRow: effFromB, toRow: effToB, total: resultB.total, totalRunners: resultB.totalRunners, pnlStats: resultB.pnlStats, ...(resultB.levelPnl ? { levelPnl: resultB.levelPnl } : {}), brier: resultB.brier },
+      favPnl: grand.favPnl,
+      splitA: { fromRow: effFromA, toRow: effToA, total: resultA.total, totalRunners: resultA.totalRunners, pnlStats: resultA.pnlStats, ...(resultA.levelPnl ? { levelPnl: resultA.levelPnl } : {}), brier: resultA.brier, favPnl: resultA.favPnl },
+      splitB: { fromRow: effFromB, toRow: effToB, total: resultB.total, totalRunners: resultB.totalRunners, pnlStats: resultB.pnlStats, ...(resultB.levelPnl ? { levelPnl: resultB.levelPnl } : {}), brier: resultB.brier, favPnl: resultB.favPnl },
     };
   }
 
