@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { View, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from "react-native";
 import { Text, Button, ActivityIndicator } from "react-native-paper";
 import { chatApi, IspRace, IspRunner, BrierStats, IspPage, PnlStats } from "../services/chatApi";
@@ -376,6 +376,18 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
       setMonthDataStartDay({});
       setExpandedKeys(new Set());
       setExpandAllActive(false);
+      // Every window's numbers have to go with the sort order, not just the
+      // races: a row range (Split A/B) is "rows 1-N of the CURRENT order", so
+      // flipping asc/desc selects a different set of races and therefore a
+      // different count and P&L for every year, month and day. Keeping these
+      // would leave the ascending answers captioning a descending range. The
+      // queue is dropped too, or in-flight probes from the old order would
+      // land after the reset and write themselves back in.
+      statsGeneration.current += 1;
+      setRangeStats({});
+      setStatsFailed(new Set());
+      statsRequested.current = new Set();
+      statsQueue.current = [];
       try {
         // A small, unscoped probe — page 1 of the row-ranged sequence with
         // no sub-date range — purely to learn the grand total (for the
@@ -397,7 +409,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
         // own literal start (e.g. a Jan-Dec 2024 filter whose earliest
         // qualifying race happens to be in July doesn't mean January isn't
         // still the natural place a user expects to land).
-        const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, undefined, undefined, minModelSpEdgePts);
+        const probe = await fetchWindow(1, PAGE_SIZE);
         if (cancelled) return;
         setTotalRaces(probe.total);
         setTotalRunners(probe.totalRunners);
@@ -434,6 +446,92 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortOrder]);
 
+  // Every row on this screen shows its own count and P&L without being asked
+  // — the user's words: "at all levels I want pnl revealed without having to
+  // press Tap to load". A node's numbers come from one request scoped to its
+  // own window, so "reveal them all" means one small request per rendered row.
+  //
+  // Three things keep that from being the stampede it sounds like:
+  //
+  // 1. **Only rendered rows are probed.** Years always render; months render
+  //    only under an expanded year; days only under an expanded month (the
+  //    hierarchy doesn't even build them otherwise — see the days/
+  //    mergeDayPlaceholders comment). So an unbounded 2015-2026 filter probes
+  //    12 years up front, not 12 years x 12 months x 31 days.
+  // 2. **`limit: 1`.** These requests want `total`/`totalRunners`/`pnlStats`,
+  //    which the aggregation computes over the whole window ahead of the
+  //    $facet regardless of page size — so asking for one race instead of
+  //    twenty skips the $lookup that reattaches full documents, and returns a
+  //    tiny body. The races themselves still arrive through loadDayPage when
+  //    a day is actually opened.
+  // 3. **A concurrency cap.** Each of these is a real aggregation over the
+  //    row range on the server; firing 31 of them at once when a month opens
+  //    would be a self-inflicted denial of service on a phone connection.
+  //    They queue instead, a few at a time, and rows fill in as they land.
+  //
+  // Plus the free case: a window the server has already said holds 0 races
+  // can't have non-empty children, so their zeros are *derived* rather than
+  // fetched (see the effect below). For a Split A that stops in 2016, that
+  // alone removes every month and day of 2017+.
+  const MAX_CONCURRENT_STATS = 5;
+  const statsQueue = useRef<{ key: string; from: string; to: string }[]>([]);
+  const statsInFlight = useRef(0);
+  const statsRequested = useRef<Set<string>>(new Set());
+  // Bumped whenever the answers stop being valid (a sort flip re-selects which
+  // races the row range even covers — see the reset in the mount effect).
+  // Requests already in the air can't be recalled, so each carries the
+  // generation it was issued under and drops its result if that has moved on.
+  const statsGeneration = useRef(0);
+  // Only failures are surfaced as state: a node with neither stats nor a
+  // failure is simply still coming, which is what its "Loading…" says. A
+  // failure turns the count back into a tap target, so a dropped request on a
+  // flaky connection is recoverable without reloading the screen.
+  const [statsFailed, setStatsFailed] = useState<Set<string>>(new Set());
+
+  function pumpStats() {
+    while (statsInFlight.current < MAX_CONCURRENT_STATS && statsQueue.current.length > 0) {
+      const job = statsQueue.current.shift()!;
+      const generation = statsGeneration.current;
+      statsInFlight.current += 1;
+      (async () => {
+        try {
+          const result = await fetchWindow(1, 1, job.from, job.to);
+          if (generation !== statsGeneration.current) return;
+          setRangeStats(prev => ({ ...prev, [job.key]: rangeStatsOf(result) }));
+        } catch {
+          if (generation !== statsGeneration.current) return;
+          // Dropped from `requested` so the retry tap can re-enqueue it.
+          statsRequested.current.delete(job.key);
+          setStatsFailed(prev => new Set(prev).add(job.key));
+        } finally {
+          statsInFlight.current -= 1;
+          pumpStats();
+        }
+      })();
+    }
+  }
+
+  function enqueueStats(key: string, from: string, to: string) {
+    if (statsRequested.current.has(key) || rangeStats[key]) return;
+    statsRequested.current.add(key);
+    setStatsFailed(prev => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+    statsQueue.current.push({ key, from, to });
+    pumpStats();
+  }
+
+  // One place that knows the filter's ~30 positional arguments, so the four
+  // call sites below differ only in the two things that actually vary: which
+  // page/size, and which sub-date window. Everything else is the filter, read
+  // once from the URL.
+  function fetchWindow(page: number, limit: number, from?: string, to?: string) {
+    return chatApi.getIndustrySp(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
+  }
+
   // Fetches the next page of exactly one calendar day's own races — scoped
   // via subMinDate/subMaxDate (see chatApi.getIndustrySp/the DAO) to (the
   // filter's row range) ∩ (this single day), so it pages independently of
@@ -453,7 +551,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     }));
     try {
       const { from, to } = dayBounds(dayKey, effectiveMinDate, effectiveMaxDate);
-      const result = await chatApi.getIndustrySp(nextPage, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
+      const result = await fetchWindow(nextPage, PAGE_SIZE, from, to);
       setRangeStats(prev => ({ ...prev, [`day:${dayKey}`]: rangeStatsOf(result) }));
       setDayStates(prev => {
         const prevRaces = prev[dayKey]?.races ?? [];
@@ -485,7 +583,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     setInitializedMonths(prev => new Set(prev).add(monthKey));
     const { from, to } = monthBounds(monthKey, effectiveMinDate, effectiveMaxDate);
     try {
-      const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
+      const probe = await fetchWindow(1, PAGE_SIZE, from, to);
       // Recorded BEFORE the empty-data bail-out below: a probe that came back
       // with nothing is exactly the case where the header most needs the
       // server's own "0 races" rather than a guess.
@@ -538,7 +636,7 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     setInitializedYears(prev => new Set(prev).add(year));
     const { from, to } = yearBounds(year, effectiveMinDate, effectiveMaxDate);
     try {
-      const probe = await chatApi.getIndustrySp(1, PAGE_SIZE, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minRunnersInRange, maxRunnersInRange, fromRow, toRow ?? undefined, minDate || undefined, maxDate || undefined, courses, goings, raceClasses, raceTypes, trainer, jockey, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, undefined, minModelWinProbability, onlyModelBeatsSp, undefined, from, to, minModelSpEdgePts);
+      const probe = await fetchWindow(1, PAGE_SIZE, from, to);
       // Same as the month level below: recorded before the empty bail-out, so
       // a year the row range genuinely can't reach (Split A stopping in 2016
       // while the filter's own range runs into 2017) reports the server's
@@ -682,6 +780,62 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandAllActive, allNodeKeysSignature]);
 
+  // Drives the eager per-node stats described up by enqueueStats: walk exactly
+  // the rows that are on screen and make sure each one has been asked for.
+  // Re-runs as stats land (rangeStatsSignature), which is what cascades a year
+  // opening into its months and a month opening into its days.
+  //
+  // A parent the server has already reported as empty short-circuits its
+  // children: nothing inside a 0-race window can be non-empty, so their stats
+  // are written directly rather than fetched. That is a proof, not a guess —
+  // the same reasoning mergeMonthPlaceholders uses to stop rendering months
+  // before a year's confirmed start at all.
+  const rangeStatsSignature = Object.keys(rangeStats).sort().join("|");
+  const expandedKeysSignature = [...expandedKeys].sort().join("|");
+  useEffect(() => {
+    const derivedZeros: Record<string, RangeStats> = {};
+    const zeroFor = (key: string) => {
+      if (!rangeStats[key]) derivedZeros[key] = { races: 0, runners: 0, pnl: { staked: 0, returns: 0, pnl: 0, count: 0 } };
+    };
+
+    for (const year of hierarchy) {
+      const yearKey = `year:${year.key}`;
+      const { from, to } = yearBounds(year.key, effectiveMinDate, effectiveMaxDate);
+      enqueueStats(yearKey, from, to);
+
+      const yearStats = rangeStats[yearKey];
+      if (!expandedKeys.has(yearKey) || !yearStats) continue;
+      for (const month of year.months) {
+        const monthKey = `month:${month.key}`;
+        if (yearStats.races === 0) {
+          zeroFor(monthKey);
+        } else {
+          const bounds = monthBounds(month.key, effectiveMinDate, effectiveMaxDate);
+          enqueueStats(monthKey, bounds.from, bounds.to);
+        }
+
+        const monthStats = rangeStats[monthKey];
+        if (!expandedKeys.has(monthKey) || !monthStats) continue;
+        for (const day of month.days) {
+          const dayKey = `day:${day.key}`;
+          if (monthStats.races === 0) {
+            zeroFor(dayKey);
+          } else {
+            const bounds = dayBounds(day.key, effectiveMinDate, effectiveMaxDate);
+            enqueueStats(dayKey, bounds.from, bounds.to);
+          }
+        }
+      }
+    }
+
+    if (Object.keys(derivedZeros).length > 0) {
+      setRangeStats(prev => ({ ...derivedZeros, ...prev }));
+    }
+    // hierarchy/rangeStats are rebuilt every render; their signatures are the
+    // real "did anything actually change" triggers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allNodeKeysSignature, expandedKeysSignature, rangeStatsSignature, sortOrder]);
+
   function toggleNode(key: string) {
     const wasCollapsed = !expandedKeys.has(key);
     // An individual tap is the user taking over from "Expand All" — stop
@@ -800,70 +954,63 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
   // where there is, walking it at every level on every render is the exact
   // cost that padding-out was removed to avoid. `probed` answers the only
   // question the label actually needs: has anything gone and looked?
-  // Once a node has been probed the count is the SERVER's count for that whole
-  // window (rangeStats), not a tally of what's been paged in — so a year header
-  // reads "1118 races" the moment it is asked, and keeps reading it however few
-  // of those races the client has actually fetched. That is the number the
-  // saved result's own card shows, which is the whole point: the two now agree
-  // by construction instead of by coincidence.
+  // A row's count is the SERVER's count for that whole window (rangeStats),
+  // never a tally of what has been paged in — so a year header reads
+  // "1118 races" and keeps reading it however few of those races the client
+  // has fetched. That is the number the saved result's own card shows, which
+  // is the point: the two agree by construction rather than by coincidence.
   //
-  // The older "N races loaded" phrasing is gone with the thing that made it
-  // necessary. It existed because the count and the P&L badge beside it were
-  // both rollups over loaded races only, so the count had to disclaim itself;
-  // both now describe the same real window, so there is nothing to disclaim.
-  // "Loading…" still wins while a probe is in flight, and an unprobed node
-  // still says "Tap to load" (its own tap target — see loadWithoutExpanding).
-  // `probed` (initializedYears/initializedMonths) minus stats is precisely
-  // "this node's own probe is in flight": both are set together when it
-  // resolves, and a failed probe clears `probed` again so a retry stays
-  // offered. That pairing is also what keeps the label honest with the tap
-  // target beside it — an unprobed node is the one that says "Tap to load",
-  // and it is exactly the one that renders as tappable.
-  function rollupCountLabel(stats: RangeStats | undefined, probed: boolean, anyLoading: boolean): string {
+  // Nothing waits to be asked anymore (see enqueueStats): every rendered row
+  // is probed as it appears, so the honest reading of "no stats yet" is
+  // "still coming" — "Loading…". "Tap to load" now means only one thing, a
+  // probe that FAILED, and it is exactly then that the count becomes a tap
+  // target again so the request can be retried without reloading the screen.
+  function nodeCountLabel(key: string): string {
+    const stats = rangeStats[key];
     if (stats) return `${stats.races} races`;
-    if (probed || anyLoading) return "Loading…";
-    return "Tap to load";
+    if (statsFailed.has(key)) return "Tap to load";
+    return "Loading…";
+  }
+
+  // The count is a tap target in exactly one situation now — a probe that
+  // failed — and tapping it re-enqueues that probe. enqueueStats already
+  // clears the failure flag and the failure path already dropped the key from
+  // `requested`, so this is the whole retry.
+  function retryStats(key: string, bounds: { from: string; to: string }) {
+    enqueueStats(key, bounds.from, bounds.to);
+  }
+
+  // A day's count can be a target for either of its two failures: the stats
+  // probe, or its own races fetch. Retrying reruns whichever actually failed —
+  // and if both did, the races fetch subsumes the stats (loadDayPage records
+  // rangeStats from the same response).
+  function dayRetryable(day: DayNode<IspRace>): boolean {
+    return dayStates[day.key]?.error === true || statsFailed.has(`day:${day.key}`);
+  }
+
+  function retryDay(dayKey: string) {
+    if (dayStates[dayKey]?.error) {
+      loadDayPage(dayKey);
+      return;
+    }
+    retryStats(`day:${dayKey}`, dayBounds(dayKey, effectiveMinDate, effectiveMaxDate));
   }
 
   function yearCountLabel(year: YearNode<IspRace>): string {
-    const anyLoading = year.months.some(m => m.days.some(d => dayStates[d.key]?.isLoading));
-    return rollupCountLabel(rangeStats[`year:${year.key}`], initializedYears.has(year.key), anyLoading);
+    return nodeCountLabel(`year:${year.key}`);
   }
 
   function monthCountLabel(month: MonthNode<IspRace>): string {
-    const anyLoading = month.days.some(d => dayStates[d.key]?.isLoading);
-    return rollupCountLabel(rangeStats[`month:${month.key}`], initializedMonths.has(month.key), anyLoading);
+    return nodeCountLabel(`month:${month.key}`);
   }
 
+  // A day carries a second, independent failure mode the levels above don't:
+  // its own races fetch (loadDayPage), which is what "Load more" pages and
+  // what opening the row triggers. That failure is about the races, not the
+  // count, and says so.
   function dayCountLabel(day: DayNode<IspRace>): string {
-    const state = dayStates[day.key];
-    // A failed fetch leaves no stats behind (see loadDayPage's catch) — check
-    // error first, or a failure reads as "confirmed zero races" instead of
-    // "tap to retry".
-    if (state?.error) return "Failed to load — tap to retry";
-    const stats = rangeStats[`day:${day.key}`];
-    if (stats) return `${stats.races} races`;
-    if (state?.isLoading) return "Loading…";
-    // Was "Not loaded yet", which described the state without offering
-    // anything to do about it. Days are the last level to get the load-only
-    // tap target (see dayLoadable), so they now say the same thing years and
-    // months do — and mean it in the same way.
-    return "Tap to load";
-  }
-
-  // Whether this day's count is its own tap target rather than plain text.
-  // Two states qualify: never fetched, and a failed fetch (where the label
-  // says "tap to retry" and must therefore be tappable). A day mid-flight is
-  // not, matching the year/month rule — "Loading…" is not an invitation.
-  //
-  // Reported live via screenshot of build 924fb98: "when I tap on day it still
-  // expands. It should load pnl but not expand." A day's own P&L is the thing
-  // most worth asking for without committing to its meetings and races
-  // unfurling underneath — it is the deepest level with a number of its own.
-  function dayLoadable(day: DayNode<IspRace>): boolean {
-    const state = dayStates[day.key];
-    if (state?.error) return true;
-    return !rangeStats[`day:${day.key}`] && !state?.isLoading;
+    if (dayStates[day.key]?.error) return "Failed to load — tap to retry";
+    return nodeCountLabel(`day:${day.key}`);
   }
 
   // The number every header actually wants: the server's own P&L for that
@@ -984,21 +1131,21 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                       <Text style={[styles.groupChevron, styles.groupChevronLight]}>{yearCollapsed ? "▸" : "▾"}</Text>
                       <Text style={styles.yearLabel}>{year.key}</Text>
                     </TouchableOpacity>
-                    {initializedYears.has(year.key) ? (
-                      <Text testID={`industry-sp-year-count-${year.key}`} style={[styles.groupCount, styles.groupCountLight]}>
-                        {yearCountLabel(year)}
-                      </Text>
-                    ) : (
+                    {statsFailed.has(yearKey) ? (
                       <TouchableOpacity
                         testID={`industry-sp-year-load-${year.key}`}
                         style={styles.groupCountButton}
-                        onPress={() => loadWithoutExpanding(() => loadYearDefaultMonth(year.key))}
+                        onPress={() => retryStats(yearKey, yearBounds(year.key, effectiveMinDate, effectiveMaxDate))}
                         accessibilityRole="button"
                       >
                         <Text testID={`industry-sp-year-count-${year.key}`} style={[styles.groupCount, styles.groupCountLight, styles.groupCountInButton]}>
                           {yearCountLabel(year)}
                         </Text>
                       </TouchableOpacity>
+                    ) : (
+                      <Text testID={`industry-sp-year-count-${year.key}`} style={[styles.groupCount, styles.groupCountLight]}>
+                        {yearCountLabel(year)}
+                      </Text>
                     )}
                     {yearPnl.staked > 0 && (
                       <Text testID={`industry-sp-year-pnl-${year.key}`} style={[styles.groupPnl, yearPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
@@ -1026,21 +1173,21 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                             <Text style={[styles.groupChevron, styles.groupChevronLight]}>{monthCollapsed ? "▸" : "▾"}</Text>
                             <Text style={styles.monthLabel}>{month.label}</Text>
                           </TouchableOpacity>
-                          {initializedMonths.has(month.key) ? (
-                            <Text testID={`industry-sp-month-count-${month.key}`} style={[styles.groupCount, styles.groupCountLight]}>
-                              {monthCountLabel(month)}
-                            </Text>
-                          ) : (
+                          {statsFailed.has(monthKey) ? (
                             <TouchableOpacity
                               testID={`industry-sp-month-load-${month.key}`}
                               style={styles.groupCountButton}
-                              onPress={() => loadWithoutExpanding(() => loadMonthDefaultDay(month.key))}
+                              onPress={() => retryStats(monthKey, monthBounds(month.key, effectiveMinDate, effectiveMaxDate))}
                               accessibilityRole="button"
                             >
                               <Text testID={`industry-sp-month-count-${month.key}`} style={[styles.groupCount, styles.groupCountLight, styles.groupCountInButton]}>
                                 {monthCountLabel(month)}
                               </Text>
                             </TouchableOpacity>
+                          ) : (
+                            <Text testID={`industry-sp-month-count-${month.key}`} style={[styles.groupCount, styles.groupCountLight]}>
+                              {monthCountLabel(month)}
+                            </Text>
                           )}
                           {monthPnl.staked > 0 && (
                             <Text testID={`industry-sp-month-pnl-${month.key}`} style={[styles.groupPnl, monthPnl.pnl >= 0 ? styles.pnlPos : styles.pnlNeg]}>
@@ -1068,11 +1215,11 @@ export const IspRacesScreen: React.FC<IspRacesScreenProps> = ({
                                   <Text style={styles.groupChevron}>{dayCollapsed ? "▸" : "▾"}</Text>
                                   <Text style={styles.dayLabel}>{day.label}</Text>
                                 </TouchableOpacity>
-                                {dayLoadable(day) ? (
+                                {dayRetryable(day) ? (
                                   <TouchableOpacity
                                     testID={`industry-sp-day-load-${day.key}`}
                                     style={styles.groupCountButton}
-                                    onPress={() => loadWithoutExpanding(() => loadDayPage(day.key))}
+                                    onPress={() => loadWithoutExpanding(() => retryDay(day.key))}
                                     accessibilityRole="button"
                                   >
                                     <Text testID={`industry-sp-day-count-${day.key}`} style={[styles.groupCount, styles.groupCountInButton]}>

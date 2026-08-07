@@ -6727,3 +6727,60 @@ meeting rows still at **0 before and 0 after** — P&L loaded, row not expanded.
 That is the same day, count and P&L the user's own screenshot showed one row at
 a time, which is a nice independent check that the numbers are the server's.
 Worktree can be removed.
+
+## 2026-08-07 — worktree `~/betfair-nlp-isp-races-rollup-mismatch`, branch `feat/isp-eager-node-stats` — every row reveals its own P&L, unasked
+
+User, after the two fixes below landed: *"at all levels I want pnl revealed
+without having to press Tap to load."* So the load-only tap target added
+yesterday is no longer the mechanism — it is the fallback.
+
+**What changed.** `IspRacesScreen` now probes every row as it renders:
+years on arrival, a year's months when it opens, a month's days when it opens.
+Each probe is one request scoped to that node's own window, writing the same
+`rangeStats` the previous change introduced.
+
+**Why this isn't the stampede it sounds like** — four things, and all four are
+pinned by a test in `tests-msw/isp-races-rollup-numbers.spec.ts`:
+
+1. **Only rendered rows are probed.** Months exist only under an open year,
+   days only under an open month (the hierarchy doesn't build them otherwise —
+   that was the ~4,300-day-nodes-per-render fix). An unbounded 2015-2026 filter
+   probes 12 years up front, not 12 x 12 x 31.
+2. **`limit: 1`.** `total`/`totalRunners`/`pnlStats` are computed over the whole
+   window ahead of the `$facet` regardless of page size, so asking for one race
+   instead of twenty skips the `$lookup` that reattaches full documents and
+   returns a tiny body. Races still arrive via `loadDayPage` when a day opens.
+3. **A concurrency cap of 5**, via a small queue. Opening a month would
+   otherwise fire ~31 aggregations at once — a self-inflicted DoS on a phone.
+   The test holds each mocked response open 40ms and asserts peak in-flight.
+4. **Proven-empty windows are derived, not fetched.** Nothing inside a 0-race
+   window can be non-empty, so children get zeros written directly. For a
+   Split A that stops in 2016, the test asserts exactly ONE request ever
+   mentions 2017 — the year probe that established the zero.
+
+**"Tap to load" now means exactly one thing: that probe failed.** It is the
+only state where a count is still a tap target, and tapping it retries. New
+story `AFailedStatsProbeOffersARetry` fails one month's probe on purpose and
+drives the recovery, including that its neighbour is unaffected and that the
+retry doesn't open the row.
+
+**A real bug caught while writing this, not by a test.** A row range is "rows
+1-N of the CURRENT sort order", so flipping asc/desc selects a *different set
+of races* and therefore different numbers for every window. `rangeStats`
+survived that flip. Fixed by clearing stats/queue/requested on the same reset
+that already cleared `dayStates`, plus a **generation counter** — probes
+already in the air can't be recalled, so each carries the generation it was
+issued under and drops its result if that has moved on. Pinned by
+"flipping the sort order discards every window's numbers and asks again".
+
+Also folded the filter's ~30 positional arguments into one `fetchWindow(page,
+limit, from?, to?)`, since there are now four call sites that differ only in
+page size and window.
+
+**Stories/specs updated, not just patched:** the three `Tapping*TapToLoadCount*`
+stories tested an affordance that only appears on failure now, so they were
+replaced by `EveryLevelRevealsItsNumbersWithoutATap` (year -> month -> day, no
+taps) plus the retry story above. Request-count assertions that used to pin
+exact numbers now filter on `limit > 1` to separate *data pages* from the
+one-race stats probes running alongside them — that distinction is what keeps
+"tapping 2025 must not walk through 2024" meaningful.

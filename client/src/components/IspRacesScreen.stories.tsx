@@ -942,9 +942,12 @@ export const LazyYearPlaceholdersRenderFromDateRangeImmediately: Story = {
       await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2024-06"));
       await expect(canvas.getByTestId("industry-sp-day-2024-06-01")).toBeInTheDocument();
 
-      // 2025 hasn't been tapped yet — not "0 races" (which would claim
-      // there's confirmed nothing there).
-      await expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("Tap to load");
+      // 2025 hasn't been tapped either, and doesn't need to be: its own
+      // count and P&L are fetched as soon as its row renders (enqueueStats).
+      // Shut, but never blank.
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("3 races");
+      }, { timeout: 10000 });
       await expect(canvas.queryByTestId("industry-sp-day-2025-06-01")).not.toBeInTheDocument();
     } finally {
       window.history.pushState({}, "", window.location.pathname);
@@ -991,91 +994,19 @@ export const TappingACollapsedYearFetchesItDirectlyWithoutTouchingOtherYears: St
       // 2024 is completely untouched — same count as before the tap.
       await expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("45 races");
 
-      // Three requests, and every one of them scoped inside 2025: the year
-      // probe that finds which month to land in, that month's probe for its
-      // first day, and that day's own page. Narrowing at each hop rather
-      // than walking forward through 2024's ~45 races. The count above
-      // resolves on the first of the three (the year probe answers with the
-      // whole year's total now), so wait for the other two to land.
-      await waitFor(() => expect(perYearRequests).toHaveLength(3), { timeout: 10000 });
-      expect(perYearRequests.map(r => `${r.subMinDate}..${r.subMaxDate}`)).toEqual([
-        "2025-01-01..2025-12-31",
-        "2025-06-01..2025-06-30",
-        "2025-06-01..2025-06-01",
-      ]);
-    } finally {
-      window.history.pushState({}, "", window.location.pathname);
-    }
-  },
-};
-
-export const TappingAYearsTapToLoadCountLoadsItWithoutExpanding: Story = {
-  parameters: { msw: { handlers: perYearHandlers } },
-  decorators: [withQueryParams("minDate=2024-01-01&maxDate=2025-12-31")],
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    try {
-      await canvas.findByTestId("industry-sp-list");
+      // Every request the tap causes is scoped inside 2025 — narrowing at
+      // each hop rather than walking forward through 2024's ~45 races, which
+      // is the regression this story exists for. The exact count is no longer
+      // pinned: opening the year also renders its months, and each of those
+      // gets its own one-race stats probe (enqueueStats).
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("45 races");
+        expect(perYearRequests.some(r => r.subMinDate === "2025-06-01" && r.subMaxDate === "2025-06-01")).toBe(true);
       }, { timeout: 10000 });
-
-      // The count itself is a separate tap target from the row, and taps it
-      // to mean only what it says: fetch. Reported live via screenshot — a
-      // year of "Tap to load" rows where asking one for its number opened it
-      // and pushed everything else off-screen.
-      await userEvent.click(canvas.getByTestId("industry-sp-year-load-2025"));
-
-      await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("3 races");
-      }, { timeout: 10000 });
-
-      // Loaded, and still shut — none of 2025's months rendered.
-      await expect(canvas.queryByTestId("industry-sp-month-2025-06")).not.toBeInTheDocument();
-
-      // Its own tap target is gone now that it has a real count; the row
-      // toggle still opens it, as it always did.
-      await expect(canvas.queryByTestId("industry-sp-year-load-2025")).not.toBeInTheDocument();
-      await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2025"));
-      await expect(canvas.getByTestId("industry-sp-month-2025-06")).toBeInTheDocument();
-    } finally {
-      window.history.pushState({}, "", window.location.pathname);
-    }
-  },
-};
-
-export const TappingADaysTapToLoadCountLoadsItWithoutExpanding: Story = {
-  parameters: { msw: { handlers: perYearHandlers } },
-  decorators: [withQueryParams("minDate=2024-01-01&maxDate=2025-12-31")],
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    try {
-      await canvas.findByTestId("industry-sp-list");
-      await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("45 races");
-      }, { timeout: 10000 });
-      await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2024"));
-      await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2024-06"));
-
-      // 2 June has races but nobody has looked at it — the mount chain loads
-      // only the month's first day.
-      await expect(canvas.getByTestId("industry-sp-day-count-2024-06-02")).toHaveTextContent("Tap to load");
-
-      // Reported live via screenshot: "when I tap on day it still expands. It
-      // should load pnl but not expand."
-      await userEvent.click(canvas.getByTestId("industry-sp-day-load-2024-06-02"));
-
-      await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-day-count-2024-06-02")).toHaveTextContent("2 races");
-      }, { timeout: 10000 });
-      // Its P&L arrived; its meetings did not.
-      await expect(canvas.getByTestId("industry-sp-day-pnl-2024-06-02")).toBeInTheDocument();
-      await expect(canvas.queryByTestId("industry-sp-meeting-Ascot|2024-06-02")).not.toBeInTheDocument();
-
-      // Tapping anywhere other than the count still expands, as it always did.
-      await expect(canvas.queryByTestId("industry-sp-day-load-2024-06-02")).not.toBeInTheDocument();
-      await userEvent.click(canvas.getByTestId("industry-sp-day-toggle-2024-06-02"));
-      await expect(canvas.getByTestId("industry-sp-meeting-Ascot|2024-06-02")).toBeInTheDocument();
+      // The walk this story guards against would show up as 2024 data pages
+      // being pulled to "reach" 2025. Stats probes (limit=1) for 2024's own
+      // rows are a different thing entirely — that year is open on screen, so
+      // its months are entitled to their numbers.
+      expect(perYearRequests.filter(r => r.limit > 1 && (r.subMinDate ?? "").startsWith("2024"))).toHaveLength(0);
     } finally {
       window.history.pushState({}, "", window.location.pathname);
     }
@@ -1120,35 +1051,88 @@ const twoMonthHandlers = [
   }),
 ];
 
-export const TappingAMonthsTapToLoadCountLoadsItWithoutExpanding: Story = {
+export const EveryLevelRevealsItsNumbersWithoutATap: Story = {
   parameters: { msw: { handlers: twoMonthHandlers } },
   decorators: [withQueryParams("minDate=2024-01-01&maxDate=2024-12-31")],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     try {
       await canvas.findByTestId("industry-sp-list");
-      await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("races");
-      }, { timeout: 10000 });
 
+      // The user's ask: "at all levels I want pnl revealed without having to
+      // press Tap to load." The year first, unasked.
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("28 races");
+      }, { timeout: 10000 });
+      await expect(canvas.getByTestId("industry-sp-year-pnl-2024")).toBeInTheDocument();
+
+      // Opening it reveals every month's own numbers — including August,
+      // which the year's own first page never saw and which used to sit at
+      // "Tap to load" until it was pressed.
       await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2024"));
-      // August is past the year probe's first page, so it's still unprobed —
-      // the screenshotted state, with real races behind it.
-      await expect(canvas.getByTestId("industry-sp-month-count-2024-08")).toHaveTextContent("Tap to load");
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-month-count-2024-06")).toHaveTextContent("25 races");
+        expect(canvas.getByTestId("industry-sp-month-count-2024-08")).toHaveTextContent("3 races");
+      }, { timeout: 10000 });
+      await expect(canvas.getByTestId("industry-sp-month-pnl-2024-08")).toBeInTheDocument();
+
+      // And one level further: the days of an opened month, each with its own
+      // count — the 5th holds August's three races, the 6th genuinely none.
+      await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2024-08"));
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-day-count-2024-08-05")).toHaveTextContent("3 races");
+        expect(canvas.getByTestId("industry-sp-day-count-2024-08-06")).toHaveTextContent("0 races");
+      }, { timeout: 15000 });
+
+      // Nothing anywhere is still waiting to be asked.
+      await expect(canvas.queryByText("Tap to load")).not.toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  },
+};
+
+// Fails August's stats probe once, then answers normally — the only situation
+// in which a count is still a tap target, and the reason it stayed one.
+let augustProbeFailures = 1;
+const flakyProbeHandlers = [
+  http.get(`${BASE}/api/industry-sp`, ({ request }) => {
+    const url = new URL(request.url);
+    if (url.searchParams.get("subMinDate") === "2024-08-01" && augustProbeFailures > 0) {
+      augustProbeFailures -= 1;
+      return new HttpResponse(null, { status: 500 });
+    }
+    return HttpResponse.json(ispPage(TWO_MONTH_RACES, request));
+  }),
+];
+
+export const AFailedStatsProbeOffersARetry: Story = {
+  parameters: { msw: { handlers: flakyProbeHandlers } },
+  decorators: [withQueryParams("minDate=2024-01-01&maxDate=2024-12-31")],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    augustProbeFailures = 1;
+    try {
+      await canvas.findByTestId("industry-sp-list");
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-year-count-2024")).toHaveTextContent("28 races");
+      }, { timeout: 10000 });
+      await userEvent.click(canvas.getByTestId("industry-sp-year-toggle-2024"));
+
+      // August's probe was dropped, so its count says the one thing "Tap to
+      // load" still means — and becomes tappable again to say it.
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-month-count-2024-08")).toHaveTextContent("Tap to load");
+      }, { timeout: 10000 });
+      // Its neighbour is unaffected: one dropped request doesn't strand the rest.
+      await expect(canvas.getByTestId("industry-sp-month-count-2024-06")).toHaveTextContent("25 races");
 
       await userEvent.click(canvas.getByTestId("industry-sp-month-load-2024-08"));
-
       await waitFor(() => {
         expect(canvas.getByTestId("industry-sp-month-count-2024-08")).toHaveTextContent("3 races");
       }, { timeout: 10000 });
-
-      // The whole point: a real count, with no wall of day rows under it.
+      // Recovered in place — the retry never opened the row.
       await expect(canvas.queryByTestId("industry-sp-day-2024-08-05")).not.toBeInTheDocument();
-
-      // And the row toggle still opens it, now showing days that know what
-      // they hold rather than a month of unloaded placeholders.
-      await userEvent.click(canvas.getByTestId("industry-sp-month-toggle-2024-08"));
-      await expect(canvas.getByTestId("industry-sp-day-2024-08-05")).toBeInTheDocument();
     } finally {
       window.history.pushState({}, "", window.location.pathname);
     }
@@ -1184,7 +1168,7 @@ const BUSY_DAY_RACES = Array.from({ length: 45 }, (_, index) => ({
   ],
 }));
 
-let busyDayRequests: { page: number; subMinDate: string | null; subMaxDate: string | null }[] = [];
+let busyDayRequests: { page: number; limit: number; subMinDate: string | null; subMaxDate: string | null }[] = [];
 
 const busyDayHandlers = [
   http.get(`${BASE}/api/industry-sp`, ({ request }) => {
@@ -1193,7 +1177,7 @@ const busyDayHandlers = [
     const limit = parseInt(url.searchParams.get("limit") || "20", 10);
     const subMinDate = url.searchParams.get("subMinDate");
     const subMaxDate = url.searchParams.get("subMaxDate");
-    busyDayRequests.push({ page, subMinDate, subMaxDate });
+    busyDayRequests.push({ page, limit, subMinDate, subMaxDate });
     return HttpResponse.json(ispPage(BUSY_DAY_RACES, request));
   }),
 ];
@@ -1234,10 +1218,14 @@ export const DayLoadMorePaginatesThatDayAlone: Story = {
       await waitFor(() => expect(raceRows()).toBe(40), { timeout: 10000 });
 
       // Page 2, still scoped to that one day — never widened to the month.
-      expect(busyDayRequests).toHaveLength(1);
-      expect(busyDayRequests[0].page).toBe(2);
-      expect(busyDayRequests[0].subMinDate).toBe("2024-06-01");
-      expect(busyDayRequests[0].subMaxDate).toBe("2024-06-01");
+      // Filtered to the data pages: every other day in this month is being
+      // probed for its own count/P&L at the same time (limit=1, see
+      // enqueueStats), and those are not what this story is about.
+      const dataPages = busyDayRequests.filter(r => r.limit > 1);
+      expect(dataPages).toHaveLength(1);
+      expect(dataPages[0].page).toBe(2);
+      expect(dataPages[0].subMinDate).toBe("2024-06-01");
+      expect(dataPages[0].subMaxDate).toBe("2024-06-01");
 
       // One more page (5 remaining of 45) exhausts the day — the button
       // disappears once state.races.length >= state.total.
@@ -1268,20 +1256,35 @@ export const ExpandAllLoadsEveryCollapsedYearIndependently: Story = {
       // the first tap is the Expand All this story is about, with no need
       // to collapse first.
       await expect(btn).toHaveTextContent("Expand All");
+      // The year count no longer waits on the mount chain (it comes from that
+      // year's own stats probe), so wait for the chain's last request — 2024's
+      // first day, as a data page — before clearing, or its tail is charged to
+      // the Expand All below.
+      await waitFor(() => {
+        expect(perYearRequests.some(r => r.limit > 1 && r.subMinDate === "2024-06-01")).toBe(true);
+      }, { timeout: 10000 });
       perYearRequests = [];
-      // 2025 was never tapped before this — Expand All must load it (not
-      // just re-reveal 2024's already-loaded data), same as every other
-      // not-yet-loaded year, each starting from its own year probe.
+      // 2025 already carries its own numbers without ever being tapped, so
+      // what Expand All has to prove now is that it opens every year's tree
+      // independently — not that it fetches them.
+      await expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("3 races");
       await userEvent.click(btn); // -> Expand All
 
       await waitFor(() => {
-        expect(canvas.getByTestId("industry-sp-year-count-2025")).toHaveTextContent("3 races");
+        expect(canvas.getByTestId("industry-sp-month-2025-06")).toBeInTheDocument();
+        expect(canvas.getByTestId("industry-sp-month-2024-06")).toBeInTheDocument();
       }, { timeout: 15000 });
-      // 2024 was already probed on mount — Expand All doesn't re-probe the
-      // year (initializedYears makes that a no-op), only years with no
-      // state yet get their own chain kicked off.
+      // Neither year is re-probed by Expand All: both already answered on
+      // mount (enqueueStats fires for every rendered year), and the per-node
+      // guards make a second request impossible.
       expect(perYearRequests.filter(r => r.subMinDate === "2024-01-01")).toHaveLength(0);
-      expect(perYearRequests.filter(r => r.subMinDate === "2025-01-01")).toHaveLength(1);
+      expect(perYearRequests.filter(r => r.subMinDate === "2025-01-01")).toHaveLength(0);
+      // What it does do is open everything, which is what makes the months
+      // and days below fetch their own numbers.
+      await expect(btn).toHaveTextContent("Collapse All");
+      await waitFor(() => {
+        expect(canvas.getByTestId("industry-sp-month-count-2025-06")).toHaveTextContent("3 races");
+      }, { timeout: 15000 });
     } finally {
       window.history.pushState({}, "", window.location.pathname);
     }
