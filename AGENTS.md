@@ -6784,3 +6784,20 @@ taps) plus the retry story above. Request-count assertions that used to pin
 exact numbers now filter on `limit > 1` to separate *data pages* from the
 one-race stats probes running alongside them — that distinction is what keeps
 "tapping 2025 must not walk through 2024" meaningful.
+
+**Merged, pushed and deployed** (2026-08-07). Merge `4f5a7de` on `develop`;
+`/deploy-web` shipped it to `app.backbet.co.uk`, `build-commit` meta confirms
+it live. **Verified against the deployed bundle with real data** (signed out,
+so the 100-race anonymous cap applies), instrumenting the browser's own
+network events:
+
+- **31 day rows, 0 of them saying "Tap to load", 0 still "Loading…"** — every
+  row answered for itself. The first five days read `33 races -£9.09 (-17.4%)`,
+  `15 races -£2.72 (-10.9%)`, `8 races -£2.91 (-23.9%)`, `25 races -£9.78
+  (-21.9%)`, `19 races -£3.09 (-10.3%)`; the rest are honest zeros, since rows
+  1-100 of this range end on 5 Jan.
+- **Peak concurrent `/api/industry-sp` requests: exactly 5** — the cap holding
+  under real latency, not just against a mock.
+- **42 one-race probes**, i.e. every stats request really did use `limit=1`.
+
+Worktree can be removed.
