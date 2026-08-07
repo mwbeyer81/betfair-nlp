@@ -724,6 +724,12 @@ jest.mock("../../config/database", () => {
                 // 0.6/4 = 0.15 market, so the assertions downstream are
                 // checkable by hand rather than snapshotted.
                 brier: [{ scored: 4, priced: 4, modelSqErrSum: 0.4, marketSqErrSum: 0.6 }],
+                // $facet branch added by the favourite-backed baseline — raw
+                // per-race sums again, not a finished P&L. 3 races, 4 bets (one
+                // race had joint favourites), £2 staked to win £1 returning
+                // £3, and £4 level returning £10 — so every assertion
+                // downstream is checkable by hand: to-win pnl +1, level pnl +6.
+                favPnl: [{ races: 3, bets: 4, staked: 2, returns: 3, levelReturns: 10 }],
                 // Flat counterparts for the Model vs SP summary aggregation,
                 // which groups into scalars rather than a $facet branch.
                 brierScored: 4,
@@ -1652,6 +1658,42 @@ describe("API Endpoints", () => {
         const response = await request(app).get("/api/industry-sp").expect(200);
         expect(response.body.brier).toBeDefined();
         expect(typeof response.body.brier.model).toBe("number");
+      });
+    });
+
+    describe("favPnl — the back-the-favourite baseline", () => {
+      it("returns the baseline alongside pnlStats, in both staking conventions", async () => {
+        const response = await request(app)
+          .get("/api/industry-sp")
+          .set("Authorization", `Bearer ${authToken}`)
+          .expect(200);
+
+        // From the shared aggregate mock's `favPnl` branch. The endpoint must
+        // SUBTRACT (returns - staked), not pass the raw sums through, and must
+        // read the level book's stake off `bets` rather than off `staked`.
+        expect(response.body.favPnl).toEqual({
+          races: 3,
+          count: 4,
+          staked: 2,
+          returns: 3,
+          pnl: 1,
+          level: { staked: 4, returns: 10, pnl: 6 },
+        });
+      });
+
+      it("counts bets, not races — a joint favourite is two bets in one race", async () => {
+        // The pair is what makes joint favourites legible on screen; a single
+        // number could not distinguish 4 races from 3 races with a tie in one.
+        const response = await request(app).get("/api/industry-sp").expect(200);
+        expect(response.body.favPnl.count).toBeGreaterThan(response.body.favPnl.races);
+      });
+
+      it("is present on the anonymous response too", async () => {
+        // The Filters screen renders the split cards before login, so a missing
+        // field here would show an em dash to every logged-out visitor.
+        const response = await request(app).get("/api/industry-sp").expect(200);
+        expect(response.body.favPnl).toBeDefined();
+        expect(typeof response.body.favPnl.pnl).toBe("number");
       });
     });
 
@@ -3301,8 +3343,18 @@ describe("API Endpoints", () => {
         // ones on the client (a Brier is a mean, and the splits' denominators
         // are not exposed separately), which is why the response sends it.
         expect(response.body[split].brier).toEqual({ scored: 4, priced: 4, model: 0.1, market: 0.15 });
+        // Same relationship for the favourite baseline, and the same reason it
+        // is sent per split rather than derived on the client: each split's
+        // window covers different races, so neither is recoverable from the
+        // other or from the grand total.
+        expect(response.body[split].favPnl).toEqual({
+          races: 3, count: 4, staked: 2, returns: 3, pnl: 1, level: { staked: 4, returns: 10, pnl: 6 },
+        });
       }
       expect(response.body.brier).toEqual({ scored: 4, priced: 4, model: 0.1, market: 0.15 });
+      expect(response.body.favPnl).toEqual({
+        races: 3, count: 4, staked: 2, returns: 3, pnl: 1, level: { staked: 4, returns: 10, pnl: 6 },
+      });
     });
 
     it("splitA defaults to fromRow 1 when no explicit range is given", async () => {

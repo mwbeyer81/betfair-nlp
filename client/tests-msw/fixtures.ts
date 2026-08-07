@@ -11,6 +11,17 @@ const MOCK_BRIER = { scored: 1240, priced: 1240, model: 0.0871, market: 0.0902 }
 // is the BEST possible Brier score, so a zero here would render a flawless
 // forecast on a screen showing no horses.
 const EMPTY_MOCK_BRIER = { scored: 0, priced: 0, model: null, market: null };
+// The favourite-backed baseline the mocked endpoints return. 800 races, 820
+// bets (20 of them joint favourites), losing 12.5% to-win and 4.9% level — the
+// two conventions deliberately disagreeing, since a screen reading the wrong
+// one is exactly the failure this baseline is most exposed to. 800 races clears
+// the small-sample threshold, so the "N races" pill stays off unless a test
+// asks for it.
+const MOCK_FAV = { races: 800, count: 820, staked: 400, returns: 350, pnl: -50, level: { staked: 820, returns: 780, pnl: -40 } };
+// What the backend returns when the filters match nothing. Zeros throughout,
+// but `count: 0` is what the UI reads as "no answer" — a £0.00 baseline would
+// render as one that broke even, which backing favourites never does.
+const EMPTY_MOCK_FAV = { races: 0, count: 0, staked: 0, returns: 0, pnl: 0, level: { staked: 0, returns: 0, pnl: 0 } };
 
 async function setupApiMocks(page: Page) {
   await page.route("**/api/stats", (route) =>
@@ -144,6 +155,7 @@ async function setupApiMocks(page: Page) {
         totalRunners: raceData.length > 0 ? 3 : 0,
         pnlStats: { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 },
         brier: MOCK_BRIER,
+        favPnl: raceData.length > 0 ? MOCK_FAV : EMPTY_MOCK_FAV,
         data: raceData,
       },
     });
@@ -498,6 +510,7 @@ async function setupApiMocks(page: Page) {
         totalRunners: raceData.length > 0 ? 3 : 0,
         pnlStats: { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 },
         brier: MOCK_BRIER,
+        favPnl: raceData.length > 0 ? MOCK_FAV : EMPTY_MOCK_FAV,
         data: raceData,
       },
     });
@@ -715,6 +728,7 @@ async function setupApiMocks(page: Page) {
     const totalRaces = matches ? 1 : 0;
     const pnlStats = matches ? { staked: 1.6, returns: 2.6, pnl: 1.0, count: 3 } : { staked: 0, returns: 0, pnl: 0, count: 0 };
     const brier = matches ? MOCK_BRIER : EMPTY_MOCK_BRIER;
+    const favPnl = matches ? MOCK_FAV : EMPTY_MOCK_FAV;
 
     const fromRowARaw = reqUrl.searchParams.get("fromRowA");
     const toRowARaw = reqUrl.searchParams.get("toRowA");
@@ -760,8 +774,9 @@ async function setupApiMocks(page: Page) {
         raceClasses: ["Class 1", "Class 2"],
         raceTypes: ["Chase", "Hurdle"],
         brier,
-        splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: totalA > 0 ? 3 : 0, pnlStats: totalA > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 }, brier: totalA > 0 ? MOCK_BRIER : EMPTY_MOCK_BRIER },
-        splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: totalB > 0 ? 3 : 0, pnlStats: totalB > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 }, brier: totalB > 0 ? MOCK_BRIER : EMPTY_MOCK_BRIER },
+        favPnl,
+        splitA: { fromRow: fromRowA, toRow: toRowA, total: totalA, totalRunners: totalA > 0 ? 3 : 0, pnlStats: totalA > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 }, brier: totalA > 0 ? MOCK_BRIER : EMPTY_MOCK_BRIER, favPnl: totalA > 0 ? MOCK_FAV : EMPTY_MOCK_FAV },
+        splitB: { fromRow: fromRowB, toRow: toRowB, total: totalB, totalRunners: totalB > 0 ? 3 : 0, pnlStats: totalB > 0 ? pnlStats : { staked: 0, returns: 0, pnl: 0, count: 0 }, brier: totalB > 0 ? MOCK_BRIER : EMPTY_MOCK_BRIER, favPnl: totalB > 0 ? MOCK_FAV : EMPTY_MOCK_FAV },
       },
     });
   });
@@ -818,6 +833,10 @@ async function setupApiMocks(page: Page) {
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
     graphPoints: { raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[];
     brier?: { scored: number; priced: number; model: number | null; market: number | null };
+    // Optional for the same reason brier is above — mock-result-2 deliberately
+    // has neither, standing in for the real production documents saved before
+    // these fields existed and never migrated.
+    favPnl?: { races: number; count: number; staked: number; returns: number; pnl: number; level: { staked: number; returns: number; pnl: number } };
   }
   const mockSavedResults: {
     id: string;
@@ -841,6 +860,9 @@ async function setupApiMocks(page: Page) {
         // so the two cards on the detail screen render opposite verdicts from
         // one fixture — the case a single shared number could never cover.
         brier: { scored: 6, priced: 6, model: 0.08, market: 0.09 },
+        // Baseline -25.0% against this split's own +10.0% — the filter beating
+        // it by 35 points.
+        favPnl: { races: 2, count: 2, staked: 8, returns: 6, pnl: -2, level: { staked: 2, returns: 1.5, pnl: -0.5 } },
         graphPoints: [
           { raceRowNumber: 1, cumulativeStaked: 5, cumulativeReturns: 6, cumulativePnl: 1, roiPercent: 20 },
           { raceRowNumber: 2, cumulativeStaked: 10, cumulativeReturns: 11, cumulativePnl: 1, roiPercent: 10 },
@@ -853,6 +875,10 @@ async function setupApiMocks(page: Page) {
         totalRunners: 6,
         pnlStats: { staked: 10, returns: 6, pnl: -4, count: 2 },
         brier: { scored: 6, priced: 6, model: 0.11, market: 0.09 },
+        // The other way round: baseline +50.0% against this split's -40.0%, so
+        // one saved result renders both verdicts. 3 bets over 2 races also
+        // exercises the joint-favourite case end to end.
+        favPnl: { races: 2, count: 3, staked: 6, returns: 9, pnl: 3, level: { staked: 3, returns: 7, pnl: 4 } },
         graphPoints: [
           { raceRowNumber: 3, cumulativeStaked: 5, cumulativeReturns: 5, cumulativePnl: 0, roiPercent: 0 },
           { raceRowNumber: 4, cumulativeStaked: 10, cumulativeReturns: 6, cumulativePnl: -4, roiPercent: -40 },

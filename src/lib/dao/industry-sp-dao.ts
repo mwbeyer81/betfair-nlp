@@ -3,6 +3,8 @@ import { RaceDoc, synthRaceId } from "./industry-sp-row-mapping";
 import { EDGE_BAND_BOUNDS, buildEdgeSummary, ModelVsSpSummary } from "../service/model-vs-sp-summary";
 import { BrierStats, BrierSums, EMPTY_BRIER, brierFromSums } from "../service/brier";
 import { MODEL_PROB_FIELD, bookSumExpr, brierGroupAccumulators, raceBrierSumsExpr } from "./brier-expr";
+import { FavPnlStats, FavSums, EMPTY_FAV_PNL, favPnlFromSums } from "../service/fav-pnl";
+import { favGroupAccumulators, raceFavSumsExpr } from "./fav-expr";
 
 export interface IspFilterBounds {
   maxRunnersPerRace: number;
@@ -296,6 +298,15 @@ export class IndustrySpDAO {
     // convergence-graph query — the one caller that reads none of it — runs
     // over the same ~109k-race scale as the rest.
     includeBrier?: boolean;
+    // Adds the per-race favourite-backed baseline field (`_fav`) to the emitted
+    // $addFields. Opt-in on the same terms as includeBrier: two more passes over
+    // every matched race's runners array, which the convergence-graph caller has
+    // no use for.
+    //
+    // Deliberately NOT given the qualifying-runner condition every field beside
+    // it is built from — see src/lib/service/fav-pnl.ts for why a baseline
+    // narrowed by the filters it benchmarks would stop being a baseline.
+    includeFav?: boolean;
   }): Record<string, unknown>[] {
     const countryMatch = p.countries.length > 0 ? { countryCode: { $in: p.countries } } : {};
     const courseMatch = p.courses.length > 0 ? { course: { $in: p.courses } } : {};
@@ -457,6 +468,7 @@ export class IndustrySpDAO {
                 }),
               }
             : {}),
+          ...(p.includeFav ? { _fav: raceFavSumsExpr({ runnersPath: "$runners", priceField: "isp" }) } : {}),
         },
       },
       {
@@ -545,6 +557,11 @@ export class IndustrySpDAO {
     // noise, and why both need to be visible to tell the difference.
     levelPnl?: { staked: number; returns: number; pnl: number };
     brier: BrierStats;
+    // Always present, unlike levelPnl — it needs no opt-in because it is a
+    // $group over five scalars the pipeline already carries, and every surface
+    // that shows a filtered P&L wants the baseline beside it. `count: 0` is the
+    // "no answer" signal (see favPnlFromSums), never "broke even".
+    favPnl: FavPnlStats;
   }> {
     // fromRow < 1 would make rowSkip negative below — another shape
     // MongoDB's $skip rejects outright, same class of bug as the inverted
@@ -562,7 +579,7 @@ export class IndustrySpDAO {
     // industry SP" whenever a stale or hand-edited fromRow/toRow (or
     // fromRowA/toRowA — see getSplitStats, which calls this) reached here.
     if (toRow !== null && toRow < fromRow) {
-      return { data: [], total: 0, totalRunners: 0, pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 }, brier: EMPTY_BRIER };
+      return { data: [], total: 0, totalRunners: 0, pnlStats: { staked: 0, returns: 0, pnl: 0, count: 0 }, brier: EMPTY_BRIER, favPnl: EMPTY_FAV_PNL };
     }
 
     const raceTimeSortDir = sortOrder === "desc" ? -1 : 1;
@@ -688,6 +705,7 @@ export class IndustrySpDAO {
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
         minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, onlyModelTopPick, modelVersionId,
         includeBrier: true,
+        includeFav: true,
       }),
       {
         $project: {
@@ -698,6 +716,11 @@ export class IndustrySpDAO {
           qualifyingRunnersCount: 1,
           raceStaked: 1,
           raceReturns: 1,
+          // Five more per-race scalars, on exactly the same terms as `_brier`
+          // below — reduced from the runners array before this $project, so the
+          // favPnl branch is a $group over numbers already in hand rather than
+          // another $lookup back to the full document.
+          _fav: 1,
           // Four scalars per race, already reduced from the runners array
           // above — carrying these through the sort costs the same order of
           // bytes as raceStaked/raceReturns beside them, and saves the Brier
@@ -752,6 +775,7 @@ export class IndustrySpDAO {
         totalRunners: [{ count: number }];
         pnlStats: [{ staked: number; returns: number; count: number; levelStaked?: number; levelReturns?: number }];
         brier: [BrierSums];
+        favPnl: [FavSums];
       }>([
         ...basePipeline,
         // Applied once, ahead of $facet, when a row range is active — see
@@ -920,6 +944,13 @@ export class IndustrySpDAO {
             // (already row-ranged, already sub-date-filtered) documents, so
             // this covers exactly the runner set pnlStats does.
             brier: [{ $group: { _id: null, ...brierGroupAccumulators("_brier") } }],
+            // The market baseline: back each of THESE races' favourite, ignore
+            // the filters. Its own branch for the same two reasons brier has
+            // one — pnlStats' slow path $unwinds, which would multiply these
+            // per-race scalars once per qualifying runner, and a baseline that
+            // silently changed shape depending on which P&L path a filter
+            // combination happened to take would be unusable as a baseline.
+            favPnl: [{ $group: { _id: null, ...favGroupAccumulators("_fav") } }],
           },
         },
       ], { allowDiskUse: true })
@@ -944,6 +975,7 @@ export class IndustrySpDAO {
         ? { levelPnl: { staked: levelStaked, returns: levelReturns, pnl: levelReturns - levelStaked } }
         : {}),
       brier: brierFromSums(result?.brier?.[0]),
+      favPnl: favPnlFromSums(result?.favPnl?.[0]),
     };
   }
 

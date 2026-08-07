@@ -1,4 +1,4 @@
-import { PnlStats, IspFilterBounds, BrierStats } from "../services/chatApi";
+import { PnlStats, IspFilterBounds, BrierStats, FavPnlStats } from "../services/chatApi";
 
 // Caches the /isp home page's aggregate result (grand total + both splits)
 // in sessionStorage, keyed by the exact filter/split combination that
@@ -19,6 +19,10 @@ export interface CachedSplitResult {
   // deserialises — it just restores without a Brier score, and the next Apply
   // fills it in.
   brier?: BrierStats;
+  // Same deal for the favourite-backed baseline: an entry cached before this
+  // field existed restores without it and shows an em dash until the next
+  // Apply, rather than being discarded wholesale.
+  favPnl?: FavPnlStats;
 }
 
 export interface CachedSplitsResult {
@@ -37,6 +41,7 @@ export interface CachedSplitsResult {
   raceClasses: string[];
   raceTypes: string[];
   brier?: BrierStats;
+  favPnl?: FavPnlStats;
   splitA: CachedSplitResult;
   splitB: CachedSplitResult;
 }

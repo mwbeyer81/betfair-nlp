@@ -8,6 +8,7 @@ import { AppHeader } from "./AppHeader";
 import { PageContainer } from "./PageContainer";
 import { buildFilterSummaryFromParams, formatPnl, formatPct, formatRaceTime } from "../utils/ispFormat";
 import { BrierScore } from "./BrierScore";
+import { FavPnl } from "./FavPnl";
 import { brierFromParts } from "../utils/brierFormat";
 import { buildHierarchy, collectHierarchyNodeKeys } from "../utils/raceHierarchy";
 import { qualifyingFilterQueryFromParams } from "../utils/ispUrlParams";
@@ -298,6 +299,14 @@ function SplitCard({
         </Text>
       )}
       <BrierScore brier={split.brier} tone="dark" testID={`saved-result-brier-${id}`} />
+      {/*
+        The same baseline the live Filters screen shows under its own split
+        cards, read off the snapshot rather than recomputed — a saved result is
+        a record of what the screen said on the day it was saved, baseline
+        included. Absent on results saved before this existed, which the
+        component renders as an em dash.
+      */}
+      <FavPnl fav={split.favPnl} pnl={split.pnlStats} tone="dark" testID={`saved-result-fav-${id}`} />
       <View style={styles.splitButtonRow}>
         <Button
           testID={`saved-result-split-details-button-${id}`}
@@ -458,6 +467,7 @@ export const SavedResultDetailScreen: React.FC<SavedResultDetailScreenProps> = (
               toRow={detailedSplit.toRow ?? detailedSplit.total}
               totalRaces={detailedSplit.total}
               totalRunners={detailedSplit.totalRunners}
+              favPnl={detailedSplit.favPnl}
               pnl={detailedSplit.pnlStats}
               brier={detailedSplit.brier}
               onClose={() => setDetailSplit(null)}

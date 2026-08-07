@@ -15,9 +15,10 @@ import {
   Checkbox,
   ActivityIndicator,
 } from "react-native-paper";
-import { chatApi, IspFilterBounds, PnlStats, BrierStats, RaceConvergencePoint, IspRace, ModelVersion, ModelScoreCoverage } from "../services/chatApi";
+import { chatApi, IspFilterBounds, PnlStats, BrierStats, FavPnlStats, RaceConvergencePoint, IspRace, ModelVersion, ModelScoreCoverage } from "../services/chatApi";
 import { SplitDetailPanel } from "./SplitDetailPanel";
 import { BrierScore } from "./BrierScore";
+import { FavPnl } from "./FavPnl";
 import { PnlConvergencePanel } from "./PnlConvergencePanel";
 import { ModelPerformanceDashboard, ModelPerformanceFilters } from "./ModelPerformanceDashboard";
 import { SaveResultDialog } from "./SaveResultDialog";
@@ -513,6 +514,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [brierB, setBrierB] = useState<BrierStats | undefined>(undefined);
   // The whole filtered set, before either split window narrows it.
   const [brierTotal, setBrierTotal] = useState<BrierStats | undefined>(undefined);
+  // "What would backing the favourite have done over these same races" — one
+  // per split, plus the whole matched set's. undefined, not a zeroed object,
+  // for the same reason brier is: "not answered yet" and "backed 0 favourites"
+  // are different states and only the first should show nothing at all.
+  const [favPnlA, setFavPnlA] = useState<FavPnlStats | undefined>(undefined);
+  const [favPnlB, setFavPnlB] = useState<FavPnlStats | undefined>(undefined);
+  const [favPnlTotal, setFavPnlTotal] = useState<FavPnlStats | undefined>(undefined);
   const [pnlStatsA, setPnlStatsA] = useState<PnlStats>(EMPTY_PNL);
   const [totalRacesB, setTotalRacesB] = useState(0);
   const [totalRunnersB, setTotalRunnersB] = useState(0);
@@ -845,11 +853,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       setTotalRunnersA(result.splitA.totalRunners);
       setPnlStatsA(result.splitA.pnlStats ?? EMPTY_PNL);
       setBrierA(result.splitA.brier);
+      setFavPnlA(result.splitA.favPnl);
       setTotalRacesB(result.splitB.total);
       setTotalRunnersB(result.splitB.totalRunners);
       setPnlStatsB(result.splitB.pnlStats ?? EMPTY_PNL);
       setBrierB(result.splitB.brier);
+      setFavPnlB(result.splitB.favPnl);
       setBrierTotal(result.brier);
+      setFavPnlTotal(result.favPnl);
     }
 
     // Keeps the URL query string in sync with the currently *applied*
@@ -1465,13 +1476,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     totalRunners: number;
     pnl: PnlStats;
     brier: BrierStats | undefined;
+    favPnl: FavPnlStats | undefined;
     // idle: no fetch has ever run (bare page load, Apply never pressed) —
     // nothing to show, waiting on the user. pending: a fetch is currently
     // in flight (first-ever load of a URL that already carries filters, or
     // any Apply/Reset refetch). loaded: real numbers are in.
     status: "idle" | "pending" | "loaded";
   }) {
-    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl, brier, status } = opts;
+    const { id, label, fromRow, toRow, totalRaces: splitTotalRaces, totalRunners: splitTotalRunners, pnl, brier, favPnl, status } = opts;
     const effectiveTo = toRow ?? totalRaces;
     const notReady = status !== "loaded";
     return (
@@ -1514,6 +1526,18 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         */}
         {status === "loaded" && (
           <BrierScore brier={brier} tone="dark" testID={`industry-sp-brier-${id}`} />
+        )}
+        {/*
+          And under the Brier, the one comparison that makes the P&L above
+          readable at a glance: what backing the favourite blind would have
+          returned over these exact races. Backing every runner loses ~11.7%, so
+          a split at -11.8% is not "losing" so much as "not choosing"; the
+          bracketed points are how far this split's ROI sits above or below the
+          do-nothing baseline. Same convention as the headline (to-win-£1) —
+          see favPnlFormat.ts for why mixing the two would invent an edge.
+        */}
+        {status === "loaded" && (
+          <FavPnl fav={favPnl} pnl={pnl} tone="dark" testID={`industry-sp-fav-${id}`} />
         )}
         <View style={styles.splitButtonRow}>
           <Button
@@ -1957,6 +1981,16 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
       {hasLoadedOnce && !isLoading && (
         <View testID="industry-sp-brier-total-row" style={styles.brierTotalRow}>
           <BrierScore brier={brierTotal} testID="industry-sp-brier-total" label="Brier (all races)" />
+          {/*
+            The baseline over everything the filters match, for the same reason
+            the combined Brier earns its own line: it is the number both splits
+            are being measured against, and it is neither of the two split
+            figures. No `pnl` passed — there is no single selection figure at
+            this level (the whole point of the splits is that there are two), so
+            this shows the baseline alone rather than an edge against a number
+            the row does not display.
+          */}
+          <FavPnl fav={favPnlTotal} testID="industry-sp-fav-total" label="Fav (all races)" />
         </View>
       )}
 
@@ -2000,6 +2034,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               totalRunners: totalRunnersA,
               pnl: pnlStatsA,
               brier: brierA,
+              favPnl: favPnlA,
               status: splitCardStatus,
             })}
             {renderSplitCard({
@@ -2011,6 +2046,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
               totalRunners: totalRunnersB,
               pnl: pnlStatsB,
               brier: brierB,
+              favPnl: favPnlB,
               status: splitCardStatus,
             })}
           </>
@@ -2029,6 +2065,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           totalRunners={detailSplit === "a" ? totalRunnersA : totalRunnersB}
           pnl={detailSplit === "a" ? pnlStatsA : pnlStatsB}
           brier={detailSplit === "a" ? brierA : brierB}
+          favPnl={detailSplit === "a" ? favPnlA : favPnlB}
           onClose={() => setDetailSplit(null)}
           onViewRaces={() => {
             const fromRow = detailSplit === "a" ? fromRowA : fromRowB;

@@ -5,6 +5,8 @@ import Svg, { Path } from "react-native-svg";
 import { chatApi, SavedFilterSet, SavedFilterSetPnlStats, SavedFilterSetSplit } from "../services/chatApi";
 import { BrierScore } from "./BrierScore";
 import { combineBrierStats } from "../utils/brierFormat";
+import { combineFavPnl } from "../utils/favPnlFormat";
+import { FavPnl } from "./FavPnl";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
 import { useResponsive } from "../utils/responsive";
@@ -179,6 +181,11 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
                 // P&L headline beside it uses, so the two numbers on the card
                 // describe the same horses.
                 const brier = legacy ? undefined : combineBrierStats(result.splitA!.brier, result.splitB!.brier);
+                // Both splits' baselines summed, to sit under the same combined
+                // headline P&L the card already shows — the card's figure spans
+                // both windows, so a baseline over only one of them would be
+                // measured against the wrong races.
+                const favPnl = legacy ? undefined : combineFavPnl(result.splitA!.favPnl, result.splitB!.favPnl);
                 const pnlPositive = pnl != null && pnl.pnl >= 0;
                 const deleteRow = confirmDeleteId === result.id && (
                   <View style={styles.confirmDeleteRow}>
@@ -268,6 +275,7 @@ export const SavedResultsListScreen: React.FC<SavedResultsListScreenProps> = ({
                             <Sparkline points={result.splitA!.graphPoints} />
                           </View>
                           <BrierScore brier={brier} testID={`saved-results-item-${result.id}-brier`} />
+                          <FavPnl fav={favPnl} pnl={pnl} testID={`saved-results-item-${result.id}-fav`} />
                           {deleteRow}
                         </Surface>
                       </TouchableOpacity>

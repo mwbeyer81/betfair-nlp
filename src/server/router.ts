@@ -694,8 +694,8 @@ router.get("/api/industry-sp", async (req, res) => {
     // the client wants to show both, which is the only way to tell a real edge
     // from a bet-sizing artefact.
     const includeLevelStakes = req.query.includeLevelStakes === "true";
-    const { data, total, totalRunners, pnlStats, levelPnl, brier } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes);
-    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats, ...(levelPnl ? { levelPnl } : {}), brier });
+    const { data, total, totalRunners, pnlStats, levelPnl, brier, favPnl } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes);
+    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats, ...(levelPnl ? { levelPnl } : {}), brier, favPnl });
   } catch (error) {
     console.error("getAllRacesByRace error:", error);
     res.status(500).json({ success: false, error: "Failed to fetch industry SP" });
@@ -1457,8 +1457,8 @@ router.get("/api/runners", async (req, res) => {
     const fromRow = Math.max(1, parseInt(req.query.fromRow as string) || 1);
     const toRowRaw = parseInt(req.query.toRow as string);
     const toRow: number | null = isNaN(toRowRaw) ? null : Math.max(fromRow, toRowRaw);
-    const { data, total, totalRunners, pnlStats, brier } = await betfairService.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp, sortOrder, minInSp, maxInSp, fromRow, toRow);
-    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats, brier });
+    const { data, total, totalRunners, pnlStats, brier, favPnl } = await betfairService.getAllRunnersByRace(page, limit, minRunners, maxRunners, countries, minBsp, maxBsp, sortOrder, minInSp, maxInSp, fromRow, toRow);
+    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats, brier, favPnl });
   } catch (error) {
     console.error("getAllRunnersByRace error:", error);
     res.status(500).json({ success: false, error: "Failed to fetch all runners" });
