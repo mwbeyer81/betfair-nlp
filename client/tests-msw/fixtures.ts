@@ -948,6 +948,121 @@ async function setupApiMocks(page: Page) {
   await page.route((url) => url.pathname === "/api/model-versions", (route) =>
     route.fulfill({ json: { success: true, data: [], count: 0 } })
   );
+
+  // Model Experiments screen. Two runs: the control (the deployed feature set
+  // and objective) and a candidate that improves on it. The numbers are close
+  // to the real measured ones, so the screen is exercised against the finding
+  // it actually has to communicate — the model losing to industry SP on Brier
+  // and, much more heavily, on resolution.
+  await page.route((url) => url.pathname === "/api/model-experiments", (route) => {
+    const metrics = (brier: number, auc: number, resolution: number, top1: number) => ({
+      n: 189640, aucRoc: auc, logLoss: 0.3268, brierScore: brier,
+      resolution, reliability: 0.000098, top1Rate: top1, mrr: 0.42, races: 21000,
+    });
+    const meta = {
+      gitCommit: "abc1234", foldYears: ["2022", "2023", "2024", "2025", "2026"], foldCount: 5,
+      scoredRows: 189640, unscoredRows: 296758, droppedTrainRaces: 0,
+      coverageMinDate: "2022-01-01", coverageMaxDate: "2026-08-05",
+      totalSeconds: 338.6, trainingParams: { maxDepth: 5 },
+    };
+    const market = metrics(0.088829, 0.785405, 0.01363617, 0.348483);
+    const data = [
+      {
+        id: "exp-20260806-190210", name: "rel-softmax",
+        notes: "Within-race relative features plus conditional-logit training.",
+        runAt: "2026-08-06T19:02:10.000Z", mode: "fast", featureSetName: "all",
+        objective: "softmax_race", featureCount: 143, newFeatureCount: 116, meta,
+        metrics: {
+          model: metrics(0.093104, 0.7364, 0.0091, 0.2881),
+          calibrated: metrics(0.093088, 0.7363, 0.00909, 0.288),
+          market, bss: -0.048,
+          // Brier DOWN is an improvement, AUC UP is an improvement — the
+          // screen colours them in opposite directions.
+          deltaVsBaseline: { brierScore: -0.002185, aucRoc: 0.02086, logLoss: -0.0071, resolution: 0.0018862, top1Rate: 0.027329 },
+        },
+        baselineExperimentId: "exp-20260806-183001", discoveredCount: 1,
+      },
+      {
+        id: "exp-20260806-183001", name: "base-binary-control",
+        notes: "The deployed feature set and objective, through the new code path.",
+        runAt: "2026-08-06T18:30:01.000Z", mode: "fast", featureSetName: "baseline",
+        objective: "binary", featureCount: 27, newFeatureCount: 0, meta,
+        metrics: {
+          model: metrics(0.095289, 0.71554, 0.00721379, 0.260771),
+          calibrated: metrics(0.095243, 0.715342, 0.0072, 0.260589),
+          market, bss: -0.072724, deltaVsBaseline: null,
+        },
+        baselineExperimentId: null, discoveredCount: 0,
+      },
+    ];
+    route.fulfill({ json: { success: true, data, count: data.length } });
+  });
+
+  await page.route((url) => url.pathname.startsWith("/api/model-experiments/"), (route) => {
+    const metrics = (brier: number, auc: number, resolution: number, top1: number) => ({
+      n: 189640, aucRoc: auc, logLoss: 0.3268, brierScore: brier,
+      resolution, reliability: 0.000098, top1Rate: top1, mrr: 0.42, races: 21000,
+    });
+    const segment = (dimension: string, bucket: string, bucketOrder: number, bss: number, roiLevel: number, roiToWin: number) => ({
+      dimension, bucket, bucketOrder, n: 44000, scoredN: 43980, wins: 5100, strikeRate: 11.6,
+      model: metrics(0.0931, 0.736, 0.0091, 0.288), market: metrics(0.0888, 0.785, 0.0136, 0.348),
+      bss,
+      selections: {
+        all: {
+          n: 44000, wins: 5100, strikeRate: 11.6, bettableN: 43980,
+          pnl: {
+            toWin1: { staked: 8000, returns: 8000, pnl: 0, roiPct: roiToWin },
+            level: { staked: 44000, returns: 44000, pnl: 0, roiPct: roiLevel },
+          },
+        },
+      },
+      yearsPositiveToWin1: 9, yearsPositiveLevel: 9,
+    });
+    route.fulfill({
+      json: {
+        success: true,
+        data: {
+          id: "exp-20260806-190210", name: "rel-softmax", notes: "Within-race relative features.",
+          runAt: "2026-08-06T19:02:10.000Z", mode: "fast", featureSetName: "all",
+          objective: "softmax_race", featureCount: 143, newFeatureCount: 116,
+          meta: {
+            gitCommit: "abc1234", foldYears: ["2022", "2023"], foldCount: 2, scoredRows: 189640,
+            unscoredRows: 296758, droppedTrainRaces: 3, coverageMinDate: "2022-01-01",
+            coverageMaxDate: "2026-08-05", totalSeconds: 402.1, trainingParams: { maxDepth: 5 },
+          },
+          metrics: {
+            model: metrics(0.093104, 0.7364, 0.0091, 0.2881),
+            calibrated: metrics(0.093088, 0.7363, 0.00909, 0.288),
+            market: metrics(0.088829, 0.785405, 0.01363617, 0.348483),
+            bss: -0.048,
+            deltaVsBaseline: { brierScore: -0.002185, aucRoc: 0.02086, logLoss: -0.0071, resolution: 0.0018862, top1Rate: 0.027329 },
+          },
+          baselineExperimentId: "exp-20260806-183001", discoveredCount: 2,
+          featureCols: ["course", "officialRatingRank"], newFeatureCols: ["officialRatingRank"],
+          sparseFeatures: [],
+          folds: [
+            { year: "2022", trainRows: 265382, scoredRows: 42863, seconds: 18.9, raw: { brierScore: 0.0968, aucRoc: 0.7169 } },
+            { year: "2023", trainRows: 304972, scoredRows: 42643, seconds: 18.5, raw: { brierScore: 0.0944, aucRoc: 0.7134 } },
+          ],
+          spBandTable: [],
+          segments: [
+            segment("raceType", "Chase", 0, -0.02, -9.4, -8.1),
+            segment("raceType", "Flat", 1, -0.06, -12.2, -11.1),
+            segment("spBand", "under 2.0", 0, -0.31, -4.1, -3.2),
+            segment("spBand", "5.0-10.0", 3, 0.004, 1.2, 0.9),
+          ],
+          segmentDimensions: ["raceType", "spBand"],
+          acceptanceRule: { minN: 20000, minBss: 0, requirePositiveUnderBothStakings: true, minYearsPositiveFraction: 8 / 11, minYearsPositive: 4, foldYearsScored: 5 },
+          discoveredSegments: [
+            { dimension: "spBand", bucket: "5.0-10.0", selection: "all", n: 44000, bss: 0.004, strikeRate: 11.6, roiToWin1: 0.9, roiLevel: 1.2, yearsPositiveToWin1: 9, ispFilterable: true, filters: { minIsp: "5.0", maxIsp: "10.0" } },
+            // Real slice, but the Filters screen has no param for it.
+            { dimension: "isHandicap", bucket: "handicap", selection: "all", n: 130000, bss: 0.002, strikeRate: 11.1, roiToWin1: 0.4, roiLevel: 0.6, yearsPositiveToWin1: 8, ispFilterable: false, filters: null },
+          ],
+          filterBattery: [],
+        },
+      },
+    });
+  });
 }
 
 // Fake JWT with exp=9999999999 (year 2286) — satisfies isTokenExpired() check in App.tsx

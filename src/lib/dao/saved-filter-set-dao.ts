@@ -58,6 +58,12 @@ export interface SavedFilterSetDocument {
   createdAt: string;
   createdBy?: "user" | "agent";
   modelVersionId?: string;
+  // Set INSTEAD of modelVersionId when the row came from ml/experiment.py: an
+  // experiment never trains a deployable model, so it has no model version to
+  // point at, but the row still needs to say which run produced it. Optional
+  // and additive for exactly the reason modelVersionId is — absence has to
+  // keep meaning what it meant for every document written before this existed.
+  experimentId?: string;
 }
 
 // Reserved userId for agent-generated results — deliberately not a valid

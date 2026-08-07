@@ -189,15 +189,36 @@ def normalize_within_race(df: pd.DataFrame, raw_col: str, out_col: str) -> pd.Da
     return df
 
 
-def load_dataframe(collection) -> pd.DataFrame:
+def load_dataframe(collection, extended: bool = False) -> pd.DataFrame:
+    """Every runner-row in the collection, one row per runner subdocument.
+
+    `extended=True` widens both the projection and the per-row dict with the
+    raw material ml/features.py needs to derive within-race and trailing
+    features (see EXTENDED_COLUMNS). It is strictly additive: with the default
+    `extended=False` this function returns exactly the frame it always has, so
+    train_and_predict.run() and walk_forward_score.run() are untouched by it.
+
+    The extra post-race columns land under deliberately ugly `postrace*` names
+    rather than their source names. `rpr`/`ts`/`beatenDistance`/`pos`/`status`
+    are performance figures for the very race being predicted — using any of
+    them as a feature would leak the outcome (this file's header says so at
+    length). Naming them `postraceRpr` etc. means an accidental appearance in
+    a printed feature list is *visible*, and lets features.assert_leakage_safe
+    reject a whole class of mistake with one prefix check rather than an
+    enumeration that someone has to remember to extend.
+
+    `isp` is deliberately NOT loaded here even under extended — it stays in
+    market_benchmark.load_isp_frame's own narrow frame, merged in only at
+    scoring time, which is the guarantee this file's header makes.
+    """
     rows = []
-    cursor = collection.find(
-        {},
-        {
-            "raceId": 1, "raceDate": 1, "course": 1, "raceType": 1, "raceClass": 1,
-            "going": 1, "distance": 1, "ran": 1, "runners": 1,
-        },
-    )
+    projection = {
+        "raceId": 1, "raceDate": 1, "course": 1, "raceType": 1, "raceClass": 1,
+        "going": 1, "distance": 1, "ran": 1, "runners": 1,
+    }
+    if extended:
+        projection.update({"raceName": 1, "raceTime": 1, "meetingId": 1})
+    cursor = collection.find({}, projection)
     for race in cursor:
         distance_furlongs = parse_distance_furlongs(race.get("distance"))
         for runner in race.get("runners", []):
@@ -247,12 +268,46 @@ def load_dataframe(collection) -> pd.DataFrame:
                 "horseTravelledWellRate": runner.get("horseTravelledWellRate"),
                 "label": 1 if runner.get("status") == "WINNER" else 0,
             })
+            if extended:
+                rows[-1].update({
+                    # The horse's identity. runners[].id is a SHA1 of
+                    # raceId+horse, so it is DIFFERENT for the same horse in
+                    # every race and cannot track a career — `name` is the only
+                    # key available, exactly as precompute-horse-form.ts's
+                    # header explains and for the same reason.
+                    "horseName": runner.get("name"),
+                    "raceName": race.get("raceName"),
+                    "raceTime": race.get("raceTime"),
+                    "meetingId": race.get("meetingId"),
+                    "pattern": runner.get("pattern"),
+                    "postraceRpr": runner.get("rpr"),
+                    "postraceTs": runner.get("ts"),
+                    "postraceBeatenDistance": runner.get("beatenDistance"),
+                    "postracePos": runner.get("pos"),
+                    "postraceStatus": runner.get("status"),
+                })
     df = pd.DataFrame(rows)
     for c in CAT_COLS:
         df[c] = df[c].astype("category")
     for c in NUM_COLS:
         df[c] = pd.to_numeric(df[c], errors="coerce")
+    if extended:
+        for c in ("postraceRpr", "postraceTs", "postraceBeatenDistance"):
+            df[c] = pd.to_numeric(df[c], errors="coerce")
     return df
+
+
+# The columns load_dataframe(extended=True) adds on top of the default frame.
+# ml/experiment.py validates a cached pickle against this set and rebuilds on
+# mismatch: a cache written before a column was added would otherwise produce
+# a 20-minute run whose new features are silently all-NaN, which is exactly the
+# failure mode that left horseAvgExcuseScore/horseTroubleInRunningRate/
+# horseTravelledWellRate at 100% NaN in the live feature set for weeks.
+EXTENDED_COLUMNS = (
+    "horseName", "raceName", "raceTime", "meetingId", "pattern",
+    "postraceRpr", "postraceTs", "postraceBeatenDistance",
+    "postracePos", "postraceStatus",
+)
 
 
 def chronological_split(df: pd.DataFrame, holdout_frac: float):
@@ -344,9 +399,24 @@ def current_champion(evaluations_collection):
     (nothing could stop them), so they count. Walk-forward docs never do —
     they describe a scoring pass, not a deployable model, and their metrics
     are not comparable to a single held-out tail.
+
+    `modelVersionId: {$exists: true}` is what makes this an ALLOW-list, and
+    that distinction is load-bearing. Excluding only `walk_forward` made every
+    *future* document type in model_evaluations eligible the moment it carried
+    a top-level numeric logLoss and no `promoted` field. Not hypothetical: an
+    out-of-sample scoring pass measures log loss around 0.30 against the best
+    real training run's 0.32091, so such a doc would win, become permanent
+    champion, and then silently reject every genuine retrain from then on —
+    against a "champion" that has no model artifact anywhere.
+
+    Only run() writes `modelVersionId`. walk_forward_score.py writes
+    `oosVersionId` instead, and ml/experiment.py writes to a different
+    collection entirely and neither field. That disjointness is the same one
+    ModelVersionDAO.getWalkForwardCoverage() already relies on.
     """
     champion = evaluations_collection.find_one(
-        {"logLoss": {"$ne": None},
+        {"modelVersionId": {"$exists": True},
+         "logLoss": {"$ne": None},
          "evaluationType": {"$ne": "walk_forward"},
          "$or": [{"promoted": True}, {"promoted": {"$exists": False}}]},
         sort=[("logLoss", 1)],

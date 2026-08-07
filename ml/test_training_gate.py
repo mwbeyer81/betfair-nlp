@@ -55,6 +55,89 @@ class TestPromotionDecision(unittest.TestCase):
         self.assertIn("no log loss", reason)
 
 
+class FakeEvaluations:
+    """Stands in for a pymongo collection for current_champion() only —
+    implements the handful of query operators that function actually uses."""
+
+    def __init__(self, docs):
+        self.docs = docs
+
+    @staticmethod
+    def _matches(doc, query):
+        for key, cond in query.items():
+            if key == "$or":
+                if not any(FakeEvaluations._matches(doc, c) for c in cond):
+                    return False
+            elif isinstance(cond, dict) and "$exists" in cond:
+                if (key in doc) != cond["$exists"]:
+                    return False
+            elif isinstance(cond, dict) and "$ne" in cond:
+                if doc.get(key) == cond["$ne"]:
+                    return False
+            elif doc.get(key) != cond:
+                return False
+        return True
+
+    def find_one(self, query, sort=None):
+        hits = [d for d in self.docs if self._matches(d, query)]
+        for key, direction in reversed(sort or []):
+            hits.sort(key=lambda d: d.get(key), reverse=direction < 0)
+        return hits[0] if hits else None
+
+
+class TestCurrentChampion(unittest.TestCase):
+    def test_picks_the_lowest_log_loss_training_run(self):
+        champ = t.current_champion(FakeEvaluations([
+            {"modelVersionId": "xgb-a", "logLoss": 0.33},
+            {"modelVersionId": "xgb-b", "logLoss": 0.31},
+        ]))
+        self.assertEqual(champ["modelVersionId"], "xgb-b")
+
+    def test_a_walk_forward_doc_is_never_the_champion(self):
+        # It describes a scoring pass, not a deployable model, and its metrics
+        # are not comparable to a single held-out tail.
+        self.assertIsNone(t.current_champion(FakeEvaluations([
+            {"oosVersionId": "wf-1", "evaluationType": "walk_forward", "logLoss": 0.29},
+        ])))
+
+    def test_an_experiment_doc_can_never_become_the_champion(self):
+        # Why current_champion() is an allow-list on modelVersionId rather than
+        # merely a deny-list on "walk_forward". An out-of-sample scoring pass
+        # measures log loss around 0.30 against the best real training run's
+        # 0.32091 — so a doc like this would win, become PERMANENT champion
+        # (nothing later can beat 0.29), and from then on silently reject every
+        # genuine retrain, in favour of a champion with no model artifact
+        # anywhere to deploy or roll back to.
+        champ = t.current_champion(FakeEvaluations([
+            {"evaluationType": "experiment", "experimentId": "exp-1", "logLoss": 0.29},
+            {"modelVersionId": "xgb-real", "logLoss": 0.32},
+        ]))
+        self.assertIsNotNone(champ)
+        self.assertEqual(champ["modelVersionId"], "xgb-real")
+
+    def test_an_unknown_future_doc_type_with_a_log_loss_is_ignored(self):
+        # Generalises the case above: the guard is "carries a modelVersionId",
+        # not "is not one of the types we happen to know about today".
+        self.assertIsNone(t.current_champion(FakeEvaluations([
+            {"evaluationType": "something-nobody-has-invented-yet", "logLoss": 0.10},
+        ])))
+
+    def test_a_legacy_doc_without_the_promoted_flag_still_counts(self):
+        # Those docs predate the flag; nothing could have stopped them
+        # shipping, so in effect they were all promoted.
+        champ = t.current_champion(FakeEvaluations([
+            {"modelVersionId": "xgb-legacy", "logLoss": 0.30},
+        ]))
+        self.assertEqual(champ["modelVersionId"], "xgb-legacy")
+
+    def test_a_rejected_challenger_is_not_eligible(self):
+        champ = t.current_champion(FakeEvaluations([
+            {"modelVersionId": "xgb-rejected", "logLoss": 0.20, "promoted": False},
+            {"modelVersionId": "xgb-good", "logLoss": 0.31, "promoted": True},
+        ]))
+        self.assertEqual(champ["modelVersionId"], "xgb-good")
+
+
 class TestBenchmarkMetrics(unittest.TestCase):
     def test_scores_a_normal_block(self):
         out = t.benchmark_metrics(pd.Series([0, 1, 0, 1]), pd.Series([0.1, 0.9, 0.2, 0.8]))

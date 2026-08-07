@@ -263,11 +263,29 @@ export class SavedFilterSetService {
   // numbers mean exactly what the live Filters screen would show for the
   // same filters, just stored under the reserved AGENT_USER_ID and flagged
   // createdBy: "agent" so it's cross-user-visible but not user-owned.
+  //
+  // `experimentId` is the alternative provenance stamp, used by
+  // ml/experiment.py: it posts its discovered segments here but never trains a
+  // deployable model, so it has no model version to name. Exactly one of the
+  // two is set, and both stay optional on the document, so production rows
+  // predating either field keep meaning what they always did.
+  //
+  // WHAT AN EXPERIMENT MAY NOT POST. computeSplits above reads MODEL_PROB_FIELD
+  // ("modelWinProbabilityOos") out of Mongo — the DEPLOYED walk-forward's
+  // numbers, not the calling experiment's own predictions. A filter set
+  // containing onlyModelBeatsSp / minModelWinProbability / minModelSpEdgePts
+  // would therefore measure the OLD model under the new filters and file the
+  // answer under the experiment's name: the exact shape of the 2026-08-04
+  // incident where the Filters screen scored itself with a model that had
+  // already seen the winners. experiment.py refuses to post those (see
+  // MODEL_DEPENDENT_FILTER_PARAMS there); this note is here because the
+  // constraint lives entirely in the caller and is invisible from this side.
   public async saveAgentResult(
     name: string,
     filters: Record<string, string>,
     computeParams: ComputeSnapshotParams,
-    modelVersionId: string
+    modelVersionId: string,
+    experimentId?: string
   ): Promise<SavedFilterSetApiResponse> {
     const { splitA, splitB } = await this.computeSplits(computeParams);
 
@@ -279,7 +297,8 @@ export class SavedFilterSetService {
       splitB,
       createdAt: new Date().toISOString(),
       createdBy: "agent",
-      modelVersionId,
+      ...(modelVersionId ? { modelVersionId } : {}),
+      ...(experimentId ? { experimentId } : {}),
     });
     return toApiResponse(doc);
   }

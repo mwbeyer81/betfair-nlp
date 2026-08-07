@@ -69,8 +69,83 @@ interface MockSavedFilterSetDoc {
   createdAt: string;
   createdBy?: "user" | "agent";
   modelVersionId?: string;
+  experimentId?: string;
 }
 const mockSavedFilterSets: MockSavedFilterSetDoc[] = [];
+
+// One ml/experiment.py run. The metrics are the real shape and roughly the
+// real values: the model loses to industry SP on Brier and badly on
+// resolution, which is what the whole experiment programme is trying to move.
+const MOCK_EXPERIMENT_ID = "exp-20260806-183001";
+const mockExperimentMetrics = {
+  n: 189640,
+  aucRoc: 0.71554,
+  logLoss: 0.326826,
+  brierScore: 0.095289,
+  resolution: 0.00721379,
+  reliability: 0.000098,
+  top1Rate: 0.260771,
+  mrr: 0.42,
+  races: 21000,
+};
+const mockModelExperimentSummary = {
+  experimentId: MOCK_EXPERIMENT_ID,
+  name: "base-binary-control",
+  notes: "The deployed feature set and objective, through the new code path.",
+  runAt: "2026-08-06T18:30:01.000Z",
+  gitCommit: "abc1234",
+  mode: "fast" as const,
+  featureSetName: "baseline",
+  objective: "binary",
+  newFeatureCols: [],
+  // What the $size stage in ModelExperimentDAO.getAll adds — featureCols
+  // itself is never sent to the list view.
+  featureCount: 27,
+  trainingParams: { maxDepth: 5, nEstimatorsCap: 300 },
+  foldYears: ["2022", "2023", "2024", "2025", "2026"],
+  foldCount: 5,
+  scoredRows: 189640,
+  unscoredRows: 296758,
+  droppedTrainRaces: 0,
+  coverageMinDate: "2022-01-01",
+  coverageMaxDate: "2026-08-05",
+  overall: {
+    model: mockExperimentMetrics,
+    calibrated: mockExperimentMetrics,
+    market: { ...mockExperimentMetrics, brierScore: 0.088829, aucRoc: 0.785405, resolution: 0.01363617 },
+    bss: -0.072724,
+  },
+  acceptanceRule: { minN: 20000, minBss: 0 },
+  discoveredSegments: [],
+  filterBattery: [],
+  totalSeconds: 338.6,
+  wroteModelArtifacts: false,
+};
+// The detail document carries the heavyweight sub-documents the list query
+// projects away — see SUMMARY_PROJECTION in ModelExperimentDAO.
+const mockModelExperimentDetail = {
+  ...mockModelExperimentSummary,
+  featureCols: ["course", "going", "officialRating", "wgt"],
+  featureCoverage: [
+    { col: "wgt", populatedPct: 100 },
+    { col: "horseAvgExcuseScore", populatedPct: 0 },
+  ],
+  folds: [{ year: "2022", trainRows: 265382, scoredRows: 42863, seconds: 18.9, raw: { brierScore: 0.0968, aucRoc: 0.7169 } }],
+  spBandTable: [],
+  segments: [
+    {
+      dimension: "spBand", bucket: "5.0-10.0", bucketOrder: 3,
+      n: 44000, scoredN: 43980, wins: 5100, strikeRate: 11.6,
+      model: mockExperimentMetrics, market: mockExperimentMetrics, bss: -0.026,
+      selections: {
+        all: { n: 44000, wins: 5100, strikeRate: 11.6, bettableN: 43980,
+               pnl: { toWin1: { staked: 8000, returns: 7900, pnl: -100, roiPct: -1.25 },
+                      level: { staked: 44000, returns: 43000, pnl: -1000, roiPct: -2.27 } } },
+      },
+      yearsPositiveToWin1: 2, yearsPositiveLevel: 1,
+    },
+  ],
+};
 
 interface MockLiveFilterResultDoc {
   _id: InstanceType<typeof ObjectId>;
@@ -318,6 +393,24 @@ jest.mock("../../config/database", () => {
                 scoredRows: 885089,
                 unscoredRows: 86027,
               }),
+            };
+          }
+          // Its OWN collection, not model_evaluations — that one is read by
+          // the training pipeline's champion gate and by the deployed
+          // daily-prediction path, and an experiment doc has no business in
+          // either. See ModelExperimentDAO's header.
+          if (name === "model_experiments") {
+            return {
+              createIndex: jest.fn().mockResolvedValue(undefined),
+              // aggregate, not find: the list query computes featureCount with
+              // $size so the ~143-entry featureCols array never has to be sent
+              // just to display one integer (see ModelExperimentDAO.getAll).
+              aggregate: jest.fn().mockReturnValue({
+                toArray: jest.fn().mockResolvedValue([mockModelExperimentSummary]),
+              }),
+              findOne: jest.fn().mockImplementation(async (query: { experimentId?: string }) =>
+                query?.experimentId === MOCK_EXPERIMENT_ID ? mockModelExperimentDetail : null
+              ),
             };
           }
           if (name === "saved_filter_sets") {
@@ -2130,6 +2223,107 @@ describe("API Endpoints", () => {
       expect(typeof version.runMeta.trainRows).toBe("number");
       expect(typeof version.performanceMetrics.aucRoc).toBe("number");
       expect(Array.isArray(version.performanceMetrics.calibrationTable)).toBe(true);
+    });
+  });
+
+  describe("GET /api/model-experiments", () => {
+    it("returns 200 with success and a data array", async () => {
+      const response = await request(app)
+        .get("/api/model-experiments")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+    });
+
+    it("count equals data.length", async () => {
+      const response = await request(app)
+        .get("/api/model-experiments")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    // Unlike /api/model-versions, which is deliberately public. This is
+    // internal model-development output — candidate feature names, unshipped
+    // models, discovered betting angles — and the guard is the route's
+    // PLACEMENT below router.use(jwtAuth), which nothing but this test checks.
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/model-experiments").expect(401);
+    });
+
+    it("each experiment has id, name, mode, objective, meta and metrics", async () => {
+      const response = await request(app)
+        .get("/api/model-experiments")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      const exp = response.body.data[0];
+      expect(typeof exp.id).toBe("string");
+      expect(typeof exp.name).toBe("string");
+      expect(["fast", "full"]).toContain(exp.mode);
+      expect(typeof exp.objective).toBe("string");
+      expect(typeof exp.meta.foldCount).toBe("number");
+      // Computed server-side by $size, since featureCols is projected away.
+      expect(exp.featureCount).toBe(27);
+      expect(typeof exp.metrics.model.brierScore).toBe("number");
+      expect(typeof exp.metrics.market.brierScore).toBe("number");
+      // Resolution is the metric the whole exercise is about, so it has to
+      // survive the flat-document-to-API reshape.
+      expect(typeof exp.metrics.model.resolution).toBe("number");
+      expect(typeof exp.metrics.bss).toBe("number");
+    });
+
+    it("ignores an unrecognised mode rather than 500ing", async () => {
+      const response = await request(app)
+        .get("/api/model-experiments?mode=bogus")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+    });
+  });
+
+  describe("GET /api/model-experiments/:experimentId", () => {
+    it("returns 200 with the full document for a known id", async () => {
+      const response = await request(app)
+        .get(`/api/model-experiments/${MOCK_EXPERIMENT_ID}`)
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(response.body.data.id).toBe(MOCK_EXPERIMENT_ID);
+      // The sub-documents the list query projects away.
+      expect(Array.isArray(response.body.data.segments)).toBe(true);
+      expect(Array.isArray(response.body.data.folds)).toBe(true);
+      expect(Array.isArray(response.body.data.segmentDimensions)).toBe(true);
+    });
+
+    it("surfaces a feature that is effectively dead", async () => {
+      // Three of the deployed model's own numeric features have been 100% NaN
+      // since 2026-07-26 without anyone noticing, so the screen is given the
+      // sparse ones explicitly rather than being handed all ~143 to filter.
+      const response = await request(app)
+        .get(`/api/model-experiments/${MOCK_EXPERIMENT_ID}`)
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.data.sparseFeatures).toEqual([
+        { col: "horseAvgExcuseScore", populatedPct: 0 },
+      ]);
+    });
+
+    it("returns 404 for an unknown id", async () => {
+      await request(app)
+        .get("/api/model-experiments/exp-does-not-exist")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(404);
+    });
+
+    it("returns 401 without auth", async () => {
+      await request(app).get(`/api/model-experiments/${MOCK_EXPERIMENT_ID}`).expect(401);
     });
   });
 

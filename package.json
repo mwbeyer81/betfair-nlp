@@ -49,6 +49,7 @@
     "compute:daily-race-features": "ts-node src/commands/compute-daily-race-features.ts",
     "seed:industry-sp-overlap-fixture": "ts-node src/commands/seed-industry-sp-overlap-fixture.ts",
     "seed:model-evaluation-fixture": "ts-node src/commands/seed-model-evaluation-fixture.ts",
+    "seed:model-experiment-fixture": "ts-node src/commands/seed-model-experiment-fixture.ts",
     "live:verify-daily-races": "ts-node scripts/live-verify-daily-races-basic.ts && ts-node scripts/live-verify-daily-race-features.ts && ts-node scripts/live-verify-daily-races-prediction.ts",
     "seed:daily-races-fixture": "ts-node src/commands/seed-daily-races-fixture.ts",
     "precompute:trainer-form": "ts-node src/commands/precompute-trainer-form.ts",

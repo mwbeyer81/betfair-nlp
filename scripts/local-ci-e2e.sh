@@ -193,6 +193,12 @@ cp ml/fixtures/win_probability_model.ci-fixture.json ml/models/win_probability_m
 cp ml/fixtures/win_probability_model_categories.ci-fixture.json ml/models/win_probability_model_categories.json
 MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" \
   npx ts-node src/commands/seed-model-evaluation-fixture.ts 2>&1 | tee "$SCRATCH_DIR/logs/seed-model-evaluation.log"
+# A separate collection and so a separate fixture — model_experiments is
+# deliberately NOT model_evaluations (see ModelExperimentDAO's header), so a
+# seeded experiment can never be picked up by the champion gate or by the
+# daily-prediction path's latest-version lookup.
+MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" \
+  npx ts-node src/commands/seed-model-experiment-fixture.ts 2>&1 | tee "$SCRATCH_DIR/logs/seed-model-experiment.log"
 
 # --- Step 3e: compute daily-race features + predict win probabilities ------
 # Read-only against industry_starting_prices (the CSV slice + overlap
