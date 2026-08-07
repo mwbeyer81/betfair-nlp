@@ -106,29 +106,50 @@ test.describe("Industry SP races screen against the seeded slice (real frontend 
     await expect(page.locator(`[data-testid="industry-sp-race-${RACE_ID}"]`)).toHaveCount(0);
   });
 
-  test("opening a month loads only the first day with data; the rest stay unloaded", async ({ page }) => {
+  test("opening a month reveals every day's own count, unasked", async ({ page }) => {
     await gotoIspRacesForNottingham(page);
     await page.getByTestId(`industry-sp-year-toggle-${YEAR}`).click();
     await page.getByTestId(`industry-sp-month-toggle-${MONTH}`).click();
 
     // The one day that actually has races reports a real count...
-    const loaded = page.getByTestId(`industry-sp-day-count-${DAY}`);
-    await expect(loaded).toContainText("races", { timeout: 20000 });
-    await expect(loaded).not.toContainText("Tap to load");
+    await expect(page.getByTestId(`industry-sp-day-count-${DAY}`)).toContainText("races", { timeout: 20000 });
 
-    // ...and every other day in the month is untouched, so it says so rather
-    // than claiming a confirmed zero.
+    // ...and so does every other day in the month, without being tapped: the
+    // seeded slice is one day, so these are honest, server-confirmed zeros.
     for (const other of ["2026-06-10", "2026-06-20", "2026-06-30"]) {
-      await expect(page.getByTestId(`industry-sp-day-count-${other}`)).toContainText("Tap to load");
+      await expect(page.getByTestId(`industry-sp-day-count-${other}`)).toContainText("0 races", { timeout: 20000 });
     }
+    // "Tap to load" now means only "that probe failed" — nothing here should
+    // be wearing it.
+    await expect(page.getByTestId("industry-sp-races-screen")).not.toContainText("Tap to load");
+  });
+
+  test("revealing a day's count does not pull its races", async ({ page }) => {
+    await gotoIspRacesForNottingham(page);
+    await page.getByTestId(`industry-sp-year-toggle-${YEAR}`).click();
+    await page.getByTestId(`industry-sp-month-toggle-${MONTH}`).click();
+    await expect(page.getByTestId(`industry-sp-day-count-${DAY}`)).toContainText("races", { timeout: 20000 });
+
+    // Numbers everywhere, but not a single meeting or race row: those still
+    // wait for the row to be opened.
+    await expect(page.locator(`[data-testid="industry-sp-meeting-${MEETING}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="industry-sp-race-${RACE_ID}"]`)).toHaveCount(0);
   });
 
   test("tapping an unloaded day fetches that day alone, not the whole month", async ({ page }) => {
-    const dayRequests: string[] = [];
+    // Records the limit too: every day in the month is being probed for its
+    // own count at the same time (limit=1, see enqueueStats), and those are a
+    // different thing from the data page a tap pulls.
+    const dayRequests: { window: string; limit: number }[] = [];
     await page.route("**/api/industry-sp**", route => {
       const url = new URL(route.request().url());
       const sub = url.searchParams.get("subMinDate");
-      if (sub) dayRequests.push(`${sub}..${url.searchParams.get("subMaxDate")}`);
+      if (sub) {
+        dayRequests.push({
+          window: `${sub}..${url.searchParams.get("subMaxDate")}`,
+          limit: parseInt(url.searchParams.get("limit") || "20", 10),
+        });
+      }
       return route.continue();
     });
 
@@ -137,38 +158,18 @@ test.describe("Industry SP races screen against the seeded slice (real frontend 
     await page.getByTestId(`industry-sp-month-toggle-${MONTH}`).click();
     await expect(page.getByTestId(`industry-sp-day-count-${DAY}`)).toContainText("races", { timeout: 20000 });
 
+    // Every day in the month is probed for its count as it renders, so wait
+    // for that to settle before measuring what the tap itself causes.
+    await expect(page.getByTestId("industry-sp-day-count-2026-06-10")).toContainText("races", { timeout: 20000 });
     dayRequests.length = 0;
     await page.getByTestId("industry-sp-day-toggle-2026-06-10").click();
-    await expect(page.getByTestId("industry-sp-day-count-2026-06-10")).not.toContainText("Tap to load", {
-      timeout: 15000,
-    });
+    await page.waitForTimeout(3000);
 
-    // Exactly one fetch, scoped to that single day.
-    expect(dayRequests).toEqual(["2026-06-10..2026-06-10"]);
-  });
-
-  // Reported with a screenshot of build 924fb98: "when I tap on day it still
-  // expands. It should load pnl but not expand. Tapping [anywhere] else other
-  // than tap to load should expand." Days were the last level still missing
-  // the load-only tap target years and months already had. Against the real
-  // backend here, not a mock — the count and P&L that arrive are the server's
-  // own for that date.
-  test("tapping a day's Tap to load count fetches its numbers and leaves the row shut", async ({ page }) => {
-    await gotoIspRacesForNottingham(page);
-    await page.getByTestId(`industry-sp-year-toggle-${YEAR}`).click();
-    await page.getByTestId(`industry-sp-month-toggle-${MONTH}`).click();
-    await expect(page.getByTestId(`industry-sp-day-count-${DAY}`)).toContainText("races", { timeout: 20000 });
-
-    // The seeded slice is one day, so every other day in June is a real,
-    // never-probed placeholder — and offers its own load.
-    const other = "2026-06-10";
-    await expect(page.getByTestId(`industry-sp-day-count-${other}`)).toContainText("Tap to load");
-    await page.getByTestId(`industry-sp-day-load-${other}`).click();
-
-    // It answers in place: a confirmed count from the server, no row opened.
-    await expect(page.getByTestId(`industry-sp-day-count-${other}`)).toContainText("0 races", { timeout: 20000 });
-    await expect(page.getByTestId(`industry-sp-day-load-${other}`)).toHaveCount(0);
-    await expect(page.locator(`[data-testid="industry-sp-meeting-${MEETING}"]`)).toHaveCount(0);
+    // The races the tap pulled were scoped to that single day — never widened
+    // to the month, and never a walk through the days before it.
+    const dataPages = dayRequests.filter(r => r.limit > 1);
+    expect(dataPages.length).toBeGreaterThan(0);
+    expect(dataPages.every(r => r.window === "2026-06-10..2026-06-10")).toBe(true);
   });
 
   test("a loaded day still expands from anywhere other than its count", async ({ page }) => {
@@ -177,8 +178,8 @@ test.describe("Industry SP races screen against the seeded slice (real frontend 
     await page.getByTestId(`industry-sp-month-toggle-${MONTH}`).click();
     await expect(page.getByTestId(`industry-sp-day-count-${DAY}`)).toContainText("races", { timeout: 20000 });
 
-    // The seeded day already has its numbers, so its count is inert text —
-    // there is nothing left to load.
+    // Every count arrives on its own now, so no row is a tap target at all
+    // (that is reserved for a failed probe) — and the day is still shut.
     await expect(page.locator(`[data-testid="industry-sp-day-load-${DAY}"]`)).toHaveCount(0);
     await expect(page.locator(`[data-testid="industry-sp-meeting-${MEETING}"]`)).toHaveCount(0);
 
