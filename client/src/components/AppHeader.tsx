@@ -174,6 +174,20 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           >
             Model Accuracy
           </Button>
+          {/* Last of the three model screens, and the only one about work in
+              progress rather than the deployed model: one row per training
+              experiment, with the feature set and objective it tried and the
+              slices where it beat or lost to the price. */}
+          <Button
+            testID={`${testIdPrefix}-menu-model-experiments-link`}
+            mode="outlined"
+            compact
+            onPress={wrap(() => navigate("/model-experiments"))}
+            style={styles.toggleButton}
+            labelStyle={styles.toggleButtonLabel}
+          >
+            Model Experiments
+          </Button>
         </>
       )}
       <View style={styles.divider} />

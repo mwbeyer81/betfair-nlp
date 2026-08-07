@@ -172,6 +172,53 @@ function escapeRegex(str: string): string {
 // runner badges both go through. At the default 0 this stays exactly the
 // strict "any positive edge" test it has always been ($gt 0, not $gte): a
 // runner the model rates level with the market isn't beating it.
+/**
+ * "This runner is the model's top pick in its race" — the model's own
+ * favourite, counterpart to `runners[].isFavourite` for the market's.
+ *
+ * `runnersExpr` is whichever runners array the surrounding stage has to hand:
+ * `"$runners"` in buildQualifyingRaceStages, the $lookup-ed
+ * `$_doc.runners` in getAllRacesByRace's pnlStats facet. Shared rather than
+ * written out twice because the two MUST agree — the first drives the runner
+ * COUNT and the second the P&L, and when only one of them had this condition
+ * the screen reported 43,909 qualifying runners beside a P&L computed over all
+ * 379,860. Every number looked plausible; only the pair was wrong.
+ *
+ * Two decisions embedded here:
+ *
+ * 1. The maximum is taken over BACKABLE runners only (isp > 1). A withdrawn or
+ *    unpriced runner cannot be a top pick you could act on, and if it were
+ *    allowed to hold the maximum then the whole race would silently drop out of
+ *    the selection — losing the race rather than backing its best runner.
+ * 2. A tie keeps BOTH runners: a genuine dead heat in the model's opinion at
+ *    the 2dp these are stored to. Dropping the race loses data for no reason,
+ *    and breaking the tie arbitrarily would make the answer depend on document
+ *    order.
+ *
+ * The inner bindings are `mx`/`mr`, never `r`: this is evaluated inside a
+ * `$filter` that already binds `$$r`, and reusing that name would shadow it, so
+ * every runner would be compared against itself and the whole field would match.
+ */
+export function modelTopPickCond(runnersExpr: unknown): Record<string, unknown>[] {
+  const backableRunners = {
+    $filter: {
+      input: runnersExpr,
+      as: "mx",
+      cond: { $and: [{ $ifNull: ["$$mx.isp", false] }, { $gt: ["$$mx.isp", 1] }] },
+    },
+  };
+  return [
+    { $ne: [MODEL_PROB_R, null] },
+    // $max skips nulls, so an unscored runner can never hold the maximum.
+    {
+      $eq: [
+        MODEL_PROB_R,
+        { $max: { $map: { input: backableRunners, as: "mr", in: `$$mr.${MODEL_PROB_FIELD}` } } },
+      ],
+    },
+  ];
+}
+
 export function modelBeatsSpCond(minEdgePts: number): Record<string, unknown>[] {
   const edgeExpr = { $subtract: [MODEL_PROB_R, { $divide: [100, "$$r.isp"] }] };
   return [
@@ -231,6 +278,17 @@ export class IndustrySpDAO {
     // the number. Here the two are the same dimension, so a threshold with the
     // checkbox left off would otherwise silently do nothing.
     minModelSpEdgePts: number;
+    // Keeps only the single runner the model rates highest in each race — the
+    // model's own favourite, counterpart to `runners[].isFavourite` for the
+    // market's.
+    //
+    // Deliberately NOT expressible through minModelWinProbability, which is an
+    // absolute threshold: the top pick in a 5-runner race might be 40% and in a
+    // 16-runner handicap 12%, so any single threshold takes several runners
+    // from small fields and none at all from big ones. It selects on
+    // confidence, not on rank — the same absolute-vs-relative confusion the
+    // model itself had before the within-race features were added.
+    onlyModelTopPick: boolean;
     modelVersionId: string | null;
     // Adds the two per-race Brier accumulator fields (`_bookSum`, `_brier`)
     // to the emitted $addFields. Opt-in rather than always-on because each is
@@ -307,6 +365,12 @@ export class IndustrySpDAO {
       ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: beatsSpCond } } } }
       : 0;
 
+    const topPickFilterActive = p.onlyModelTopPick;
+    const topPickCond = modelTopPickCond("$runners");
+    const topPickQualifyingCountExpr = topPickFilterActive
+      ? { $size: { $filter: { input: "$runners", as: "r", cond: { $and: topPickCond } } } }
+      : 0;
+
     // Which training run scored a runner — set alongside modelWinProbability
     // in ml/train_and_predict.py, so only ever reflects the most recent run
     // (see the modelVersionId comment on IspRunner). Filtering by it lets the
@@ -326,7 +390,8 @@ export class IndustrySpDAO {
     // at once). Backs the totalRunners stat. Fast path: identical to
     // inRangeRunnersCount when none of the three optional filters are active.
     const qualifyingRunnersFilterActive =
-      trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive || modelVersionFilterActive;
+      trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive ||
+      modelVersionFilterActive || topPickFilterActive;
     // The single definition of "this runner is in the filtered set", in the
     // $$r-bound form. Previously written out inline for the count below; now
     // also handed to raceBrierSumsExpr, so the Brier score can never end up
@@ -342,6 +407,7 @@ export class IndustrySpDAO {
         ...(modelFilterActive ? modelCond : []),
         ...(modelBeatsSpFilterActive ? beatsSpCond : []),
         ...(modelVersionFilterActive ? modelVersionCond : []),
+        ...(topPickFilterActive ? topPickCond : []),
       ],
     };
     const qualifyingRunnersCountExpr = qualifyingRunnersFilterActive
@@ -454,12 +520,30 @@ export class IndustrySpDAO {
     // distant year (the isp-year-walk-error/isp-year-direct-load history).
     subMinRaceTime: string | null = null,
     subMaxRaceTime: string | null = null,
-    minModelSpEdgePts = 0
+    minModelSpEdgePts = 0,
+    onlyModelTopPick = false,
+    // Adds level-stakes sums (£1 flat per runner) alongside the to-win-£1 ones
+    // this file computes everywhere else. Opt-in, because it forces the
+    // $unwind path: the fast path reads the precomputed raceStaked/raceReturns
+    // fields and there is no precomputed level-stakes counterpart to read.
+    includeLevelStakes = false
   ): Promise<{
     data: IspRace[];
     total: number;
     totalRunners: number;
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    // Present only when includeLevelStakes was asked for. £1 flat on every
+    // qualifying runner, returning `isp` on a winner.
+    //
+    // Why this is not merely a display preference: to-win-£1 stakes 1/(isp-1),
+    // which puts ~20% of the money on the under-2.0 band and ~4% on the 20.0+
+    // band, where level stakes puts 2% and 28%. Since the overround is far
+    // worse on longshots, the two report very different aggregate ROIs for the
+    // SAME bets (-11.69% vs -22.94% for backing every runner) while agreeing
+    // closely WITHIN each price band. That gap is bet sizing, not selection
+    // quality — which is why a slice profitable under only one of them is
+    // noise, and why both need to be visible to tell the difference.
+    levelPnl?: { staked: number; returns: number; pnl: number };
     brier: BrierStats;
   }> {
     // fromRow < 1 would make rowSkip negative below — another shape
@@ -583,7 +667,8 @@ export class IndustrySpDAO {
     const modelBeatsSpFilterActive = onlyModelBeatsSp || minModelSpEdgePts > 0;
     const modelVersionFilterActive = modelVersionId != null;
     const qualifyingRunnersFilterActive =
-      trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive || modelVersionFilterActive;
+      trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive ||
+      modelVersionFilterActive || onlyModelTopPick;
 
     // Only a per-race id + sort key + the qualifying counts survive into
     // the $facet — every other field (course, meetingName, runners, ...) is
@@ -601,7 +686,7 @@ export class IndustrySpDAO {
         countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
         courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, modelVersionId,
+        minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, onlyModelTopPick, modelVersionId,
         includeBrier: true,
       }),
       {
@@ -665,7 +750,7 @@ export class IndustrySpDAO {
         data: IspRace[];
         total: [{ count: number }];
         totalRunners: [{ count: number }];
-        pnlStats: [{ staked: number; returns: number; count: number }];
+        pnlStats: [{ staked: number; returns: number; count: number; levelStaked?: number; levelReturns?: number }];
         brier: [BrierSums];
       }>([
         ...basePipeline,
@@ -723,7 +808,11 @@ export class IndustrySpDAO {
             // silently taking the fast path (and its filter-blind
             // precomputed fields) even though model-beats-SP was actively
             // narrowing the runner set everywhere else.
-            pnlStats: ispRangeCoversAllRealValues && !qualifyingRunnersFilterActive
+            // `includeLevelStakes` joins the list of things that disqualify the
+            // fast path, for the same reason the filters do: the precomputed
+            // raceStaked/raceReturns are to-win-£1 only, and there is no
+            // precomputed level-stakes counterpart to sum.
+            pnlStats: ispRangeCoversAllRealValues && !qualifyingRunnersFilterActive && !includeLevelStakes
               ? [
                   {
                     $group: {
@@ -776,6 +865,13 @@ export class IndustrySpDAO {
                                 : []),
                               ...(modelBeatsSpFilterActive ? modelBeatsSpCond(minModelSpEdgePts) : []),
                               ...(modelVersionFilterActive ? [{ $eq: ["$$r.modelVersionId", modelVersionId] }] : []),
+                              // Over $_doc.runners, the $lookup-ed full array —
+                              // NOT the isp-range-filtered one this $filter is
+                              // walking, or the "top pick" would mean "top pick
+                              // among runners in the price range".
+                              ...(onlyModelTopPick
+                                ? modelTopPickCond({ $ifNull: ["$_doc.runners", []] })
+                                : []),
                             ],
                           },
                         },
@@ -792,6 +888,20 @@ export class IndustrySpDAO {
                           $cond: [
                             { $eq: ["$qualifyingRunners.status", "WINNER"] },
                             { $add: [{ $divide: [1, { $subtract: ["$qualifyingRunners.isp", 1] }] }, 1] },
+                            0,
+                          ],
+                        },
+                      },
+                      // £1 flat per runner, returning the price on a winner.
+                      // Always accumulated on this path — it is two more $sums
+                      // over rows already unwound, so gating it would cost more
+                      // in branching than it saves.
+                      levelStaked: { $sum: 1 },
+                      levelReturns: {
+                        $sum: {
+                          $cond: [
+                            { $eq: ["$qualifyingRunners.status", "WINNER"] },
+                            "$qualifyingRunners.isp",
                             0,
                           ],
                         },
@@ -818,12 +928,21 @@ export class IndustrySpDAO {
     const staked = result?.pnlStats?.[0]?.staked ?? 0;
     const returns = result?.pnlStats?.[0]?.returns ?? 0;
     const count = result?.pnlStats?.[0]?.count ?? 0;
+    // Only present on the $unwind path, which includeLevelStakes forces — so
+    // an absent value here means "not asked for", never "zero". Defaulting it
+    // to 0 would render as a break-even level-stakes book rather than as no
+    // answer, which is the same null-vs-zero trap brier already documents.
+    const levelStaked = result?.pnlStats?.[0]?.levelStaked;
+    const levelReturns = result?.pnlStats?.[0]?.levelReturns;
 
     return {
       data: result?.data ?? [],
       total: result?.total?.[0]?.count ?? 0,
       totalRunners: result?.totalRunners?.[0]?.count ?? 0,
       pnlStats: { staked, returns, pnl: returns - staked, count },
+      ...(includeLevelStakes && typeof levelStaked === "number" && typeof levelReturns === "number"
+        ? { levelPnl: { staked: levelStaked, returns: levelReturns, pnl: levelReturns - levelStaked } }
+        : {}),
       brier: brierFromSums(result?.brier?.[0]),
     };
   }
@@ -915,6 +1034,7 @@ export class IndustrySpDAO {
         minModelWinProbability: p.minModelWinProbability,
         onlyModelBeatsSp: p.onlyModelBeatsSp,
         minModelSpEdgePts,
+        onlyModelTopPick: false,
         modelVersionId: null,
         includeBrier: true,
       }),
@@ -1063,7 +1183,8 @@ export class IndustrySpDAO {
     onlyModelBeatsSp = false,
     fromRowRaw = 1,
     toRow: number,
-    minModelSpEdgePts = 0
+    minModelSpEdgePts = 0,
+    onlyModelTopPick = false
   ): Promise<{ raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number }[]> {
     const fromRow = Math.max(1, fromRowRaw);
     if (toRow < fromRow) return [];
@@ -1098,7 +1219,8 @@ export class IndustrySpDAO {
     ];
     const modelBeatsSpFilterActive = onlyModelBeatsSp || minModelSpEdgePts > 0;
     const beatsSpCond = modelBeatsSpCond(minModelSpEdgePts);
-    const qualifyingRunnersFilterActive = trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive;
+    const qualifyingRunnersFilterActive =
+      trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive || onlyModelTopPick;
     const qualifyingRunnersArrayExpr = {
       $filter: {
         input: "$runners",
@@ -1112,6 +1234,9 @@ export class IndustrySpDAO {
             ...(trainerFormFilterActive ? trainerFormCond : []),
             ...(modelFilterActive ? modelCond : []),
             ...(modelBeatsSpFilterActive ? beatsSpCond : []),
+            // Over the race's own runners array, which is what this $filter is
+            // walking — so the maximum is the race's, not the window's.
+            ...(onlyModelTopPick ? modelTopPickCond("$runners") : []),
           ],
         },
       },
@@ -1197,7 +1322,7 @@ export class IndustrySpDAO {
             countries, minRunners, maxRunners, minIsp, maxIsp, minInIspRange, maxInIspRange,
             courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, runnerName: null,
             trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-            minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, modelVersionId: null,
+            minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, onlyModelTopPick: false, modelVersionId: null,
           }),
           { $addFields: { _staked: stakedFieldExpr, _returns: returnsFieldExpr } },
           { $project: { _id: 1, raceTime: 1, _staked: 1, _returns: 1 } },
@@ -1420,6 +1545,9 @@ export class IndustrySpDAO {
       // applying it again would be redundant work.
       onlyModelBeatsSp: false,
       minModelSpEdgePts: 0,
+      // Model vs SP lists individual runners with their gap to the market; it
+      // is not a per-race selection, so the top-pick filter has no meaning here.
+      onlyModelTopPick: false,
       modelVersionId: null,
     });
   }

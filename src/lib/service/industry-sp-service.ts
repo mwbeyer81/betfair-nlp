@@ -49,12 +49,15 @@ export class IndustrySpService {
     modelVersionId: string | null = null,
     subMinRaceTime: string | null = null,
     subMaxRaceTime: string | null = null,
-    minModelSpEdgePts = 0
+    minModelSpEdgePts = 0,
+    onlyModelTopPick = false,
+    includeLevelStakes = false
   ): Promise<{
     data: IspRace[];
     total: number;
     totalRunners: number;
     pnlStats: { staked: number; returns: number; pnl: number; count: number };
+    levelPnl?: { staked: number; returns: number; pnl: number };
     brier: BrierStats;
   }> {
     return this.industrySpDAO.getAllRacesByRace(
@@ -87,7 +90,9 @@ export class IndustrySpService {
       modelVersionId,
       subMinRaceTime,
       subMaxRaceTime,
-      minModelSpEdgePts
+      minModelSpEdgePts,
+      onlyModelTopPick,
+      includeLevelStakes
     );
   }
 
@@ -148,7 +153,12 @@ export class IndustrySpService {
     // caller can't just ask for a bigger window directly, since the whole
     // point of the cap is that it's enforced server-side.
     raceCap = 10000,
-    minModelSpEdgePts = 0
+    minModelSpEdgePts = 0,
+    // Threaded straight through to getAllRacesByRace, which both split windows
+    // and the whole-set line below are computed by — so Split A/B and the
+    // headline can never disagree about which runners are in the selection.
+    onlyModelTopPick = false,
+    includeLevelStakes = false
   ): Promise<{
     totalRaces: number;
     totalRunners: number;
@@ -168,6 +178,9 @@ export class IndustrySpService {
       total: number;
       totalRunners: number;
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
+      // Present only when includeLevelStakes was asked for — absent means
+      // "not requested", never zero.
+      levelPnl?: { staked: number; returns: number; pnl: number };
       brier: BrierStats;
     };
     splitB: {
@@ -176,6 +189,7 @@ export class IndustrySpService {
       total: number;
       totalRunners: number;
       pnlStats: { staked: number; returns: number; pnl: number; count: number };
+      levelPnl?: { staked: number; returns: number; pnl: number };
       brier: BrierStats;
     };
   }> {
@@ -188,7 +202,7 @@ export class IndustrySpService {
           1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null,
           minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
           trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-          onlyModelBeatsSp, null, null, null, minModelSpEdgePts
+          onlyModelBeatsSp, null, null, null, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes
         ),
         // Deliberately dataset-global, not date-scoped — these are slider/
         // dropdown bounds (available countries, runner/ISP ranges), and
@@ -259,13 +273,13 @@ export class IndustrySpService {
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromA, effToA,
         minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-        onlyModelBeatsSp, null, null, null, minModelSpEdgePts
+        onlyModelBeatsSp, null, null, null, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes
       ),
       this.industrySpDAO.getAllRacesByRace(
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromB, effToB,
         minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-        onlyModelBeatsSp, null, null, null, minModelSpEdgePts
+        onlyModelBeatsSp, null, null, null, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes
       ),
     ]);
 
@@ -280,8 +294,8 @@ export class IndustrySpService {
       raceClasses: raceClassValues,
       raceTypes: raceTypeValues,
       brier: grand.brier,
-      splitA: { fromRow: effFromA, toRow: effToA, total: resultA.total, totalRunners: resultA.totalRunners, pnlStats: resultA.pnlStats, brier: resultA.brier },
-      splitB: { fromRow: effFromB, toRow: effToB, total: resultB.total, totalRunners: resultB.totalRunners, pnlStats: resultB.pnlStats, brier: resultB.brier },
+      splitA: { fromRow: effFromA, toRow: effToA, total: resultA.total, totalRunners: resultA.totalRunners, pnlStats: resultA.pnlStats, ...(resultA.levelPnl ? { levelPnl: resultA.levelPnl } : {}), brier: resultA.brier },
+      splitB: { fromRow: effFromB, toRow: effToB, total: resultB.total, totalRunners: resultB.totalRunners, pnlStats: resultB.pnlStats, ...(resultB.levelPnl ? { levelPnl: resultB.levelPnl } : {}), brier: resultB.brier },
     };
   }
 
@@ -317,13 +331,15 @@ export class IndustrySpService {
     onlyModelBeatsSp = false,
     fromRow = 1,
     toRow: number,
-    minModelSpEdgePts = 0
+    minModelSpEdgePts = 0,
+    onlyModelTopPick = false
   ): Promise<{ raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number; cumulativePnl: number; roiPercent: number }[]> {
     const points = await this.industrySpDAO.getRaceConvergenceSeries(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-      minModelWinProbability, onlyModelBeatsSp, Math.max(1, fromRow), toRow, minModelSpEdgePts
+      minModelWinProbability, onlyModelBeatsSp, Math.max(1, fromRow), toRow, minModelSpEdgePts,
+      onlyModelTopPick
     );
 
     return points.map(p => ({

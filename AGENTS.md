@@ -268,6 +268,8 @@ Ran claimed ports for this worktree (`scripts/claim-worktree-ports.sh daily-race
 | `~/betfair-nlp-bet-dialog-width` | `bet-dialog-width` | User reported (screenshot of a wide desktop browser on `/daily-races`) that the Bet dialog should be narrower — `PlaceBetDialog.tsx` passed no `style` to Paper's `Dialog`, which only insets itself by a fixed margin, so the two-field bet form stretched to ~1848px of a 1900px window with the Schedule/Bet now toggle halves ~898px each and Cancel/Confirm at opposite ends of the screen. Fixed with `width:100%/maxWidth:480/alignSelf:center` on the Dialog itself (no-op at phone widths). **Measure `place-bet-dialog-surface`, not `place-bet-dialog`, in any width assertion** — Paper puts the passed testID on the full-screen modal wrapper (always viewport-width) and exposes the visible card as `<testID>-surface`; the first version of this test measured the wrapper and read 1900px with the fix already in place. Also fixed a pre-existing failing `PlaceBetDialog` story (`ConfirmCallsOnSave` still asserted the pre-sandbox `onSave` payload, missing `orderType`/`sandbox`) found while running the suite. | **done — merged, deployed (web + production).** 3 new wide-viewport MSW tests in `tests-msw/bet-orders.spec.ts` (9/9 pass; verified they genuinely fail without the fix — 1848px surface, 898px toggle), `daily-races.spec.ts` 14/14, Storybook `PlaceBetDialog` 7/7, `yarn build` clean. Worktree removed. |
 | `~/betfair-nlp-mvs-narrow-overflow` | `fix/model-vs-sp-narrow-overflow` | User reported (iPhone screenshot of `app.backbet.co.uk/model-vs-sp`) that the filter card overflows on a narrow viewport. Two distinct causes, both in `ModelVsSpScreen.tsx`: (1) the filter grid is a fixed 92px label + two fixed 84px inputs + an inline hint, needing ~460px of viewport inside the card's padding — under that the longest hint (`pts apart, ± ignored`) ran past the card's right border; (2) the year/month pill `ScrollView`s carried no explicit flex, so they sized to their content and their clipping box extended past the card too. **The existing `nothing overflows a 375px viewport` MSW test passed the whole time** — it only checks `documentElement.scrollWidth`, and the overflow was clipped by an ancestor, so nothing ever scrolled. Fixed with a new `BREAKPOINTS.narrow` (480) + `useResponsive().isNarrow`: below it the hint takes its own full-width line under the inputs (`width:"100%"` **and** `flexShrink:0` — a shrinkable item gets squeezed back onto the inputs' line instead of wrapping), the inputs flex into the freed space, and each pill row stacks its label above a full-width strip. The pill `ScrollView`s get an explicit flex at every width, with a **separate narrow variant** — the stacked row is a column, so a main-axis `flexBasis:0` there would size the strip's *height* and collapse it to nothing. **Touches `ModelVsSpScreen.tsx` and `responsive.ts` (additively)** — checked this table first, no other worktree active on either. `IndustrySpScreen.tsx` has the same filter-grid shape and very likely the same defect at phone width; deliberately not touched (it's on this file's read-before-editing list and wasn't what the screenshot showed). | **done — merged to `develop` and deployed (web only, no backend change).** Verified: `client yarn build` clean; `tests-msw/model-vs-sp.spec.ts` **39/39** (8 new, in a `narrow viewport layout` describe that asserts per-element containment against the card's *padded content box* — the only kind of assertion that catches this class of bug); **4 of the 8 confirmed to fail against the pre-fix layout** (forced `isNarrow=false`, rebuilt, re-ran) rather than being assumed to; `ModelVsSpScreen` Storybook **27/27**. Storybook was run against a plain `storybook dev --port 6125` per this file's `--ci` finding. Worktree removed. |
 | `~/betfair-nlp-model-accuracy-oos` | `feat/model-accuracy-walk-forward` | User read the Model Accuracy screen's own "these figures flatter the model" caveat and called the screen misleading. It was: `ModelAccuracyDAO` banded on `modelWinProbability`, which `ml/train_and_predict.py:420-466` writes from a refit on 100% of the rows *including the ones it then scores* — so every historical race was scored by a model that already knew its result. New `ml/walk_forward_score.py` scores each year with a model fitted only on earlier races (`fit on raceDate < Y-01-01` → score Y), into a separate `modelWinProbabilityOos`; `modelWinProbability`, `ml/models/`, S3 and Daily Races are untouched (tomorrow's card is out-of-sample by definition, so the picks were never affected). The screen reads the new field, drops the now-meaningless model-version filter, and states its method plus how many runners had no prior history to be scored from. Also new: `ml/market_benchmark.py` (the de-overrounded SP probability, so `evaluate()` can finally tell the pipeline it is losing to the price — **referee, never a training target**), and a champion/challenger promotion gate reading `model_evaluations` back for the first time, so a worse retrain can no longer silently and irrecoverably overwrite a better one. **Measured on production**: overall Brier **in-sample 0.0893 → out-of-sample 0.0932, against the market's 0.0871** — the old screen understated the model's error by 0.0039, and out-of-sample the market is the more accurate of the two. Out-of-fold isotonic calibration was built and measured, improved Brier but worsened log loss, and so was **deliberately not shipped** (the script picks by log loss and recorded `calibrationHelped: false`). **Touches `model-accuracy-dao.ts`/`-service.ts`, `router.ts`, `ModelAccuracyScreen.tsx`, `chatApi.ts`, `seed-isp-model-probabilities.ts`, `train_and_predict.py`** — checked this table first, no other worktree active on any of them. | **done — merged to `develop` (`a0da1ff`) and deployed (Lambda + web, `build-commit` confirms `1ad19e9`).** Worktree removed. `tsc --noEmit` + `client yarn build` clean; `ml/test_walk_forward.py` 24/24, `ml/test_training_gate.py` 13/13, `ml/test_features.py` 14/14; `model-accuracy-dao.integration.test.ts` 22/22 (4 new); `app.test.ts` model-accuracy block 11/11 (3 new). Full 11-fold walk-forward run + write-back took 1147s and updated 100,064 races (885,089 of 971,116 runners now carry an out-of-sample score; the rest are 2015 and unpriced runners, left null on purpose). Coverage re-checked through the real DAO against production: full window 91.14%, a 2015-only window 0%, a 2024-only window 100%. **Deploy trap found and fixed en route — see the `apps/lambda/build.sh` note in the entry below.** |
+| `~/betfair-nlp-model-relative-features` | `model-relative-features` | User asked to improve the model: baseline from prod, horse-racing quant feature engineering, iterate, find filters it does better under, and record every iteration in Mongo so they're visible. Acted on the 2026-08-04 finding that **99.2% of the model's deficit against SP is discrimination**, whose structural cause is that **all 30 deployed features are ABSOLUTE** — `officialRating=85` scored with no idea whether the field is rated 60 or 105, when P(win) is entirely relative to *these* rivals. New **`ml/features.py`** (+116 features: within-race rank/z/gap-to-best, field strength, well-in-at-the-weights, course/distance/going suitability, first-time headgear, trainer×jockey, layoff, handicap/maiden parsed from `raceName`) and **`ml/experiment.py`** (walk-forward harness, 3 objectives, 9-dimension segment P&L under both stakings, one doc per run in a NEW `model_experiments` collection — never writes `ml/models/`, S3, any per-runner field, or `model_evaluations`). New **Model Experiments screen** at `/model-experiments`. **Measured on production, 5 arms, 189,640 OOS rows:** control Brier 0.095289 / resolution 0.007214 → **rel-binary 0.094554 / 0.007877**, closing **11.3% of the gap to SP**; top-1 26.08% → 27.36% (market 34.85%). **Features win; the conditional-logit objective helps on the OLD features but adds nothing on top of the new ones — they are substitutes**, so the custom objective can be dropped. `rank:pairwise` was worse than doing nothing. **Zero segments passed the acceptance rule in any arm — still no betting edge.** Also fixed two live hazards found en route: three deployed features are **100% NaN** in prod (`comment` is 0.1% populated), and `current_champion()` was a deny-list that a future doc type could have permanently jammed. **Touches `train_and_predict.py`, `walk_forward_score.py`, `router.ts`, `chatApi.ts`, `useRouter.ts`, `AppHeader.tsx`, `App.tsx`, `saved-filter-set-dao.ts`/`-service.ts`, `app.test.ts`, `local-ci-e2e.sh`** — checked this table first, no other worktree active on any of them. | **merged to `develop` and deployed.** `client yarn build` clean; Python 149/149; `app.test.ts` 246 passed (9 new); `model-experiment-dao.integration.test.ts` 9/9; MSW 14/14 new; Storybook full suite 505 passed / 7 failed, **byte-identical failure set to pristine `develop`** (verified by running both), 13 new stories all pass. Nothing deployed: no model artifact written, `model_evaluations` untouched at 7 docs, no experiment doc carries a `modelVersionId`. Later the same day, three follow-ons landed on this branch: a **one-off backfill** of the four days (2026-07-31..08-03, 911 runners) that fell between the walk-forward's coverage end and commit `5ac6e26` — a recovery from `daily_racecards`, cross-checked row by row, never a copy of the in-sample field; a fix for `getWalkForwardCoverage()` reporting a coverage edge that was a week stale and widening daily; and the **"Model's top pick" filter + level-stakes P&L**, reproducing -10.32% level / -6.31% to-win in the UI (NOT -12.85%, which came from the harness's fast-mode control arm and should not be quoted). Plus `scripts/prod-smoke.ts`, which diagnosed a reported white screen: the CDN serves index.html as the SPA fallback for unmatched `.js` paths, so a stale cached index.html asking for a pruned bundle hash gets HTML with a 200 and dies on `Unexpected token '<'`. **That CDN issue is still open.** |
+
 `account-panel`, `anon-isp-home`, `auth-hardening`, `email-debug`,
 `social-auth`, `convergence-tooltip`, `split-b-continuation`,
 `split-ab-race-revert`, `header-overlap-fix`, `codebase-search-chat`,
@@ -6553,6 +6555,9 @@ Same family as the `industry-sp.spec.ts` races-screen breakage already recorded
 in this file. My two new tests in that file are written against current
 behaviour and drill down explicitly.
 
+
+---
+
 ## 2026-08-06 (later) — worktree `~/betfair-nlp-isp-races-rollup-mismatch`, branch `fix/isp-races-rollup-mismatch` — a 1118-race saved result opened its Races view as "11 races, -100.0%"
 
 User, on a phone, three screenshots of build `28b117b`: saved result **"Hoop"**,
@@ -6801,3 +6806,205 @@ network events:
 - **42 one-race probes**, i.e. every stats request really did use `limit=1`.
 
 Worktree can be removed.
+---
+---
+
+## 2026-08-07 — worktree `~/betfair-nlp-model-relative-features`, branch `model-relative-features` — the model's features were all absolute; a race is a competition
+
+User asked to improve the model: establish the baseline from prod, use horse-racing
+quant knowledge to engineer new features, iterate, find filters the model does
+better under, and record every iteration in Mongo so the iterations are visible.
+
+### The diagnosis acted on
+
+The 2026-08-04 Brier entry established that **99.2% of the model's deficit against
+industry SP is discrimination, not calibration**. This entry acts on the obvious
+structural cause: **every one of the deployed model's 30 features is ABSOLUTE.**
+`officialRating=85` is scored with no knowledge of whether the field is rated 60 or
+105 — yet P(win) is entirely a question of how this horse compares to *these*
+rivals. The market gets relativity for free, because a price is relative by
+construction. A model scored one runner at a time literally cannot express
+"standout in a weak field", which is exactly a resolution deficit.
+
+### Two things found while measuring the baseline, both worth knowing on their own
+
+1. **Three of the 22 numeric features are 100% NaN across all 972,486 production
+   runners.** `horseAvgExcuseScore`, `horseTroubleInRunningRate`,
+   `horseTravelledWellRate` derive from `runners[].comment`, which is **0.1%
+   populated** — the Kaggle CSV never carried it, and only the RacingAPI path
+   (4% of 2026) does. They have contributed nothing, invisibly, since 2026-07-26.
+   `ml/experiment.py` now **fails a run** on any feature >99% null.
+2. **`train_and_predict.current_champion()` was a deny-list**, excluding only
+   `evaluationType: "walk_forward"`. Any new document type in `model_evaluations`
+   carrying a top-level numeric `logLoss` and no `promoted` field became eligible.
+   An out-of-sample scoring pass measures ~0.30 against the best real training
+   run's 0.32091, so such a doc would have become **permanent** champion — no
+   genuine retrain could ever beat it — while having no model artifact anywhere to
+   deploy or roll back to. Now an allow-list on `modelVersionId`, with a test.
+   `predict_daily_races.latest_model_version_id()` has the same shape on the
+   **deployed daily-prediction path**; that is the other reason experiments live in
+   their own collection.
+
+### What was built
+
+- **`ml/features.py`** — 116 new features on top of the deployed set (143 total).
+  The headline family is within-race relative: rank, normalised rank, within-race
+  z-score, gap-to-best and gap-to-second-best for nine attributes, plus field
+  strength. Then weights-vs-ratings ("well in at the weights", handicapper gap,
+  career-best RPR, RPR trend), course/distance/going/code suitability, first-time
+  headgear and headgear streaks, trainer×jockey combos and 90d/365d form windows,
+  layoff shape, and race shape parsed from `raceName` (handicap/maiden/novice/
+  seller — `raceClass` alone cannot say which).
+- **`ml/experiment.py`** — walk-forward harness with three objectives, per-segment
+  evaluation across nine dimensions, and one document per run in a new
+  `model_experiments` collection. Never writes `ml/models/`, S3, any per-runner
+  field, or `model_evaluations`; a test scans its own source for the names that
+  would.
+- **Model Experiments screen** (`/model-experiments`, login-gated) — DAO, service,
+  two routes, client, plus Storybook/supertest/MSW/Mongo-integration/e2e tests.
+
+### The result — five arms, fast mode (folds 2022-2026, 50% of races, 300 trees), 189,640 scored rows
+
+| arm | features | objective | Brier | AUC | **resolution** | top-1 | BSS vs SP |
+|---|---|---|---|---|---|---|---|
+| base-binary (control) | 27 | binary | 0.095289 | 0.71554 | 0.007214 | 26.08% | −0.0727 |
+| base-softmax | 27 | conditional logit | 0.094901 | 0.71914 | 0.007530 | 26.56% | −0.0684 |
+| **rel-binary** | **143** | **binary** | **0.094554** | **0.72227** | **0.007877** | **27.36%** | **−0.0645** |
+| rel-softmax | 143 | conditional logit | 0.094625 | 0.72189 | 0.007866 | 27.35% | −0.0652 |
+| rel-rank | 143 | rank:pairwise + T | 0.095680 | 0.71108 | 0.006992 | 26.11% | −0.0771 |
+| **market (industry SP)** | — | — | **0.088829** | **0.78541** | **0.013636** | **34.85%** | 0 |
+
+**1. The harness reproduces the stored baseline, which is what licenses every
+number above.** The control's per-fold Briers match `wf-20260731-074825`'s 2022-2026
+folds, and — computed by completely independent code — the **market's** Murphy
+decomposition comes out at resolution 0.013636 against the 0.013368 in the
+2026-08-04 entry, market AUC 0.785405 against 0.786202. Two pipelines agreeing.
+
+**2. Features win, and by roughly double what the objective wins.** rel-binary
+lifts resolution 9.2% over the control and closes **11.3% of the Brier gap to the
+market**. Top-1 rate — how often the model's best-rated runner actually wins — goes
+26.08% → 27.36% against the market's 34.85%.
+
+**3. The two ideas are SUBSTITUTES, not complements, and that is the interesting
+finding.** The conditional-logit objective clearly helps on the *old* features
+(+4.4% resolution), but adds nothing on top of the new ones — rel-softmax is a
+hair *behind* rel-binary. The within-race relative features already encode the
+competition structure the Plackett-Luce likelihood was supplying. Don't pay for
+both; the custom objective can be dropped, which also keeps the deployed path on
+plain `binary:logistic`.
+
+**4. `rank:pairwise` is worse than doing nothing.** As predicted: with exactly one
+relevant document per query, ndcg/pairwise degenerates, and resting all calibration
+on a single fitted temperature is not enough. Recorded so nobody tries it again.
+
+**5. There is STILL no betting edge, and this does not claim one.** **Zero** of the
+56 segments passed the acceptance rule in **any** of the five arms. The model now
+captures 58% of the market's discrimination, up from 53%. Better is not profitable.
+
+### Things worth knowing before touching this
+
+1. **The acceptance rule is pre-registered and stored on every document**, because
+   56 segments × 3 selections is ~168 cells and several land positive by chance —
+   the 2026-08-01 entry hit exactly that with ~54 cells. The load-bearing clause is
+   **positive under BOTH staking conventions**: that entry records a cell at +2.0%
+   level and −1.5% to-win *on the same bets*, correctly called noise.
+2. **The year threshold is a FRACTION of the years a run scored, not "8 of 11".**
+   Caught during implementation: a fast run covers five years, so a hardcoded 8
+   made a discovery arithmetically impossible in the mode used for every iteration
+   — the rule would have looked like it was working while rejecting everything.
+3. **The filter battery must never POST a model-dependent filter.**
+   `POST /api/saved-filter-sets/agent` routes through `getSplitStats`, which reads
+   `modelWinProbabilityOos` out of Mongo — the DEPLOYED walk-forward's numbers, not
+   the experiment's. Posting an `onlyModelBeatsSp` segment would measure the OLD
+   model under the new filters and file it under the experiment's name: precisely
+   the 2026-08-04 incident again. `MODEL_DEPENDENT_FILTER_PARAMS` blocks it, and
+   `EXP_FILTER_BATTERY` defaults to false on top.
+4. **Leakage is guarded five ways**, because a leaking model looks spectacular right
+   up until it is deployed. Two structural tests are the gate on `features.py`:
+   perturb a race's own result and its own features must not move by a bit; truncate
+   the frame and earlier races' features must be identical. The second is also what
+   licenses building features once over the whole frame instead of per fold.
+5. **Recipe (a) vs (b) is a real distinction, not style.** cumcount/cumsum-minus-own
+   is strictly-prior-ROW; `precompute-trainer-form.ts` is strictly-prior-DATE. For a
+   horse they agree; for a **trainer with six runners on a card they diverge
+   constantly**, so trainer/jockey windows use the daily-aggregated
+   `closed="left"` rolling. Porting a recipe-(a) trainer feature into
+   `daily-race-feature-service.ts` would introduce a silent train/serve skew.
+6. **`model_experiments` is deliberately NOT `model_evaluations`** — see note 2 in
+   the section above, and `ModelExperimentDAO`'s header.
+7. **The list endpoint's projection is load-bearing and its counterpart bit me.**
+   ~56 segments × 3 selections × 2 stakings per document is megabytes for a screen
+   showing one line each, so `getAll` drops them — but that made every list row read
+   "0 features" until `featureCount` was computed server-side with `$size`. Found by
+   querying the running API, not by any test; there is now a test.
+8. **Still ISP only.** `market_definitions`/`price_updates` re-checked at 0
+   documents. Loading BSP remains the highest-value next step, exactly as the
+   2026-08-01 and 2026-08-04 entries said.
+9. **Nothing is deployed.** No model artifact written, no `modelWinProbability`
+   touched, `model_evaluations` untouched at 7 docs. Promoting rel-binary means
+   porting its features to `daily-race-feature-service.ts` first — though the entire
+   *relative* family is computable from fields already on the daily racecard, so
+   `predict_daily_races.py` could import `features.add_within_race_relative`
+   directly, with no new precomputed Mongo fields and no reseed. Only the trailing
+   families need new precomputes.
+
+### Running it
+
+```bash
+MONGODB_URI=... MONGODB_DB_NAME=betfair_nlp \
+  EXP_NAME=my-idea EXP_FEATURE_SET=all EXP_OBJECTIVE=binary EXP_MODE=fast \
+  ml/venv/bin/python -u ml/experiment.py
+```
+First run pays ~10 min for the Atlas load, then caches (`ml/.cache/`, ~300MB); after
+that a fast arm is 6-20 min. `EXP_MODE=full` refuses a tree cap, race sampling or a
+fold subset — a capped run must never be recorded as comparable to a real full one.
+
+### Follow-up the same day — the four missing days, and a coverage date that was a week stale
+
+Testing the top-pick idea against last week's live RacingAPI data turned up two
+things that had nothing to do with the model.
+
+**1. Four days had results but no out-of-sample score.** 2026-07-31 .. 2026-08-03
+— 114 races, 911 runners — were invisible to every model filter, the Model
+Accuracy screen and the saved-filter live results. Not a bug, and not ongoing:
+it is exactly the window between `walk_forward_score.py`'s last run (coverage
+ends 2026-07-30) and commit `5ac6e26` on 2026-08-04, which added the line in
+`industry-sp-results-capture-service.ts` that writes the live pre-race
+prediction to `modelWinProbabilityOos` as well as `modelWinProbability`. Capture
+was running the whole time, into one field.
+
+**The data was never lost** — all 911 rows had `modelWinProbability`, and all
+911 matched their `daily_racecards` 06:00 pre-race prediction *exactly*.
+`src/commands/backfill-oos-capture-gap.ts` closed the hole: 911 runners across
+114 races, 0 skipped, 0 disagreeing. **It is a recovery, not a copy** — every
+value is read from `daily_racecards` and cross-checked against the stored one,
+because a blanket `modelWinProbability -> ...Oos` copy across history would
+recreate the exact disaster `5ac6e26` fixed (that field knows the winners on
+historical rows; copying it read +4.48% where the truth was -18.75%). The date
+window is a hardcoded constant, not an argument. Verified after: every day
+2026-07-28..08-06 now 100% covered, and 2015 still deliberately unscored.
+
+**2. `getWalkForwardCoverage()` was reporting a coverage edge a week stale, and
+widening daily.** It read `coverageMaxDate` off the walk-forward document —
+frozen at 2026-07-30 — while the capture path now extends real coverage every
+day. The Filters screen was telling users a date range was out of coverage when
+it was not. It now reads the live edge from the data (`2026-08-06` against prod)
+and keeps the backtest's own figure as `walkForwardMaxDate`, since "how far has
+the backtest been run" is a different question and is no longer visible from the
+other field.
+
+Two details worth keeping: the query sorts on **`raceTime`, which is indexed,
+not `raceDate`, which is not** — same ordering, and it turns a 110k-document
+scan (0.3s) into a single index seek (1 doc examined, 0ms). And it matches on
+`$type: "number"`, **not `$ne: null`** — on an array field `$ne` matches only
+documents where NO element is null, which would exclude nearly every real race,
+since most have some unscored runners.
+
+**Live forward test, for the record.** On the 78 races that had live predictions
+the model's top pick read **+11.4% level stakes**; recovering the four lost days
+took it to 272 races and **-24.7%**. The +11.4% was noise, and its own to-win
+figure (-1.8% on the identical bets) said so at the time. What survives at that
+sample size is strike rate: **model's top pick 24.1%, market favourite 41.8%**,
+agreeing only 34% of the time. Per-bet level-stakes SD is 1.84, so resolving a
+3% ROI edge needs ~14,500 bets — about 1.5 years of GB racing. Recent live data
+can refute a large effect; it cannot confirm a small one.

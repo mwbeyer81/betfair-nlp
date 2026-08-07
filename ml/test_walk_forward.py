@@ -11,7 +11,11 @@ earlier than the rows it scores, and on the calibrator never having seen the
 rows it corrects — neither of which is visible by reading an output.
 """
 
+import inspect
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -213,6 +217,63 @@ class TestCalibrationTable(unittest.TestCase):
 
     def test_too_few_rows_returns_empty_rather_than_raising(self):
         self.assertEqual(wf.calibration_table(pd.Series([1, 0]), pd.Series([0.5, 0.4])), [])
+
+
+class TestLoadFrameCaching(unittest.TestCase):
+    """load_frame is parameterised so ml/experiment.py can reuse its cache
+    handling and its wrong-database error rather than forking them. These pin
+    the two behaviours a second caller depends on."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.cache = Path(self.tmp) / "frame.pkl"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_a_custom_loader_and_cache_path_are_both_honoured(self):
+        calls = []
+
+        def loader(_collection):
+            calls.append(1)
+            return frame(["2019"])
+
+        first = wf.load_frame(None, cache_path=self.cache, loader=loader)
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(self.cache.exists())
+        # Second call must come from the cache, not the loader — this is what
+        # stops a ~750MB Atlas read being paid for twice.
+        second = wf.load_frame(None, cache_path=self.cache, loader=loader)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(first), len(second))
+
+    def test_a_cache_missing_a_required_column_is_rebuilt_not_used(self):
+        # The failure this guards against is silent: a pickle written before a
+        # source column existed loads fine, and every feature derived from that
+        # column comes out 100% NaN. Three of the live model's numeric features
+        # sat in exactly that state for weeks.
+        wf.load_frame(None, cache_path=self.cache, loader=lambda _c: frame(["2019"]))
+
+        rebuilt = []
+
+        def wider_loader(_collection):
+            rebuilt.append(1)
+            df = frame(["2019"])
+            df["horseName"] = "Some Horse"
+            return df
+
+        out = wf.load_frame(None, cache_path=self.cache, loader=wider_loader,
+                            required_columns=("horseName",))
+        self.assertEqual(len(rebuilt), 1, "stale cache was used instead of being rebuilt")
+        self.assertIn("horseName", out.columns)
+
+    def test_the_default_cache_path_and_loader_are_unchanged(self):
+        # walk_forward_score.run() calls load_frame(collection) with no extra
+        # arguments; the parameterisation must not have moved that behaviour.
+        sig = inspect.signature(wf.load_frame)
+        self.assertIsNone(sig.parameters["cache_path"].default)
+        self.assertIsNone(sig.parameters["loader"].default)
+        self.assertEqual(sig.parameters["required_columns"].default, ())
 
 
 if __name__ == "__main__":

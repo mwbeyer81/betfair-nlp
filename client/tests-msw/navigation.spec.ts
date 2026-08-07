@@ -66,6 +66,20 @@ test.describe("Routing — MSW mocked network", () => {
     expect(page.url()).toContain("/isp");
   });
 
+  // /model-experiments has to be added to BOTH the Route union AND
+  // STATIC_ROUTES in useRouter.ts. pathToRoute silently falls back to "/isp"
+  // for anything missing from the second, so a half-added route is a broken
+  // link rather than a type error — this test is what catches that.
+  test("Model Experiments link in the burger menu navigates to /model-experiments", async ({ page }) => {
+    await page.goto("/events");
+    await expect(page.getByTestId("events-screen")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("events-menu-model-experiments-link").click();
+
+    await expect(page.getByTestId("model-experiments-screen")).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain("/model-experiments");
+  });
+
   // Industry SP (home) no longer links out to Events, Chat, or Runners —
   // those pages are hidden (still reachable by URL, still behind login)
   // but not linked from the public home page.

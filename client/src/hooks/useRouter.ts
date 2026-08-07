@@ -14,6 +14,7 @@ export type Route =
   | "/results"
   | "/results/detail"
   | "/model-accuracy"
+  | "/model-experiments"
   | "/bets"
   | "/model-vs-sp"
   | "/daily-races"
@@ -38,6 +39,7 @@ const STATIC_ROUTES = [
   "/results",
   "/results/detail",
   "/model-accuracy",
+  "/model-experiments",
   "/bets",
   "/model-vs-sp",
   "/daily-races",

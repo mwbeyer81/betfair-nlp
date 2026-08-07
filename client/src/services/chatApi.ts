@@ -91,6 +91,12 @@ export interface RunnersPage {
   totalPages: number;
   totalRunners: number;
   pnlStats: PnlStats;
+  // £1 flat per runner, present only when includeLevelStakes was requested.
+  // ABSENT means "not asked for", never zero — a zero would render as a
+  // break-even book. See the DAO's levelPnl comment for why both conventions
+  // matter: they disagree by ~11 points on the same bets purely through bet
+  // sizing, so a slice profitable under only one of them is noise.
+  levelPnl?: { staked: number; returns: number; pnl: number };
   // Market-only on this screen: the Betfair-SP dataset carries no model
   // probability, so brier.scored is 0 and brier.model is null.
   brier?: BrierStats;
@@ -535,7 +541,14 @@ export interface ModelVersion {
 export interface ModelScoreCoverage {
   oosVersionId: string;
   coverageMinDate: string;
+  // The last race that actually carries an out-of-sample score. Extends daily
+  // via the results-capture path, so it is read from the data rather than from
+  // the walk-forward evaluation document — see ModelScoreCoverageDocument in
+  // src/lib/dao/model-version-dao.ts.
   coverageMaxDate: string;
+  // How far the last walk-forward backtest itself reached. Optional: documents
+  // and API responses predating this field are real and are not migrated.
+  walkForwardMaxDate?: string;
   scoredRows: number;
   unscoredRows: number;
 }
@@ -543,6 +556,130 @@ export interface ModelScoreCoverage {
 export interface ModelVersionsResponse {
   success: boolean;
   data: ModelVersion[];
+  count: number;
+}
+
+// ---------------------------------------------------------------------------
+// Model experiments — one row per ml/experiment.py run. Mirrors
+// src/lib/service/model-experiment-service.ts's API shape.
+// ---------------------------------------------------------------------------
+
+export interface ExperimentMetrics {
+  n: number;
+  aucRoc: number | null;
+  logLoss: number | null;
+  brierScore: number | null;
+  // Discrimination, and the reason this screen exists: 99.2% of the model's
+  // Brier deficit against industry SP is resolution, not calibration, so
+  // resolution and top1Rate get equal billing with Brier throughout.
+  resolution?: number | null;
+  reliability?: number | null;
+  uncertainty?: number | null;
+  withinBin?: number | null;
+  top1Rate?: number | null;
+  mrr?: number | null;
+  races?: number;
+}
+
+export interface ExperimentPnl {
+  staked: number;
+  returns: number;
+  pnl: number;
+  roiPct: number | null;
+}
+
+export interface ExperimentSelection {
+  n: number;
+  wins: number;
+  strikeRate: number | null;
+  // Both conventions, always. A selection positive under one and negative
+  // under the other is noise, not an edge — see the acceptance rule.
+  pnl: { toWin1: ExperimentPnl | null; level: ExperimentPnl | null };
+  bettableN: number;
+}
+
+export interface ExperimentSegment {
+  dimension: string;
+  bucket: string;
+  bucketOrder: number;
+  n: number;
+  scoredN: number;
+  wins: number;
+  strikeRate: number;
+  model: ExperimentMetrics;
+  market: ExperimentMetrics;
+  bss: number | null;
+  selections: Record<string, ExperimentSelection>;
+  yearsPositiveToWin1: number;
+  yearsPositiveLevel: number;
+}
+
+export interface DiscoveredSegment {
+  dimension: string;
+  bucket: string;
+  selection: string;
+  n: number;
+  bss: number | null;
+  strikeRate: number | null;
+  roiToWin1: number | null;
+  roiLevel: number | null;
+  yearsPositiveToWin1: number;
+  // False when the slice is real but the Filters screen has no URL param for
+  // it — the UI says "not expressible as a filter" rather than offering a link
+  // that would silently drop the constraint.
+  ispFilterable: boolean;
+  filters: Record<string, string> | null;
+}
+
+export interface ModelExperimentSummary {
+  id: string;
+  name: string;
+  notes: string;
+  runAt: string;
+  mode: "fast" | "full";
+  featureSetName: string;
+  objective: string;
+  featureCount: number;
+  newFeatureCount: number;
+  meta: {
+    gitCommit: string;
+    foldYears: string[];
+    foldCount: number;
+    scoredRows: number;
+    unscoredRows: number;
+    droppedTrainRaces: number;
+    coverageMinDate: string;
+    coverageMaxDate: string;
+    totalSeconds: number;
+    trainingParams: Record<string, unknown>;
+  };
+  metrics: {
+    model: ExperimentMetrics;
+    calibrated: ExperimentMetrics;
+    market: ExperimentMetrics;
+    bss: number | null;
+    deltaVsBaseline: Record<string, number | null> | null;
+  };
+  baselineExperimentId: string | null;
+  discoveredCount: number;
+}
+
+export interface ModelExperiment extends ModelExperimentSummary {
+  featureCols: string[];
+  newFeatureCols: string[];
+  sparseFeatures: Array<{ col: string; populatedPct: number }>;
+  folds: Array<Record<string, unknown>>;
+  spBandTable: ExperimentSegment[];
+  segments: ExperimentSegment[];
+  segmentDimensions: string[];
+  acceptanceRule: Record<string, unknown>;
+  discoveredSegments: DiscoveredSegment[];
+  filterBattery: Array<Record<string, unknown>>;
+}
+
+export interface ModelExperimentsResponse {
+  success: boolean;
+  data: ModelExperimentSummary[];
   count: number;
 }
 
@@ -1010,7 +1147,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string, subMinDate?: string, subMaxDate?: string, minModelSpEdgePts?: number): Promise<IspPage> {
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string, subMinDate?: string, subMaxDate?: string, minModelSpEdgePts?: number, onlyModelTopPick?: boolean, includeLevelStakes?: boolean): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -1041,6 +1178,11 @@ class ChatApi {
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
     if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     if (modelVersionId) params.set("modelVersionId", modelVersionId);
+    // A per-race RANK, not a threshold — see the Filters panel tooltip.
+    if (onlyModelTopPick) params.set("onlyModelTopPick", "true");
+    // Level-stakes P&L beside the to-win-£1 always returned. Costs a slower
+    // server query, so it is only requested when it will be shown.
+    if (includeLevelStakes) params.set("includeLevelStakes", "true");
     // Restricts an already row-ranged (fromRow/toRow) window to a calendar
     // sub-range without changing what "row N" means — see the DAO's own
     // comment on subMinRaceTime/subMaxRaceTime. Distinct from minDate/
@@ -1108,6 +1250,36 @@ class ChatApi {
     );
     if (!response.ok) throw new Error("Failed to fetch model versions");
     return response.json();
+  }
+
+  // Model-development iterations, newest first — backs the Model Experiments
+  // screen. Throws on failure (unlike getModelScoreCoverage below, which only
+  // decorates another screen with a note): this screen has nothing to show
+  // without its data, so an error state is the correct behaviour rather than a
+  // silently empty list that reads as "no experiments have been run".
+  async getModelExperiments(mode?: "fast" | "full", limit?: number): Promise<ModelExperimentsResponse> {
+    const params = new URLSearchParams();
+    if (mode) params.set("mode", mode);
+    if (limit) params.set("limit", String(limit));
+    const query = params.toString();
+    const response = await fetch(
+      `${this.baseUrl}/api/model-experiments${query ? `?${query}` : ""}`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch model experiments");
+    return response.json();
+  }
+
+  // One experiment in full, including its ~56 segments — deliberately a
+  // separate call from the list, which projects those out server-side.
+  async getModelExperiment(experimentId: string): Promise<ModelExperiment> {
+    const response = await fetch(
+      `${this.baseUrl}/api/model-experiments/${encodeURIComponent(experimentId)}`,
+      { headers: this.authHeader() }
+    );
+    if (!response.ok) throw new Error("Failed to fetch model experiment");
+    const body = (await response.json()) as { data: ModelExperiment };
+    return body.data;
   }
 
   // The date window over which an out-of-sample model score exists. `data` is
@@ -1241,7 +1413,9 @@ class ChatApi {
     maxTrainerFormRunners?: number,
     minModelWinProbability?: number,
     onlyModelBeatsSp?: boolean,
-    minModelSpEdgePts?: number
+    minModelSpEdgePts?: number,
+    onlyModelTopPick?: boolean,
+    includeLevelStakes?: boolean
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -1269,6 +1443,8 @@ class ChatApi {
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    if (onlyModelTopPick) params.set("onlyModelTopPick", "true");
+    if (includeLevelStakes) params.set("includeLevelStakes", "true");
     if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
@@ -1305,7 +1481,9 @@ class ChatApi {
     maxTrainerFormRunners?: number,
     minModelWinProbability?: number,
     onlyModelBeatsSp?: boolean,
-    minModelSpEdgePts?: number
+    minModelSpEdgePts?: number,
+    onlyModelTopPick?: boolean,
+    includeLevelStakes?: boolean
   ): Promise<{ success: boolean; data: RaceConvergencePoint[]; count: number }> {
     const params = new URLSearchParams({
       toRow: String(toRow),
@@ -1331,6 +1509,8 @@ class ChatApi {
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    if (onlyModelTopPick) params.set("onlyModelTopPick", "true");
+    if (includeLevelStakes) params.set("includeLevelStakes", "true");
     if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/race-convergence?${params}`,

@@ -374,6 +374,48 @@ test.describe("Industry SP filters screen (MSW mocked)", () => {
     await expect(page.getByTestId("industry-sp-only-model-beats-sp")).not.toHaveAttribute("aria-checked", "true");
   });
 
+  // A per-race RANK, unlike "Model Win %" beside it, which is an absolute
+  // threshold — the top pick in a 5-runner race might be 40% and in a
+  // 16-runner handicap 12%, so no single threshold can select one per race.
+  test("'Model's top pick' checkbox is present and sends onlyModelTopPick=true to /api/industry-sp/splits", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-only-model-top-pick")).toBeVisible();
+    await expect(page.getByTestId("industry-sp-only-model-top-pick")).not.toHaveAttribute("aria-checked", "true");
+
+    let captured: string | null = null;
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const url = new URL(route.request().url());
+      captured = url.searchParams.get("onlyModelTopPick");
+      await route.continue();
+    });
+
+    await page.getByTestId("industry-sp-only-model-top-pick").click();
+    await expect(page.getByTestId("industry-sp-only-model-top-pick")).toHaveAttribute("aria-checked", "true");
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(captured).toBe("true");
+  });
+
+  // Level stakes has to be requestable from the UI, not just computable on the
+  // server: the check that killed a false positive earlier — "profitable under
+  // BOTH staking conventions" — cannot be applied at all while only one is
+  // ever shown, and to-win-£1 is the flattering one (it puts ~20% of the money
+  // on odds-on shots and ~4% on 20/1+, where the overround is worst).
+  test("'Show level stakes too' checkbox sends includeLevelStakes=true to /api/industry-sp/splits", async ({ page }) => {
+    await expect(page.getByTestId("industry-sp-include-level-stakes")).toBeVisible();
+
+    let captured: string | null = null;
+    await page.route("**/api/industry-sp/splits*", async (route) => {
+      const url = new URL(route.request().url());
+      captured = url.searchParams.get("includeLevelStakes");
+      await route.continue();
+    });
+
+    await page.getByTestId("industry-sp-include-level-stakes").click();
+    await page.getByTestId("industry-sp-filter-apply").click();
+    await expect(page.getByTestId("industry-sp-loading")).not.toBeVisible({ timeout: 10000 });
+    expect(captured).toBe("true");
+  });
+
   test("'Beats SP by (pts)' field is present and sends minModelSpEdgePts to /api/industry-sp/splits", async ({ page }) => {
     await expect(page.getByTestId("industry-sp-min-model-sp-edge-pts")).toBeVisible();
     await expect(page.getByTestId("industry-sp-min-model-sp-edge-pts")).toHaveValue("0");

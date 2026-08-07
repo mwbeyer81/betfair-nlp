@@ -25,6 +25,7 @@ import { DailyRunnerDetailScreen } from "./src/components/DailyRunnerDetailScree
 import { ScheduledBetsScreen } from "./src/components/ScheduledBetsScreen";
 import { ModelVsSpScreen } from "./src/components/ModelVsSpScreen";
 import { ModelAccuracyScreen } from "./src/components/ModelAccuracyScreen";
+import { ModelExperimentsScreen } from "./src/components/ModelExperimentsScreen";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
 import { buildReturnParams, resolveReturn } from "./src/utils/returnNav";
@@ -384,6 +385,16 @@ export default function App() {
     if (route === "/model-accuracy") {
       return (
         <ModelAccuracyScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          onBack={() => navigate("/isp")}
+        />
+      );
+    }
+    if (route === "/model-experiments") {
+      return (
+        <ModelExperimentsScreen
           navigate={navigate}
           isAuthenticated={isAuthenticated}
           onLogout={onLogout}

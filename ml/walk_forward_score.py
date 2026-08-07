@@ -177,14 +177,40 @@ def calibration_table(labels: pd.Series, probs: pd.Series, bins: int = 10) -> li
     ]
 
 
-def load_frame(collection) -> pd.DataFrame:
-    if CACHE_PATH.exists():
-        print(f"Loading cached frame from {CACHE_PATH}...")
-        df = pd.read_pickle(CACHE_PATH)
-    else:
-        print("Loading data from Mongo (no cache)...")
+def load_frame(collection, cache_path: Path = None, loader=None,
+               required_columns=()) -> pd.DataFrame:
+    """The runner frame, reusing a pickled cache if one is present.
+
+    Parameterised so ml/experiment.py can reuse this — the cache handling, the
+    undated-rows guard, and above all the "you're pointed at the wrong
+    database" RuntimeError below — rather than forking it. A forked copy would
+    drift silently, which is the objection this module's header raises about
+    forking FEATURE_COLS and which applies just as well here.
+
+    `required_columns` guards a *stale* cache. A pickle written before a source
+    column existed loads fine and then yields features that are silently
+    all-NaN — the exact failure that left three of the live model's numeric
+    features at 100% NaN for weeks. Rebuilding on a column-set mismatch costs
+    one reload; not rebuilding costs a plausible-looking wrong answer.
+    """
+    cache_path = CACHE_PATH if cache_path is None else cache_path
+    loader = load_dataframe if loader is None else loader
+
+    df = None
+    if cache_path.exists():
+        print(f"Loading cached frame from {cache_path}...")
+        df = pd.read_pickle(cache_path)
+        missing = [c for c in required_columns if c not in df.columns]
+        if missing:
+            shown = ", ".join(missing[:5]) + ("..." if len(missing) > 5 else "")
+            print(f"  cached frame is missing {len(missing)} required column(s) ({shown}) "
+                  f"— discarding it and reloading from Mongo.")
+            df = None
+
+    if df is None:
+        print("Loading data from Mongo (no usable cache)...")
         try:
-            df = load_dataframe(collection)
+            df = loader(collection)
         except KeyError as e:
             # load_dataframe indexes race["raceDate"] directly, so a document
             # without it dies as a bare KeyError naming only the field. That
@@ -199,9 +225,9 @@ def load_frame(collection) -> pd.DataFrame:
                 f"(the local CI fixtures have no raceDate; a worktree without config/local.json "
                 f"points at localhost:27019, not Atlas)."
             ) from e
-        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        df.to_pickle(CACHE_PATH)
-        print(f"Cached frame to {CACHE_PATH}")
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_pickle(cache_path)
+        print(f"Cached frame to {cache_path}")
 
     undated = int(df["raceDate"].isna().sum()) if "raceDate" in df else len(df)
     if undated:

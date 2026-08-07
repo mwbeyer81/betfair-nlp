@@ -10,6 +10,7 @@ import { RacingApiClient } from "../lib/service/racing-api-client";
 import { TrainerFormService } from "../lib/service/trainer-form-service";
 import { ModelVersionService } from "../lib/service/model-version-service";
 import { ModelAccuracyService } from "../lib/service/model-accuracy-service";
+import { ModelExperimentService } from "../lib/service/model-experiment-service";
 import { SavedFilterSetService, computeSnapshotParamsFromFilters } from "../lib/service/saved-filter-set-service";
 import { LiveFilterResultService } from "../lib/service/live-filter-result-service";
 import { BetOrderService } from "../lib/service/bet-order-service";
@@ -41,6 +42,7 @@ let industrySpResultsCaptureService: IndustrySpResultsCaptureService | null = nu
 let trainerFormService: TrainerFormService | null = null;
 let modelVersionService: ModelVersionService | null = null;
 let modelAccuracyService: ModelAccuracyService | null = null;
+let modelExperimentService: ModelExperimentService | null = null;
 let savedFilterSetService: SavedFilterSetService | null = null;
 let liveFilterResultService: LiveFilterResultService | null = null;
 let authService: AuthService | null = null;
@@ -110,6 +112,12 @@ export const initializeServices = async () => {
     }
     modelVersionService = new ModelVersionService();
     modelAccuracyService = new ModelAccuracyService();
+    modelExperimentService = new ModelExperimentService();
+    try {
+      await modelExperimentService.createIndexes();
+    } catch (indexError) {
+      console.warn("model-experiment createIndexes failed (non-fatal, queries may be slower):", indexError);
+    }
     savedFilterSetService = new SavedFilterSetService();
     liveFilterResultService = new LiveFilterResultService();
     try {
@@ -456,11 +464,20 @@ router.post("/api/saved-filter-sets/agent", async (req, res) => {
     const filters = req.body?.filters && typeof req.body.filters === "object" ? (req.body.filters as Record<string, string>) : null;
     const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
     const modelVersionId = typeof req.body?.modelVersionId === "string" ? req.body.modelVersionId.trim() : "";
+    // ml/experiment.py posts its discovered segments with an experimentId
+    // instead of a modelVersionId — it never trains a deployable model, so it
+    // has no model version to name. Either identifies the run that produced the
+    // row; requiring both would mean inventing a fake version id for every
+    // experiment, which is exactly the kind of thing that later gets mistaken
+    // for a real one.
+    const experimentId = typeof req.body?.experimentId === "string" ? req.body.experimentId.trim() : "";
     if (!filters) return res.status(400).json({ success: false, error: "filters is required" });
     if (!name) return res.status(400).json({ success: false, error: "name is required" });
-    if (!modelVersionId) return res.status(400).json({ success: false, error: "modelVersionId is required" });
+    if (!modelVersionId && !experimentId) {
+      return res.status(400).json({ success: false, error: "modelVersionId or experimentId is required" });
+    }
     const computeParams = computeSnapshotParamsFromFilters(filters);
-    const data = await savedFilterSetService.saveAgentResult(name, filters, computeParams, modelVersionId);
+    const data = await savedFilterSetService.saveAgentResult(name, filters, computeParams, modelVersionId, experimentId);
     res.status(201).json({ success: true, data });
   } catch (error) {
     console.error("saveAgentFilterSet error:", error);
@@ -521,7 +538,9 @@ router.get("/api/industry-sp/splits", async (req, res) => {
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
-      raceCap, minModelSpEdgePts
+      raceCap, minModelSpEdgePts,
+      req.query.onlyModelTopPick === "true",
+      req.query.includeLevelStakes === "true"
     );
     // Smoke-tested live: combined into one request and warm (no cold
     // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
@@ -597,7 +616,8 @@ router.get("/api/industry-sp/race-convergence", async (req, res) => {
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
-      fromRow, toRow, minModelSpEdgePts
+      fromRow, toRow, minModelSpEdgePts,
+      req.query.onlyModelTopPick === "true"
     );
     res.set("Cache-Control", "public, max-age=60");
     res.status(200).json({ success: true, data, count: data.length });
@@ -665,8 +685,17 @@ router.get("/api/industry-sp", async (req, res) => {
     // collapsed year -> a normal small paginated request scoped to that
     // year, instead of walking the whole row range forward to reach it).
     const { minRaceTime: subMinRaceTime, maxRaceTime: subMaxRaceTime } = parseDateRangeParams(req.query.subMinDate, req.query.subMaxDate);
-    const { data, total, totalRunners, pnlStats, brier } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime, minModelSpEdgePts);
-    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats, brier });
+    // Keeps only the model's highest-rated runner in each race. A per-race
+    // RANK, which minModelWinProbability (an absolute threshold) cannot
+    // express — see the DAO's onlyModelTopPick comment.
+    const onlyModelTopPick = req.query.onlyModelTopPick === "true";
+    // Level-stakes P&L alongside the to-win-£1 the app computes everywhere.
+    // Opt-in because it forces the DAO's slower $unwind path; asked for when
+    // the client wants to show both, which is the only way to tell a real edge
+    // from a bet-sizing artefact.
+    const includeLevelStakes = req.query.includeLevelStakes === "true";
+    const { data, total, totalRunners, pnlStats, levelPnl, brier } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes);
+    res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats, ...(levelPnl ? { levelPnl } : {}), brier });
   } catch (error) {
     console.error("getAllRacesByRace error:", error);
     res.status(500).json({ success: false, error: "Failed to fetch industry SP" });
@@ -775,6 +804,49 @@ router.get("/api/model-accuracy", async (req, res) => {
   } catch (error) {
     console.error("getModelAccuracy error:", error);
     res.status(500).json({ success: false, error: "Failed to fetch model accuracy" });
+  }
+});
+
+// Model-development iterations: one row per ml/experiment.py run, with its
+// feature set, training objective, walk-forward metrics and the per-segment
+// breakdown of where it beats or loses to industry SP.
+//
+// Login-gated, and the PLACEMENT is what enforces that, not the path — same
+// reasoning as /api/model-vs-sp below. Registered here, beneath
+// `router.use(jwtAuth)`, rather than beside the public /api/model-versions
+// route further up: that one exposes a handful of headline metrics for the
+// performance dashboard, whereas this is internal research output (feature
+// names, unshipped candidate models, discovered betting angles) and has no
+// business being anonymous. The 401 test in src/server/__tests__/app.test.ts is
+// the actual guard.
+router.get("/api/model-experiments", async (req, res) => {
+  try {
+    if (!modelExperimentService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    // Validated against the literal union rather than passed through: a fast
+    // run scores five folds on half the races with a tree cap, so mixing the
+    // two modes in one list invites a comparison that isn't like-for-like. An
+    // unrecognised value is ignored (all modes) rather than 400ing, matching
+    // how this file treats every other optional query param.
+    const raw = req.query.mode;
+    const mode = raw === "fast" || raw === "full" ? raw : undefined;
+    const limit = parseInt(req.query.limit as string) || undefined;
+    const data = await modelExperimentService.listExperiments({ mode, limit });
+    res.status(200).json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error("listModelExperiments error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch model experiments" });
+  }
+});
+
+router.get("/api/model-experiments/:experimentId", async (req, res) => {
+  try {
+    if (!modelExperimentService) return res.status(503).json({ success: false, error: "Service not initialized" });
+    const data = await modelExperimentService.getExperiment(req.params.experimentId);
+    if (!data) return res.status(404).json({ success: false, error: "Experiment not found" });
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error("getModelExperiment error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch model experiment" });
   }
 });
 

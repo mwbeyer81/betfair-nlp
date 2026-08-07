@@ -130,6 +130,8 @@ const FILTER_TOOLTIPS: Record<string, string> = {
   trainerFormWinRate: "Once \"Has trainer form\" is checked below, only count a runner's trainer as \"in form\" if their win rate over their last 14 days of same-type (Flat/Jumps) runs is at least this percentage. Leave at 0 to just require any recent form sample.",
   hasTrainerForm: "Only show races with at least one runner whose trainer has a recent-form sample available (they've run at least once in the last 14 days). Runners with \"No recent form sample\" are excluded.",
   minModelWinProbability: "Only show races with a runner whose XGBoost-predicted win probability is at least this percentage. The model is trained on course/going/class/distance/draw/trainer-form/jockey — deliberately not on ISP, so it's an independent view, not a recalibration of the market's own price.",
+  onlyModelTopPick: "Keep only the single runner the model rates highest in each race — its own favourite, the counterpart to the market's. This is a RANK, not a threshold: 'Model Win %' above is an absolute cut-off, so in a 5-runner race its top pick might be 40% and in a 16-runner handicap 12%, and no single number can select one-per-race. Backing top picks has run at about -6% to-win against -11.7% for backing every runner: better, and still short of the bookmaker's margin.",
+  includeLevelStakes: "Also show P&L staking £1 flat on every runner, beside the usual 'stake to win £1'. The two disagree by roughly 11 points on the SAME bets — to-win-£1 puts ~20% of the money on odds-on shots and ~4% on 20/1+, level stakes does the reverse, and the overround is far worse on longshots. So the gap between them is bet sizing, not selection quality, and a filter that looks profitable under only one convention is noise rather than an edge.",
   onlyModelBeatsSp: "Only show races with a runner whose model win probability is higher than the win probability implied by their own industry SP (100/isp) — i.e. the model rates them a better chance than the market's own price does.",
   minModelSpEdgePts: "Tightens \"Model beats SP\" to a minimum size of edge, in percentage points: the model's win probability minus the one the runner's own ISP implies (100/isp). A runner the model gives 25% whose ISP implies 20% has an edge of 5 points. This is the same number shown on each runner as \"+5.0 pts\". Any value above 0 applies on its own — the checkbox above doesn't also need ticking. Note points, not a relative percentage: at long odds even a small points edge is a big overlay, so a high value here concentrates on shorter prices.",
 };
@@ -375,6 +377,10 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // it's boolean-only, same shape as hasTrainerForm.
   const [draftOnlyModelBeatsSp, setDraftOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
   const [onlyModelBeatsSp, setOnlyModelBeatsSp] = useState(() => urlStringParam("onlyModelBeatsSp", "") === "true");
+  const [draftOnlyModelTopPick, setDraftOnlyModelTopPick] = useState(() => urlStringParam("onlyModelTopPick", "") === "true");
+  const [onlyModelTopPick, setOnlyModelTopPick] = useState(() => urlStringParam("onlyModelTopPick", "") === "true");
+  const [draftIncludeLevelStakes, setDraftIncludeLevelStakes] = useState(() => urlStringParam("includeLevelStakes", "") === "true");
+  const [includeLevelStakes, setIncludeLevelStakes] = useState(() => urlStringParam("includeLevelStakes", "") === "true");
   // The size of that edge, in percentage points — see FILTER_DEFAULTS'
   // comment. Text-field state (a string) like every other numeric filter
   // here, so a half-typed "1." doesn't get coerced mid-keystroke.
@@ -394,7 +400,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   // not what the user is midway through typing.
   const modelCoverageNote = modelScoreCoverageNote({
     coverage: modelCoverage,
-    modelFilterActive: onlyModelBeatsSp || minModelSpEdgePts > 0 || minModelWinProbability > 0,
+    modelFilterActive: onlyModelBeatsSp || minModelSpEdgePts > 0 || minModelWinProbability > 0 || onlyModelTopPick,
     minDate,
     maxDate,
   });
@@ -631,6 +637,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setMinModelWinProbability(modelWinProb);
 
     setOnlyModelBeatsSp(draftOnlyModelBeatsSp);
+    setOnlyModelTopPick(draftOnlyModelTopPick);
+    setIncludeLevelStakes(draftIncludeLevelStakes);
 
     // Clamped to 0-100 like every other percentage field here — 100 is the
     // widest two probabilities can possibly be apart, so anything above it
@@ -891,6 +899,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         hasTrainerForm: hasTrainerForm ? "true" : undefined,
         minModelWinProbability: minModelWinProbability !== FILTER_DEFAULTS.minModelWinProbability ? String(minModelWinProbability) : undefined,
         onlyModelBeatsSp: onlyModelBeatsSp ? "true" : undefined,
+        onlyModelTopPick: onlyModelTopPick ? "true" : undefined,
+        includeLevelStakes: includeLevelStakes ? "true" : undefined,
         minModelSpEdgePts: minModelSpEdgePts !== FILTER_DEFAULTS.minModelSpEdgePts ? String(minModelSpEdgePts) : undefined,
         // Only write the split boundaries once the user has explicitly
         // applied a custom split — writing the auto-computed default here
@@ -935,6 +945,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
         trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
         minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts,
+        onlyModelTopPick,
         isAuthenticated,
       });
 
@@ -984,7 +995,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
           trainerSearch || undefined, jockeySearch || undefined,
           trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts
+          minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts,
+          onlyModelTopPick, includeLevelStakes
         );
         if (cancelled) return;
         // An explicit (non-default) split's row numbers are only meaningful
@@ -1028,7 +1040,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           courses: [...selectedCourses], goings: [...selectedGoings],
           raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
           trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts,
+          minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, onlyModelTopPick,
           isAuthenticated,
         });
         writeSplitsCache(writeCacheKey, result);
@@ -1360,7 +1372,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         minDate, maxDate, [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
         trainerSearch || undefined, jockeySearch || undefined,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts
+        minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts,
+        onlyModelTopPick
       );
       setConvergencePoints(result.data);
     } catch (err) {
@@ -1740,6 +1753,20 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           testId: "industry-sp-only-model-beats-sp",
           checked: draftOnlyModelBeatsSp,
           onToggle: () => setDraftOnlyModelBeatsSp(v => !v),
+        })}
+        {renderCheckboxFilterRow({
+          filterKey: "onlyModelTopPick",
+          label: "Model's top pick",
+          testId: "industry-sp-only-model-top-pick",
+          checked: draftOnlyModelTopPick,
+          onToggle: () => setDraftOnlyModelTopPick(v => !v),
+        })}
+        {renderCheckboxFilterRow({
+          filterKey: "includeLevelStakes",
+          label: "Show level stakes too",
+          testId: "industry-sp-include-level-stakes",
+          checked: draftIncludeLevelStakes,
+          onToggle: () => setDraftIncludeLevelStakes(v => !v),
         })}
         {renderTextFilterRow({
           filterKey: "minModelSpEdgePts",

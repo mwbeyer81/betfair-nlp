@@ -63,6 +63,10 @@ export interface SplitsCacheParams {
   minModelWinProbability: number;
   onlyModelBeatsSp: boolean;
   minModelSpEdgePts: number;
+  // Part of the key even though getSplitStats does not yet honour this filter
+  // (see the DAO TODO): a cache key that ignored it would serve the unfiltered
+  // splits back for a filtered request the moment it does.
+  onlyModelTopPick: boolean;
   // Default-split mode is its own cache bucket, distinct from any explicit
   // range — the backend recomputes the default from whatever the current
   // grand total is, so caching it under a fixed fromRow/toRow would go
@@ -106,6 +110,7 @@ export function buildSplitsCacheKey(p: SplitsCacheParams): string {
       p.minModelWinProbability,
       p.onlyModelBeatsSp,
       p.minModelSpEdgePts,
+      p.onlyModelTopPick ? "topPick" : "",
       p.isDefault ? "default" : [p.fromRowA, p.toRowA, p.fromRowB, p.toRowB],
       p.isAuthenticated,
     ])
