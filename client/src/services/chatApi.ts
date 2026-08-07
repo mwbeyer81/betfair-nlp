@@ -1178,10 +1178,10 @@ class ChatApi {
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
     if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     if (modelVersionId) params.set("modelVersionId", modelVersionId);
-    // A per-race RANK, not a threshold — see ModelTopPick in the Filters panel.
+    // A per-race RANK, not a threshold — see the Filters panel tooltip.
     if (onlyModelTopPick) params.set("onlyModelTopPick", "true");
-    // Asks the server for level-stakes P&L beside the to-win-£1 it always
-    // returns. Costs a slower query, so it is only requested when shown.
+    // Level-stakes P&L beside the to-win-£1 always returned. Costs a slower
+    // server query, so it is only requested when it will be shown.
     if (includeLevelStakes) params.set("includeLevelStakes", "true");
     // Restricts an already row-ranged (fromRow/toRow) window to a calendar
     // sub-range without changing what "row N" means — see the DAO's own
@@ -1413,7 +1413,9 @@ class ChatApi {
     maxTrainerFormRunners?: number,
     minModelWinProbability?: number,
     onlyModelBeatsSp?: boolean,
-    minModelSpEdgePts?: number
+    minModelSpEdgePts?: number,
+    onlyModelTopPick?: boolean,
+    includeLevelStakes?: boolean
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -1441,6 +1443,8 @@ class ChatApi {
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    if (onlyModelTopPick) params.set("onlyModelTopPick", "true");
+    if (includeLevelStakes) params.set("includeLevelStakes", "true");
     if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
@@ -1477,7 +1481,9 @@ class ChatApi {
     maxTrainerFormRunners?: number,
     minModelWinProbability?: number,
     onlyModelBeatsSp?: boolean,
-    minModelSpEdgePts?: number
+    minModelSpEdgePts?: number,
+    onlyModelTopPick?: boolean,
+    includeLevelStakes?: boolean
   ): Promise<{ success: boolean; data: RaceConvergencePoint[]; count: number }> {
     const params = new URLSearchParams({
       toRow: String(toRow),
@@ -1503,6 +1509,8 @@ class ChatApi {
     if (maxTrainerFormRunners != null) params.set("maxTrainerFormRunners", String(maxTrainerFormRunners));
     if (minModelWinProbability != null) params.set("minModelWinProbability", String(minModelWinProbability));
     if (onlyModelBeatsSp) params.set("onlyModelBeatsSp", "true");
+    if (onlyModelTopPick) params.set("onlyModelTopPick", "true");
+    if (includeLevelStakes) params.set("includeLevelStakes", "true");
     if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/race-convergence?${params}`,

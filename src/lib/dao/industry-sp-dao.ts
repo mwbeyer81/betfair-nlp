@@ -1183,7 +1183,8 @@ export class IndustrySpDAO {
     onlyModelBeatsSp = false,
     fromRowRaw = 1,
     toRow: number,
-    minModelSpEdgePts = 0
+    minModelSpEdgePts = 0,
+    onlyModelTopPick = false
   ): Promise<{ raceRowNumber: number; cumulativeStaked: number; cumulativeReturns: number }[]> {
     const fromRow = Math.max(1, fromRowRaw);
     if (toRow < fromRow) return [];
@@ -1218,7 +1219,8 @@ export class IndustrySpDAO {
     ];
     const modelBeatsSpFilterActive = onlyModelBeatsSp || minModelSpEdgePts > 0;
     const beatsSpCond = modelBeatsSpCond(minModelSpEdgePts);
-    const qualifyingRunnersFilterActive = trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive;
+    const qualifyingRunnersFilterActive =
+      trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive || onlyModelTopPick;
     const qualifyingRunnersArrayExpr = {
       $filter: {
         input: "$runners",
@@ -1232,6 +1234,9 @@ export class IndustrySpDAO {
             ...(trainerFormFilterActive ? trainerFormCond : []),
             ...(modelFilterActive ? modelCond : []),
             ...(modelBeatsSpFilterActive ? beatsSpCond : []),
+            // Over the race's own runners array, which is what this $filter is
+            // walking — so the maximum is the race's, not the window's.
+            ...(onlyModelTopPick ? modelTopPickCond("$runners") : []),
           ],
         },
       },

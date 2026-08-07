@@ -538,7 +538,9 @@ router.get("/api/industry-sp/splits", async (req, res) => {
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
-      raceCap, minModelSpEdgePts
+      raceCap, minModelSpEdgePts,
+      req.query.onlyModelTopPick === "true",
+      req.query.includeLevelStakes === "true"
     );
     // Smoke-tested live: combined into one request and warm (no cold
     // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
@@ -614,7 +616,8 @@ router.get("/api/industry-sp/race-convergence", async (req, res) => {
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
-      fromRow, toRow, minModelSpEdgePts
+      fromRow, toRow, minModelSpEdgePts,
+      req.query.onlyModelTopPick === "true"
     );
     res.set("Cache-Control", "public, max-age=60");
     res.status(200).json({ success: true, data, count: data.length });

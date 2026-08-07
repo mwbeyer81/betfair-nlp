@@ -995,7 +995,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
           trainerSearch || undefined, jockeySearch || undefined,
           trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-          minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts
+          minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts,
+          onlyModelTopPick, includeLevelStakes
         );
         if (cancelled) return;
         // An explicit (non-default) split's row numbers are only meaningful
@@ -1371,7 +1372,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         minDate, maxDate, [...selectedCourses], [...selectedGoings], [...selectedRaceClasses], [...selectedRaceTypes],
         trainerSearch || undefined, jockeySearch || undefined,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
-        minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts
+        minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts,
+        onlyModelTopPick
       );
       setConvergencePoints(result.data);
     } catch (err) {
@@ -1751,6 +1753,20 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           testId: "industry-sp-only-model-beats-sp",
           checked: draftOnlyModelBeatsSp,
           onToggle: () => setDraftOnlyModelBeatsSp(v => !v),
+        })}
+        {renderCheckboxFilterRow({
+          filterKey: "onlyModelTopPick",
+          label: "Model's top pick",
+          testId: "industry-sp-only-model-top-pick",
+          checked: draftOnlyModelTopPick,
+          onToggle: () => setDraftOnlyModelTopPick(v => !v),
+        })}
+        {renderCheckboxFilterRow({
+          filterKey: "includeLevelStakes",
+          label: "Show level stakes too",
+          testId: "industry-sp-include-level-stakes",
+          checked: draftIncludeLevelStakes,
+          onToggle: () => setDraftIncludeLevelStakes(v => !v),
         })}
         {renderTextFilterRow({
           filterKey: "minModelSpEdgePts",
