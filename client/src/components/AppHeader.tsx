@@ -7,6 +7,7 @@ import { chatApi } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import { getBuildCommit } from "../utils/buildInfo";
 import type { Route } from "../hooks/useRouter";
+import { WHY_ITS_HARD_QUERY } from "../utils/whyItsHardLink";
 
 export interface AppHeaderProps {
   navigate: (to: Route, query?: string) => void;
@@ -187,6 +188,18 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             labelStyle={styles.toggleButtonLabel}
           >
             Model Experiments
+          </Button>
+          {/* Carries the key so the URL in the address bar is the shareable
+              one — a signed-in user can copy it straight out and send it. */}
+          <Button
+            testID={`${testIdPrefix}-menu-why-its-hard-link`}
+            mode="outlined"
+            compact
+            onPress={wrap(() => navigate("/why-its-hard", WHY_ITS_HARD_QUERY))}
+            style={styles.toggleButton}
+            labelStyle={styles.toggleButtonLabel}
+          >
+            Why It's Hard
           </Button>
         </>
       )}

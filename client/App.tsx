@@ -26,6 +26,8 @@ import { ScheduledBetsScreen } from "./src/components/ScheduledBetsScreen";
 import { ModelVsSpScreen } from "./src/components/ModelVsSpScreen";
 import { ModelAccuracyScreen } from "./src/components/ModelAccuracyScreen";
 import { ModelExperimentsScreen } from "./src/components/ModelExperimentsScreen";
+import { WhyItsHardScreen } from "./src/components/WhyItsHardScreen";
+import { WHY_ITS_HARD_KEY } from "./src/utils/whyItsHardLink";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
 import { buildReturnParams, resolveReturn } from "./src/utils/returnNav";
@@ -55,6 +57,13 @@ export default function App() {
   const [showAuthOverlay, setShowAuthOverlay] = useState(false);
   const { route, navigate, queryParams } = useRouter();
   const isIspRoute = route === "/isp" || route.startsWith("/isp/");
+  // /why-its-hard is reachable signed-out ONLY with the unlisted key, so the
+  // page can be handed out as a link without being discoverable. Signed-in
+  // users reach it from the burger menu and need no key. See
+  // whyItsHardLink.ts: the key is obscurity, not security — it ships in the
+  // bundle, so nothing behind it may ever be confidential.
+  const hasWhyItsHardKey = queryParams.get("k") === WHY_ITS_HARD_KEY;
+  const isPublicRoute = isIspRoute || (route === "/why-its-hard" && hasWhyItsHardKey);
 
   // Restore token from localStorage on mount, then check for ?u=&p= URL params.
   useEffect(() => {
@@ -104,7 +113,7 @@ export default function App() {
     // Events/Chat/Runners stay behind the login wall exactly as before.
     // The /isp family is public — it renders below regardless of
     // isAuthenticated (see isIspRoute).
-    if (!isAuthenticated && !isIspRoute) {
+    if (!isAuthenticated && !isPublicRoute) {
       return <AuthScreen onAuthenticated={() => setIsAuthenticated(true)} />;
     }
     if (route === "/chat") {
@@ -388,6 +397,17 @@ export default function App() {
           navigate={navigate}
           isAuthenticated={isAuthenticated}
           onLogout={onLogout}
+          onBack={() => navigate("/isp")}
+        />
+      );
+    }
+    if (route === "/why-its-hard") {
+      return (
+        <WhyItsHardScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          onRequestAuth={onRequestAuth}
           onBack={() => navigate("/isp")}
         />
       );
