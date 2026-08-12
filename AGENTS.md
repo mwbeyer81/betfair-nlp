@@ -7118,3 +7118,41 @@ are real work and neither belongs in this change. Left out on purpose.
   IndustrySpScreen) — verified by stashing this branch's changes and re-running
   against the same dev server: identical 5 suites / 7 tests fail either way.
 
+
+## 2026-08-12 — primary checkout `/home/matt/betfair-nlp` (branch `develop`) — RacingAPI field reference, and two live data findings
+
+User asked whether the full field list from theracingapi.com was visible and
+which of it the app uses. Pulled the API's own OpenAPI spec
+(`curl https://api.theracingapi.com/openapi.json`, "The Racing API 1.4.4",
+58 endpoints, ~120 schemas) and wrote **`README-racing-api-fields.md`** —
+every field of every racecard/result tier with the API's own descriptions,
+marked ✅/— against what `mapRacecardToDoc` and
+`industry-sp-results-capture-service.ts` actually read, plus the endpoint
+catalogue and the nested shapes. Docs only, no code touched.
+
+Two things fell out of it that are worth knowing before anyone works on
+Daily Races or the results capture:
+
+1. **We're on the Basic plan but still ingesting the Free racecard feed.**
+   `apps/lambda/build.sh` never ships `RACINGAPI_RACECARDS_PATH`, so the
+   06:00 UTC cron falls back to the code default `/racecards/free`.
+   `mapRacecardToDoc` reads six fields the free feed doesn't return —
+   confirmed empty in Atlas on today's ingest (`rac_32294141867`:
+   `rpr/ts/trainerRtf/trainer14Days: null`, `spotlight/comment: ""`, while
+   `form`/`ofr`/`colour` are populated). Setting the env var to
+   `/racecards/basic` fills `comment`, `trainer_14_days`, `trainer_rtf`
+   with zero code change. Naming trap: `/racecards/free` returns the schema
+   named `RacecardBasic`; `/racecards/basic` returns the one named `Racecard`.
+
+2. **`rpr`, `ts`/`tsr` and `spotlight` were removed by the API in June 2026**
+   — permanently empty on every plan, per the spec's own field descriptions,
+   replaced by `performance_rating` / `speed_rating`. This is already
+   affecting our data: every race the 21:30 UTC capture has written since
+   then has `rpr: null, ts: null` (Atlas, 2026-08-01 API-captured runner
+   vs a 2026-05-01 CSV-imported one with `rpr: 88, ts: 82`), and
+   `daily-race-feature-service.ts` builds `horseAvgRPR`/`horseAvgTS` off
+   those columns. Fix is a mapper change in
+   `industry-sp-results-capture-service.ts` to read
+   `performance_rating`/`speed_rating` instead — both are on
+   `/results/today`, i.e. our current plan and endpoint. Not done here;
+   flagged to the user.
