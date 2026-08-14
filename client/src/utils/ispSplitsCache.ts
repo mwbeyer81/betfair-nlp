@@ -72,6 +72,8 @@ export interface SplitsCacheParams {
   // (see the DAO TODO): a cache key that ignored it would serve the unfiltered
   // splits back for a filtered request the moment it does.
   onlyModelTopPick: boolean;
+  /** Serialised registry filters, as produced by dynamicFiltersToParams. */
+  dynamicFilters?: Record<string, string>;
   // Default-split mode is its own cache bucket, distinct from any explicit
   // range — the backend recomputes the default from whatever the current
   // grand total is, so caching it under a fixed fromRow/toRow would go
@@ -116,6 +118,16 @@ export function buildSplitsCacheKey(p: SplitsCacheParams): string {
       p.onlyModelBeatsSp,
       p.minModelSpEdgePts,
       p.onlyModelTopPick ? "topPick" : "",
+      // Registry raw-model-field filters, already serialised to their
+      // min<Field>/max<Field> spelling. NOT optional to include: these narrow
+      // the result exactly as every key above does, so omitting them would let
+      // a filtered request read back an unfiltered cached result and show it as
+      // though the filter had applied — silently wrong numbers, which is the
+      // worst failure this screen can have.
+      //
+      // Sorted so two identical filter sets built in a different order (added
+      // via the picker in a different sequence, say) share one cache entry.
+      Object.entries(p.dynamicFilters ?? {}).sort(([a], [b]) => a.localeCompare(b)),
       p.isDefault ? "default" : [p.fromRowA, p.toRowA, p.fromRowB, p.toRowB],
       p.isAuthenticated,
     ])

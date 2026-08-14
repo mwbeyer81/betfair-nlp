@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   View,
   ScrollView,
@@ -24,6 +24,14 @@ import { ModelPerformanceDashboard, ModelPerformanceFilters } from "./ModelPerfo
 import { SaveResultDialog } from "./SaveResultDialog";
 import { buildAutoResultNamePreview } from "../utils/savedResultName";
 import { DateRangePicker } from "./DateRangePicker";
+import { FilterFieldPicker } from "./FilterFieldPicker";
+import {
+  FilterFieldDef,
+  DynamicFilters,
+  dynamicFiltersToParams,
+  dynamicFiltersFromParams,
+  dynamicFilterParamNames,
+} from "../utils/filterFields";
 import { PageContainer } from "./PageContainer";
 import { AppHeader } from "./AppHeader";
 import type { Route } from "../hooks/useRouter";
@@ -32,6 +40,7 @@ import { useResponsive } from "../utils/responsive";
 import { colors, radii, spacing } from "../theme";
 import { formatPnl, formatPct } from "../utils/ispFormat";
 import {
+  getUrlSearchParams,
   urlIntParam,
   urlFloatParam,
   urlStringParam,
@@ -391,6 +400,19 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
   const [minModelSpEdgePts, setMinModelSpEdgePts] = useState(() =>
     urlFloatParam("minModelSpEdgePts", FILTER_DEFAULTS.minModelSpEdgePts)
   );
+  // The raw-model-field filter catalogue and the user's chosen filters over it.
+  //
+  // ONE draft/committed pair for all 21 fields, rather than a pair each — the
+  // whole reason the registry exists. Chosen filters are read from the URL on
+  // mount like every other filter here, but only once `filterFields` has
+  // arrived: the parse needs the catalogue to know which params are enum
+  // (comma-joined) and which are min/max, so it runs in the fetch effect below
+  // rather than in a useState initialiser.
+  const [filterFields, setFilterFields] = useState<FilterFieldDef[]>([]);
+  const [filterFieldsLoading, setFilterFieldsLoading] = useState(true);
+  const [filterFieldsError, setFilterFieldsError] = useState<string | null>(null);
+  const [draftDynamicFilters, setDraftDynamicFilters] = useState<DynamicFilters>({});
+  const [dynamicFilters, setDynamicFilters] = useState<DynamicFilters>({});
   const [fetchTrigger, setFetchTrigger] = useState(0);
   const [totalRaces, setTotalRaces] = useState(0);
   // Where an out-of-sample model score actually exists. Fetched once, never
@@ -582,6 +604,43 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     }
   }
 
+  // Fetched once per mount. A failure is surfaced in the section itself rather
+  // than thrown: every other filter on this screen still works without the
+  // catalogue, so a dead endpoint should cost this one section, not the page.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const fields = await chatApi.getIspFilterFields();
+        if (cancelled) return;
+        setFilterFields(fields);
+        // Seed from the URL now that the catalogue can tell us how to parse it,
+        // so a shared/bookmarked link carrying registry params arrives with
+        // them already applied — matching how every other filter here behaves.
+        const params = getUrlSearchParams();
+        if (params) {
+          const fromUrl = dynamicFiltersFromParams(params, fields);
+          if (Object.keys(fromUrl).length > 0) {
+            setDraftDynamicFilters(fromUrl);
+            setDynamicFilters(fromUrl);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) setFilterFieldsError(err instanceof Error ? err.message : "Failed to load model fields.");
+      } finally {
+        if (!cancelled) setFilterFieldsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Serialised form, used for the request, the cache key and the URL alike so
+  // all three can never disagree about what is applied.
+  const dynamicFilterParams = useMemo(
+    () => dynamicFiltersToParams(dynamicFilters, filterFields),
+    [dynamicFilters, filterFields]
+  );
+
   function applyFilter() {
     const maxRunnersLimit = filterBounds?.maxRunnersPerRace ?? 100;
     const maxIspLimit = filterBounds?.maxIsp ?? 100000;
@@ -647,6 +706,17 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setOnlyModelBeatsSp(draftOnlyModelBeatsSp);
     setOnlyModelTopPick(draftOnlyModelTopPick);
     setIncludeLevelStakes(draftIncludeLevelStakes);
+
+    // Drop any field left with both boxes empty (and any enum with nothing
+    // selected): added-but-never-filled is a no-op, and carrying it would put
+    // a meaningless key in the URL and split the splits cache for nothing.
+    setDynamicFilters(
+      Object.fromEntries(
+        Object.entries(draftDynamicFilters).filter(
+          ([, v]) => v.values?.length || v.min?.trim() || v.max?.trim()
+        )
+      )
+    );
 
     // Clamped to 0-100 like every other percentage field here — 100 is the
     // widest two probabilities can possibly be apart, so anything above it
@@ -762,6 +832,8 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
     setDraftSelectedRaceClasses(new Set());
     setSelectedRaceTypes(new Set());
     setDraftSelectedRaceTypes(new Set());
+    setDraftDynamicFilters({});
+    setDynamicFilters({});
     setDraftTrainer("");
     setTrainerSearch("");
     setDraftJockey("");
@@ -925,6 +997,13 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         toRowA: !isDefault && result.splitA.toRow != null ? String(result.splitA.toRow) : undefined,
         fromRowB: !isDefault ? String(result.splitB.fromRow) : undefined,
         toRowB: !isDefault && result.splitB.toRow != null ? String(result.splitB.toRow) : undefined,
+        // Every registry param the user could previously have set is cleared
+        // first, then the currently-applied ones written back. Without the
+        // clear, removing a field in the picker would leave its param behind in
+        // the URL, and the next mount would faithfully restore a filter the
+        // user had just deleted.
+        ...Object.fromEntries(dynamicFilterParamNames(filterFields).map(name => [name, undefined])),
+        ...dynamicFilterParams,
       });
     }
 
@@ -957,6 +1036,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
         trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
         minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts,
         onlyModelTopPick,
+        dynamicFilters: dynamicFilterParams,
         isAuthenticated,
       });
 
@@ -1007,7 +1087,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           trainerSearch || undefined, jockeySearch || undefined,
           trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
           minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts,
-          onlyModelTopPick, includeLevelStakes
+          onlyModelTopPick, includeLevelStakes, dynamicFilterParams
         );
         if (cancelled) return;
         // An explicit (non-default) split's row numbers are only meaningful
@@ -1052,6 +1132,7 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           raceClasses: [...selectedRaceClasses], raceTypes: [...selectedRaceTypes],
           trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners,
           minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, onlyModelTopPick,
+          dynamicFilters: dynamicFilterParams,
           isAuthenticated,
         });
         writeSplitsCache(writeCacheKey, result);
@@ -1904,6 +1985,14 @@ export const IndustrySpScreen: React.FC<IndustrySpScreenProps> = ({
           onToggle: value => toggleChipFilter(setDraftSelectedRaceTypes, value),
           loading: isLoading,
         })}
+        <FilterFieldPicker
+          fields={filterFields}
+          value={draftDynamicFilters}
+          onChange={setDraftDynamicFilters}
+          loading={filterFieldsLoading}
+          error={filterFieldsError}
+        />
+
         <View style={styles.filterActions}>
           <Button
             testID="industry-sp-filter-apply"

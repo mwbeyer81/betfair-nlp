@@ -185,6 +185,41 @@ async function setupApiMocks(page: Page) {
     route.fulfill({ json: { success: true, data: ["Chase", "Hurdle"] } })
   );
 
+  // The raw-model-field filter catalogue (src/lib/filters/field-registry.ts).
+  // A small, representative slice rather than all 24: one race-scoped field,
+  // one sparse runner field, one enum, and one of the three disabled
+  // comment-derived ones, which is everything the picker has distinct UI for.
+  await page.route((url) => url.pathname === "/api/industry-sp/filter-fields", (route) =>
+    route.fulfill({
+      json: {
+        success: true,
+        count: 4,
+        data: [
+          { name: "distanceFurlongs", label: "Distance (furlongs)", family: "race", type: "number", scope: "race", enabled: true, coverage: 100 },
+          {
+            name: "officialRating", label: "Official rating", family: "runner", type: "number", scope: "runner",
+            enabled: true, coverage: 78.1,
+            note: "Handicaps 99.9%, maidens and novices 16.3%.",
+          },
+          {
+            name: "hg", label: "Headgear", family: "runner", type: "enum", scope: "runner",
+            enabled: true, coverage: 37.2, enumParam: "headgear", matchMode: "contains",
+            enumValues: [
+              { value: "b", label: "Blinkers", count: 59075 },
+              { value: "t", label: "Tongue tie", count: 129282 },
+            ],
+            note: "Null means NO headgear.",
+          },
+          {
+            name: "horseAvgExcuseScore", label: "Avg excuse score", family: "horse", type: "number", scope: "runner",
+            enabled: false, coverage: 0,
+            note: "Always empty — runners[].comment is 0.3% populated.",
+          },
+        ],
+      },
+    })
+  );
+
   await page.route((url) => url.pathname === "/api/industry-sp/pnl-stats", (route) =>
     route.fulfill({ json: { success: true, data: { staked: 1.6, returns: 2.6, pnl: 1.0 } } })
   );

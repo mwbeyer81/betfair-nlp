@@ -3281,6 +3281,139 @@ describe("API Endpoints", () => {
     });
   });
 
+  describe("GET /api/industry-sp/filter-fields", () => {
+    it("returns the raw-model-field catalogue", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/filter-fields")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty("success", true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(response.body.data.length).toBeGreaterThan(0);
+    });
+
+    it("reports a count matching the data length", async () => {
+      const response = await request(app).get("/api/industry-sp/filter-fields").expect(200);
+      expect(response.body.count).toBe(response.body.data.length);
+    });
+
+    it("gives every field the properties the picker renders", async () => {
+      const response = await request(app).get("/api/industry-sp/filter-fields").expect(200);
+      for (const field of response.body.data) {
+        expect(typeof field.name).toBe("string");
+        expect(typeof field.label).toBe("string");
+        expect(["number", "enum"]).toContain(field.type);
+        expect(["race", "runner"]).toContain(field.scope);
+        expect(typeof field.enabled).toBe("boolean");
+        expect(typeof field.coverage).toBe("number");
+      }
+    });
+
+    it("marks the three comment-derived fields disabled with a reason", async () => {
+      const response = await request(app).get("/api/industry-sp/filter-fields").expect(200);
+      const dead = response.body.data.filter((f: { enabled: boolean }) => !f.enabled);
+      expect(dead.map((f: { name: string }) => f.name).sort()).toEqual([
+        "horseAvgExcuseScore",
+        "horseTravelledWellRate",
+        "horseTroubleInRunningRate",
+      ]);
+      for (const field of dead) expect(field.note).toBeTruthy();
+    });
+
+    it("ships selectable values for every enum field", async () => {
+      const response = await request(app).get("/api/industry-sp/filter-fields").expect(200);
+      const enums = response.body.data.filter((f: { type: string }) => f.type === "enum");
+      expect(enums.length).toBeGreaterThan(0);
+      for (const field of enums) {
+        expect(Array.isArray(field.enumValues)).toBe(true);
+        expect(field.enumValues.length).toBeGreaterThan(0);
+        expect(typeof field.enumParam).toBe("string");
+      }
+    });
+
+    it("is public — returns 200 without auth", async () => {
+      await request(app).get("/api/industry-sp/filter-fields").expect(200);
+    });
+  });
+
+  describe("GET /api/industry-sp with raw-model-field filters", () => {
+    it("accepts a min bound on a registry field", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?minOfficialRating=90")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+      expect(response.body).toHaveProperty("success", true);
+    });
+
+    it("accepts a two-sided range and an enum selection together", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?minAge=3&maxAge=5&sexes=F,M")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+      expect(response.body).toHaveProperty("success", true);
+    });
+
+    it("400s on a misspelled field rather than silently ignoring it", async () => {
+      // A typo that returned every race would hand back a number answering a
+      // different question from the one asked.
+      const response = await request(app)
+        .get("/api/industry-sp?minOffcialRating=90")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(400);
+      expect(response.body.error).toContain("unknown filter field");
+    });
+
+    it("400s on an unparseable bound", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?minAge=abc")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(400);
+      expect(response.body.error).toContain("not a number");
+    });
+
+    it("400s on an unknown enum value", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?sexes=Z")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(400);
+      expect(response.body.error).toContain("unknown value");
+    });
+
+    it("400s on a filter over a disabled field", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp?minHorseAvgExcuseScore=1")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(400);
+      expect(response.body.error).toContain("not filterable");
+    });
+
+    it("leaves the hand-written min*/max* params alone", async () => {
+      await request(app)
+        .get("/api/industry-sp?minRunners=5&maxRunners=12&minIsp=2&maxIsp=10")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+    });
+  });
+
+  describe("GET /api/industry-sp/splits with raw-model-field filters", () => {
+    it("accepts registry filters", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?minOfficialRating=90&sexes=G")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+      expect(response.body).toHaveProperty("success", true);
+    });
+
+    it("400s on a misspelled field", async () => {
+      const response = await request(app)
+        .get("/api/industry-sp/splits?maxOffcialRating=90")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(400);
+      expect(response.body.error).toContain("unknown filter field");
+    });
+  });
+
   describe("GET /api/industry-sp/race-classes", () => {
     it("returns success with an array of race classes", async () => {
       const response = await request(app)

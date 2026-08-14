@@ -5,6 +5,8 @@ import { BrierStats, BrierSums, EMPTY_BRIER, brierFromSums } from "../service/br
 import { MODEL_PROB_FIELD, bookSumExpr, brierGroupAccumulators, raceBrierSumsExpr } from "./brier-expr";
 import { FavPnlStats, FavSums, EMPTY_FAV_PNL, favPnlFromSums } from "../service/fav-pnl";
 import { favGroupAccumulators, raceFavSumsExpr } from "./fav-expr";
+import { DynamicFilters } from "../filters/dynamic-filter-params";
+import { buildDynamicRaceConds, buildDynamicRunnerConds } from "../filters/filter-conditions";
 
 export interface IspFilterBounds {
   maxRunnersPerRace: number;
@@ -307,6 +309,18 @@ export class IndustrySpDAO {
     // it is built from — see src/lib/service/fav-pnl.ts for why a baseline
     // narrowed by the filters it benchmarks would stop being a baseline.
     includeFav?: boolean;
+    // Registry-driven filters over the raw model fields — see
+    // src/lib/filters/field-registry.ts. Optional and defaulting to none, so
+    // every existing caller and every saved filter set predating them behaves
+    // exactly as before.
+    //
+    // Runner-scoped entries join qualifyingRunnerCond below, which means they
+    // are ANDed with the ISP range and the other runner filters against a
+    // SINGLE runner rather than being satisfied independently across the field.
+    // That is the same distinction the trainerForm/model counts above are
+    // careful about, and it is the one a user means: "a horse rated 90+ ridden
+    // by an in-form jockey" is one horse, not two.
+    dynamicFilters?: DynamicFilters;
   }): Record<string, unknown>[] {
     const countryMatch = p.countries.length > 0 ? { countryCode: { $in: p.countries } } : {};
     const courseMatch = p.courses.length > 0 ? { course: { $in: p.courses } } : {};
@@ -400,9 +414,12 @@ export class IndustrySpDAO {
     // satisfies THIS filter", not that a single runner satisfies all of them
     // at once). Backs the totalRunners stat. Fast path: identical to
     // inRangeRunnersCount when none of the three optional filters are active.
+    const dynamicRunnerConds = buildDynamicRunnerConds(p.dynamicFilters ?? {});
+    const dynamicRaceConds = buildDynamicRaceConds(p.dynamicFilters ?? {});
+
     const qualifyingRunnersFilterActive =
       trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive ||
-      modelVersionFilterActive || topPickFilterActive;
+      modelVersionFilterActive || topPickFilterActive || dynamicRunnerConds.length > 0;
     // The single definition of "this runner is in the filtered set", in the
     // $$r-bound form. Previously written out inline for the count below; now
     // also handed to raceBrierSumsExpr, so the Brier score can never end up
@@ -419,6 +436,7 @@ export class IndustrySpDAO {
         ...(modelBeatsSpFilterActive ? beatsSpCond : []),
         ...(modelVersionFilterActive ? modelVersionCond : []),
         ...(topPickFilterActive ? topPickCond : []),
+        ...dynamicRunnerConds,
       ],
     };
     const qualifyingRunnersCountExpr = qualifyingRunnersFilterActive
@@ -482,6 +500,15 @@ export class IndustrySpDAO {
               { $gte: ["$modelQualifyingCount", modelFilterActive ? 1 : 0] },
               { $gte: ["$modelBeatsSpQualifyingCount", modelBeatsSpFilterActive ? 1 : 0] },
               { $gte: ["$modelVersionQualifyingCount", modelVersionFilterActive ? 1 : 0] },
+              // Registry runner filters gate on the COMBINED count rather than
+              // getting a per-filter count of their own like the four above.
+              // That is the point of them: `minOfficialRating=90` plus
+              // `minJockeyFormWinRate=20` must be satisfied by one horse, and
+              // separate counts would pass a race where one runner cleared each.
+              { $gte: ["$qualifyingRunnersCount", dynamicRunnerConds.length > 0 ? 1 : 0] },
+              // Race-scoped ones (field size, distance) are properties of the
+              // race itself, so they apply directly with no counting involved.
+              ...dynamicRaceConds,
             ],
           },
         },
@@ -538,7 +565,11 @@ export class IndustrySpDAO {
     // this file computes everywhere else. Opt-in, because it forces the
     // $unwind path: the fast path reads the precomputed raceStaked/raceReturns
     // fields and there is no precomputed level-stakes counterpart to read.
-    includeLevelStakes = false
+    includeLevelStakes = false,
+    // Registry-driven raw-model-field filters — see
+    // src/lib/filters/field-registry.ts. Last and defaulted, so no existing
+    // caller changes.
+    dynamicFilters: DynamicFilters = {}
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -683,9 +714,17 @@ export class IndustrySpDAO {
     const modelFilterActive = minModelWinProbability > 0;
     const modelBeatsSpFilterActive = onlyModelBeatsSp || minModelSpEdgePts > 0;
     const modelVersionFilterActive = modelVersionId != null;
+    // Registry runner filters must force the $unwind fallback for exactly the
+    // reason the comment above gives: raceStaked/raceReturns were precomputed
+    // with no knowledge of them, so the fast path would report P&L over runners
+    // the filter just excluded. Race-scoped entries are deliberately NOT
+    // included — they narrow which races match, not which runners inside a
+    // matched race count, so the precomputed per-race sums stay correct.
+    const dynamicRunnerConds = buildDynamicRunnerConds(dynamicFilters);
+    const dynamicRunnerFilterActive = dynamicRunnerConds.length > 0;
     const qualifyingRunnersFilterActive =
       trainerFormFilterActive || modelFilterActive || modelBeatsSpFilterActive ||
-      modelVersionFilterActive || onlyModelTopPick;
+      modelVersionFilterActive || onlyModelTopPick || dynamicRunnerFilterActive;
 
     // Only a per-race id + sort key + the qualifying counts survive into
     // the $facet — every other field (course, meetingName, runners, ...) is
@@ -706,6 +745,7 @@ export class IndustrySpDAO {
         minModelWinProbability, onlyModelBeatsSp, minModelSpEdgePts, onlyModelTopPick, modelVersionId,
         includeBrier: true,
         includeFav: true,
+        dynamicFilters,
       }),
       {
         $project: {
@@ -896,6 +936,15 @@ export class IndustrySpDAO {
                               ...(onlyModelTopPick
                                 ? modelTopPickCond({ $ifNull: ["$_doc.runners", []] })
                                 : []),
+                              // Registry runner filters belong here too. This
+                              // $filter is a DUPLICATE of the one inside
+                              // buildQualifyingRaceStages (see above for why it
+                              // cannot be shared), so a filter added to one and
+                              // not the other makes pnlStats describe a wider
+                              // set of runners than totalRunners does — the
+                              // exact regression the fast-path comment above
+                              // records happening once already, live.
+                              ...dynamicRunnerConds,
                             ],
                           },
                         },
@@ -1021,6 +1070,10 @@ export class IndustrySpDAO {
     minModelWinProbability: number;
     onlyModelBeatsSp: boolean;
     minModelSpEdgePts?: number;
+    // Registry-driven raw-model-field filters, carried from the saved filter
+    // set's own map so a day's live rollup selects exactly the runners the
+    // saved snapshot did.
+    dynamicFilters?: DynamicFilters;
   }): Promise<
     {
       raceId: number;
@@ -1069,6 +1122,7 @@ export class IndustrySpDAO {
         onlyModelTopPick: false,
         modelVersionId: null,
         includeBrier: true,
+        dynamicFilters: p.dynamicFilters,
       }),
       // Same qualifying-runner condition as getAllRacesByRace's pnlStats slow
       // path (see the comment there) — duplicated for the same reason: this
@@ -1099,6 +1153,9 @@ export class IndustrySpDAO {
                       ]
                     : []),
                   ...(modelBeatsSpFilterActive ? modelBeatsSpCond(minModelSpEdgePts) : []),
+                  // Same duplication hazard as getAllRacesByRace's pnlStats
+                  // branch — see the comment there.
+                  ...buildDynamicRunnerConds(p.dynamicFilters ?? {}),
                 ],
               },
             },

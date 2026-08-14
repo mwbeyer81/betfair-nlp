@@ -89,6 +89,7 @@ export class LiveFilterResultService {
         minModelWinProbability: params.minModelWinProbability,
         onlyModelBeatsSp: params.onlyModelBeatsSp,
         minModelSpEdgePts: params.minModelSpEdgePts,
+        dynamicFilters: params.dynamicFilters,
       });
 
       if (races.length === 0) continue;

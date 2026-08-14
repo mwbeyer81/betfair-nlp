@@ -1,4 +1,5 @@
 import { config } from "../config";
+import type { FilterFieldDef } from "../utils/filterFields";
 
 export interface EventGroup {
   eventId: string;
@@ -1180,6 +1181,19 @@ class ChatApi {
     return result.data;
   }
 
+  // The raw-model-field filter catalogue. Served rather than hardcoded here so
+  // the client can never disagree with src/lib/filters/field-registry.ts about
+  // what is filterable, what each field's measured coverage is, or which enum
+  // values are valid.
+  async getIspFilterFields(): Promise<FilterFieldDef[]> {
+    const response = await fetch(`${this.baseUrl}/api/industry-sp/filter-fields`, {
+      headers: this.authHeader(),
+    });
+    if (!response.ok) throw new Error("Failed to fetch ISP filter fields");
+    const result = await response.json();
+    return result.data;
+  }
+
   async getIspRaceTypes(): Promise<string[]> {
     const response = await fetch(`${this.baseUrl}/api/industry-sp/race-types`, {
       headers: this.authHeader(),
@@ -1189,7 +1203,7 @@ class ChatApi {
     return result.data;
   }
 
-  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string, subMinDate?: string, subMaxDate?: string, minModelSpEdgePts?: number, onlyModelTopPick?: boolean, includeLevelStakes?: boolean): Promise<IspPage> {
+  async getIndustrySp(page = 1, limit = 20, minRunners = 1, maxRunners = 30, countries: string[] = [], minIsp = 1, maxIsp = 1000, sortOrder: "asc" | "desc" = "asc", minInIspRange = 1, maxInIspRange = 10000, fromRow = 1, toRow?: number, minDate?: string, maxDate?: string, courses: string[] = [], goings: string[] = [], raceClasses: string[] = [], raceTypes: string[] = [], trainer?: string, jockey?: string, trainerFormMinWinRate?: number, minTrainerFormRunners?: number, maxTrainerFormRunners?: number, runnerName?: string, minModelWinProbability?: number, onlyModelBeatsSp?: boolean, modelVersionId?: string, subMinDate?: string, subMaxDate?: string, minModelSpEdgePts?: number, onlyModelTopPick?: boolean, includeLevelStakes?: boolean, dynamicFilters?: Record<string, string>): Promise<IspPage> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -1231,6 +1245,11 @@ class ChatApi {
     // maxDate above, which participate in defining the row range itself.
     if (subMinDate) params.set("subMinDate", subMinDate);
     if (subMaxDate) params.set("subMaxDate", subMaxDate);
+    // Registry-driven raw-model-field filters, already serialised to their
+    // `min<Field>`/`max<Field>` spelling by dynamicFiltersToParams. Merged last
+    // and verbatim: the registry owns these names, so there is nothing to
+    // translate here and nothing above can collide with them.
+    for (const [key, value] of Object.entries(dynamicFilters ?? {})) params.set(key, value);
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp?${params}`,
       { headers: this.authHeader() }
@@ -1457,7 +1476,8 @@ class ChatApi {
     onlyModelBeatsSp?: boolean,
     minModelSpEdgePts?: number,
     onlyModelTopPick?: boolean,
-    includeLevelStakes?: boolean
+    includeLevelStakes?: boolean,
+    dynamicFilters?: Record<string, string>
   ): Promise<IspSplitsResponse> {
     const params = new URLSearchParams({
       minRunners: String(minRunners),
@@ -1488,6 +1508,7 @@ class ChatApi {
     if (onlyModelTopPick) params.set("onlyModelTopPick", "true");
     if (includeLevelStakes) params.set("includeLevelStakes", "true");
     if (minModelSpEdgePts != null && minModelSpEdgePts > 0) params.set("minModelSpEdgePts", String(minModelSpEdgePts));
+    for (const [key, value] of Object.entries(dynamicFilters ?? {})) params.set(key, value);
     const response = await fetch(
       `${this.baseUrl}/api/industry-sp/splits?${params}`,
       { headers: this.authHeader() }

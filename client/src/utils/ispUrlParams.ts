@@ -60,10 +60,37 @@ const ISP_FILTER_PARAM_NAMES = [
 // previous Apply). See IndustrySpScreen's initial-fetch gating: a bare
 // load should show nothing until the user presses Apply, but a link
 // carrying explicit filters should honor them immediately.
+// The raw-model-field registry's params can't be enumerated here: the field
+// list is fetched from /api/industry-sp/filter-fields, and urlHasAnyParams runs
+// synchronously at mount, long before it arrives. So they are recognised by
+// SHAPE instead — `min<Capital>` / `max<Capital>`, or one of the two enum
+// params — which is enough for the only question being asked, "did this URL
+// arrive carrying filters?". Exact validation still happens server-side, where
+// an unknown name is a 400 rather than a shrug.
+//
+// The explicit list above is deliberately still consulted first, because that
+// is what distinguishes a real filter param from Storybook's own
+// ?id=&viewMode=&args= — the reason this function exists at all.
+const REGISTRY_MIN_MAX_RE = /^(?:min|max)[A-Z]/;
+const REGISTRY_ENUM_PARAM_NAMES = ["sexes", "headgear"];
+
+function urlHasAnyRegistryParams(params: URLSearchParams): boolean {
+  if (REGISTRY_ENUM_PARAM_NAMES.some(name => params.get(name) != null)) return true;
+  for (const key of params.keys()) {
+    // Skip the hand-written min*/max* params — those are already covered by
+    // ISP_FILTER_PARAM_NAMES and matching them here would be harmless but
+    // misleading to anyone reading this.
+    if (ISP_FILTER_PARAM_NAMES.includes(key)) continue;
+    if (REGISTRY_MIN_MAX_RE.test(key)) return true;
+  }
+  return false;
+}
+
 export function urlHasAnyParams(): boolean {
   const params = getUrlSearchParams();
   if (params == null) return false;
-  return ISP_FILTER_PARAM_NAMES.some(name => params.get(name) != null);
+  if (ISP_FILTER_PARAM_NAMES.some(name => params.get(name) != null)) return true;
+  return urlHasAnyRegistryParams(params);
 }
 
 // ModelVsSpScreen's own param surface, kept as a SEPARATE list rather than

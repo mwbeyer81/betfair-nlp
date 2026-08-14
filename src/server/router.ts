@@ -24,6 +24,8 @@ import {
   clampPct,
   clampModelVsSpDateWindow,
 } from "../lib/service/filter-params-util";
+import { FILTER_FIELDS } from "../lib/filters/field-registry";
+import { parseDynamicFilters } from "../lib/filters/dynamic-filter-params";
 import type { ModelVsSpSort } from "../lib/dao/industry-sp-dao";
 import { AuthService, AuthError } from "../lib/service/auth-service";
 import { DatabaseConnection } from "../config/database";
@@ -385,6 +387,20 @@ router.get("/api/industry-sp/goings", async (_req, res) => {
   }
 });
 
+// The catalogue of raw model fields the Filters screen can filter on. Served
+// rather than duplicated in the client so there is exactly one definition of
+// what is filterable — adding a field is one entry in field-registry.ts and
+// nothing else. Cached for an hour like the other reference lists above; the
+// contents only change when someone edits that file.
+router.get("/api/industry-sp/filter-fields", async (_req, res) => {
+  try {
+    res.set("Cache-Control", "public, max-age=3600");
+    res.status(200).json({ success: true, data: FILTER_FIELDS, count: FILTER_FIELDS.length });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch filter fields" });
+  }
+});
+
 router.get("/api/industry-sp/race-classes", async (_req, res) => {
   try {
     if (!industrySpService) return res.status(503).json({ success: false, error: "Service not initialized" });
@@ -534,13 +550,22 @@ router.get("/api/industry-sp/splits", async (req, res) => {
     const isAuth = res.locals.isAuthenticated === true;
     const raceCap = isAuth ? 10000 : 100;
 
+    // Same 400-on-typo rule as /api/industry-sp — see the comment there. It
+    // matters more here, since this is the endpoint whose numbers the Splits
+    // panel puts in front of you as evidence.
+    const { filters: splitDynamicFilters, errors: splitDynamicErrors } = parseDynamicFilters(req.query as Record<string, unknown>);
+    if (splitDynamicErrors.length > 0) {
+      return res.status(400).json({ success: false, error: splitDynamicErrors.join("; ") });
+    }
+
     const result = await industrySpService.getSplitStats(
       minRunners, maxRunners, countries, minIsp, maxIsp, minInIspRange, maxInIspRange, fromRowA, toRowA, fromRowB, toRowB,
       minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
       trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, minModelWinProbability, onlyModelBeatsSp,
       raceCap, minModelSpEdgePts,
       req.query.onlyModelTopPick === "true",
-      req.query.includeLevelStakes === "true"
+      req.query.includeLevelStakes === "true",
+      splitDynamicFilters
     );
     // Smoke-tested live: combined into one request and warm (no cold
     // start), this consistently takes ~2-2.5s — that's genuine Atlas M0
@@ -694,7 +719,14 @@ router.get("/api/industry-sp", async (req, res) => {
     // the client wants to show both, which is the only way to tell a real edge
     // from a bet-sizing artefact.
     const includeLevelStakes = req.query.includeLevelStakes === "true";
-    const { data, total, totalRunners, pnlStats, levelPnl, brier, favPnl } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes);
+    // 400 rather than ignore: a mistyped `minOffcialRating=80` that silently
+    // returned every race would hand back a number answering a different
+    // question from the one asked, which is worse than an error.
+    const { filters: dynamicFilters, errors: dynamicErrors } = parseDynamicFilters(req.query as Record<string, unknown>);
+    if (dynamicErrors.length > 0) {
+      return res.status(400).json({ success: false, error: dynamicErrors.join("; ") });
+    }
+    const { data, total, totalRunners, pnlStats, levelPnl, brier, favPnl } = await industrySpService.getAllRacesByRace(page, limit, minRunners, maxRunners, countries, minIsp, maxIsp, sortOrder, minInIspRange, maxInIspRange, fromRow, toRow, minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch, trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, runnerName, minModelWinProbability, onlyModelBeatsSp, modelVersionId, subMinRaceTime, subMaxRaceTime, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes, dynamicFilters);
     res.status(200).json({ success: true, data, count: data.length, total, page, limit, totalPages: Math.ceil(total / limit), totalRunners, pnlStats, ...(levelPnl ? { levelPnl } : {}), brier, favPnl });
   } catch (error) {
     console.error("getAllRacesByRace error:", error);

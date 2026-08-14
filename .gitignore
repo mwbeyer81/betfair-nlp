@@ -30,7 +30,12 @@ nohup.out
 # Large data files
 horse-racing-data/
 horse-racing-results-ukireland-2015-2025.zip
-data/
+# `data/*` rather than `data/`: git cannot re-include a file inside an excluded
+# DIRECTORY, so the negation below is silently ignored under the directory form.
+# The provenance record has to be tracked — nothing in the repo said where the
+# Kaggle dataset came from until it existed. See data/README.md.
+data/*
+!data/README.md
 
 # Playwright MCP cache
 .playwright-mcp/

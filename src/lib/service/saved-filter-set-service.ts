@@ -2,6 +2,7 @@ import { AGENT_USER_ID, SavedFilterSetDAO, SavedFilterSetDocument, SavedFilterSe
 import { IndustrySpService } from "./industry-sp-service";
 import { DatabaseConnection } from "../../config/database";
 import { parseDateRangeParams, parseCsvListParam } from "./filter-params-util";
+import { DynamicFilters, parseDynamicFilters } from "../filters/dynamic-filter-params";
 
 // A snapshot is computed once, at save time, over the full qualifying set
 // (not paginated) — mirrors the authenticated race cap used elsewhere
@@ -67,6 +68,11 @@ export interface ComputeSnapshotParams {
   minModelWinProbability: number;
   onlyModelBeatsSp: boolean;
   minModelSpEdgePts: number;
+  // Registry-driven raw-model-field filters (src/lib/filters/field-registry.ts).
+  // A saved filter set predating them simply has no min*/max* keys for them in
+  // its `filters` map, which parses to {} — so old saved results replay exactly
+  // as they always did.
+  dynamicFilters: DynamicFilters;
 }
 
 // filters/name/courses/etc placed first in the auto-name search order
@@ -153,6 +159,12 @@ export function computeSnapshotParamsFromFilters(filters: Record<string, string>
     minModelWinProbability: Math.min(100, Math.max(0, parseFloat(filters.minModelWinProbability) || 0)),
     onlyModelBeatsSp: filters.onlyModelBeatsSp === "true",
     minModelSpEdgePts: Math.min(100, Math.max(0, parseFloat(filters.minModelSpEdgePts) || 0)),
+    // Errors are discarded rather than thrown here, unlike the live routes: a
+    // saved set's map was validated when it was saved, and a stored filter that
+    // has since been disabled (a field going 100% null, say) should degrade to
+    // "that clause no longer applies" rather than making an existing saved
+    // result permanently un-openable.
+    dynamicFilters: parseDynamicFilters(filters).filters,
   };
 }
 
@@ -205,7 +217,10 @@ export class SavedFilterSetService {
       computeParams.minModelWinProbability,
       computeParams.onlyModelBeatsSp,
       SAVE_SNAPSHOT_MAX_ROWS,
-      computeParams.minModelSpEdgePts
+      computeParams.minModelSpEdgePts,
+      false,
+      false,
+      computeParams.dynamicFilters
     );
 
     const [pointsA, pointsB] = await Promise.all([

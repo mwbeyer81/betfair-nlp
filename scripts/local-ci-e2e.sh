@@ -166,6 +166,16 @@ if [ "$BUILT_COUNT" -eq 0 ]; then
 fi
 log "Seeded $BUILT_COUNT races."
 
+# --- Step 3a: derive distanceFurlongs ---------------------------------------
+# import-industry-sp.ts replaceOne's each race document wholesale, so every
+# derived field has to be (re)built after it — the same gotcha the precompute-
+# *-form scripts carry. Without this the Filters screen's distance filter finds
+# nothing here, silently: `distance` is a string ("1m2f") and the numeric field
+# the filter compares against would simply not exist.
+log "Computing distanceFurlongs..."
+MONGODB_URI="$MONGO_URI" MONGODB_DB_NAME="$MONGO_DB_NAME" \
+  npx ts-node src/commands/precompute-distance-furlongs.ts 2>&1 | tee "$SCRATCH_DIR/logs/precompute-distance-furlongs.log"
+
 # --- Step 3b: seed Daily Races fixture ---------------------------------------
 # A committed /v1/racecards/free-shaped fixture, never the real live
 # RacingAPI — see src/lib/dao/__fixtures__/daily-racecards-free-response.json
@@ -315,7 +325,17 @@ if [ -z "$SYSTEM_CHROME" ]; then
     if [ -x "$candidate" ]; then SYSTEM_CHROME="$candidate"; break; fi
   done
 fi
+# The specs read LOCAL_CI_API_URL/LOCAL_CI_APP_URL and fall back to the default
+# 3050/8090. Nothing used to set them, so a worktree that had claimed its own
+# ports via scripts/claim-worktree-ports.sh started its servers on (say)
+# 3129/8229 and then pointed every single spec at 3050/8090 — ECONNREFUSED
+# across the board, which reads as "the whole suite is broken" rather than
+# "the URLs and the servers disagree". Derived from the same variables the
+# servers were started with, so the two cannot drift. APP_URL keeps its
+# trailing slash: the specs build paths as ${APP_URL}isp, not with a join.
 (cd client && PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$SYSTEM_CHROME" \
+  LOCAL_CI_API_URL="http://localhost:$BACKEND_PORT" \
+  LOCAL_CI_APP_URL="http://localhost:$FRONTEND_PORT/" \
   npx playwright test --config playwright.local-ci.config.ts)
 TEST_EXIT_CODE=$?
 set -e

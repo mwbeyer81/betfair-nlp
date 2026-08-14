@@ -3,6 +3,7 @@ import type { BrierStats, BrierSums } from "./brier";
 import type { FavPnlStats } from "./fav-pnl";
 import type { ModelVsSpSummary } from "./model-vs-sp-summary";
 import { DatabaseConnection } from "../../config/database";
+import type { DynamicFilters } from "../filters/dynamic-filter-params";
 
 export class IndustrySpService {
   private industrySpDAO: IndustrySpDAO;
@@ -52,7 +53,8 @@ export class IndustrySpService {
     subMaxRaceTime: string | null = null,
     minModelSpEdgePts = 0,
     onlyModelTopPick = false,
-    includeLevelStakes = false
+    includeLevelStakes = false,
+    dynamicFilters: DynamicFilters = {}
   ): Promise<{
     data: IspRace[];
     total: number;
@@ -94,7 +96,8 @@ export class IndustrySpService {
       subMaxRaceTime,
       minModelSpEdgePts,
       onlyModelTopPick,
-      includeLevelStakes
+      includeLevelStakes,
+      dynamicFilters
     );
   }
 
@@ -160,7 +163,12 @@ export class IndustrySpService {
     // and the whole-set line below are computed by — so Split A/B and the
     // headline can never disagree about which runners are in the selection.
     onlyModelTopPick = false,
-    includeLevelStakes = false
+    includeLevelStakes = false,
+    // Threaded through to every getAllRacesByRace call below for the same
+    // reason onlyModelTopPick is: Split A, Split B and the whole-set headline
+    // must all be computed over the identical selection, or the comparison the
+    // splits exist to support stops meaning anything.
+    dynamicFilters: DynamicFilters = {}
   ): Promise<{
     totalRaces: number;
     totalRunners: number;
@@ -209,7 +217,7 @@ export class IndustrySpService {
           1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, 1, null,
           minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
           trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-          onlyModelBeatsSp, null, null, null, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes
+          onlyModelBeatsSp, null, null, null, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes, dynamicFilters
         ),
         // Deliberately dataset-global, not date-scoped — these are slider/
         // dropdown bounds (available countries, runner/ISP ranges), and
@@ -280,13 +288,13 @@ export class IndustrySpService {
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromA, effToA,
         minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-        onlyModelBeatsSp, null, null, null, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes
+        onlyModelBeatsSp, null, null, null, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes, dynamicFilters
       ),
       this.industrySpDAO.getAllRacesByRace(
         1, 1, minRunners, maxRunners, countries, minIsp, maxIsp, "asc", minInIspRange, maxInIspRange, effFromB, effToB,
         minRaceTime, maxRaceTime, courses, goings, raceClasses, raceTypes, trainerSearch, jockeySearch,
         trainerFormMinWinRate, minTrainerFormRunners, maxTrainerFormRunners, null, minModelWinProbability,
-        onlyModelBeatsSp, null, null, null, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes
+        onlyModelBeatsSp, null, null, null, minModelSpEdgePts, onlyModelTopPick, includeLevelStakes, dynamicFilters
       ),
     ]);
 
@@ -380,6 +388,7 @@ export class IndustrySpService {
     minModelWinProbability: number;
     onlyModelBeatsSp: boolean;
     minModelSpEdgePts?: number;
+    dynamicFilters?: DynamicFilters;
   }): Promise<
     {
       raceId: number;
