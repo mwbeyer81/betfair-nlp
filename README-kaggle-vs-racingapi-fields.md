@@ -11,6 +11,11 @@ Companions: `README-racing-api-fields.md` (every RacingAPI field, from the
 OpenAPI spec) · `data/README.md` (dataset provenance) ·
 `src/lib/dao/industry-sp-row-mapping.ts` (the shared mapper both importers use).
 
+The same analysis is readable in the app at **`/admin/data-sources`**, for
+accounts holding the `data-sources:read` permission (which `admin` implies).
+Its data is `src/lib/service/data-source-comparison.ts` — edit that and this
+file together, since neither generates the other.
+
 ## How this was produced
 
 Nothing below is inferred from field names alone; every claim is from real

@@ -888,9 +888,35 @@ export interface AuthResult {
   emailVerified: boolean;
 }
 
-// Thrown by getDataSourceComparison() on a 403 so the screen can tell
-// "you're not an admin" apart from "the request failed".
-export const ADMIN_ONLY_ERROR = "Admin access required";
+// Thrown by the admin-gated calls on a 403 so a screen can tell "you don't
+// have this permission" apart from "the request failed".
+export const PERMISSION_DENIED_ERROR = "Permission required";
+
+/** Mirrors src/lib/auth/permissions.ts — keep the two in step. */
+export type PermissionKey = "admin" | "data-sources:read";
+
+export interface PermissionDefinition {
+  key: PermissionKey;
+  label: string;
+  description: string;
+  implies: PermissionKey[];
+}
+
+export interface AccountPermissions {
+  id: string;
+  email: string | null;
+  phone: string | null;
+  /** What the account document literally carries. */
+  stored: string[];
+  /** What it grants once `admin`'s implications are expanded. */
+  effective: PermissionKey[];
+  isYou: boolean;
+}
+
+export interface PermissionsMatrix {
+  permissions: PermissionDefinition[];
+  accounts: AccountPermissions[];
+}
 
 /** Mirrors src/lib/service/data-source-comparison.ts — keep the two in step. */
 export type ComparisonVerdict = "same" | "caution" | "different";
@@ -1044,6 +1070,7 @@ class ChatApi {
     email: string | null;
     phone: string | null;
     emailVerified: boolean;
+    permissions: PermissionKey[];
     isAdmin: boolean;
   } | null> {
     const response = await fetch(`${this.baseUrl}/api/auth/me`, {
@@ -1055,26 +1082,38 @@ class ChatApi {
       email: result.email ?? null,
       phone: result.phone ?? null,
       emailVerified: result.emailVerified === true,
-      // `=== true` rather than a truthiness check on purpose: this drives
-      // whether admin-only UI is offered at all, and an older deployed API
-      // that doesn't send the field must read as "not an admin", never as
+      // Defaulted rather than trusted: an older deployed API sends neither
+      // field, and that must read as "holds nothing", never as
       // undefined-and-therefore-maybe.
+      permissions: Array.isArray(result.permissions) ? (result.permissions as PermissionKey[]) : [],
       isAdmin: result.isAdmin === true,
     };
   }
 
-  // Admin-only (403 for everyone else) — the Kaggle CSV vs RacingAPI field
-  // comparison behind the /admin/data-sources screen. The 403 is surfaced as
-  // a distinct error message so the screen can say "admins only" rather than
-  // showing a generic failure, which would look like an outage.
+  // Needs `data-sources:read` (which `admin` implies) — 403 otherwise. The
+  // 403 is surfaced as a distinct error message so the screen can explain
+  // the permission rather than showing a generic failure, which would look
+  // like an outage.
   async getDataSourceComparison(): Promise<DataSourceComparison> {
     const response = await fetch(`${this.baseUrl}/api/admin/data-sources`, {
       headers: this.authHeader(),
     });
-    if (response.status === 403) throw new Error(ADMIN_ONLY_ERROR);
+    if (response.status === 403) throw new Error(PERMISSION_DENIED_ERROR);
     if (!response.ok) throw new Error("Failed to fetch the data-source comparison");
     const result = await response.json();
     return result.data as DataSourceComparison;
+  }
+
+  // Needs `admin`. Read-only: permissions are granted by
+  // `yarn grant:permission`, never over HTTP.
+  async getPermissionsMatrix(): Promise<PermissionsMatrix> {
+    const response = await fetch(`${this.baseUrl}/api/admin/permissions`, {
+      headers: this.authHeader(),
+    });
+    if (response.status === 403) throw new Error(PERMISSION_DENIED_ERROR);
+    if (!response.ok) throw new Error("Failed to fetch permissions");
+    const result = await response.json();
+    return result.data as PermissionsMatrix;
   }
 
   async signInWithGoogle(idToken: string): Promise<AuthResult> {

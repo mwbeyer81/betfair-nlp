@@ -4,6 +4,7 @@ import crypto from "crypto";
 import config from "config";
 import { Db, ObjectId } from "mongodb";
 import { UserDAO, UserDocument } from "../dao/user-dao";
+import { grantsFor, PermissionKey } from "../auth/permissions";
 import { EmailService } from "./email-service";
 import { GoogleAuthService } from "./google-auth-service";
 import { SmsService } from "./sms-service";
@@ -119,41 +120,80 @@ export class AuthService {
     email: string | null;
     phone: string | null;
     emailVerified: boolean;
+    permissions: PermissionKey[];
     isAdmin: boolean;
   } | null> {
     const user = await this.userDao.findById(new ObjectId(userId));
     if (!user) return null;
+    // Effective permissions, with admin's implications already expanded —
+    // the client should never have to know that admin implies anything.
+    const permissions = grantsFor(user.permissions);
     return {
       email: user.email ?? null,
       phone: user.phone ?? null,
       emailVerified: user.emailVerified,
-      // Normalized to a real boolean here rather than passed through as
-      // `boolean | undefined`, so the client never has to distinguish
-      // "not an admin" from "field absent on an older account document".
-      isAdmin: user.isAdmin === true,
+      permissions,
+      // Kept alongside the list because it's what most callers actually ask,
+      // and deriving it in one place beats every caller doing
+      // `permissions.includes("admin")` slightly differently.
+      isAdmin: permissions.includes("admin"),
     };
   }
 
   /**
-   * The authorization check behind every admin-only route. Deliberately hits
-   * the database on each call instead of trusting a claim in the JWT: a token
-   * issued before admin was granted (or after it was revoked) must reflect
-   * the current state immediately, and tokens here are long-lived enough
-   * that baking the flag in would leave a revoked admin authorized until
-   * their token expired.
+   * The authorization check behind every permissioned route. Deliberately
+   * hits the database on each call instead of trusting a claim in the JWT: a
+   * token issued before a permission was granted (or after it was revoked)
+   * must reflect the current state immediately, and tokens here are
+   * long-lived enough that baking permissions in would leave a revoked admin
+   * authorized until their token expired.
    *
-   * Returns false for a malformed/unknown userId rather than throwing —
-   * callers turn that into a 403, which is the correct answer either way.
+   * Returns an empty list for a malformed/unknown userId rather than
+   * throwing — callers turn that into a 403, which is the correct answer
+   * either way.
    */
-  public async isAdmin(userId: string): Promise<boolean> {
+  public async getPermissions(userId: string): Promise<PermissionKey[]> {
     let objectId: ObjectId;
     try {
       objectId = new ObjectId(userId);
     } catch {
-      return false;
+      return [];
     }
     const user = await this.userDao.findById(objectId);
-    return user?.isAdmin === true;
+    return grantsFor(user?.permissions);
+  }
+
+  public async hasPermission(userId: string, required: PermissionKey): Promise<boolean> {
+    return (await this.getPermissions(userId)).includes(required);
+  }
+
+  /**
+   * Every account and the permissions it holds — the data behind the
+   * permissions matrix. Admin-gated at the route, not here.
+   *
+   * `stored` is what the document literally carries; `effective` is what it
+   * actually grants once admin's implications are expanded. Showing both is
+   * the point of the matrix: a cell can be ticked because it was granted or
+   * because admin implies it, and those are different facts.
+   */
+  public async listAccountPermissions(): Promise<
+    { id: string; email: string | null; phone: string | null; stored: string[]; effective: PermissionKey[] }[]
+  > {
+    const users = await this.userDao.listAll();
+    return users
+      .map(user => ({
+        id: String(user._id),
+        email: user.email ?? null,
+        phone: user.phone ?? null,
+        stored: (user.permissions ?? []).slice(),
+        effective: grantsFor(user.permissions),
+      }))
+      // Accounts with permissions first, then alphabetically — a matrix of
+      // 13 rows where the only interesting one is last is a worse matrix.
+      .sort((a, b) => {
+        if (a.effective.length !== b.effective.length) return b.effective.length - a.effective.length;
+        return (a.email ?? a.phone ?? "").localeCompare(b.email ?? b.phone ?? "");
+      });
   }
 
   public async resendVerification(userId: string): Promise<{ alreadyVerified: boolean }> {

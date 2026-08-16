@@ -3,7 +3,7 @@ import { View, ScrollView, StyleSheet, SafeAreaView, TouchableOpacity } from "re
 import { Text, ActivityIndicator, Surface, Button } from "react-native-paper";
 import {
   chatApi,
-  ADMIN_ONLY_ERROR,
+  PERMISSION_DENIED_ERROR,
   DataSourceComparison,
   ComparisonVerdict,
   FieldComparisonRow,
@@ -22,8 +22,9 @@ interface DataSourceComparisonScreenProps {
   onBack: () => void;
 }
 
-// Admin-only screen: the Kaggle CSV vs RacingAPI field comparison. The data
-// comes from GET /api/admin/data-sources, which 403s for a non-admin — that
+// Permissioned screen: the Kaggle CSV vs RacingAPI field comparison. The
+// data comes from GET /api/admin/data-sources, which needs
+// `data-sources:read` (implied by `admin`) and 403s otherwise — that
 // server-side gate is the real permission, and this screen simply renders
 // whichever of the two answers it gets. Nothing here decides who may see it.
 //
@@ -62,7 +63,7 @@ export const DataSourceComparisonScreen: React.FC<DataSourceComparisonScreenProp
     try {
       setData(await chatApi.getDataSourceComparison());
     } catch (e) {
-      if (e instanceof Error && e.message === ADMIN_ONLY_ERROR) setForbidden(true);
+      if (e instanceof Error && e.message === PERMISSION_DENIED_ERROR) setForbidden(true);
       else setError("Could not load the data-source comparison.");
     } finally {
       setLoading(false);
@@ -115,8 +116,8 @@ export const DataSourceComparisonScreen: React.FC<DataSourceComparisonScreenProp
         <View testID="data-sources-forbidden" style={styles.centered}>
           <Text style={styles.forbiddenTitle}>Admins only</Text>
           <Text style={styles.forbiddenBody}>
-            This page is restricted to admin accounts. If you think you should have access, ask for
-            admin to be granted to your account.
+            This page needs the data sources permission, which the admin permission also grants. If
+            you think you should have access, ask for it to be granted to your account.
           </Text>
         </View>
       </SafeAreaView>
@@ -181,6 +182,9 @@ export const DataSourceComparisonScreen: React.FC<DataSourceComparisonScreenProp
             <Text style={styles.heading}>Every CSV column, mapped</Text>
             <Text style={styles.paragraph}>
               R = /results/today · C = /racecards. Tap a row for the detail.
+            </Text>
+            <Text style={styles.paragraph} testID="data-sources-verdict-legend">
+              {VERDICT_ORDER.map(v => `${VERDICT_STYLE[v].mark} ${VERDICT_STYLE[v].label}`).join(" · ")}
             </Text>
             <View style={styles.filterRow}>
               <FilterChip

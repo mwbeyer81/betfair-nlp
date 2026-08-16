@@ -12,14 +12,39 @@ import type { Page } from "@playwright/test";
 async function signInAsAdmin(page: Page): Promise<void> {
   await page.route("**/api/auth/me", (route) =>
     route.fulfill({
-      json: { success: true, email: "matthewbeyer@hotmail.com", emailVerified: true, isAdmin: true },
+      json: {
+        success: true,
+        email: "matthewbeyer@hotmail.com",
+        emailVerified: true,
+        permissions: ["admin", "data-sources:read"],
+        isAdmin: true,
+      },
+    })
+  );
+}
+
+// Holds the specific permission and nothing else — the case that proves the
+// Data Sources item is gated on `data-sources:read`, not on being an admin.
+async function signInAsReader(page: Page): Promise<void> {
+  await page.route("**/api/auth/me", (route) =>
+    route.fulfill({
+      json: {
+        success: true,
+        email: "reader@backbet.co.uk",
+        emailVerified: true,
+        permissions: ["data-sources:read"],
+        isAdmin: false,
+      },
     })
   );
 }
 
 async function forbidTheEndpoint(page: Page): Promise<void> {
   await page.route("**/api/admin/data-sources", (route) =>
-    route.fulfill({ status: 403, json: { success: false, error: "Admin access required" } })
+    route.fulfill({
+      status: 403,
+      json: { success: false, error: "Permission required", requiredPermission: "data-sources:read" },
+    })
   );
 }
 
@@ -36,17 +61,28 @@ test.describe("Data Sources — admin-only screen (MSW mocked)", () => {
     await expect(page).toHaveURL(/\/admin\/data-sources$/);
   });
 
-  // The default /api/auth/me mock in fixtures.ts sends no isAdmin at all,
+  // The default /api/auth/me mock in fixtures.ts sends no permissions at all,
   // which is also what an older deployed API would send — it must read as
-  // "not an admin", never as "unknown, so show it anyway".
-  test("a non-admin never sees the menu item", async ({ page }) => {
+  // "holds nothing", never as "unknown, so show it anyway".
+  test("an account with no permissions never sees the menu item", async ({ page }) => {
     await page.goto("/events");
 
     await expect(page.getByTestId("events-menu-isp-link")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("events-menu-data-sources-link")).toHaveCount(0);
+    await expect(page.getByTestId("events-menu-permissions-link")).toHaveCount(0);
   });
 
-  test("a non-admin who navigates straight to the URL gets Admins only, not an error", async ({ page }) => {
+  // Data Sources is gated on `data-sources:read`; the matrix is gated on
+  // `admin`. A holder of the former gets one item, not both.
+  test("a data-sources:read holder gets that item but not Permissions", async ({ page }) => {
+    await signInAsReader(page);
+    await page.goto("/events");
+
+    await expect(page.getByTestId("events-menu-data-sources-link")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("events-menu-permissions-link")).toHaveCount(0);
+  });
+
+  test("someone without the permission who navigates straight to the URL gets Admins only, not an error", async ({ page }) => {
     await forbidTheEndpoint(page);
     await page.goto("/admin/data-sources");
 

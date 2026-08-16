@@ -106,6 +106,18 @@ export const ScreenVisible: Story = {
   },
 };
 
+// The colour coding is meaningless without it — a reader has to be told that
+// ✕ means "genuinely different", not "broken".
+export const VerdictLegendExplainsTheMarks: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const legend = await canvas.findByTestId("data-sources-verdict-legend");
+    await expect(legend).toHaveTextContent("genuinely different");
+    await expect(legend).toHaveTextContent("same concept, different encoding");
+    await expect(legend).toHaveTextContent("values agree");
+  },
+};
+
 export const FieldRowsRendered: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

@@ -59,11 +59,11 @@ async function setupApiMocks(page: Page) {
     route.fulfill({ json: { success: true, alreadyVerified: false } })
   );
 
-  // Admin-only in production (403 for everyone else). Mocked as a success by
-  // default so a test that lands on /admin/data-sources sees the real screen;
-  // the tests covering the permission itself override this route with a 403,
-  // and the default **/api/auth/me mock above reports no isAdmin, so the
-  // menu item stays hidden unless a test says otherwise.
+  // Needs `data-sources:read` in production (403 otherwise). Mocked as a
+  // success by default so a test that lands on /admin/data-sources sees the
+  // real screen; the tests covering the permission itself override this route
+  // with a 403, and the default **/api/auth/me mock above reports no
+  // permissions, so the menu item stays hidden unless a test says otherwise.
   await page.route("**/api/admin/data-sources", (route) =>
     route.fulfill({
       json: {
@@ -91,6 +91,51 @@ async function setupApiMocks(page: Page) {
           populationEras: [{ field: "rpr", csvEra: "90%", apiEra: "0%", why: "Removed by the API in June 2026." }],
           apiOnly: [{ group: "Identity and joins", fields: "horse_id · jockey_id · trainer_id" }],
           normalisation: ["Map Evens ↔ 1/1 before comparing any stored fraction."],
+        },
+      },
+    })
+  );
+
+  // Needs `admin`. Same default as above: mocked successful, but the default
+  // /api/auth/me mock holds no permissions, so nothing links to it unless a
+  // test says otherwise.
+  await page.route("**/api/admin/permissions", (route) =>
+    route.fulfill({
+      json: {
+        success: true,
+        data: {
+          permissions: [
+            {
+              key: "admin",
+              label: "Admin",
+              description: "Full access to every admin-only screen and endpoint. Implies every other permission.",
+              implies: ["data-sources:read"],
+            },
+            {
+              key: "data-sources:read",
+              label: "Data sources",
+              description: "Read the Kaggle CSV vs The Racing API field comparison.",
+              implies: [],
+            },
+          ],
+          accounts: [
+            {
+              id: "admin-account-id",
+              email: "matthewbeyer@hotmail.com",
+              phone: null,
+              stored: ["admin"],
+              effective: ["admin", "data-sources:read"],
+              isYou: true,
+            },
+            {
+              id: "plain-account-id",
+              email: "matthew@backbet.co.uk",
+              phone: null,
+              stored: [],
+              effective: [],
+              isYou: false,
+            },
+          ],
         },
       },
     })

@@ -28,6 +28,7 @@ import { ModelAccuracyScreen } from "./src/components/ModelAccuracyScreen";
 import { ModelExperimentsScreen } from "./src/components/ModelExperimentsScreen";
 import { WhyItsHardScreen } from "./src/components/WhyItsHardScreen";
 import { DataSourceComparisonScreen } from "./src/components/DataSourceComparisonScreen";
+import { PermissionsScreen } from "./src/components/PermissionsScreen";
 import { WHY_ITS_HARD_KEY } from "./src/utils/whyItsHardLink";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
@@ -422,6 +423,16 @@ export default function App() {
     if (route === "/admin/data-sources") {
       return (
         <DataSourceComparisonScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          onBack={() => navigate("/isp")}
+        />
+      );
+    }
+    if (route === "/admin/permissions") {
+      return (
+        <PermissionsScreen
           navigate={navigate}
           isAuthenticated={isAuthenticated}
           onLogout={onLogout}

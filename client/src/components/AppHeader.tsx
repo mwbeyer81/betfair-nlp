@@ -3,7 +3,7 @@ import { View, StyleSheet } from "react-native";
 import { Text, Appbar, Button, Icon } from "react-native-paper";
 import { HeaderActionsContainer } from "./HeaderActionsContainer";
 import { useHeaderMenu } from "../utils/useHeaderMenu";
-import { chatApi } from "../services/chatApi";
+import { chatApi, PermissionKey } from "../services/chatApi";
 import { colors, radii, spacing } from "../theme";
 import { getBuildCommit } from "../utils/buildInfo";
 import type { Route } from "../hooks/useRouter";
@@ -60,12 +60,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const [accountPhone, setAccountPhone] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
-  // Drives whether admin-only destinations are offered in the menu. Starts
-  // false and only ever becomes true once /api/auth/me says so, so the item
-  // is never briefly visible to a non-admin on a slow response. Hiding it is
-  // a courtesy, not the permission — every admin route enforces its own
-  // check server-side (see requireAdmin in src/server/router.ts).
-  const [isAdmin, setIsAdmin] = useState(false);
+  // Drives which permissioned destinations are offered in the menu. Starts
+  // empty and only ever fills once /api/auth/me answers, so an item is never
+  // briefly visible to someone who doesn't hold its permission. Hiding an
+  // item is a courtesy, not the permission itself — every permissioned route
+  // enforces its own check server-side (see requirePermission in
+  // src/server/router.ts).
+  const [permissions, setPermissions] = useState<PermissionKey[]>([]);
+  const can = (permission: PermissionKey) => permissions.includes(permission);
   // null in local dev and on native — only a deployed build has a stamped
   // commit, and the badge is simply omitted when there is nothing to show.
   const buildCommit = getBuildCommit();
@@ -78,7 +80,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       setAccountEmail(null);
       setAccountPhone(null);
       setEmailVerified(null);
-      setIsAdmin(false);
+      setPermissions([]);
       setShowAccountPanel(false);
       return;
     }
@@ -87,12 +89,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         setAccountEmail(me?.email ?? null);
         setAccountPhone(me?.phone ?? null);
         setEmailVerified(me?.emailVerified ?? null);
-        setIsAdmin(me?.isAdmin === true);
+        setPermissions(me?.permissions ?? []);
       }
     }).catch(() => {
       if (!cancelled) {
         setEmailVerified(null);
-        setIsAdmin(false);
+        setPermissions([]);
       }
     });
     return () => { cancelled = true; };
@@ -212,9 +214,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           >
             Why It's Hard
           </Button>
-          {/* Admin-only destination — see the isAdmin state above for why
-              hiding it here is presentation, not permission. */}
-          {isAdmin && (
+          {/* Permissioned destinations — see the `permissions` state above
+              for why hiding them here is presentation, not permission. */}
+          {can("data-sources:read") && (
             <Button
               testID={`${testIdPrefix}-menu-data-sources-link`}
               mode="outlined"
@@ -224,6 +226,18 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               labelStyle={styles.toggleButtonLabel}
             >
               Data Sources
+            </Button>
+          )}
+          {can("admin") && (
+            <Button
+              testID={`${testIdPrefix}-menu-permissions-link`}
+              mode="outlined"
+              compact
+              onPress={wrap(() => navigate("/admin/permissions"))}
+              style={styles.toggleButton}
+              labelStyle={styles.toggleButtonLabel}
+            >
+              Permissions
             </Button>
           )}
         </>
