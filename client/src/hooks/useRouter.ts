@@ -19,6 +19,7 @@ export type Route =
   | "/admin/permissions"
   | "/why-its-hard"
   | "/why-its-hard"
+  | "/market-gap"
   | "/bets"
   | "/model-vs-sp"
   | "/daily-races"
@@ -48,6 +49,7 @@ const STATIC_ROUTES = [
   "/admin/permissions",
   "/why-its-hard",
   "/why-its-hard",
+  "/market-gap",
   "/bets",
   "/model-vs-sp",
   "/daily-races",

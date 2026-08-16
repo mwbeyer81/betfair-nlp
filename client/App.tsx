@@ -27,9 +27,11 @@ import { ModelVsSpScreen } from "./src/components/ModelVsSpScreen";
 import { ModelAccuracyScreen } from "./src/components/ModelAccuracyScreen";
 import { ModelExperimentsScreen } from "./src/components/ModelExperimentsScreen";
 import { WhyItsHardScreen } from "./src/components/WhyItsHardScreen";
+import { MarketGapScreen } from "./src/components/MarketGapScreen";
 import { DataSourceComparisonScreen } from "./src/components/DataSourceComparisonScreen";
 import { PermissionsScreen } from "./src/components/PermissionsScreen";
 import { WHY_ITS_HARD_KEY } from "./src/utils/whyItsHardLink";
+import { MARKET_GAP_KEY } from "./src/utils/marketGapLink";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
 import { buildReturnParams, resolveReturn } from "./src/utils/returnNav";
@@ -65,7 +67,14 @@ export default function App() {
   // whyItsHardLink.ts: the key is obscurity, not security — it ships in the
   // bundle, so nothing behind it may ever be confidential.
   const hasWhyItsHardKey = queryParams.get("k") === WHY_ITS_HARD_KEY;
-  const isPublicRoute = isIspRoute || (route === "/why-its-hard" && hasWhyItsHardKey);
+  // /market-gap works the same way, with its own key so the two links can be
+  // handed to different people. Same caveat: the key is obscurity, not
+  // security — see marketGapLink.ts.
+  const hasMarketGapKey = queryParams.get("k") === MARKET_GAP_KEY;
+  const isPublicRoute =
+    isIspRoute ||
+    (route === "/why-its-hard" && hasWhyItsHardKey) ||
+    (route === "/market-gap" && hasMarketGapKey);
 
   // Restore token from localStorage on mount, then check for ?u=&p= URL params.
   useEffect(() => {
@@ -406,6 +415,17 @@ export default function App() {
     if (route === "/why-its-hard") {
       return (
         <WhyItsHardScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
+          onRequestAuth={onRequestAuth}
+          onBack={() => navigate("/isp")}
+        />
+      );
+    }
+    if (route === "/market-gap") {
+      return (
+        <MarketGapScreen
           navigate={navigate}
           isAuthenticated={isAuthenticated}
           onLogout={onLogout}

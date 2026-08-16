@@ -7158,3 +7158,61 @@ Daily Races or the results capture:
    `performance_rating`/`speed_rating` instead — both are on
    `/results/today`, i.e. our current plan and endpoint. Not done here;
    flagged to the user.
+
+## 2026-08-16 — primary checkout `/home/matt/betfair-nlp` (branch `develop`) — `/market-gap`, an internal strategy page behind an unlisted key
+
+User asked for a public static page carrying a market-gap assessment written in
+conversation (where this product sits against the tools already selling systems
+backtesting, and what is commercially hard about that position), then asked for
+it deployed. Built as a second instance of the `/why-its-hard` pattern rather
+than as anything new: static content, no API calls, no loading or error state,
+reachable signed-out **only** with an unlisted key.
+
+**New**: `client/src/utils/marketGapLink.ts` (key `43643d43-…`, its own rather
+than shared with Why It's Hard so the two links can go to different people),
+`client/src/components/MarketGapScreen.tsx`, `MarketGapScreen.stories.tsx`.
+**Touched**: `client/App.tsx` (import, `isPublicRoute`, render branch),
+`client/src/hooks/useRouter.ts` (union + `STATIC_ROUTES`). Checked the active
+worktrees table first — `~/betfair-nlp-results-filter-sort` is the only row in
+progress and it touches none of these.
+
+**Three decisions worth knowing.**
+
+1. **Deliberately NOT in the burger menu.** Every other route in `AppHeader` is
+   either public or shown to signed-in users, and signed-in users are customers.
+   This page is an internal assessment that reaches an unflattering conclusion
+   about our own addressable market; putting it in the customer menu would be
+   the wrong audience. It is reachable by keyed link only. That also means
+   `AppHeader.tsx` is untouched, which is the file most likely to conflict.
+
+2. **The key is obscurity, not security, and this page needed that stated
+   twice.** `whyItsHardLink.ts` already says the key ships in the JS bundle and
+   nothing behind it may be confidential. That caveat matters more here, because
+   the content names competitors. So: every competitor line is a plain statement
+   of what that product does and never a claim about their motives, and the
+   commercially useful observation is phrased as an absence we have observed
+   ("none of them, as far as we have been able to establish, reports what not
+   choosing at all would have returned") rather than as speculation about why.
+   The page carries an "Internal strategy note" banner as its first card saying
+   it is not marketing and that the link does not make it private, and
+   `MarketGapScreen.stories.tsx`'s `InternalNoteIsStated` pins that wording by
+   regex — if someone deletes the banner the page silently becomes a
+   customer-facing claim about named competitors, and a testID-only assertion
+   would not catch it.
+
+3. **The competitor list is explicitly marked as NOT measured**, unlike every
+   figure about our own model on the same page (Brier 0.0932 OOS vs market
+   0.0871; top-1 27.36% vs 34.85%; zero segments passing the acceptance rule —
+   sources listed in the component header, same convention as
+   `WhyItsHardScreen.tsx`). A page arguing that the category doesn't report its
+   baselines cannot itself present a from-memory competitor snapshot as though
+   it were measured.
+
+**Verified**: `cd client && yarn build` clean. Storybook run on port 6011 (6006
+and 6007 were both free but the convention here is to pick your own).
+
+**Pre-existing oddity noticed, not fixed**: `useRouter.ts` lists
+`"/why-its-hard"` **twice** in both the `Route` union and `STATIC_ROUTES`.
+Harmless — a duplicate union member and a duplicate array entry both collapse —
+but it is there on pristine `develop`, so don't read it as something this change
+introduced.
