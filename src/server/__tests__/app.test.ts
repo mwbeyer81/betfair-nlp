@@ -11,8 +11,10 @@ import { IndustrySpService } from "../../lib/service/industry-sp-service";
 import type { ModelVsSpParams } from "../../lib/dao/industry-sp-dao";
 
 let authToken: string;
+let adminToken: string;
 
 const TEST_USER_EMAIL = "matthew@backbet.co.uk";
+const ADMIN_USER_EMAIL = "admin@backbet.co.uk";
 const TEST_USER_PASSWORD = "beyer";
 // Hashed once, synchronously, at module load — every mocked "users" findOne
 // below returns this so login() can bcrypt.compare against a real hash.
@@ -35,6 +37,7 @@ interface MockUserDoc {
   googleId?: string;
   phone?: string;
   phoneVerified?: boolean;
+  isAdmin?: boolean;
 }
 const mockUsers: MockUserDoc[] = [
   {
@@ -45,6 +48,19 @@ const mockUsers: MockUserDoc[] = [
     emailVerified: true,
     verificationToken: null,
     verificationTokenExpiresAt: null,
+  },
+  // Admin fixture for the /api/admin/* routes. isAdmin is only ever set this
+  // way (or by `yarn grant:admin`) — there is deliberately no HTTP route that
+  // can grant it, so the tests can't create one either.
+  {
+    _id: new ObjectId(),
+    email: ADMIN_USER_EMAIL,
+    passwordHash: TEST_USER_PASSWORD_HASH,
+    createdAt: new Date(),
+    emailVerified: true,
+    verificationToken: null,
+    verificationTokenExpiresAt: null,
+    isAdmin: true,
   },
 ];
 
@@ -191,6 +207,10 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ email: TEST_USER_EMAIL, password: TEST_USER_PASSWORD });
   authToken = res.body.token;
+  const adminRes = await request(app)
+    .post("/api/auth/login")
+    .send({ email: ADMIN_USER_EMAIL, password: TEST_USER_PASSWORD });
+  adminToken = adminRes.body.token;
 });
 
 // Mock the chat service to avoid real OpenAI API calls in tests. Auto-mocked
@@ -989,6 +1009,92 @@ describe("API Endpoints", () => {
         .expect(200);
 
       expect(response.body).toMatchObject({ success: true, email: TEST_USER_EMAIL, emailVerified: true });
+    });
+
+    // isAdmin must be present and false — not absent — on an ordinary
+    // account, since the client reads it as `=== true` and an absent field
+    // would be indistinguishable from an older API that never sent one.
+    it("reports isAdmin: false for a non-admin account", async () => {
+      const response = await request(app)
+        .get("/api/auth/me")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.isAdmin).toBe(false);
+    });
+
+    it("reports isAdmin: true for an admin account", async () => {
+      const response = await request(app)
+        .get("/api/auth/me")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(response.body).toMatchObject({ email: ADMIN_USER_EMAIL, isAdmin: true });
+    });
+  });
+
+  describe("GET /api/admin/data-sources", () => {
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/admin/data-sources").expect(401);
+    });
+
+    // 403, not 404 or 401: the caller is authenticated, the route exists, and
+    // logging in again will not change the answer.
+    it("returns 403 for an authenticated non-admin", async () => {
+      const response = await request(app)
+        .get("/api/admin/data-sources")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(403);
+
+      expect(response.body).toMatchObject({ success: false, error: "Admin access required" });
+    });
+
+    it("returns the comparison for an admin", async () => {
+      const response = await request(app)
+        .get("/api/admin/data-sources")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(Array.isArray(response.body.data.fields)).toBe(true);
+    });
+
+    it("covers all 37 CSV columns, each with a valid verdict and level", async () => {
+      const response = await request(app)
+        .get("/api/admin/data-sources")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .expect(200);
+
+      const fields = response.body.data.fields as {
+        csv: string;
+        results: string | null;
+        verdict: string;
+        level: string;
+        note: string;
+      }[];
+      expect(fields).toHaveLength(37);
+      expect(new Set(fields.map(f => f.csv)).size).toBe(37);
+      fields.forEach(f => {
+        expect(["same", "caution", "different"]).toContain(f.verdict);
+        expect(["race", "runner"]).toContain(f.level);
+        expect(f.note.length).toBeGreaterThan(0);
+      });
+      // `ran` is the one CSV column with no /results counterpart — the
+      // headline claim of the whole comparison rests on that being the only
+      // one, so it's asserted rather than left to the prose.
+      expect(fields.filter(f => f.results === null).map(f => f.csv)).toEqual(["ran"]);
+    });
+
+    it("keeps the four meanings of `comment` distinct", async () => {
+      const response = await request(app)
+        .get("/api/admin/data-sources")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .expect(200);
+
+      const meanings = response.body.data.commentMeanings as { where: string; meaning: string }[];
+      expect(meanings).toHaveLength(4);
+      expect(new Set(meanings.map(m => m.meaning)).size).toBe(4);
     });
   });
 

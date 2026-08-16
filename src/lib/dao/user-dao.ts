@@ -14,6 +14,14 @@ export interface UserDocument {
   googleId?: string;
   phone?: string;
   phoneVerified: boolean;
+  // Absent on every account by default — admin is granted deliberately, one
+  // account at a time, by `yarn grant:admin <email>` (src/commands/grant-
+  // admin.ts). Deliberately NOT settable through signup, Google/phone
+  // sign-in, or any HTTP route: there is no self-service path to it, so the
+  // only way a user becomes an admin is somebody with database access
+  // running that command. Read as `=== true` everywhere, so the missing
+  // field and an explicit false behave identically.
+  isAdmin?: boolean;
 }
 
 export class UserDAO {
@@ -131,6 +139,25 @@ export class UserDAO {
       { _id: userId },
       { $set: { emailVerified: true, verificationToken: null, verificationTokenExpiresAt: null } }
     );
+  }
+
+  /**
+   * Grants or revokes admin on an existing account, matched by email the
+   * same case-insensitively-stored way findByEmail matches it. Returns false
+   * when no account has that email — the caller (grant-admin.ts) reports
+   * that as an error rather than silently creating one, since an admin flag
+   * on an account nobody can log into is worse than useless.
+   */
+  public async setAdminByEmail(email: string, isAdmin: boolean): Promise<boolean> {
+    const result = await this.collection.updateOne(
+      { email: email.toLowerCase() },
+      { $set: { isAdmin } }
+    );
+    return result.matchedCount > 0;
+  }
+
+  public async listAdmins(): Promise<UserDocument[]> {
+    return this.collection.find({ isAdmin: true }).toArray();
   }
 
   public async setVerificationToken(

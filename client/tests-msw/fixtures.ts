@@ -59,6 +59,43 @@ async function setupApiMocks(page: Page) {
     route.fulfill({ json: { success: true, alreadyVerified: false } })
   );
 
+  // Admin-only in production (403 for everyone else). Mocked as a success by
+  // default so a test that lands on /admin/data-sources sees the real screen;
+  // the tests covering the permission itself override this route with a 403,
+  // and the default **/api/auth/me mock above reports no isAdmin, so the
+  // menu item stays hidden unless a test says otherwise.
+  await page.route("**/api/admin/data-sources", (route) =>
+    route.fulfill({
+      json: {
+        success: true,
+        data: {
+          generatedAt: "2026-08-16",
+          headline: ["The Kaggle CSV is a Racing Post results feed built on the same data model as RacingAPI's /results endpoints."],
+          samples: [
+            { name: "CSV", what: "mini-update.csv", scale: "3,653 rows · 385 races", window: "2026-05-28 → 06-03" },
+          ],
+          caveats: ["API values were read back from Atlas after mapping."],
+          fields: [
+            { csv: "date", results: "date", racecards: "date", verdict: "same", level: "race", note: "YYYY-MM-DD in both." },
+            { csv: "or", results: "or", racecards: "ofr", verdict: "caution", level: "runner", note: "Three different null tokens." },
+            { csv: "comment", results: "comment", racecards: "comment", verdict: "different", level: "runner", note: "Four different meanings across the two sources." },
+          ],
+          commentMeanings: [
+            { where: "CSV comment", meaning: "Racing Post post-race in-running commentary." },
+            { where: "/results runner comment", meaning: "RacingAPI's own post-race analyst note." },
+            { where: "/racecards runner comment", meaning: "A PRE-race analyst preview of the runner." },
+            { where: "/results race-level comments", meaning: "Official stewards' notes." },
+          ],
+          commentStyle: [{ label: "Market move (op 40/1)", csv: "67%", api: "0%" }],
+          lexiconRates: [{ label: "hasGreenness", csv: "8.6%", api: "0.4%" }],
+          populationEras: [{ field: "rpr", csvEra: "90%", apiEra: "0%", why: "Removed by the API in June 2026." }],
+          apiOnly: [{ group: "Identity and joins", fields: "horse_id · jockey_id · trainer_id" }],
+          normalisation: ["Map Evens ↔ 1/1 before comparing any stored fraction."],
+        },
+      },
+    })
+  );
+
   await page.route((url) => url.pathname === "/api/events/grouped", (route) =>
     route.fulfill({
       json: {

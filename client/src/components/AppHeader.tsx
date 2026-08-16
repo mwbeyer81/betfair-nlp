@@ -60,6 +60,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const [accountPhone, setAccountPhone] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
+  // Drives whether admin-only destinations are offered in the menu. Starts
+  // false and only ever becomes true once /api/auth/me says so, so the item
+  // is never briefly visible to a non-admin on a slow response. Hiding it is
+  // a courtesy, not the permission — every admin route enforces its own
+  // check server-side (see requireAdmin in src/server/router.ts).
+  const [isAdmin, setIsAdmin] = useState(false);
   // null in local dev and on native — only a deployed build has a stamped
   // commit, and the badge is simply omitted when there is nothing to show.
   const buildCommit = getBuildCommit();
@@ -72,6 +78,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       setAccountEmail(null);
       setAccountPhone(null);
       setEmailVerified(null);
+      setIsAdmin(false);
       setShowAccountPanel(false);
       return;
     }
@@ -80,9 +87,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         setAccountEmail(me?.email ?? null);
         setAccountPhone(me?.phone ?? null);
         setEmailVerified(me?.emailVerified ?? null);
+        setIsAdmin(me?.isAdmin === true);
       }
     }).catch(() => {
-      if (!cancelled) setEmailVerified(null);
+      if (!cancelled) {
+        setEmailVerified(null);
+        setIsAdmin(false);
+      }
     });
     return () => { cancelled = true; };
   }, [isAuthenticated]);
@@ -201,6 +212,20 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           >
             Why It's Hard
           </Button>
+          {/* Admin-only destination — see the isAdmin state above for why
+              hiding it here is presentation, not permission. */}
+          {isAdmin && (
+            <Button
+              testID={`${testIdPrefix}-menu-data-sources-link`}
+              mode="outlined"
+              compact
+              onPress={wrap(() => navigate("/admin/data-sources"))}
+              style={styles.toggleButton}
+              labelStyle={styles.toggleButtonLabel}
+            >
+              Data Sources
+            </Button>
+          )}
         </>
       )}
       <View style={styles.divider} />

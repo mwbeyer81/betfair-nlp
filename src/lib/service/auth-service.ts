@@ -115,10 +115,45 @@ export class AuthService {
   // universal lookup key the way it used to be when every account had one.
   public async getMe(
     userId: string
-  ): Promise<{ email: string | null; phone: string | null; emailVerified: boolean } | null> {
+  ): Promise<{
+    email: string | null;
+    phone: string | null;
+    emailVerified: boolean;
+    isAdmin: boolean;
+  } | null> {
     const user = await this.userDao.findById(new ObjectId(userId));
     if (!user) return null;
-    return { email: user.email ?? null, phone: user.phone ?? null, emailVerified: user.emailVerified };
+    return {
+      email: user.email ?? null,
+      phone: user.phone ?? null,
+      emailVerified: user.emailVerified,
+      // Normalized to a real boolean here rather than passed through as
+      // `boolean | undefined`, so the client never has to distinguish
+      // "not an admin" from "field absent on an older account document".
+      isAdmin: user.isAdmin === true,
+    };
+  }
+
+  /**
+   * The authorization check behind every admin-only route. Deliberately hits
+   * the database on each call instead of trusting a claim in the JWT: a token
+   * issued before admin was granted (or after it was revoked) must reflect
+   * the current state immediately, and tokens here are long-lived enough
+   * that baking the flag in would leave a revoked admin authorized until
+   * their token expired.
+   *
+   * Returns false for a malformed/unknown userId rather than throwing —
+   * callers turn that into a 403, which is the correct answer either way.
+   */
+  public async isAdmin(userId: string): Promise<boolean> {
+    let objectId: ObjectId;
+    try {
+      objectId = new ObjectId(userId);
+    } catch {
+      return false;
+    }
+    const user = await this.userDao.findById(objectId);
+    return user?.isAdmin === true;
   }
 
   public async resendVerification(userId: string): Promise<{ alreadyVerified: boolean }> {

@@ -28,6 +28,7 @@ import { FILTER_FIELDS } from "../lib/filters/field-registry";
 import { parseDynamicFilters } from "../lib/filters/dynamic-filter-params";
 import type { ModelVsSpSort } from "../lib/dao/industry-sp-dao";
 import { AuthService, AuthError } from "../lib/service/auth-service";
+import { DATA_SOURCE_COMPARISON } from "../lib/service/data-source-comparison";
 import { DatabaseConnection } from "../config/database";
 import { jwtAuth, optionalJwtAuth } from "./middleware";
 
@@ -798,6 +799,47 @@ function userIdFromAuthHeader(req: express.Request): string | null {
   }
 }
 
+/**
+ * Gate for admin-only routes. Sends the response itself and returns false
+ * when the caller isn't an admin, so a route body reads:
+ *
+ *     if (!(await requireAdmin(req, res))) return;
+ *
+ * The three outcomes are deliberately distinct: 401 for no/invalid token
+ * (the caller should log in), 403 for a valid token belonging to a
+ * non-admin (logging in again will not help), 503 when auth itself isn't
+ * initialized — collapsing the middle one into a 404 would hide the
+ * route's existence but would also make a genuine permissions problem
+ * indistinguishable from a typo in the path.
+ *
+ * The admin flag is read from the database on every call, never from the
+ * JWT — see AuthService.isAdmin.
+ */
+async function requireAdmin(req: express.Request, res: express.Response): Promise<boolean> {
+  if (!authService) {
+    res.status(503).json({ success: false, error: "Service not initialized" });
+    return false;
+  }
+  const userId = userIdFromAuthHeader(req);
+  if (!userId) {
+    res.status(401).json({ success: false, error: "Invalid or expired token" });
+    return false;
+  }
+  let isAdmin = false;
+  try {
+    isAdmin = await authService.isAdmin(userId);
+  } catch (error) {
+    console.error("admin check failed:", error);
+    res.status(500).json({ success: false, error: "Failed to check permissions" });
+    return false;
+  }
+  if (!isAdmin) {
+    res.status(403).json({ success: false, error: "Admin access required" });
+    return false;
+  }
+  return true;
+}
+
 // Model accuracy by price band — how the model's own implied price compares to
 // what actually happened and to what the market thought. Deliberately NOT under
 // the /api/industry-sp prefix (which gets optionalJwtAuth at :295 and is public):
@@ -893,6 +935,17 @@ router.get("/api/auth/me", async (req, res) => {
     console.error("getMe failed:", error);
     return res.status(500).json({ error: "Failed to fetch account" });
   }
+});
+
+// Kaggle CSV vs RacingAPI field comparison — the data behind the admin-only
+// /admin/data-sources screen. Static content served through an authorized
+// route on purpose: the point of putting it behind requireAdmin is that the
+// gate is enforced server-side, not that the analysis itself is a secret
+// (the same material is in README-kaggle-vs-racingapi-fields.md). A screen
+// gated only in the client would be a checkbox, not a permission.
+router.get("/api/admin/data-sources", async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  res.status(200).json({ success: true, data: DATA_SOURCE_COMPARISON });
 });
 
 router.post("/api/auth/resend-verification", async (req, res) => {

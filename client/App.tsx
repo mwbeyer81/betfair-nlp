@@ -27,6 +27,7 @@ import { ModelVsSpScreen } from "./src/components/ModelVsSpScreen";
 import { ModelAccuracyScreen } from "./src/components/ModelAccuracyScreen";
 import { ModelExperimentsScreen } from "./src/components/ModelExperimentsScreen";
 import { WhyItsHardScreen } from "./src/components/WhyItsHardScreen";
+import { DataSourceComparisonScreen } from "./src/components/DataSourceComparisonScreen";
 import { WHY_ITS_HARD_KEY } from "./src/utils/whyItsHardLink";
 import { useRouter } from "./src/hooks/useRouter";
 import { chatApi } from "./src/services/chatApi";
@@ -408,6 +409,22 @@ export default function App() {
           isAuthenticated={isAuthenticated}
           onLogout={onLogout}
           onRequestAuth={onRequestAuth}
+          onBack={() => navigate("/isp")}
+        />
+      );
+    }
+    // Admin-only, but gated server-side rather than here: this branch renders
+    // for any signed-in user (unauthenticated ones hit the AuthScreen above,
+    // since /admin/* is not in isPublicRoute), and the screen shows its
+    // "Admins only" state when its API call comes back 403. Deciding it in
+    // the client instead would be a decoration on top of the real check, and
+    // would need isAdmin resolved before the first render.
+    if (route === "/admin/data-sources") {
+      return (
+        <DataSourceComparisonScreen
+          navigate={navigate}
+          isAuthenticated={isAuthenticated}
+          onLogout={onLogout}
           onBack={() => navigate("/isp")}
         />
       );
