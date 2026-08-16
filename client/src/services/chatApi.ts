@@ -888,6 +888,68 @@ export interface AuthResult {
   emailVerified: boolean;
 }
 
+// Thrown by the admin-gated calls on a 403 so a screen can tell "you don't
+// have this permission" apart from "the request failed".
+export const PERMISSION_DENIED_ERROR = "Permission required";
+
+/** Mirrors src/lib/auth/permissions.ts — keep the two in step. */
+export type PermissionKey = "admin" | "data-sources:read";
+
+export interface PermissionDefinition {
+  key: PermissionKey;
+  label: string;
+  description: string;
+  implies: PermissionKey[];
+}
+
+export interface AccountPermissions {
+  id: string;
+  email: string | null;
+  phone: string | null;
+  /** What the account document literally carries. */
+  stored: string[];
+  /** What it grants once `admin`'s implications are expanded. */
+  effective: PermissionKey[];
+  isYou: boolean;
+}
+
+export interface PermissionsMatrix {
+  permissions: PermissionDefinition[];
+  accounts: AccountPermissions[];
+}
+
+/** Mirrors src/lib/service/data-source-comparison.ts — keep the two in step. */
+export type ComparisonVerdict = "same" | "caution" | "different";
+
+export interface FieldComparisonRow {
+  csv: string;
+  results: string | null;
+  racecards: string | null;
+  verdict: ComparisonVerdict;
+  level: "race" | "runner";
+  note: string;
+}
+
+export interface LabelledStat {
+  label: string;
+  csv: string;
+  api: string;
+}
+
+export interface DataSourceComparison {
+  generatedAt: string;
+  headline: string[];
+  samples: { name: string; what: string; scale: string; window: string }[];
+  caveats: string[];
+  fields: FieldComparisonRow[];
+  commentMeanings: { where: string; meaning: string }[];
+  commentStyle: LabelledStat[];
+  lexiconRates: LabelledStat[];
+  populationEras: { field: string; csvEra: string; apiEra: string; why: string }[];
+  apiOnly: { group: string; fields: string }[];
+  normalisation: string[];
+}
+
 export interface IspSplitResult {
   fromRow: number;
   toRow: number | null;
@@ -1004,13 +1066,54 @@ class ChatApi {
     return { token: result.token as string, emailVerified: result.emailVerified === true };
   }
 
-  async getMe(): Promise<{ email: string | null; phone: string | null; emailVerified: boolean } | null> {
+  async getMe(): Promise<{
+    email: string | null;
+    phone: string | null;
+    emailVerified: boolean;
+    permissions: PermissionKey[];
+    isAdmin: boolean;
+  } | null> {
     const response = await fetch(`${this.baseUrl}/api/auth/me`, {
       headers: this.authHeader(),
     });
     if (!response.ok) return null;
     const result = await response.json();
-    return { email: result.email ?? null, phone: result.phone ?? null, emailVerified: result.emailVerified === true };
+    return {
+      email: result.email ?? null,
+      phone: result.phone ?? null,
+      emailVerified: result.emailVerified === true,
+      // Defaulted rather than trusted: an older deployed API sends neither
+      // field, and that must read as "holds nothing", never as
+      // undefined-and-therefore-maybe.
+      permissions: Array.isArray(result.permissions) ? (result.permissions as PermissionKey[]) : [],
+      isAdmin: result.isAdmin === true,
+    };
+  }
+
+  // Needs `data-sources:read` (which `admin` implies) — 403 otherwise. The
+  // 403 is surfaced as a distinct error message so the screen can explain
+  // the permission rather than showing a generic failure, which would look
+  // like an outage.
+  async getDataSourceComparison(): Promise<DataSourceComparison> {
+    const response = await fetch(`${this.baseUrl}/api/admin/data-sources`, {
+      headers: this.authHeader(),
+    });
+    if (response.status === 403) throw new Error(PERMISSION_DENIED_ERROR);
+    if (!response.ok) throw new Error("Failed to fetch the data-source comparison");
+    const result = await response.json();
+    return result.data as DataSourceComparison;
+  }
+
+  // Needs `admin`. Read-only: permissions are granted by
+  // `yarn grant:permission`, never over HTTP.
+  async getPermissionsMatrix(): Promise<PermissionsMatrix> {
+    const response = await fetch(`${this.baseUrl}/api/admin/permissions`, {
+      headers: this.authHeader(),
+    });
+    if (response.status === 403) throw new Error(PERMISSION_DENIED_ERROR);
+    if (!response.ok) throw new Error("Failed to fetch permissions");
+    const result = await response.json();
+    return result.data as PermissionsMatrix;
   }
 
   async signInWithGoogle(idToken: string): Promise<AuthResult> {

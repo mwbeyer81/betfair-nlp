@@ -14,6 +14,17 @@ export interface UserDocument {
   googleId?: string;
   phone?: string;
   phoneVerified: boolean;
+  // Permission keys held by this account — see src/lib/auth/permissions.ts
+  // for the model and for which key implies which. Absent on every account
+  // by default; granted deliberately, one key at a time, by
+  // `yarn grant:permission <email> <key>` (src/commands/grant-permission.ts).
+  // Deliberately NOT settable through signup, Google/phone sign-in, or any
+  // HTTP route: there is no self-service path to a permission, so the only
+  // way an account gains one is somebody with database access running that
+  // command. Always read through grantsFor()/hasPermission() rather than
+  // directly, so an absent list, an unknown key and admin's implications are
+  // all handled in one place.
+  permissions?: string[];
 }
 
 export class UserDAO {
@@ -131,6 +142,47 @@ export class UserDAO {
       { _id: userId },
       { $set: { emailVerified: true, verificationToken: null, verificationTokenExpiresAt: null } }
     );
+  }
+
+  /**
+   * Grants or revokes one permission on an existing account, matched by
+   * email the same case-insensitively-stored way findByEmail matches it.
+   * Returns false when no account has that email — the caller
+   * (grant-permission.ts) reports that as an error rather than silently
+   * creating one, since a permission on an account nobody can log into is
+   * worse than useless.
+   *
+   * $addToSet/$pull rather than a read-modify-write of the whole array, so
+   * two grants racing each other can't drop one another's key.
+   */
+  public async setPermissionByEmail(
+    email: string,
+    permission: string,
+    granted: boolean
+  ): Promise<boolean> {
+    const result = await this.collection.updateOne(
+      { email: email.toLowerCase() },
+      granted
+        ? { $addToSet: { permissions: permission } }
+        : { $pull: { permissions: permission } }
+    );
+    return result.matchedCount > 0;
+  }
+
+  /** Every account holding at least one permission. */
+  public async listWithPermissions(): Promise<UserDocument[]> {
+    return this.collection
+      .find({ permissions: { $exists: true, $ne: [] } })
+      .toArray();
+  }
+
+  /**
+   * Every account, for the permissions matrix — accounts with no permissions
+   * are rows of empty cells, which is the point of a matrix: it shows who
+   * does NOT have access as clearly as who does.
+   */
+  public async listAll(): Promise<UserDocument[]> {
+    return this.collection.find({}).toArray();
   }
 
   public async setVerificationToken(

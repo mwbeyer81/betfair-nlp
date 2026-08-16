@@ -276,6 +276,25 @@ yarn process:directory 'BASIC/2025/Feb/1/33928245'
 yarn process:event '33928245'
 ```
 
+### Permissions
+
+Admin-only screens (`/admin/data-sources`, `/admin/permissions`) are gated by
+per-account permission keys — see `src/lib/auth/permissions.ts` for the model.
+`admin` implies every other key.
+
+Permissions are granted **only** from a machine with database access. There is
+no HTTP route that can write one — not signup, not Google/phone sign-in, not
+the permissions screen — so an account cannot widen its own access.
+
+```bash
+MONGODB_URI=... MONGODB_DB_NAME=... yarn grant:permission <email> <key>
+MONGODB_URI=... MONGODB_DB_NAME=... yarn grant:permission <email> <key> --revoke
+MONGODB_URI=... MONGODB_DB_NAME=... yarn grant:permission --list
+```
+
+The signed-in view of who holds what is the read-only matrix at
+`/admin/permissions`.
+
 ### Development Commands
 
 - `yarn dev` - Start development server

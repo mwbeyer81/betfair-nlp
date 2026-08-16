@@ -11,8 +11,14 @@ import { IndustrySpService } from "../../lib/service/industry-sp-service";
 import type { ModelVsSpParams } from "../../lib/dao/industry-sp-dao";
 
 let authToken: string;
+let adminToken: string;
+let readerToken: string;
 
 const TEST_USER_EMAIL = "matthew@backbet.co.uk";
+const ADMIN_USER_EMAIL = "admin@backbet.co.uk";
+// Holds only `data-sources:read` — proves a specific permission opens its own
+// route without opening the admin-only one.
+const READER_USER_EMAIL = "reader@backbet.co.uk";
 const TEST_USER_PASSWORD = "beyer";
 // Hashed once, synchronously, at module load — every mocked "users" findOne
 // below returns this so login() can bcrypt.compare against a real hash.
@@ -35,6 +41,7 @@ interface MockUserDoc {
   googleId?: string;
   phone?: string;
   phoneVerified?: boolean;
+  permissions?: string[];
 }
 const mockUsers: MockUserDoc[] = [
   {
@@ -45,6 +52,29 @@ const mockUsers: MockUserDoc[] = [
     emailVerified: true,
     verificationToken: null,
     verificationTokenExpiresAt: null,
+  },
+  // Permission fixtures for the /api/admin/* routes. `permissions` is only
+  // ever set this way (or by `yarn grant:permission`) — there is deliberately
+  // no HTTP route that can grant one, so the tests can't create one either.
+  {
+    _id: new ObjectId(),
+    email: ADMIN_USER_EMAIL,
+    passwordHash: TEST_USER_PASSWORD_HASH,
+    createdAt: new Date(),
+    emailVerified: true,
+    verificationToken: null,
+    verificationTokenExpiresAt: null,
+    permissions: ["admin"],
+  },
+  {
+    _id: new ObjectId(),
+    email: READER_USER_EMAIL,
+    passwordHash: TEST_USER_PASSWORD_HASH,
+    createdAt: new Date(),
+    emailVerified: true,
+    verificationToken: null,
+    verificationTokenExpiresAt: null,
+    permissions: ["data-sources:read"],
   },
 ];
 
@@ -191,6 +221,14 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ email: TEST_USER_EMAIL, password: TEST_USER_PASSWORD });
   authToken = res.body.token;
+  const adminRes = await request(app)
+    .post("/api/auth/login")
+    .send({ email: ADMIN_USER_EMAIL, password: TEST_USER_PASSWORD });
+  adminToken = adminRes.body.token;
+  const readerRes = await request(app)
+    .post("/api/auth/login")
+    .send({ email: READER_USER_EMAIL, password: TEST_USER_PASSWORD });
+  readerToken = readerRes.body.token;
 });
 
 // Mock the chat service to avoid real OpenAI API calls in tests. Auto-mocked
@@ -313,6 +351,10 @@ jest.mock("../../config/database", () => {
                 }
                 return null;
               }),
+              // Backs UserDAO.listAll(), which the permissions matrix reads.
+              find: jest.fn().mockImplementation(() => ({
+                toArray: async () => mockUsers.slice(),
+              })),
               insertOne: jest.fn().mockImplementation(async (doc: Omit<MockUserDoc, "_id">) => {
                 const _id = new ObjectId();
                 mockUsers.push({ ...doc, _id });
@@ -989,6 +1031,212 @@ describe("API Endpoints", () => {
         .expect(200);
 
       expect(response.body).toMatchObject({ success: true, email: TEST_USER_EMAIL, emailVerified: true });
+    });
+
+    // permissions/isAdmin must be present — not absent — on an ordinary
+    // account, since the client defaults an absent field to "holds nothing"
+    // and an absent one would be indistinguishable from an older API that
+    // never sent it.
+    it("reports an empty permission list for an account with none", async () => {
+      const response = await request(app)
+        .get("/api/auth/me")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body.permissions).toEqual([]);
+      expect(response.body.isAdmin).toBe(false);
+    });
+
+    it("expands admin's implications for an admin account", async () => {
+      const response = await request(app)
+        .get("/api/auth/me")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        email: ADMIN_USER_EMAIL,
+        permissions: ["admin", "data-sources:read"],
+        isAdmin: true,
+      });
+    });
+
+    it("reports a specific permission without implying admin", async () => {
+      const response = await request(app)
+        .get("/api/auth/me")
+        .set("Authorization", `Bearer ${readerToken}`)
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        permissions: ["data-sources:read"],
+        isAdmin: false,
+      });
+    });
+  });
+
+  describe("GET /api/admin/data-sources", () => {
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/admin/data-sources").expect(401);
+    });
+
+    // 403, not 404 or 401: the caller is authenticated, the route exists, and
+    // logging in again will not change the answer. The response names the
+    // permission that was missing rather than saying "admin required".
+    it("returns 403 for an account without the permission", async () => {
+      const response = await request(app)
+        .get("/api/admin/data-sources")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(403);
+
+      expect(response.body).toMatchObject({
+        success: false,
+        error: "Permission required",
+        requiredPermission: "data-sources:read",
+      });
+    });
+
+    // The specific permission opens this route on its own — an account does
+    // not have to be an admin to read the comparison.
+    it("returns the comparison for a data-sources:read holder", async () => {
+      const response = await request(app)
+        .get("/api/admin/data-sources")
+        .set("Authorization", `Bearer ${readerToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.fields).toHaveLength(37);
+    });
+
+    it("returns the comparison for an admin, via the implication", async () => {
+      const response = await request(app)
+        .get("/api/admin/data-sources")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(Array.isArray(response.body.data.fields)).toBe(true);
+    });
+
+    it("covers all 37 CSV columns, each with a valid verdict and level", async () => {
+      const response = await request(app)
+        .get("/api/admin/data-sources")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .expect(200);
+
+      const fields = response.body.data.fields as {
+        csv: string;
+        results: string | null;
+        verdict: string;
+        level: string;
+        note: string;
+      }[];
+      expect(fields).toHaveLength(37);
+      expect(new Set(fields.map(f => f.csv)).size).toBe(37);
+      fields.forEach(f => {
+        expect(["same", "caution", "different"]).toContain(f.verdict);
+        expect(["race", "runner"]).toContain(f.level);
+        expect(f.note.length).toBeGreaterThan(0);
+      });
+      // `ran` is the one CSV column with no /results counterpart — the
+      // headline claim of the whole comparison rests on that being the only
+      // one, so it's asserted rather than left to the prose.
+      expect(fields.filter(f => f.results === null).map(f => f.csv)).toEqual(["ran"]);
+    });
+
+    it("keeps the four meanings of `comment` distinct", async () => {
+      const response = await request(app)
+        .get("/api/admin/data-sources")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .expect(200);
+
+      const meanings = response.body.data.commentMeanings as { where: string; meaning: string }[];
+      expect(meanings).toHaveLength(4);
+      expect(new Set(meanings.map(m => m.meaning)).size).toBe(4);
+    });
+  });
+
+  describe("GET /api/admin/permissions", () => {
+    it("returns 401 without auth", async () => {
+      await request(app).get("/api/admin/permissions").expect(401);
+    });
+
+    it("returns 403 for an account with no permissions", async () => {
+      const response = await request(app)
+        .get("/api/admin/permissions")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(403);
+
+      expect(response.body).toMatchObject({ error: "Permission required", requiredPermission: "admin" });
+    });
+
+    // The matrix is behind `admin` itself, not behind a permission of its
+    // own: holding data-sources:read must not reveal who else has access.
+    it("returns 403 for a holder of a different permission", async () => {
+      const response = await request(app)
+        .get("/api/admin/permissions")
+        .set("Authorization", `Bearer ${readerToken}`)
+        .expect(403);
+
+      expect(response.body.requiredPermission).toBe("admin");
+    });
+
+    it("returns every permission and every account for an admin", async () => {
+      const response = await request(app)
+        .get("/api/admin/permissions")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.permissions.map((p: { key: string }) => p.key)).toEqual([
+        "admin",
+        "data-sources:read",
+      ]);
+      // Accounts with none are rows of empty cells — the matrix shows who
+      // does NOT have access as clearly as who does.
+      const emails = response.body.data.accounts.map((a: { email: string | null }) => a.email);
+      expect(emails).toContain(ADMIN_USER_EMAIL);
+      expect(emails).toContain(READER_USER_EMAIL);
+      expect(emails).toContain(TEST_USER_EMAIL);
+    });
+
+    it("separates stored permissions from effective ones", async () => {
+      const response = await request(app)
+        .get("/api/admin/permissions")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .expect(200);
+
+      const admin = response.body.data.accounts.find(
+        (a: { email: string | null }) => a.email === ADMIN_USER_EMAIL
+      );
+      expect(admin.stored).toEqual(["admin"]);
+      expect(admin.effective).toEqual(["admin", "data-sources:read"]);
+
+      const reader = response.body.data.accounts.find(
+        (a: { email: string | null }) => a.email === READER_USER_EMAIL
+      );
+      expect(reader.stored).toEqual(["data-sources:read"]);
+      expect(reader.effective).toEqual(["data-sources:read"]);
+    });
+
+    it("marks exactly one account as the caller", async () => {
+      const response = await request(app)
+        .get("/api/admin/permissions")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .expect(200);
+
+      const you = response.body.data.accounts.filter((a: { isYou: boolean }) => a.isYou);
+      expect(you).toHaveLength(1);
+      expect(you[0].email).toBe(ADMIN_USER_EMAIL);
+    });
+
+    // Read-only by design: permissions are granted by `yarn grant:permission`,
+    // never over HTTP, so no route can widen the caller's own access.
+    it("offers no write method", async () => {
+      await request(app)
+        .post("/api/admin/permissions")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ email: TEST_USER_EMAIL, permission: "admin" })
+        .expect(404);
     });
   });
 

@@ -28,6 +28,8 @@ import { FILTER_FIELDS } from "../lib/filters/field-registry";
 import { parseDynamicFilters } from "../lib/filters/dynamic-filter-params";
 import type { ModelVsSpSort } from "../lib/dao/industry-sp-dao";
 import { AuthService, AuthError } from "../lib/service/auth-service";
+import { DATA_SOURCE_COMPARISON } from "../lib/service/data-source-comparison";
+import { PERMISSIONS, PermissionKey } from "../lib/auth/permissions";
 import { DatabaseConnection } from "../config/database";
 import { jwtAuth, optionalJwtAuth } from "./middleware";
 
@@ -798,6 +800,59 @@ function userIdFromAuthHeader(req: express.Request): string | null {
   }
 }
 
+/**
+ * Gate for permissioned routes. Sends the response itself and returns false
+ * when the caller lacks the permission, so a route body reads:
+ *
+ *     if (!(await requirePermission(req, res, "data-sources:read"))) return;
+ *
+ * The outcomes are deliberately distinct: 401 for no/invalid token (the
+ * caller should log in), 403 for a valid token whose account lacks the
+ * permission (logging in again will not help), 503 when auth itself isn't
+ * initialized — collapsing the middle one into a 404 would hide the route's
+ * existence but would also make a genuine permissions problem
+ * indistinguishable from a typo in the path.
+ *
+ * Permissions are read from the database on every call, never from the JWT —
+ * see AuthService.getPermissions. `admin` implies every other key, so an
+ * admin passes any of these gates (src/lib/auth/permissions.ts).
+ */
+async function requirePermission(
+  req: express.Request,
+  res: express.Response,
+  required: PermissionKey
+): Promise<boolean> {
+  if (!authService) {
+    res.status(503).json({ success: false, error: "Service not initialized" });
+    return false;
+  }
+  const userId = userIdFromAuthHeader(req);
+  if (!userId) {
+    res.status(401).json({ success: false, error: "Invalid or expired token" });
+    return false;
+  }
+  let allowed = false;
+  try {
+    allowed = await authService.hasPermission(userId, required);
+  } catch (error) {
+    console.error("permission check failed:", error);
+    res.status(500).json({ success: false, error: "Failed to check permissions" });
+    return false;
+  }
+  if (!allowed) {
+    // The message names the permission rather than saying "admin required":
+    // with `admin` implying the others, the caller needs to know which key
+    // was actually missing to know what to ask for.
+    res.status(403).json({
+      success: false,
+      error: "Permission required",
+      requiredPermission: required,
+    });
+    return false;
+  }
+  return true;
+}
+
 // Model accuracy by price band — how the model's own implied price compares to
 // what actually happened and to what the market thought. Deliberately NOT under
 // the /api/industry-sp prefix (which gets optionalJwtAuth at :295 and is public):
@@ -892,6 +947,43 @@ router.get("/api/auth/me", async (req, res) => {
   } catch (error) {
     console.error("getMe failed:", error);
     return res.status(500).json({ error: "Failed to fetch account" });
+  }
+});
+
+// Kaggle CSV vs RacingAPI field comparison — the data behind the
+// /admin/data-sources screen. Static content served through an authorized
+// route on purpose: the point of the gate is that it is enforced
+// server-side, not that the analysis itself is a secret (the same material
+// is in README-kaggle-vs-racingapi-fields.md). A screen gated only in the
+// client would be a checkbox, not a permission.
+router.get("/api/admin/data-sources", async (req, res) => {
+  if (!(await requirePermission(req, res, "data-sources:read"))) return;
+  res.status(200).json({ success: true, data: DATA_SOURCE_COMPARISON });
+});
+
+// The permissions matrix: every permission that exists, every account, and
+// which of them holds what. Behind `admin` rather than a permission of its
+// own — who else has access is exactly the kind of thing only an
+// administrator should see.
+//
+// Read-only by design. Granting stays a database-access operation
+// (`yarn grant:permission`), so no HTTP route — not even this one — can
+// widen anybody's access, including the caller's own.
+router.get("/api/admin/permissions", async (req, res) => {
+  if (!(await requirePermission(req, res, "admin"))) return;
+  try {
+    const callerId = userIdFromAuthHeader(req);
+    const accounts = await authService!.listAccountPermissions();
+    res.status(200).json({
+      success: true,
+      data: {
+        permissions: PERMISSIONS,
+        accounts: accounts.map(a => ({ ...a, isYou: a.id === callerId })),
+      },
+    });
+  } catch (error) {
+    console.error("listAccountPermissions failed:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch permissions" });
   }
 });
 

@@ -15,6 +15,10 @@ distinguishable from outages). Live smoke tests:
 `src/lib/service/__tests__/racing-api-smoke.live.test.ts` (`npm run
 test:racing-api-live`).
 
+For how these fields line up against the Kaggle CSV that seeds the same
+collection — which names match but mean different things, and how the actual
+values differ — see `README-kaggle-vs-racingapi-fields.md`.
+
 ## What we call, and on which plan
 
 | Consumer | Endpoint | Config key / env |

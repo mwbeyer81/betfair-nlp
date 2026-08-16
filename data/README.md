@@ -14,6 +14,7 @@ in the repo said which Kaggle dataset to re-download.
 | Title | Horse Racing results — UK/Ireland 1988-2026 |
 | Last updated | 3 June 2026 |
 | Consumed by | `src/commands/import-industry-sp.ts` (`yarn import:industry-sp`) |
+| Field semantics | `README-kaggle-vs-racingapi-fields.md` — column-by-column against The Racing API, with the traps (`comment` means four different things, name punctuation, `Evens` vs `1/1`, 24h vs 12h `off`) |
 
 **The URL slug is stale and that is not a mistake.** Kaggle keeps the original
 slug when an owner renames or extends a dataset, so `...-2015-2025` now serves

@@ -45,6 +45,7 @@
     "uncompress:bz2": "ts-node src/commands/uncompress-bz2.ts",
     "import:industry-sp": "ts-node src/commands/import-industry-sp.ts",
     "capture:industry-sp-results": "ts-node src/commands/capture-industry-sp-results.ts",
+    "grant:permission": "ts-node src/commands/grant-permission.ts",
     "fetch:daily-races": "ts-node src/commands/fetch-daily-races.ts",
     "compute:daily-race-features": "ts-node src/commands/compute-daily-race-features.ts",
     "seed:industry-sp-overlap-fixture": "ts-node src/commands/seed-industry-sp-overlap-fixture.ts",
